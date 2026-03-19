@@ -6,6 +6,9 @@ node_modules/
 bin/
 dist/
 web/dist/
+/argus
+coverage.out
+coverage.html
 
 # Environment
 .env
@@ -47,3 +50,5 @@ tmp/
 *.key
 *.crt
 !deploy/nginx/*.conf
+!deploy/nginx/ssl/server.crt
+!deploy/nginx/ssl/server.key

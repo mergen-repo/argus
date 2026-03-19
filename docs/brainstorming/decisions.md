@@ -102,4 +102,12 @@
 | A-005 | 2026-03-18 | Screen Design: 26 screens + pattern library + data volume analysis | ACCEPTED |
 | A-006 | 2026-03-18 | Theme: "Argus Neon Dark" — Linear×Bloomberg×Vercel aesthetic. Dark-first (#06060B), cyan neon accent (#00D4FF), Inter+JetBrains Mono, glass-morphism, pulsing status dots, ambient mesh gradients. 3 HTML mockups approved. FRONTEND.md generated. | ACCEPTED |
 
+## Development Decisions
+
+| # | Date | Decision | Status |
+|---|------|----------|--------|
+| DEV-001 | 2026-03-20 | STORY-001: Go version in Dockerfile updated from 1.22 to 1.25 to match go.mod go 1.25.6 | ACCEPTED |
+| DEV-002 | 2026-03-20 | STORY-001: Created stub packages (apierr, audit, store/stubs, session, adapter/types, circuit_breaker) to allow later story code to compile. These are minimal stubs that will be fully implemented in their respective stories. | ACCEPTED |
+| DEV-003 | 2026-03-20 | STORY-001: init_extensions migration creates TimescaleDB + uuid-ossp extensions | ACCEPTED |
+
 ---
