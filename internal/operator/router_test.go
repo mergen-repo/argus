@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -10,26 +9,7 @@ import (
 
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 )
-
-func newTestRouter() *OperatorRouter {
-	registry := adapter.NewRegistry()
-	logger := zerolog.Nop()
-	return NewOperatorRouter(registry, logger)
-}
-
-func registerMockOperator(t *testing.T, router *OperatorRouter, successRate float64) uuid.UUID {
-	t.Helper()
-	opID := uuid.New()
-	cfg := json.RawMessage(fmt.Sprintf(`{"latency_ms":1,"success_rate":%v}`, successRate))
-	mock, err := adapter.NewMockAdapter(cfg)
-	if err != nil {
-		t.Fatalf("new mock adapter: %v", err)
-	}
-	router.RegisterOperator(opID, mock, 3, 60)
-	return opID
-}
 
 type failingAdapter struct{}
 
@@ -61,7 +41,7 @@ func TestRouterForwardAuth(t *testing.T) {
 		t.Fatalf("forward auth: %v", err)
 	}
 	if resp.Code != adapter.AuthAccept {
-		t.Errorf("code = %d, want AuthAccept", resp.Code)
+		t.Errorf("code = %s, want AuthAccept", resp.Code)
 	}
 }
 
@@ -166,7 +146,7 @@ func TestRouterFailover(t *testing.T) {
 		t.Fatalf("failover auth: %v", err)
 	}
 	if resp.Code != adapter.AuthAccept {
-		t.Errorf("code = %d, want AuthAccept", resp.Code)
+		t.Errorf("code = %s, want AuthAccept", resp.Code)
 	}
 }
 
@@ -205,7 +185,7 @@ func TestRouterFailover_CircuitOpenSkipped(t *testing.T) {
 		t.Fatalf("failover auth: %v", err)
 	}
 	if resp.Code != adapter.AuthAccept {
-		t.Errorf("code = %d, want AuthAccept", resp.Code)
+		t.Errorf("code = %s, want AuthAccept", resp.Code)
 	}
 }
 

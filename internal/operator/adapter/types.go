@@ -100,5 +100,9 @@ type DMRequest struct {
 }
 
 func WrapError(operatorID uuid.UUID, protocolType string, err error) error {
-	return fmt.Errorf("operator %s [%s]: %w", operatorID, protocolType, err)
+	return &AdapterError{
+		OperatorID:   operatorID,
+		ProtocolType: protocolType,
+		Err:          err,
+	}
 }

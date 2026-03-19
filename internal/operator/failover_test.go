@@ -52,7 +52,7 @@ func TestFailoverPolicy_FallbackToNext(t *testing.T) {
 		t.Errorf("expected fallback operator %s, got %s", successID, result.OperatorID)
 	}
 	if result.Response.Code != adapter.AuthAccept {
-		t.Errorf("expected AuthAccept, got %d", result.Response.Code)
+		t.Errorf("expected AuthAccept, got %s", result.Response.Code)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestRouterForwardAuthWithPolicy_FallbackToNext(t *testing.T) {
 		t.Fatalf("fallback should succeed: %v", err)
 	}
 	if resp.Code != adapter.AuthAccept {
-		t.Errorf("expected AuthAccept, got %d", resp.Code)
+		t.Errorf("expected AuthAccept, got %s", resp.Code)
 	}
 }
 
@@ -240,7 +240,7 @@ func TestRouterForwardAuthWithPolicy_QueueWithTimeout(t *testing.T) {
 		t.Fatalf("queue_with_timeout should fallback: %v", err)
 	}
 	if resp.Code != adapter.AuthAccept {
-		t.Errorf("expected AuthAccept, got %d", resp.Code)
+		t.Errorf("expected AuthAccept, got %s", resp.Code)
 	}
 }
 
