@@ -25,16 +25,16 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 1/55 (2%)
-> Current story: STORY-002
-> Current step: Runner
+> Stories completed: 2/55 (4%)
+> Current story: —
+> Current step: —
 
 ### Phase 1: Foundation [IN PROGRESS]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-001 | Project Scaffold & Docker Infrastructure | M | [x] DONE | — | — | 2026-03-20 |
-| STORY-002 | Core Database Schema & Migrations | L | [~] IN PROGRESS | Runner | STORY-001 | — |
+| STORY-002 | Core Database Schema & Migrations | L | [x] DONE | — | STORY-001 | 2026-03-20 |
 | STORY-003 | Authentication — JWT + Refresh + 2FA | M | [ ] PENDING | — | STORY-002 | — |
 | STORY-004 | RBAC Middleware & Permission Enforcement | M | [ ] PENDING | — | STORY-003 | — |
 | STORY-005 | Tenant Management & User CRUD | M | [ ] PENDING | — | STORY-004 | — |
