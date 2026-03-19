@@ -1,0 +1,104 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: argus-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      argus:
+        condition: service_healthy
+    networks:
+      - argus-net
+    restart: unless-stopped
+
+  argus:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: argus-app
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+      - "3868:3868"
+      - "8443:8443"
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - argus-net
+    restart: unless-stopped
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: argus-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-argus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-argus_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-argus}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - argus-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: argus-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - argus-net
+    restart: unless-stopped
+
+  nats:
+    image: nats:latest
+    container_name: argus-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--store_dir=/data", "--http_port=8222"]
+    volumes:
+      - natsdata:/data
+    networks:
+      - argus-net
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  natsdata:
+
+networks:
+  argus-net:
+    driver: bridge

@@ -1,0 +1,49 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Build
+bin/
+dist/
+web/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Docker
+pgdata/
+natsdata/
+
+# Backups
+backups/
+
+# Temporary
+tmp/
+*.tmp
+
+# Secrets
+*.pem
+*.key
+*.crt
+!deploy/nginx/*.conf

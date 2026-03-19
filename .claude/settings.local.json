@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(amil)",
+      "WebSearch",
+      "WebFetch(domain:mobileitm.com)"
+    ]
+  }
+}

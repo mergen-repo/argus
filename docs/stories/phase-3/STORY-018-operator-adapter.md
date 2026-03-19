@@ -1,0 +1,50 @@
+# STORY-018: Pluggable Operator Adapter Framework & Mock Simulator
+
+## User Story
+As a platform operator, I want a pluggable adapter framework for operator connectivity, so that Argus can forward AAA requests to different operators via RADIUS, Diameter, or custom protocols through a uniform interface.
+
+## Description
+Define the Adapter interface in internal/operator/adapter with methods for authentication vector fetch, RADIUS forwarding, Diameter forwarding, and health check. Implement a mock simulator adapter in internal/operator/mock that simulates operator responses (configurable success/failure rates, latency) for development and testing. The adapter registry selects the correct adapter based on operator protocol configuration (TBL-05).
+
+## Architecture Reference
+- Services: SVC-06 (Operator Router — internal/operator/adapter)
+- Database Tables: TBL-05 (operators — protocol, endpoint config)
+- Packages: internal/operator/adapter, internal/operator/mock, internal/operator/radius, internal/operator/diameter
+- Source: docs/architecture/services/_index.md (SVC-06)
+
+## Screen Reference
+- SCR-041: Operator Detail — connection test, protocol type display
+- SCR-040: Operator List — health status per operator
+
+## Acceptance Criteria
+- [ ] Adapter interface defined: `Authenticate(ctx, req) (resp, error)`, `AccountingUpdate(ctx, req) error`, `HealthCheck(ctx) error`, `FetchAuthVectors(ctx, imsi, count) ([]Vector, error)`
+- [ ] Adapter registry: register adapters by protocol type (radius, diameter, sba, mock)
+- [ ] Adapter selection: SVC-06 picks adapter from TBL-05.protocol field
+- [ ] Mock adapter: configurable success_rate (0-100%), latency_ms, error_type
+- [ ] Mock adapter: returns valid EAP triplets/quintets for test IMSIs
+- [ ] Mock adapter: simulates accounting acceptance
+- [ ] RADIUS adapter stub: forwards Access-Request to operator RADIUS endpoint
+- [ ] Diameter adapter stub: forwards CER/CEA, DWR/DWA to operator Diameter peer
+- [ ] POST /api/v1/operators/:id/test (API-024) triggers health check via adapter
+- [ ] Adapter timeout: configurable per operator (default 3s)
+- [ ] Adapter error wrapping: all adapter errors include operator_id and protocol type
+- [ ] Thread-safe: adapters are safe for concurrent use
+
+## Dependencies
+- Blocked by: STORY-009 (operator CRUD), STORY-015 (RADIUS server)
+- Blocks: STORY-016 (EAP vector fetch), STORY-019 (Diameter server), STORY-021 (operator failover)
+
+## Test Scenarios
+- [ ] Mock adapter returns Access-Accept with configured success rate
+- [ ] Mock adapter returns Access-Reject when success_rate < random threshold
+- [ ] Mock adapter health check always succeeds
+- [ ] Adapter registry returns correct adapter for protocol="radius"
+- [ ] Adapter registry returns mock adapter for protocol="mock"
+- [ ] Unknown protocol type → error UNSUPPORTED_PROTOCOL
+- [ ] Adapter timeout → error with ErrAdapterTimeout
+- [ ] Concurrent adapter calls → no race conditions (go test -race)
+- [ ] API-024 test connection → adapter.HealthCheck called, result returned
+
+## Effort Estimate
+- Size: L
+- Complexity: Medium

@@ -1,0 +1,54 @@
+# SCR-113: Settings — Notification Preferences
+
+**Type:** Page
+**Layout:** DashboardLayout
+**Auth:** JWT (any)
+**Route:** `/settings/notifications`
+
+## Mockup
+
+```
+┌────────────────────┬────────────────────────────────────────────────────────────┐
+│  (sidebar)         │  Settings > Notification Preferences                      │
+│                    ├────────────────────────────────────────────────────────────┤
+│                    │                                                            │
+│                    │  Channels                                                  │
+│                    │  ┌──────────────────────────────────────────────────────┐  │
+│                    │  │ 📧 Email: bora@acme.com              [✅ Connected]  │  │
+│                    │  │ 📱 Telegram: @boratopcu               [✅ Connected]  │  │
+│                    │  │ 🔗 Webhook: https://acme.com/hooks    [✅ Connected]  │  │
+│                    │  │ 📲 SMS: +905321234567                 [Configure →]  │  │
+│                    │  └──────────────────────────────────────────────────────┘  │
+│                    │                                                            │
+│                    │  Event Preferences                                        │
+│                    │  ┌──────────────────────────────────────────────────────┐  │
+│                    │  │ Event              │ In-App│Email│Tele │Hook │SMS   │  │
+│                    │  ├────────────────────┼───────┼─────┼─────┼─────┼──────┤  │
+│                    │  │ Quota Warning (80%)│  ☑    │  ☑  │  ☐  │  ☑  │  ☐  │  │
+│                    │  │ Quota Exceeded     │  ☑    │  ☑  │  ☑  │  ☑  │  ☑  │  │
+│                    │  │ Operator Down      │  ☑    │  ☑  │  ☑  │  ☑  │  ☐  │  │
+│                    │  │ Anomaly Detected   │  ☑    │  ☑  │  ☑  │  ☑  │  ☐  │  │
+│                    │  │ SLA Violation      │  ☑    │  ☑  │  ☑  │  ☑  │  ☐  │  │
+│                    │  │ Policy Rollout Done│  ☑    │  ☐  │  ☐  │  ☐  │  ☐  │  │
+│                    │  │ Bulk Job Complete  │  ☑    │  ☐  │  ☐  │  ☐  │  ☐  │  │
+│                    │  │ Compliance Alert   │  ☑    │  ☑  │  ☑  │  ☑  │  ☐  │  │
+│                    │  │ IP Pool Warning    │  ☑    │  ☑  │  ☐  │  ☑  │  ☐  │  │
+│                    │  │ SIM State Change   │  ☐    │  ☐  │  ☐  │  ☑  │  ☐  │  │
+│                    │  └──────────────────────────────────────────────────────┘  │
+│                    │                                                            │
+│                    │  Custom Threshold Rules                    [+ Add Rule]    │
+│                    │  ┌──────────────────────────────────────────────────────┐  │
+│                    │  │ Scope: APN iot.fleet │ Event: Quota │ Threshold: 90% │  │
+│                    │  │ Channels: Email + Telegram       [Edit] [Delete]     │  │
+│                    │  ├──────────────────────────────────────────────────────┤  │
+│                    │  │ Scope: Operator TT Mobile │ Event: Latency > 50ms   │  │
+│                    │  │ Channels: Telegram + Webhook     [Edit] [Delete]     │  │
+│                    │  └──────────────────────────────────────────────────────┘  │
+│                    │                                                            │
+│                    │                                    [Save Preferences]      │
+└────────────────────┴────────────────────────────────────────────────────────────┘
+```
+
+## API References
+- API-133: GET /api/v1/notification-configs
+- API-134: PUT /api/v1/notification-configs
