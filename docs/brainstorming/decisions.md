@@ -109,5 +109,9 @@
 | DEV-001 | 2026-03-20 | STORY-001: Go version in Dockerfile updated from 1.22 to 1.25 to match go.mod go 1.25.6 | ACCEPTED |
 | DEV-002 | 2026-03-20 | STORY-001: Created stub packages (apierr, audit, store/stubs, session, adapter/types, circuit_breaker) to allow later story code to compile. These are minimal stubs that will be fully implemented in their respective stories. | ACCEPTED |
 | DEV-003 | 2026-03-20 | STORY-001: init_extensions migration creates TimescaleDB + uuid-ossp extensions | ACCEPTED |
+| DEV-004 | 2026-03-20 | STORY-002: idx_api_keys_active partial index uses `WHERE revoked_at IS NULL` only (removed `expires_at > NOW()` since NOW() is not IMMUTABLE for index predicates) | ACCEPTED |
+| DEV-005 | 2026-03-20 | STORY-002: idx_sims_iccid and idx_sims_imsi include operator_id because PostgreSQL requires unique indexes on partitioned tables to include all partition key columns | ACCEPTED |
+| DEV-006 | 2026-03-20 | STORY-002: sims_default partition created as catch-all for operator_ids not in explicit partitions | ACCEPTED |
+| DEV-007 | 2026-03-20 | STORY-002: Old sim_segments migration (20260319000001) removed; table + index included in core_schema migration | ACCEPTED |
 
 ---
