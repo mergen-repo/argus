@@ -7,6 +7,7 @@ import (
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
+	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -33,6 +34,7 @@ type RouterDeps struct {
 	SegmentHandler   *segmentapi.Handler
 	BulkHandler      *simapi.BulkHandler
 	JobHandler       *jobapi.Handler
+	MSISDNHandler    *msisdnapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -264,6 +266,21 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/jobs/{id}/cancel", deps.JobHandler.Cancel)
+		})
+	}
+
+	if deps.MSISDNHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/msisdn-pool", deps.MSISDNHandler.List)
+			r.Post("/api/v1/msisdn-pool/{id}/assign", deps.MSISDNHandler.Assign)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/msisdn-pool/import", deps.MSISDNHandler.Import)
 		})
 	}
 

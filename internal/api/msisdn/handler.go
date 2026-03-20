@@ -112,8 +112,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
-		Cursor: nextCursor,
-		Limit:  limit,
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
 	})
 }
 

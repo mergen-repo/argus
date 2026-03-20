@@ -54,3 +54,31 @@ func TestRouterJobRoutesRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestRouterMSISDNPoolRoutesRegistered(t *testing.T) {
+	health := &HealthHandler{}
+	router := NewRouterWithDeps(RouterDeps{
+		Health:    health,
+		JWTSecret: "test-secret",
+		Logger:    zerolog.Nop(),
+	})
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/msisdn-pool"},
+		{http.MethodPost, "/api/v1/msisdn-pool/import"},
+		{http.MethodPost, "/api/v1/msisdn-pool/00000000-0000-0000-0000-000000000001/assign"},
+	}
+
+	for _, rt := range routes {
+		req := httptest.NewRequest(rt.method, rt.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s: expected 404 when MSISDNHandler is nil, got %d", rt.method, rt.path, w.Code)
+		}
+	}
+}

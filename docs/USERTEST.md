@@ -262,6 +262,44 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-014: MSISDN Number Pool Management
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. MSISDN CSV hazirla (msisdn.csv):
+   ```
+   msisdn,operator_code
+   +905551000001,turkcell
+   +905551000002,turkcell
+   +905551000003,turkcell
+   ```
+4. MSISDN import:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/msisdn-pool/import \
+     -H 'Authorization: Bearer <token>' \
+     -F 'file=@msisdn.csv'
+   ```
+   201 + import sonucu donmeli
+5. MSISDN listele:
+   ```bash
+   curl -sk "https://localhost:8084/api/v1/msisdn-pool?state=available&limit=10" \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + MSISDN listesi (state: available)
+6. MSISDN ata:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/msisdn-pool/{id}/assign \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"sim_id":"<sim-id>"}'
+   ```
+   200 + state:"assigned"
+7. Duplicate MSISDN import → 409 donmeli (global uniqueness)
+8. SIM terminate → MSISDN state:"reserved" + reserved_until (grace period)
+9. Unit testler: `go test ./internal/store/... ./internal/api/msisdn/... -v`
+
+---
+
 ## STORY-013: Bulk SIM Import (CSV)
 
 1. `make up` -- Tum servisleri baslat

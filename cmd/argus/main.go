@@ -14,6 +14,7 @@ import (
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
+	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -131,6 +132,8 @@ func main() {
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger)
 	segmentStore := store.NewSegmentStore(pg.Pool)
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
+	msisdnStore := store.NewMSISDNStore(pg.Pool)
+	msisdnHandler := msisdnapi.NewHandler(msisdnStore, log.Logger)
 
 	jobStore := store.NewJobStore(pg.Pool)
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
@@ -166,6 +169,7 @@ func main() {
 		SegmentHandler:     segmentHandler,
 		BulkHandler:        bulkHandler,
 		JobHandler:         jobHandler,
+		MSISDNHandler:      msisdnHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

@@ -280,16 +280,21 @@ func (s *MSISDNStore) Assign(ctx context.Context, id uuid.UUID, simID uuid.UUID)
 	return &m, nil
 }
 
-func (s *MSISDNStore) Release(ctx context.Context, simID uuid.UUID) error {
+func (s *MSISDNStore) Release(ctx context.Context, simID uuid.UUID, gracePeriodDays int) error {
 	tenantID, err := TenantIDFromContext(ctx)
 	if err != nil {
 		return err
 	}
 
+	if gracePeriodDays <= 0 {
+		gracePeriodDays = 30
+	}
+	graceInterval := fmt.Sprintf("%d days", gracePeriodDays)
+
 	tag, err := s.db.Exec(ctx, `
-		UPDATE msisdn_pool SET state = 'available', sim_id = NULL
+		UPDATE msisdn_pool SET state = 'reserved', reserved_until = NOW() + $3::interval
 		WHERE sim_id = $1 AND tenant_id = $2 AND state = 'assigned'
-	`, simID, tenantID)
+	`, simID, tenantID, graceInterval)
 	if err != nil {
 		return fmt.Errorf("release msisdn: %w", err)
 	}

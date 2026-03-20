@@ -523,6 +523,15 @@ func (s *SIMStore) Terminate(ctx context.Context, tenantID, simID uuid.UUID, use
 		}
 	}
 
+	_, err = tx.Exec(ctx, `
+		UPDATE msisdn_pool SET state = 'reserved', reserved_until = NOW() + $2::interval
+		WHERE sim_id = $1 AND tenant_id = $3 AND state = 'assigned'`,
+		simID, purgeInterval, tenantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: schedule msisdn release: %w", err)
+	}
+
 	if err := insertStateHistory(ctx, tx, simID, &currentState, "terminated", "user", userID, reason); err != nil {
 		return nil, err
 	}

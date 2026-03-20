@@ -2,6 +2,8 @@ package store
 
 import (
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestMSISDNImportResultFields(t *testing.T) {
@@ -88,5 +90,89 @@ func TestMSISDNSentinelErrors(t *testing.T) {
 	}
 	if ErrMSISDNNotAvailable.Error() != "msisdn not available" {
 		t.Errorf("ErrMSISDNNotAvailable = %q, want %q", ErrMSISDNNotAvailable.Error(), "msisdn not available")
+	}
+}
+
+func TestMSISDNStructFields(t *testing.T) {
+	id := uuid.New()
+	tenantID := uuid.New()
+	operatorID := uuid.New()
+	simID := uuid.New()
+
+	m := MSISDN{
+		ID:         id,
+		TenantID:   tenantID,
+		OperatorID: operatorID,
+		MSISDN:     "+905559876543",
+		State:      "assigned",
+		SimID:      &simID,
+	}
+
+	if m.ID != id {
+		t.Errorf("ID = %v, want %v", m.ID, id)
+	}
+	if m.TenantID != tenantID {
+		t.Errorf("TenantID = %v, want %v", m.TenantID, tenantID)
+	}
+	if m.OperatorID != operatorID {
+		t.Errorf("OperatorID = %v, want %v", m.OperatorID, operatorID)
+	}
+	if m.MSISDN != "+905559876543" {
+		t.Errorf("MSISDN = %q, want %q", m.MSISDN, "+905559876543")
+	}
+	if m.State != "assigned" {
+		t.Errorf("State = %q, want %q", m.State, "assigned")
+	}
+	if m.SimID == nil || *m.SimID != simID {
+		t.Errorf("SimID = %v, want %v", m.SimID, simID)
+	}
+}
+
+func TestMSISDNImportResultPartialSuccess(t *testing.T) {
+	result := MSISDNImportResult{
+		Total:    10,
+		Imported: 7,
+		Skipped:  2,
+		Errors: []MSISDNImportError{
+			{Row: 3, MSISDN: "+905551000003", Message: "MSISDN already exists"},
+			{Row: 5, MSISDN: "+905551000005", Message: "MSISDN already exists"},
+			{Row: 8, MSISDN: "", Message: "invalid MSISDN format"},
+		},
+	}
+
+	if result.Total != result.Imported+result.Skipped+1 {
+		t.Errorf("Total (%d) != Imported (%d) + Skipped (%d) + other errors (1)",
+			result.Total, result.Imported, result.Skipped)
+	}
+
+	if len(result.Errors) != 3 {
+		t.Errorf("Errors count = %d, want 3", len(result.Errors))
+	}
+
+	for _, e := range result.Errors {
+		if e.Row <= 0 {
+			t.Errorf("Error row should be positive, got %d", e.Row)
+		}
+		if e.Message == "" {
+			t.Error("Error message should not be empty")
+		}
+	}
+}
+
+func TestMSISDNImportErrorJSONTags(t *testing.T) {
+	e := MSISDNImportError{
+		Row:     1,
+		MSISDN:  "+905551234567",
+		Message: "duplicate",
+	}
+
+	if e.Row != 1 {
+		t.Errorf("Row = %d, want 1", e.Row)
+	}
+	if e.MSISDN != "+905551234567" {
+		t.Errorf("MSISDN = %q, want +905551234567", e.MSISDN)
+	}
+	if e.Message != "duplicate" {
+		t.Errorf("Message = %q, want duplicate", e.Message)
 	}
 }
