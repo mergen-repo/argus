@@ -41,7 +41,7 @@ func (s *AuditStore) Create(ctx context.Context, entry *audit.Entry) (*audit.Ent
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO audit_logs (tenant_id, user_id, api_key_id, action, entity_type, entity_id,
 			before_data, after_data, diff, ip_address, user_agent, correlation_id, hash, prev_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, $11, $12, $13, $14, $15)
 		RETURNING id, created_at
 	`, entry.TenantID, entry.UserID, entry.APIKeyID, entry.Action, entry.EntityType, entry.EntityID,
 		entry.BeforeData, entry.AfterData, entry.Diff, entry.IPAddress, entry.UserAgent,
@@ -120,7 +120,7 @@ func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAu
 
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
-			before_data, after_data, diff, ip_address, user_agent, correlation_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
 			hash, prev_hash, created_at
 		FROM audit_logs
 		WHERE %s
@@ -166,7 +166,7 @@ func (s *AuditStore) GetRange(ctx context.Context, tenantID uuid.UUID, count int
 
 	rows, err := s.db.Query(ctx, `
 		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
-			before_data, after_data, diff, ip_address, user_agent, correlation_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
 			hash, prev_hash, created_at
 		FROM audit_logs
 		WHERE tenant_id = $1
@@ -201,7 +201,7 @@ func (s *AuditStore) GetRange(ctx context.Context, tenantID uuid.UUID, count int
 func (s *AuditStore) GetByDateRange(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.Entry, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
-			before_data, after_data, diff, ip_address, user_agent, correlation_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
 			hash, prev_hash, created_at
 		FROM audit_logs
 		WHERE tenant_id = $1 AND created_at >= $2 AND created_at <= $3

@@ -77,6 +77,9 @@
 | Hash Chain | Sequential hashing linking each audit log entry to previous | Tamper detection |
 | Partial Token | Short-lived JWT (5min) with `partial: true` flag, issued when 2FA is required but not yet verified. Blocked by JWTAuth middleware; only accepted by JWTAuthAllowPartial for /2fa/verify endpoint. | 2FA authentication flow |
 | CDR | Call Detail Record | Usage record: bytes, duration, cost, RAT-type per session |
+| API Key | Tenant-scoped credential for M2M integrations. Format: `argus_{prefix}_{secret}`. Only prefix and SHA-256 hash stored; plaintext shown once at creation. Supports scopes, rate limits, rotation with 24h grace period, and instant revocation. | Authentication & authorization for programmatic API access |
+| Sliding Window | Rate limiting algorithm that approximates a smooth request count across fixed time windows by weighting the previous window's count with elapsed time. Used with Redis counters. | Rate limiting (ALGORITHMS.md Section 3) |
+| Rate Limiting | Mechanism to restrict the number of API requests per caller per time window (per-minute, per-hour). Enforced via Redis sliding window counters. Configurable per API key, per tenant, or system-wide default. | Gateway middleware (SVC-01) |
 | Correlation ID | UUID v4 generated per HTTP request, propagated via Go context, emitted as `X-Request-ID` response header | Cross-cutting request tracing identifier used in structured logging, audit entries, and observability |
 
 ## Regulatory Terms

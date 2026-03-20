@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-20
-> Current phase: DEVELOPMENT — Phase 1: Foundation
-> Overall progress: 13%
+> Current phase: DEVELOPMENT — Phase 2: Core SIM & APN
+> Overall progress: 15%
 
 ---
 
@@ -25,11 +25,11 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 7/55 (13%)
-> Current story: STORY-008
-> Current step: Runner
+> Stories completed: 8/55 (15%)
+> Current story: STORY-009
+> Current step: —
 
-### Phase 1: Foundation [IN PROGRESS]
+### Phase 1: Foundation [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -40,7 +40,7 @@
 | STORY-005 | Tenant Management & User CRUD | M | [x] DONE | — | STORY-004 | 2026-03-20 |
 | STORY-006 | Structured Logging, Config & NATS Event Bus | M | [x] DONE | — | STORY-001 | 2026-03-20 |
 | STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [x] DONE | — | STORY-006 | 2026-03-20 |
-| STORY-008 | API Key Management & Rate Limiting | M | [~] IN PROGRESS | Commit | STORY-004, STORY-006 | — |
+| STORY-008 | API Key Management & Rate Limiting | M | [x] DONE | — | STORY-004, STORY-006 | 2026-03-20 |
 
 ### Phase 2: Core SIM & APN [PENDING]
 

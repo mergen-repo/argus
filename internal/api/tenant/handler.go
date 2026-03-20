@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
@@ -87,8 +88,8 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		MaxUsers:     t.MaxUsers,
 		Settings:     t.Settings,
 		State:        t.State,
-		CreatedAt:    t.CreatedAt,
-		UpdatedAt:    t.UpdatedAt,
+		CreatedAt:    t.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:    t.UpdatedAt.Format(time.RFC3339Nano),
 	}
 }
 

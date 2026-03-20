@@ -63,7 +63,7 @@ help:
 up:
 	@echo "Argus baslatiliyor..."
 	@docker compose -f deploy/docker-compose.yml up -d
-	@echo "Baslatildi: https://localhost"
+	@echo "Baslatildi: https://localhost:8084"
 
 down:
 	@echo "Argus durduruluyor..."

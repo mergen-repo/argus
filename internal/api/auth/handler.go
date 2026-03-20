@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -10,6 +11,14 @@ import (
 	authpkg "github.com/btopcu/argus/internal/auth"
 	"github.com/google/uuid"
 )
+
+func extractIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
+}
 
 type AuthHandler struct {
 	svc           *authpkg.Service
@@ -65,7 +74,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ipAddr := r.RemoteAddr
+	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
 	result, lockInfo, err := h.svc.Login(r.Context(), req.Email, req.Password, ipAddr, userAgent)
@@ -109,7 +118,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ipAddr := r.RemoteAddr
+	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
 	result, err := h.svc.Refresh(r.Context(), cookie.Value, ipAddr, userAgent)
@@ -187,7 +196,7 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ipAddr := r.RemoteAddr
+	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
 	result, err := h.svc.Verify2FA(r.Context(), userID, req.Code, ipAddr, userAgent)

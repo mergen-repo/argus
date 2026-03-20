@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -29,8 +30,8 @@ type Tenant struct {
 	PurgeRetentionDays int             `json:"purge_retention_days"`
 	Settings           json.RawMessage `json:"settings"`
 	State              string          `json:"state"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 	CreatedBy          *uuid.UUID      `json:"created_by,omitempty"`
 	UpdatedBy          *uuid.UUID      `json:"updated_by,omitempty"`
 }

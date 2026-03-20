@@ -125,6 +125,6 @@
 | DEV-017 | 2026-03-20 | STORY-008: `RequireScope` in rbac.go updated to use `hasScopeAccess` with wildcard support (`*`, `resource:*`). Previously had exact-match-only comparison. Duplicate `ScopeCheck` in apikey_auth.go removed. | ACCEPTED |
 | DEV-018 | 2026-03-20 | STORY-008: `CombinedAuth` middleware defined but not yet applied to existing routes. Current routes (tenant, user, audit, api-key management) remain JWT-only. `CombinedAuth` will be used when SIM/CDR/analytics routes are added in Phase 2+, enabling API key authentication for M2M endpoints. | ACCEPTED |
 | DEV-019 | 2026-03-20 | STORY-008: API key lookup by prefix (GetByPrefix) queries DB without caching. Acceptable for Phase 1 scale. Redis caching with NATS invalidation can be added as a performance optimization when API key auth traffic grows significantly. | ACCEPTED |
-| DEV-020 | 2026-03-20 | STORY-008: `isRedisNil` helper in ratelimit.go uses both `errors.Is(err, redis.Nil)` and string-contains fallback for robustness across redis pipeline error wrapping. | ACCEPTED |
+| DEV-020 | 2026-03-20 | STORY-008: `isRedisNil` helper in ratelimit.go uses `errors.Is(err, redis.Nil)` as primary check with string-contains `"redis: nil"` as fallback, since Redis pipeline errors may wrap `redis.Nil` in ways `errors.Is` cannot unwrap. Gate initially recommended removing string fallback but it was retained for robustness. | ACCEPTED |
 
 ---

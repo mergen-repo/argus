@@ -135,7 +135,7 @@ func (s *SessionStore) Create(ctx context.Context, params CreateSessionParams) (
 	err := s.db.QueryRow(ctx,
 		`INSERT INTO user_sessions (user_id, refresh_token_hash, ip_address, user_agent, expires_at)
 		 VALUES ($1, $2, $3::inet, $4, $5)
-		 RETURNING id, user_id, refresh_token_hash, ip_address, user_agent, expires_at, revoked_at, created_at`,
+		 RETURNING id, user_id, refresh_token_hash, ip_address::text, user_agent, expires_at, revoked_at, created_at`,
 		params.UserID, params.RefreshTokenHash, params.IPAddress, params.UserAgent, params.ExpiresAt).
 		Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.IPAddress,
 			&sess.UserAgent, &sess.ExpiresAt, &sess.RevokedAt, &sess.CreatedAt)
@@ -166,7 +166,7 @@ func (s *SessionStore) RevokeAllUserSessions(ctx context.Context, userID uuid.UU
 func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*UserSession, error) {
 	var sess UserSession
 	err := s.db.QueryRow(ctx,
-		`SELECT id, user_id, refresh_token_hash, ip_address, user_agent, expires_at, revoked_at, created_at
+		`SELECT id, user_id, refresh_token_hash, ip_address::text, user_agent, expires_at, revoked_at, created_at
 		 FROM user_sessions WHERE id = $1`, id).
 		Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.IPAddress,
 			&sess.UserAgent, &sess.ExpiresAt, &sess.RevokedAt, &sess.CreatedAt)
@@ -181,7 +181,7 @@ func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*UserSession,
 
 func (s *SessionStore) GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]UserSession, error) {
 	rows, err := s.db.Query(ctx,
-		`SELECT id, user_id, refresh_token_hash, ip_address, user_agent, expires_at, revoked_at, created_at
+		`SELECT id, user_id, refresh_token_hash, ip_address::text, user_agent, expires_at, revoked_at, created_at
 		 FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
 		 ORDER BY created_at DESC`, userID)
 	if err != nil {
