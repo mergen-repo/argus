@@ -9,7 +9,7 @@ Implement an HTTP/2 proxy for 5G Service-Based Architecture (SBA) interfaces. Ac
 ## Architecture Reference
 - Services: SVC-04 (AAA Engine — internal/aaa/sba)
 - Database Tables: TBL-17 (sessions), TBL-10 (sims)
-- Packages: internal/aaa/sba, internal/protocol/sba
+- Packages: internal/aaa/sba
 - Source: docs/architecture/services/_index.md (SVC-04)
 
 ## Screen Reference

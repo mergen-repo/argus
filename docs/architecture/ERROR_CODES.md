@@ -2,6 +2,8 @@
 
 > All API errors use the standard error envelope. Every error has a unique code, fixed HTTP status, and deterministic structure.
 > Error codes are string constants defined in `internal/apierr/apierr.go`.
+>
+> **Exception:** 5G SBA endpoints (`internal/aaa/sba/`, port :8443) use `application/problem+json` error format per 3GPP TS 29.500 instead of the Argus standard envelope. This is correct for NF-to-NF communication. See [PROTOCOLS.md](PROTOCOLS.md) for SBA error details.
 
 ## Standard Error Envelope
 

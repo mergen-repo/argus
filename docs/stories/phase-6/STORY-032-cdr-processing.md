@@ -46,6 +46,8 @@ CDR processing pipeline: accounting events from RADIUS (Acct-Start/Interim/Stop)
 - Blocks: STORY-034 (usage analytics), STORY-035 (cost analytics)
 
 > **Note (post-STORY-019):** STORY-019 Diameter Gx/Gy handlers publish session events to the same NATS topics as RADIUS: `argus.events.session.started` (on CCR-I), `argus.events.session.updated` (on CCR-U), `argus.events.session.ended` (on CCR-T). The CDR consumer should subscribe to these NATS topics and create CDR records regardless of whether the source is RADIUS or Diameter. Event payloads include session_id, sim_id, operator_id, bytes_in/bytes_out, and protocol_type. The Gy (credit-control) events additionally carry Granted-Service-Unit and Used-Service-Unit data useful for cost calculation.
+>
+> **Note (post-STORY-020):** STORY-020 (5G SBA) publishes session events to the same NATS topics (`session.started`, `session.ended`) with `protocol: "5g_sba"`. Sessions are created in TBL-17 with `protocol_type='5g_sba'` and optional `slice_info` JSONB containing S-NSSAI data. The CDR consumer should handle 5G SBA sessions identically to RADIUS/Diameter — the `protocol_type` column can be used for per-protocol CDR differentiation and cost rating. Note: 5G SBA sessions currently lack bytes_in/bytes_out accounting (no interim updates) — CDR records may be auth-only without usage data until a 5G accounting mechanism is added.
 
 ## Test Scenarios
 - [ ] RADIUS Accounting-Start → CDR created with type=start, no cost yet

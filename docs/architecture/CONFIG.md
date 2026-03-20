@@ -137,6 +137,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `DIAMETER_WATCHDOG_INTERVAL` | duration | `30s` | No | DWR (Device-Watchdog-Request) send interval. |
 | `SBA_PORT` | int | `8443` | No | 5G SBA HTTPS/HTTP2 server port. |
 | `SBA_ENABLED` | bool | `false` | No | Enable 5G SBA proxy server. |
+| `SBA_ENABLE_MTLS` | bool | `false` | No | Enable mutual TLS (mTLS) for 5G SBA server. When true, requires client certificates for NF-to-NF communication. |
 
 ---
 
@@ -285,6 +286,7 @@ DIAMETER_ORIGIN_HOST=argus.local
 DIAMETER_ORIGIN_REALM=local
 SBA_PORT=8443
 SBA_ENABLED=false
+SBA_ENABLE_MTLS=false
 
 # === Rate Limiting ===
 RATE_LIMIT_DEFAULT_PER_MINUTE=1000

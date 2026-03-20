@@ -18,6 +18,13 @@
 | SBA | Service-Based Architecture | 5G core network architecture using HTTP/2 APIs |
 | AUSF | Authentication Server Function | 5G core network function for authentication |
 | UDM | Unified Data Management | 5G core network function for subscriber data |
+| NRF | NF Repository Function | 5G core network function for service discovery and registration. Argus implements a placeholder for future NF discovery integration. | SVC-04, STORY-020 |
+| SUPI | Subscription Permanent Identifier | Globally unique 5G subscriber identifier (typically `imsi-{IMSI}`). Permanent identity resolved from SUCI during authentication. | 5G SBA (TS 23.501), STORY-020 |
+| SUCI | Subscription Concealed Identifier | Privacy-preserving encrypted form of SUPI transmitted over the air in 5G. Format: `suci-{MCC}{MNC}{RoutingID}{...}`. Resolved to SUPI by AUSF/UDM. | 5G SBA (TS 23.003), STORY-020 |
+| S-NSSAI | Single Network Slice Selection Assistance Information | Identifier for a 5G network slice, composed of SST (Slice/Service Type, 1 byte) and optional SD (Slice Differentiator, 3 bytes). Used for slice-level authentication and policy. | 5G SBA (TS 23.501), STORY-020 |
+| 5G-AKA | 5G Authentication and Key Agreement | Primary authentication method for 5G SA networks. Flow: SUCI -> SUPI resolution -> AV generation (RAND/AUTN/XRES*/KAUSF) -> HXRES* verification -> KSEAF derivation. | 5G SBA (TS 33.501), STORY-020 |
+| KSEAF | Key for SEcurity Anchor Function | Key derived from KAUSF during 5G-AKA authentication, used as the anchor key for all subsequent 5G security key derivations. Derived via HMAC-SHA256. | 5G SBA (TS 33.501), STORY-020 |
+| KAUSF | Key for Authentication Server Function | Master key generated during 5G-AKA authentication. Used to derive KSEAF. Stored temporarily in AUSF during authentication flow. | 5G SBA (TS 33.501), STORY-020 |
 | NAS | Network Access Server | Device that sends RADIUS/Diameter requests to Argus |
 | PCRF | Policy and Charging Rules Function | LTE network element; Argus implements a mini-PCRF |
 | PCEF | Policy and Charging Enforcement Function | Enforcement point in P-GW; receives rules from PCRF |

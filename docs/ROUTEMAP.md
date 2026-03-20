@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 19/55 (35%)
-> Current story: STORY-020
+> Stories completed: 20/55 (36%)
+> Current story: STORY-021
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -62,7 +62,7 @@
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-017 | Session Management & Force Disconnect | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [x] DONE | — | STORY-015 | 2026-03-20 |
-| STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [~] IN PROGRESS | Commit | STORY-015, STORY-016 | — |
+| STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [x] DONE | — | STORY-015, STORY-016 | 2026-03-20 |
 | STORY-021 | Operator Failover & Circuit Breaker | L | [ ] PENDING | — | STORY-018 | — |
 
 ### Phase 4: Policy & Orchestration [PENDING]
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-020 completed — 5G SBA HTTP/2 Proxy (AUSF/UDM). HTTP/2 server on :8443 with TLS/mTLS, AUSF 5G-AKA authentication (initiate + confirm), UDM security-information + auth-events + UECM registration, SUPI/SUCI resolution, S-NSSAI slice authentication, EAP-AKA' SBA proxy, NRF registration placeholder (register/deregister/heartbeat/discover/notify), session tracking with protocol_type='5g_sba' + slice_info JSONB, SBA health checker integrated into /api/health. Migration adds protocol_type + slice_info columns with partial index. 22 tests, all pass. | STORY-021 (next in Phase 3), STORY-027 (RAT awareness — 5G SBA already sets rat_type='nr_5g'), STORY-032 (CDR — should consume 5G SBA session events) |
 | 2026-03-20 | DONE | STORY-019 completed — Diameter Protocol Server (Gx/Gy). Full RFC 6733 base protocol, TCP :3868 listener, CER/CEA capabilities exchange, DWR/DWA watchdog + failover, DPR/DPA graceful disconnect, Gx (PCRF) CCR-I/U/T with PCC rules, Gy (OCS) CCR-I/U/T/E with credit control, RAR/RAA mid-session re-auth, AVP encode/decode (standard + 3GPP vendor-specific), session state machine (idle/open/pending/closed), multi-peer support, health check integration. 53 tests, all pass with -race. | STORY-020 (5G SBA), STORY-032 (CDR) unblocked |
 | 2026-03-20 | DONE | STORY-017 completed — Session Management & Concurrent Control. 4 session API endpoints (list, stats, disconnect, bulk disconnect), concurrent session control with oldest eviction, idle/hard timeout sweeper, Redis session cache, NATS session events, bulk disconnect as background job. 25 tests across 5 files. | STORY-025, STORY-033, STORY-036, STORY-052 unblocked (partial) |
 | 2026-03-20 | DONE | STORY-016 completed — EAP-SIM/AKA/AKA' Authentication Methods. Redis state store (30s TTL), operator adapter bridge, vector caching (Redis list LPOP/RPUSH, batch pre-fetch), EAP-SIM Start flow (RFC 4186), SIM-type method selection, RADIUS EAP integration (Access-Challenge, MS-MPPE keys), session auth_method recording. 49 tests across 4 files. | STORY-020 unblocked (5G SBA uses AKA') |

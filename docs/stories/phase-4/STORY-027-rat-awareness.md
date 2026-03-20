@@ -47,6 +47,8 @@ Enrich all system layers with RAT-type information: RADIUS attributes (3GPP-RAT-
 - [ ] CDR with rat_type=4G uses 4G cost rate, not 3G rate
 - [ ] Unknown RAT type value → mapped to "UNKNOWN", session still created
 
+> **Note (post-STORY-020):** STORY-020 (5G SBA) already sets `rat_type='nr_5g'` on sessions created via AUSF 5G-AKA confirmation (ausf.go L211) and `rat_type` from UDM AMF registration (udm.go L158, lowercased from RATType field). The AC "5G SBA: extract RAT type from authentication context" is partially done. This story should verify and normalize the mapping (e.g., "NR" -> "5G_SA", "nr_5g" -> "5G_SA") to match the enum in AC (5G_SA). Also, the `session.Session` struct and TBL-17 `rat_type` column already exist from STORY-015/017 — no migration needed for this field.
+
 ## Effort Estimate
 - Size: M
 - Complexity: Medium
