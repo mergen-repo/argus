@@ -79,6 +79,8 @@
 | IP Reclaim | Process of returning terminated SIM's IP to pool after grace period. IP enters `reclaiming` state with `reclaim_at` timestamp. | Configurable retention |
 | Dual-Stack | Supporting both IPv4 and IPv6 address families simultaneously. IP pools can have separate CIDRv4 and CIDRv6 ranges. | IPAM network addressing |
 | Pool Utilization | Percentage of allocated addresses in an IP pool (used_addresses / total_addresses * 100). Triggers alerts at warning (80%), critical (90%), and exhausted (100%) thresholds. | IPAM monitoring |
+| MSISDN Pool | Tenant-scoped pool of phone numbers (MSISDNs) per operator. MSISDNs are globally unique across tenants/operators (enforced by UNIQUE INDEX). States: `available` (ready for assignment), `assigned` (linked to a SIM), `reserved` (released with grace period, not yet available). Supports CSV bulk import and individual assignment. | IPAM (TBL-24), STORY-014 |
+| MSISDN Grace Period | Configurable retention period (default 30 days) after a SIM is terminated before its assigned MSISDN becomes available for reassignment. MSISDN enters `reserved` state with `reserved_until` timestamp. Same pattern as IP reclaim grace period. | STORY-014, BR-1 |
 | Pseudonymization | Replacing personal identifiers with irreversible hashes | KVKK/GDPR purge compliance |
 | Hash Chain | Sequential hashing linking each audit log entry to previous | Tamper detection |
 | Partial Token | Short-lived JWT (5min) with `partial: true` flag, issued when 2FA is required but not yet verified. Blocked by JWTAuth middleware; only accepted by JWTAuthAllowPartial for /2fa/verify endpoint. | 2FA authentication flow |

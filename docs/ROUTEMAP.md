@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-20
-> Current phase: DEVELOPMENT — Phase 2: Core SIM & APN
-> Overall progress: 24%
+> Current phase: DEVELOPMENT — Phase 3: AAA Engine
+> Overall progress: 25%
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 13/55 (24%)
-> Current story: STORY-014
-> Current step: —
+> Stories completed: 14/55 (25%)
+> Current story: —
+> Current step: — (Phase 2 complete, Phase Gate pending)
 
 ### Phase 1: Foundation [DONE]
 
@@ -42,7 +42,7 @@
 | STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [x] DONE | — | STORY-006 | 2026-03-20 |
 | STORY-008 | API Key Management & Rate Limiting | M | [x] DONE | — | STORY-004, STORY-006 | 2026-03-20 |
 
-### Phase 2: Core SIM & APN [IN PROGRESS]
+### Phase 2: Core SIM & APN [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -51,7 +51,7 @@
 | STORY-011 | SIM CRUD & State Machine | XL | [x] DONE | — | STORY-010 | 2026-03-20 |
 | STORY-012 | SIM Segments & Group-First UX | M | [x] DONE | — | STORY-011 | 2026-03-20 |
 | STORY-013 | Bulk SIM Import (CSV) | L | [x] DONE | — | STORY-011, STORY-006 | 2026-03-20 |
-| STORY-014 | MSISDN Number Pool Management | S | [~] IN PROGRESS | Commit | STORY-011 | — |
+| STORY-014 | MSISDN Number Pool Management | S | [x] DONE | — | STORY-011 | 2026-03-20 |
 
 ### Phase 3: AAA Engine [PENDING]
 
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | PHASE | Phase 2 (Core SIM & APN) completed — 6 stories (STORY-009 to STORY-014). Operator CRUD, APN CRUD, IP Pool CRUD, SIM CRUD + state machine, segments, bulk import, MSISDN pool management all implemented. 47 routes registered, 24 DB tables in use. | Phase 3 (AAA Engine) ready to start |
+| 2026-03-20 | DONE | STORY-014 completed — MSISDN pool management with CSV import, list with state filtering, assign to SIM, global uniqueness, grace period release on SIM termination. 3 new routes. | Phase 2 complete |
 | 2026-03-20 | DONE | STORY-013 completed — Bulk SIM Import (CSV upload, background job processing, partial success, NATS progress, cancellation, error report CSV download). 6 new routes. Job runner + import processor wired in main.go. | STORY-031 scope reduced (job runner + API-120..123 already implemented), STORY-014 next |
 | 2026-03-20 | DONE | STORY-012 completed — Segment CRUD (6 endpoints), JSONB filter_definition, CountMatchingSIMs, StateSummary, sim_manager RBAC | STORY-030 unblocked (partial — also needs STORY-028, STORY-031) |
 | 2026-03-20 | DONE | STORY-011 completed — SIM CRUD, state machine (7 transitions), cursor pagination, IP allocation on activation, auto-purge scheduling | STORY-012, STORY-013, STORY-014 unblocked |

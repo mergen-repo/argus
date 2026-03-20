@@ -136,6 +136,15 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 
 ---
 
+## MSISDN Errors
+
+| Code | HTTP Status | Description | Example Response |
+|------|-------------|-------------|------------------|
+| `MSISDN_NOT_FOUND` | 404 | MSISDN pool entry with given ID does not exist in this tenant | `{"status":"error","error":{"code":"MSISDN_NOT_FOUND","message":"MSISDN not found"}}` |
+| `MSISDN_NOT_AVAILABLE` | 409 | MSISDN is not in 'available' state and cannot be assigned to a SIM | `{"status":"error","error":{"code":"MSISDN_NOT_AVAILABLE","message":"MSISDN is not available for assignment"}}` |
+
+---
+
 ## IP Pool Errors
 
 | Code | HTTP Status | Description | Example Response |
@@ -279,6 +288,10 @@ const (
     CodeOperatorDown      = "OPERATOR_DOWN"
     CodeCircuitOpen       = "CIRCUIT_OPEN"
     CodeFailoverExhausted = "FAILOVER_EXHAUSTED"
+
+    // MSISDN
+    CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"
+    CodeMSISDNNotAvailable = "MSISDN_NOT_AVAILABLE"
 
     // IP Pool
     CodePoolExhausted    = "POOL_EXHAUSTED"
