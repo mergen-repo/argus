@@ -114,5 +114,6 @@
 | DEV-006 | 2026-03-20 | STORY-002: sims_default partition created as catch-all for operator_ids not in explicit partitions | ACCEPTED |
 | DEV-007 | 2026-03-20 | STORY-002: Old sim_segments migration (20260319000001) removed; table + index included in core_schema migration | ACCEPTED |
 | DEV-008 | 2026-03-20 | STORY-003: Partial token pattern for 2FA — login returns a short-lived (5min) JWT with `partial: true` claim. JWTAuth middleware rejects partial tokens; only JWTAuthAllowPartial permits them (used solely for /2fa/verify). This prevents 2FA-pending users from accessing protected endpoints. | ACCEPTED |
+| DEV-009 | 2026-03-20 | STORY-004: Linear RBAC hierarchy cannot fully represent the non-linear ARCHITECTURE.md RBAC matrix (e.g., operator_manager cannot manage SIMs but sim_manager can, despite lower level; policy_editor can manage policies but sim_manager and operator_manager cannot). Current linear `RequireRole(minRole)` works for Phase 1 (only api_user/tenant_admin/super_admin boundaries used). Must refine to permission-based RBAC (`RequirePermission(permission)` with role-to-permission map) before STORY-011 (SIM CRUD, Phase 2). | ACCEPTED |
 
 ---
