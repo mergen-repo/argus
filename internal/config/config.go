@@ -74,6 +74,8 @@ type Config struct {
 	S3Region    string `envconfig:"S3_REGION" default:"eu-west-1"`
 	S3PathStyle bool   `envconfig:"S3_PATH_STYLE" default:"false"`
 
+	EncryptionKey  string `envconfig:"ENCRYPTION_KEY"`
+
 	TLSCertPath    string `envconfig:"TLS_CERT_PATH"`
 	TLSKeyPath     string `envconfig:"TLS_KEY_PATH"`
 	RadSecCertPath string `envconfig:"RADSEC_CERT_PATH"`

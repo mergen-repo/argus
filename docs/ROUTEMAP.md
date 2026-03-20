@@ -27,7 +27,7 @@
 
 > Stories completed: 8/55 (15%)
 > Current story: STORY-009
-> Current step: —
+> Current step: Runner
 
 ### Phase 1: Foundation [DONE]
 
@@ -42,11 +42,11 @@
 | STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [x] DONE | — | STORY-006 | 2026-03-20 |
 | STORY-008 | API Key Management & Rate Limiting | M | [x] DONE | — | STORY-004, STORY-006 | 2026-03-20 |
 
-### Phase 2: Core SIM & APN [PENDING]
+### Phase 2: Core SIM & APN [IN PROGRESS]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-009 | Operator CRUD & Health Check | L | [ ] PENDING | — | STORY-005 | — |
+| STORY-009 | Operator CRUD & Health Check | L | [~] IN PROGRESS | Commit | STORY-005 | — |
 | STORY-010 | APN CRUD & IP Pool Management | L | [ ] PENDING | — | STORY-009 | — |
 | STORY-011 | SIM CRUD & State Machine | XL | [ ] PENDING | — | STORY-010 | — |
 | STORY-012 | SIM Segments & Group-First UX | M | [ ] PENDING | — | STORY-011 | — |

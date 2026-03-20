@@ -56,23 +56,6 @@ func (s *SIMStore) SetIPAndPolicy(_ context.Context, _ uuid.UUID, _ *uuid.UUID, 
 	return nil
 }
 
-type Operator struct {
-	ID   uuid.UUID
-	Code string
-	Name string
-}
-
-type OperatorStore struct {
-	db *pgxpool.Pool
-}
-
-func NewOperatorStore(db *pgxpool.Pool) *OperatorStore {
-	return &OperatorStore{db: db}
-}
-
-func (s *OperatorStore) GetByCode(_ context.Context, _ string) (*Operator, error) {
-	return &Operator{}, nil
-}
 
 type APN struct {
 	ID              uuid.UUID

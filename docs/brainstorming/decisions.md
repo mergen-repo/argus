@@ -126,5 +126,15 @@
 | DEV-018 | 2026-03-20 | STORY-008: `CombinedAuth` middleware defined but not yet applied to existing routes. Current routes (tenant, user, audit, api-key management) remain JWT-only. `CombinedAuth` will be used when SIM/CDR/analytics routes are added in Phase 2+, enabling API key authentication for M2M endpoints. | ACCEPTED |
 | DEV-019 | 2026-03-20 | STORY-008: API key lookup by prefix (GetByPrefix) queries DB without caching. Acceptable for Phase 1 scale. Redis caching with NATS invalidation can be added as a performance optimization when API key auth traffic grows significantly. | ACCEPTED |
 | DEV-020 | 2026-03-20 | STORY-008: `isRedisNil` helper in ratelimit.go uses `errors.Is(err, redis.Nil)` as primary check with string-contains `"redis: nil"` as fallback, since Redis pipeline errors may wrap `redis.Nil` in ways `errors.Is` cannot unwrap. Gate initially recommended removing string fallback but it was retained for robustness. | ACCEPTED |
+| DEV-021 | 2026-03-20 | STORY-009: Redis cache TTL for operator health was hardcoded to 60s. Gate fixed to use `2 * health_check_interval_sec` per operator, matching the plan spec. Minimum TTL floor of 30s added for safety. | ACCEPTED |
+| DEV-022 | 2026-03-20 | STORY-009: `validAdapterTypes` in handler includes `sba` but adapter registry has no SBA factory. Acceptable for now — SBA adapter is a future story. Health check will fail gracefully (logged error, no crash). Will be resolved when SBA adapter is implemented. | ACCEPTED |
+| DEV-023 | 2026-03-20 | STORY-009: `updated_at` column on operators table is handled by DB trigger `trg_operators_updated_at` (same pattern as tenants, users). No need for explicit `SET updated_at = NOW()` in Go code. | ACCEPTED |
+
+## Performance Decisions
+
+| # | Date | Decision | Status |
+|---|------|----------|--------|
+| PERF-001 | 2026-03-20 | STORY-009: Operator list not cached in Redis — admin-only endpoint, low frequency, acceptable latency. | ACCEPTED |
+| PERF-002 | 2026-03-20 | STORY-009: operator:health:{id} Redis key with TTL = 2 * health_check_interval_sec. Provides fast health status lookup without DB hit. Fallback to DB on cache miss. | ACCEPTED |
 
 ---

@@ -11,6 +11,7 @@ import (
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/btopcu/argus/internal/audit"
@@ -19,6 +20,8 @@ import (
 	"github.com/btopcu/argus/internal/cache"
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
+	"github.com/btopcu/argus/internal/operator"
+	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -111,6 +114,17 @@ func main() {
 	apiKeyStore := store.NewAPIKeyStore(pg.Pool)
 	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
 
+	operatorStore := store.NewOperatorStore(pg.Pool)
+	adapterRegistry := adapter.NewRegistry()
+	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger)
+	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := healthChecker.Start(startCtx); err != nil {
+		log.Warn().Err(err).Msg("failed to start health checker — continuing without health checks")
+	}
+	startCancel()
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
@@ -119,6 +133,7 @@ func main() {
 		UserHandler:        userHandler,
 		AuditHandler:       auditHandler,
 		APIKeyHandler:      apiKeyHandler,
+		OperatorHandler:    operatorHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -160,6 +175,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("http server shutdown error")
 	}
+
+	log.Info().Msg("stopping health checker")
+	healthChecker.Stop()
 
 	log.Info().Msg("stopping audit consumer")
 	auditSvc.Stop()

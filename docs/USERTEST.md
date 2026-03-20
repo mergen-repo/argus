@@ -215,3 +215,47 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    ```
    204 donmeli, silinen key ile istek 401 donmeli
 9. Unit testler: `go test ./internal/store/... ./internal/api/apikey/... ./internal/gateway/... -v`
+
+---
+
+## STORY-009: Operator CRUD & Health Check
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. Operator olustur (super_admin):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/operators \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Turkcell","code":"turkcell","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"endpoint":"https://api.turkcell.com.tr"}}'
+   ```
+   201 donmeli
+4. Operator listele:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/operators -H 'Authorization: Bearer <token>'
+   ```
+   200 + operator listesi donmeli
+5. Operator guncelle (state degistir):
+   ```bash
+   curl -sk -X PATCH https://localhost:8084/api/v1/operators/{id} \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"state":"suspended"}'
+   ```
+   200 donmeli
+6. Health check:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/operators/{id}/health \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + health status donmeli
+7. Grant olustur (tenant'a operator erisimi ver):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/operators/{id}/grants \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"tenant_id":"00000000-0000-0000-0000-000000000001"}'
+   ```
+   201 donmeli
+8. Grant listele + sil: GET/DELETE /api/v1/operators/{id}/grants
+9. Unit testler: `go test ./internal/store/... ./internal/crypto/... ./internal/api/operator/... ./internal/operator/... -v`
