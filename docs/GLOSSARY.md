@@ -87,6 +87,8 @@
 | Sliding Window | Rate limiting algorithm that approximates a smooth request count across fixed time windows by weighting the previous window's count with elapsed time. Used with Redis counters. | Rate limiting (ALGORITHMS.md Section 3) |
 | Rate Limiting | Mechanism to restrict the number of API requests per caller per time window (per-minute, per-hour). Enforced via Redis sliding window counters. Configurable per API key, per tenant, or system-wide default. | Gateway middleware (SVC-01) |
 | Correlation ID | UUID v4 generated per HTTP request, propagated via Go context, emitted as `X-Request-ID` response header | Cross-cutting request tracing identifier used in structured logging, audit entries, and observability |
+| SIM State Machine | Finite state machine governing SIM lifecycle: ORDERED -> ACTIVE <-> SUSPENDED -> TERMINATED -> PURGED + STOLEN/LOST. Each transition is validated, logged in sim_state_history (TBL-11), and triggers side effects (IP allocation, purge scheduling, etc.). | BR-1 (PRODUCT.md), STORY-011 |
+| Auto-Purge | Automatic deletion of terminated SIM data after a configurable retention period (`purge_retention_days` per tenant). Sets `purge_at = terminated_at + N days`. Ensures KVKK/GDPR compliance by pseudonymizing personal data in audit logs. | BR-1, STORY-039 |
 
 ## Regulatory Terms
 

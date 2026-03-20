@@ -1,7 +1,7 @@
 # Error Code Catalog — Argus
 
 > All API errors use the standard error envelope. Every error has a unique code, fixed HTTP status, and deterministic structure.
-> Error codes are string constants defined in `internal/gateway/errors.go`.
+> Error codes are string constants defined in `internal/apierr/apierr.go`.
 
 ## Standard Error Envelope
 
