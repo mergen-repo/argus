@@ -1,6 +1,8 @@
 package operator
 
 import (
+	"context"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -96,4 +98,63 @@ func TestNewHealthCheckerNilSafe(t *testing.T) {
 	if hc.stopChs == nil {
 		t.Error("stopChs map should be initialized")
 	}
+	if hc.lastStatus == nil {
+		t.Error("lastStatus map should be initialized")
+	}
+	if hc.operatorNames == nil {
+		t.Error("operatorNames map should be initialized")
+	}
+}
+
+type mockEventPublisher struct {
+	mu     sync.Mutex
+	events []publishedEvent
+}
+
+type publishedEvent struct {
+	subject string
+	payload interface{}
+}
+
+func (m *mockEventPublisher) Publish(_ context.Context, subject string, payload interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, publishedEvent{subject, payload})
+	return nil
+}
+
+func TestHealthChecker_SetEventPublisher(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	pub := &mockEventPublisher{}
+	hc.SetEventPublisher(pub, "argus.events.operator.health", "argus.events.alert.triggered")
+
+	if hc.eventPub == nil {
+		t.Error("eventPub should be set")
+	}
+	if hc.healthSubject != "argus.events.operator.health" {
+		t.Errorf("healthSubject = %s, want argus.events.operator.health", hc.healthSubject)
+	}
+	if hc.alertSubject != "argus.events.alert.triggered" {
+		t.Errorf("alertSubject = %s, want argus.events.alert.triggered", hc.alertSubject)
+	}
+}
+
+func TestHealthChecker_SetSLATracker(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	tracker := NewSLATracker(nil, zerolog.Nop())
+	hc.SetSLATracker(tracker)
+
+	if hc.slaTracker == nil {
+		t.Error("slaTracker should be set")
+	}
+}
+
+func TestHealthChecker_PublishAlertNilPub(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	hc.publishAlert(context.Background(), [16]byte{}, "test", "operator_down", "critical", "title", "desc")
+}
+
+func TestHealthChecker_CheckSLAViolationNilTracker(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	hc.checkSLAViolation(context.Background(), [16]byte{}, "test")
 }

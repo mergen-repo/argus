@@ -15,6 +15,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type EventPublisher interface {
+	Publish(ctx context.Context, subject string, payload interface{}) error
+}
+
 type CachedHealth struct {
 	Status       string `json:"status"`
 	LatencyMs    int    `json:"latency_ms"`
@@ -28,12 +32,18 @@ type HealthChecker struct {
 	redisClient   *redis.Client
 	encryptionKey string
 	logger        zerolog.Logger
+	eventPub      EventPublisher
+	slaTracker    *SLATracker
+	healthSubject string
+	alertSubject  string
 
-	mu       sync.Mutex
-	breakers map[uuid.UUID]*CircuitBreaker
-	stopChs  map[uuid.UUID]chan struct{}
-	wg       sync.WaitGroup
-	stopped  bool
+	mu             sync.Mutex
+	breakers       map[uuid.UUID]*CircuitBreaker
+	stopChs        map[uuid.UUID]chan struct{}
+	lastStatus     map[uuid.UUID]string
+	operatorNames  map[uuid.UUID]string
+	wg             sync.WaitGroup
+	stopped        bool
 }
 
 func NewHealthChecker(
@@ -51,7 +61,19 @@ func NewHealthChecker(
 		logger:        logger.With().Str("component", "health_checker").Logger(),
 		breakers:      make(map[uuid.UUID]*CircuitBreaker),
 		stopChs:       make(map[uuid.UUID]chan struct{}),
+		lastStatus:    make(map[uuid.UUID]string),
+		operatorNames: make(map[uuid.UUID]string),
 	}
+}
+
+func (hc *HealthChecker) SetEventPublisher(pub EventPublisher, healthSubject, alertSubject string) {
+	hc.eventPub = pub
+	hc.healthSubject = healthSubject
+	hc.alertSubject = alertSubject
+}
+
+func (hc *HealthChecker) SetSLATracker(tracker *SLATracker) {
+	hc.slaTracker = tracker
 }
 
 func (hc *HealthChecker) Start(ctx context.Context) error {
@@ -74,6 +96,8 @@ func (hc *HealthChecker) Start(ctx context.Context) error {
 func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
 	cb := NewCircuitBreaker(op.CircuitBreakerThreshold, op.CircuitBreakerRecoverySec)
 	hc.breakers[op.ID] = cb
+	hc.operatorNames[op.ID] = op.Name
+	hc.lastStatus[op.ID] = op.HealthStatus
 
 	stopCh := make(chan struct{})
 	hc.stopChs[op.ID] = stopCh
@@ -175,6 +199,101 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		}
 		hc.redisClient.Set(ctx, key, data, ttl)
 	}
+
+	if hc.slaTracker != nil && result.LatencyMs > 0 {
+		hc.slaTracker.RecordLatency(ctx, opID, result.LatencyMs)
+	}
+
+	hc.mu.Lock()
+	prevStatus := hc.lastStatus[opID]
+	opName := hc.operatorNames[opID]
+	hc.lastStatus[opID] = status
+	hc.mu.Unlock()
+
+	if prevStatus != status && hc.eventPub != nil && hc.healthSubject != "" {
+		evt := OperatorHealthEvent{
+			OperatorID:     opID,
+			OperatorName:   opName,
+			PreviousStatus: prevStatus,
+			CurrentStatus:  status,
+			CircuitState:   string(cbState),
+			LatencyMs:      result.LatencyMs,
+			FailureReason:  result.Error,
+			Timestamp:      time.Now(),
+		}
+		if pubErr := hc.eventPub.Publish(ctx, hc.healthSubject, evt); pubErr != nil {
+			hc.logger.Error().Err(pubErr).Str("operator_id", opID.String()).Msg("publish health event")
+		} else {
+			hc.logger.Info().
+				Str("operator_id", opID.String()).
+				Str("from", prevStatus).
+				Str("to", status).
+				Msg("operator health changed event published")
+		}
+
+		if status == "down" {
+			hc.publishAlert(ctx, opID, opName, AlertTypeOperatorDown, SeverityCritical,
+				fmt.Sprintf("Operator %s is DOWN", opName),
+				fmt.Sprintf("Operator %s circuit breaker opened. Reason: %s", opName, result.Error),
+			)
+		} else if prevStatus == "down" && (status == "healthy" || status == "degraded") {
+			hc.publishAlert(ctx, opID, opName, AlertTypeOperatorUp, SeverityInfo,
+				fmt.Sprintf("Operator %s recovered", opName),
+				fmt.Sprintf("Operator %s recovered from down state, current status: %s", opName, status),
+			)
+		}
+	}
+
+	hc.checkSLAViolation(ctx, opID, opName)
+}
+
+func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opName, alertType, severity, title, description string) {
+	if hc.eventPub == nil || hc.alertSubject == "" {
+		return
+	}
+	evt := AlertEvent{
+		AlertID:     uuid.New().String(),
+		AlertType:   alertType,
+		Severity:    severity,
+		Title:       title,
+		Description: description,
+		EntityType:  "operator",
+		EntityID:    opID,
+		Metadata: map[string]interface{}{
+			"operator_name": opName,
+		},
+		Timestamp: time.Now(),
+	}
+	if err := hc.eventPub.Publish(ctx, hc.alertSubject, evt); err != nil {
+		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("publish alert event")
+	}
+}
+
+func (hc *HealthChecker) checkSLAViolation(ctx context.Context, opID uuid.UUID, opName string) {
+	if hc.slaTracker == nil || hc.store == nil {
+		return
+	}
+
+	total, failures, err := hc.store.CountFailures24h(ctx, opID)
+	if err != nil {
+		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("count failures for SLA")
+		return
+	}
+
+	op, err := hc.store.GetByID(ctx, opID)
+	if err != nil {
+		return
+	}
+
+	metrics := hc.slaTracker.ComputeMetrics(ctx, opID, int64(total), int64(failures), op.SLAUptimeTarget)
+
+	if metrics.SLAViolation {
+		hc.publishAlert(ctx, opID, opName, AlertTypeSLAViolation, SeverityWarning,
+			fmt.Sprintf("SLA violation for operator %s", opName),
+			fmt.Sprintf("Operator %s uptime %.2f%% is below SLA target %.2f%%. P95 latency: %dms",
+				opName, metrics.Uptime24h, metrics.SLATarget, metrics.LatencyP95Ms),
+		)
+	}
 }
 
 func (hc *HealthChecker) Stop() {
@@ -200,6 +319,8 @@ func (hc *HealthChecker) RefreshOperator(ctx context.Context, opID uuid.UUID) er
 		close(ch)
 		delete(hc.stopChs, opID)
 		delete(hc.breakers, opID)
+		delete(hc.lastStatus, opID)
+		delete(hc.operatorNames, opID)
 	}
 
 	hc.registry.Remove(opID)

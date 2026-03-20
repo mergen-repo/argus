@@ -262,6 +262,29 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-021: Operator Failover & Circuit Breaker
+
+1. `make up` -- Servisleri baslat
+2. Login yap ve JWT al
+3. Mock operator olustur (success_rate dusuk, orn: 20):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/operators \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Failing Op","code":"fail-op","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"success_rate":20,"latency_ms":100}}'
+   ```
+4. Health check durumunu izle:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/operators/{id}/health \
+     -H 'Authorization: Bearer <token>'
+   ```
+   Dusuk success_rate ile circuit breaker acilmali (status: "down")
+5. NATS monitoring (localhost:8222) ile operator.health_changed eventlerini izle
+6. WebSocket baglantisi ile real-time health degisikliklerini gozlemle
+7. Unit testler: `go test ./internal/operator/... ./internal/notification/... ./internal/ws/... -v`
+
+---
+
 ## STORY-020: 5G SBA HTTP/2 Proxy (AUSF/UDM)
 
 Bu story icin manuel test senaryosu yok (backend/altyapi — 5G SBA HTTP/2 protokolu). Asagidaki komutlar ile dogrulama:

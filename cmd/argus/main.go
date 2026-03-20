@@ -33,10 +33,13 @@ import (
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/job"
+	"github.com/btopcu/argus/internal/notification"
 	"github.com/btopcu/argus/internal/operator"
 	"github.com/btopcu/argus/internal/operator/adapter"
+	"github.com/btopcu/argus/internal/ws"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -153,12 +156,36 @@ func main() {
 	}
 
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
+	healthChecker.SetEventPublisher(eventBus, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered)
+
+	slaTracker := operator.NewSLATracker(rdb.Client, log.Logger)
+	healthChecker.SetSLATracker(slaTracker)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := healthChecker.Start(startCtx); err != nil {
 		log.Warn().Err(err).Msg("failed to start health checker — continuing without health checks")
 	}
 	startCancel()
+
+	notifChannels := []notification.Channel{notification.ChannelInApp}
+	if cfg.SMTPHost != "" {
+		notifChannels = append(notifChannels, notification.ChannelEmail)
+	}
+	if cfg.TelegramBotToken != "" {
+		notifChannels = append(notifChannels, notification.ChannelTelegram)
+	}
+	notifSvc := notification.NewService(nil, nil, nil, notifChannels, log.Logger)
+	if err := notifSvc.Start(&eventBusNotifSubscriber{eventBus}, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered); err != nil {
+		log.Warn().Err(err).Msg("failed to start notification service")
+	}
+
+	wsHub := ws.NewHub(log.Logger)
+	if err := wsHub.SubscribeToNATS(&eventBusWSSubscriber{eventBus}, []string{
+		bus.SubjectOperatorHealthChanged,
+		bus.SubjectAlertTriggered,
+	}); err != nil {
+		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
+	}
 
 	var radiusServer *aaaradius.Server
 	var sessionHandler *sessionapi.Handler
@@ -347,6 +374,12 @@ func main() {
 	log.Info().Msg("stopping job runner")
 	jobRunner.Stop()
 
+	log.Info().Msg("stopping ws hub")
+	wsHub.Stop()
+
+	log.Info().Msg("stopping notification service")
+	notifSvc.Stop()
+
 	log.Info().Msg("stopping health checker")
 	healthChecker.Stop()
 
@@ -482,4 +515,36 @@ type eventBusSubscriber struct {
 
 func (a *eventBusSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (audit.Subscription, error) {
 	return a.eb.QueueSubscribe(subject, queue, handler)
+}
+
+type natsSubWrapper struct {
+	sub *nats.Subscription
+}
+
+func (s *natsSubWrapper) Unsubscribe() error {
+	return s.sub.Unsubscribe()
+}
+
+type eventBusNotifSubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusNotifSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (notification.Subscription, error) {
+	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
+	if err != nil {
+		return nil, err
+	}
+	return &natsSubWrapper{sub: sub}, nil
+}
+
+type eventBusWSSubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusWSSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (ws.Subscription, error) {
+	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
+	if err != nil {
+		return nil, err
+	}
+	return &natsSubWrapper{sub: sub}, nil
 }

@@ -1,0 +1,231 @@
+package ws
+
+import (
+	"encoding/json"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+)
+
+type EventEnvelope struct {
+	Type      string      `json:"type"`
+	ID        string      `json:"id"`
+	Timestamp string      `json:"timestamp"`
+	Data      interface{} `json:"data"`
+}
+
+type Connection struct {
+	TenantID    uuid.UUID
+	UserID      uuid.UUID
+	SendCh      chan []byte
+	Filters     []string
+	mu          sync.Mutex
+}
+
+func (c *Connection) MatchesFilter(eventType string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.Filters) == 0 {
+		return true
+	}
+	for _, f := range c.Filters {
+		if f == "*" || f == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Connection) SetFilters(filters []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Filters = filters
+}
+
+type Subscriber interface {
+	QueueSubscribe(subject, queue string, handler func(string, []byte)) (Subscription, error)
+}
+
+type Subscription interface {
+	Unsubscribe() error
+}
+
+type Hub struct {
+	mu    sync.RWMutex
+	conns map[uuid.UUID]map[*Connection]struct{}
+	subs  []Subscription
+
+	logger zerolog.Logger
+}
+
+func NewHub(logger zerolog.Logger) *Hub {
+	return &Hub{
+		conns:  make(map[uuid.UUID]map[*Connection]struct{}),
+		logger: logger.With().Str("component", "ws_hub").Logger(),
+	}
+}
+
+func (h *Hub) Register(conn *Connection) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.conns[conn.TenantID] == nil {
+		h.conns[conn.TenantID] = make(map[*Connection]struct{})
+	}
+	h.conns[conn.TenantID][conn] = struct{}{}
+
+	h.logger.Debug().
+		Str("tenant_id", conn.TenantID.String()).
+		Str("user_id", conn.UserID.String()).
+		Msg("ws connection registered")
+}
+
+func (h *Hub) Unregister(conn *Connection) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if conns, ok := h.conns[conn.TenantID]; ok {
+		delete(conns, conn)
+		if len(conns) == 0 {
+			delete(h.conns, conn.TenantID)
+		}
+	}
+
+	h.logger.Debug().
+		Str("tenant_id", conn.TenantID.String()).
+		Str("user_id", conn.UserID.String()).
+		Msg("ws connection unregistered")
+}
+
+func (h *Hub) BroadcastAll(eventType string, data interface{}) {
+	envelope := EventEnvelope{
+		Type:      eventType,
+		ID:        "evt_" + uuid.New().String()[:8],
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		Data:      data,
+	}
+
+	msg, err := json.Marshal(envelope)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("marshal ws event")
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, conns := range h.conns {
+		for conn := range conns {
+			if conn.MatchesFilter(eventType) {
+				select {
+				case conn.SendCh <- msg:
+				default:
+					h.logger.Warn().
+						Str("tenant_id", conn.TenantID.String()).
+						Msg("ws send buffer full, dropping message")
+				}
+			}
+		}
+	}
+}
+
+func (h *Hub) BroadcastToTenant(tenantID uuid.UUID, eventType string, data interface{}) {
+	envelope := EventEnvelope{
+		Type:      eventType,
+		ID:        "evt_" + uuid.New().String()[:8],
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		Data:      data,
+	}
+
+	msg, err := json.Marshal(envelope)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("marshal ws event")
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	conns, ok := h.conns[tenantID]
+	if !ok {
+		return
+	}
+
+	for conn := range conns {
+		if conn.MatchesFilter(eventType) {
+			select {
+			case conn.SendCh <- msg:
+			default:
+				h.logger.Warn().
+					Str("tenant_id", tenantID.String()).
+					Msg("ws send buffer full, dropping message")
+			}
+		}
+	}
+}
+
+func (h *Hub) SubscribeToNATS(subscriber Subscriber, subjects []string) error {
+	for _, subject := range subjects {
+		sub, err := subscriber.QueueSubscribe(subject, "ws-hub", func(subj string, data []byte) {
+			h.relayNATSEvent(subj, data)
+		})
+		if err != nil {
+			h.Stop()
+			return err
+		}
+		h.subs = append(h.subs, sub)
+	}
+
+	h.logger.Info().
+		Strs("subjects", subjects).
+		Msg("ws hub subscribed to NATS")
+	return nil
+}
+
+func (h *Hub) relayNATSEvent(subject string, data []byte) {
+	eventType := natsSubjectToWSType(subject)
+	var payload interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		h.logger.Error().Err(err).Str("subject", subject).Msg("unmarshal NATS event for WS relay")
+		return
+	}
+	h.BroadcastAll(eventType, payload)
+}
+
+func natsSubjectToWSType(subject string) string {
+	mapping := map[string]string{
+		"argus.events.operator.health":       "operator.health_changed",
+		"argus.events.alert.triggered":       "alert.new",
+		"argus.events.session.started":       "session.started",
+		"argus.events.session.ended":         "session.ended",
+		"argus.events.sim.updated":           "sim.state_changed",
+		"argus.events.notification.dispatch": "notification.new",
+		"argus.jobs.progress":                "job.progress",
+		"argus.jobs.completed":               "job.completed",
+	}
+	if t, ok := mapping[subject]; ok {
+		return t
+	}
+	return subject
+}
+
+func (h *Hub) ConnectionCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	count := 0
+	for _, conns := range h.conns {
+		count += len(conns)
+	}
+	return count
+}
+
+func (h *Hub) Stop() {
+	for _, sub := range h.subs {
+		sub.Unsubscribe()
+	}
+	h.subs = nil
+	h.logger.Info().Msg("ws hub stopped")
+}
