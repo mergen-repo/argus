@@ -75,6 +75,7 @@
 | IP Reclaim | Process of returning terminated SIM's IP to pool after grace period | Configurable retention |
 | Pseudonymization | Replacing personal identifiers with irreversible hashes | KVKK/GDPR purge compliance |
 | Hash Chain | Sequential hashing linking each audit log entry to previous | Tamper detection |
+| Partial Token | Short-lived JWT (5min) with `partial: true` flag, issued when 2FA is required but not yet verified. Blocked by JWTAuth middleware; only accepted by JWTAuthAllowPartial for /2fa/verify endpoint. | 2FA authentication flow |
 | CDR | Call Detail Record | Usage record: bytes, duration, cost, RAT-type per session |
 
 ## Regulatory Terms
