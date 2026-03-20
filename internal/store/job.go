@@ -305,8 +305,8 @@ func (s *JobStore) Cancel(ctx context.Context, id uuid.UUID) error {
 	}
 
 	tag, err := s.db.Exec(ctx, `
-		UPDATE jobs SET state = 'cancelled', completed_at = NOW(), locked_by = NULL, locked_at = NULL
-		WHERE id = $1 AND tenant_id = $2 AND state IN ('queued', 'retry_pending')
+		UPDATE jobs SET state = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+		WHERE id = $1 AND tenant_id = $2 AND state IN ('queued', 'retry_pending', 'running')
 	`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("cancel job: %w", err)
@@ -319,9 +319,6 @@ func (s *JobStore) Cancel(ctx context.Context, id uuid.UUID) error {
 				return ErrJobNotFound
 			}
 			return fmt.Errorf("check job state: %w", checkErr)
-		}
-		if state == "running" {
-			return ErrJobAlreadyRunning
 		}
 		return fmt.Errorf("job cannot be cancelled in state: %s", state)
 	}
@@ -338,6 +335,18 @@ func (s *JobStore) SetRetryPending(ctx context.Context, jobID uuid.UUID) error {
 		return fmt.Errorf("set retry pending: %w", err)
 	}
 	return nil
+}
+
+func (s *JobStore) CheckCancelled(ctx context.Context, jobID uuid.UUID) (bool, error) {
+	var state string
+	err := s.db.QueryRow(ctx, `SELECT state FROM jobs WHERE id = $1`, jobID).Scan(&state)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, ErrJobNotFound
+		}
+		return false, fmt.Errorf("check cancelled: %w", err)
+	}
+	return state == "cancelled", nil
 }
 
 func (s *JobStore) GetErrorReport(ctx context.Context, id uuid.UUID) (json.RawMessage, error) {

@@ -33,8 +33,9 @@ func NewBulkHandler(jobs *store.JobStore, eventBus *bus.EventBus, logger zerolog
 }
 
 type bulkImportResponse struct {
-	JobID  string `json:"job_id"`
-	Status string `json:"status"`
+	JobID    string `json:"job_id"`
+	TenantID string `json:"tenant_id"`
+	Status   string `json:"status"`
 }
 
 func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +156,9 @@ func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
 		Status: "success",
 		Data: bulkImportResponse{
-			JobID:  j.ID.String(),
-			Status: "queued",
+			JobID:    j.ID.String(),
+			TenantID: j.TenantID.String(),
+			Status:   "queued",
 		},
 	})
 }

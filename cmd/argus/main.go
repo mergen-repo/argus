@@ -13,6 +13,7 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
+	jobapi "github.com/btopcu/argus/internal/api/job"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -24,6 +25,7 @@ import (
 	"github.com/btopcu/argus/internal/cache"
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
+	"github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/operator"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
@@ -129,6 +131,18 @@ func main() {
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger)
 	segmentStore := store.NewSegmentStore(pg.Pool)
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
+
+	jobStore := store.NewJobStore(pg.Pool)
+	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
+	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
+
+	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
+	jobRunner := job.NewRunner(jobStore, eventBus, log.Logger)
+	jobRunner.Register(importProcessor)
+	if err := jobRunner.Start(); err != nil {
+		log.Fatal().Err(err).Msg("failed to start job runner")
+	}
+
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -150,6 +164,8 @@ func main() {
 		IPPoolHandler:      ippoolHandler,
 		SIMHandler:         simHandler,
 		SegmentHandler:     segmentHandler,
+		BulkHandler:        bulkHandler,
+		JobHandler:         jobHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -191,6 +207,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("http server shutdown error")
 	}
+
+	log.Info().Msg("stopping job runner")
+	jobRunner.Stop()
 
 	log.Info().Msg("stopping health checker")
 	healthChecker.Stop()

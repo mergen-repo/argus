@@ -128,6 +128,14 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 	for i, row := range rows {
 		rowNum := i + 2
 
+		if (i+1)%progressInterval == 0 {
+			cancelled, checkErr := p.jobs.CheckCancelled(ctx, job.ID)
+			if checkErr == nil && cancelled {
+				p.logger.Info().Int("row", rowNum).Msg("job cancelled, stopping import")
+				break
+			}
+		}
+
 		if len(row) < maxCSVColumns {
 			rowErrors = append(rowErrors, ImportRowError{
 				Row:          rowNum,

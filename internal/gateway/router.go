@@ -6,6 +6,7 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
+	jobapi "github.com/btopcu/argus/internal/api/job"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -30,6 +31,8 @@ type RouterDeps struct {
 	IPPoolHandler    *ippoolapi.Handler
 	SIMHandler       *simapi.Handler
 	SegmentHandler   *segmentapi.Handler
+	BulkHandler      *simapi.BulkHandler
+	JobHandler       *jobapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -236,6 +239,31 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Delete("/api/v1/sim-segments/{id}", deps.SegmentHandler.Delete)
 			r.Get("/api/v1/sim-segments/{id}/count", deps.SegmentHandler.Count)
 			r.Get("/api/v1/sim-segments/{id}/summary", deps.SegmentHandler.StateSummary)
+		})
+	}
+
+	if deps.BulkHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
+		})
+	}
+
+	if deps.JobHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/jobs", deps.JobHandler.List)
+			r.Get("/api/v1/jobs/{id}", deps.JobHandler.Get)
+			r.Post("/api/v1/jobs/{id}/retry", deps.JobHandler.Retry)
+			r.Get("/api/v1/jobs/{id}/errors", deps.JobHandler.ErrorReport)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/jobs/{id}/cancel", deps.JobHandler.Cancel)
 		})
 	}
 

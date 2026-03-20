@@ -138,6 +138,9 @@
 | DEV-030 | 2026-03-20 | STORY-011: Gate fixed SQL injection risk in `TransitionState` default case — replaced `fmt.Sprintf('state = '%s'', targetState)` with parameterized `state = $3`. Also fixed terminated case to use `$3::interval` parameter. Although `validateTransition` prevents arbitrary values from reaching these code paths, parameterized queries are the correct pattern. | ACCEPTED |
 | DEV-031 | 2026-03-20 | STORY-012: Gate fixed missing `HasMore` in segment List handler's ListMeta — all other handlers (tenant, user, audit, sim, apn, operator, ippool, apikey) set `HasMore: nextCursor != ""`. Segment handler was the only one missing it. | ACCEPTED |
 | DEV-032 | 2026-03-20 | STORY-012: No Update (PATCH) endpoint for segments. Story ACs and plan do not specify Update. Segments are create-once, delete-if-wrong. Update can be added in a future enhancement if needed. | ACCEPTED |
+| DEV-033 | 2026-03-20 | STORY-013: Gate fixed missing `HasMore` in Job handler's List ListMeta — all other 11 list handlers in the codebase set `HasMore: nextCursor != ""`. Job handler was the only one missing it. | ACCEPTED |
+| DEV-034 | 2026-03-20 | STORY-013: Gate extended JobStore.Cancel to allow cancelling `running` jobs (previously only `queued`/`retry_pending`). This enables the `CheckCancelled` mechanism in BulkImportProcessor to work — processor checks state every 100 rows and stops if cancelled. Without this, running jobs could never be cancelled, making the CheckCancelled code dead. | ACCEPTED |
+| DEV-035 | 2026-03-20 | STORY-013: CSV data stored inline in job payload JSONB (up to 50MB). Acceptable for v1. Future optimization: store CSV as file reference (S3/local) instead of inline in JSONB for very large files. | ACCEPTED |
 
 ## Performance Decisions
 
@@ -151,5 +154,7 @@
 | PERF-006 | 2026-03-20 | STORY-011: ILIKE search with prefix wildcard (`%q%`) on iccid/imsi/msisdn in combo search (q param). No index optimization possible for leading wildcard. Acceptable for admin use case; pg_trgm GIN index can be added later if search latency becomes an issue. | ACCEPTED |
 | PERF-007 | 2026-03-20 | STORY-012: Segment filter by `rat_type` has no composite index on sims table. Acceptable because rat_type is optional and typically combined with other indexed filters (operator_id, state, apn_id). PostgreSQL can use the primary filter index + sequential filter. Can add `idx_sims_tenant_rat_type` later if query latency exceeds targets. | ACCEPTED |
 | PERF-008 | 2026-03-20 | STORY-012: Segment count and summary results not cached in Redis — SIM state transitions happen frequently, stale cache is unacceptable for count accuracy. Same rationale as PERF-005. | ACCEPTED |
+| PERF-009 | 2026-03-20 | STORY-013: Job list not cached in Redis — admin/manager endpoint, state changes frequently (queued→running→completed), stale cache unacceptable. Cursor-based pagination makes list caching impractical. Same rationale as PERF-005. | ACCEPTED |
+| PERF-010 | 2026-03-20 | STORY-013: Operator/APN lookups in BulkImportProcessor use per-job in-memory cache (map). Avoids N+1 queries for repeated operator_code/apn_name values across CSV rows. Cache lives only for the duration of one job. | ACCEPTED |
 
 ---

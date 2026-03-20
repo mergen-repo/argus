@@ -50,7 +50,7 @@
 | STORY-010 | APN CRUD & IP Pool Management | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-011 | SIM CRUD & State Machine | XL | [x] DONE | — | STORY-010 | 2026-03-20 |
 | STORY-012 | SIM Segments & Group-First UX | M | [x] DONE | — | STORY-011 | 2026-03-20 |
-| STORY-013 | Bulk SIM Import (CSV) | L | [ ] PENDING | — | STORY-011, STORY-006 | — |
+| STORY-013 | Bulk SIM Import (CSV) | L | [~] IN PROGRESS | Commit | STORY-011, STORY-006 | — |
 | STORY-014 | MSISDN Number Pool Management | S | [ ] PENDING | — | STORY-011 | — |
 
 ### Phase 3: AAA Engine [PENDING]

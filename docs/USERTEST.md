@@ -262,6 +262,48 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-013: Bulk SIM Import (CSV)
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. CSV dosyasi hazirla (test.csv):
+   ```
+   ICCID,IMSI,MSISDN,operator_code,apn_name
+   8990100000000000010,310260000000010,+905551234510,turkcell,iot.fleet
+   8990100000000000011,310260000000011,+905551234511,turkcell,iot.fleet
+   8990100000000000012,310260000000012,,turkcell,iot.fleet
+   ```
+4. Bulk import:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims/bulk/import \
+     -H 'Authorization: Bearer <token>' \
+     -F 'file=@test.csv'
+   ```
+   202 + job_id donmeli
+5. Job durumu kontrol:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/jobs/{job_id} \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + status (pending/running/completed), progress yuzde, processed/total_rows
+6. Job listele: GET /api/v1/jobs -- 200 + job listesi
+7. Duplicate ICCID ile CSV yukle → partial success, error_report'ta duplicate satirlar
+8. Hata raporu indir:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/jobs/{job_id}/errors \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + CSV formatinda hata raporu (row, iccid, error)
+9. Job iptal (uzun sureli import icin):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/jobs/{job_id}/cancel \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + status:"cancelled"
+10. Unit testler: `go test ./internal/job/... ./internal/api/job/... ./internal/api/sim/... -v`
+
+---
+
 ## STORY-012: SIM Segments & Group-First UX
 
 1. `make up` -- Tum servisleri baslat
