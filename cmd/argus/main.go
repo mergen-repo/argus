@@ -8,11 +8,14 @@ import (
 	"syscall"
 	"time"
 
+	authapi "github.com/btopcu/argus/internal/api/auth"
+	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -59,8 +62,28 @@ func main() {
 	defer ns.Close()
 	log.Info().Msg("nats connected")
 
+	userStore := store.NewUserStore(pg.Pool)
+	sessionStore := store.NewSessionStore(pg.Pool)
+
+	authSvc := auth.NewService(
+		&userStoreAdapter{userStore},
+		&sessionStoreAdapter{sessionStore},
+		nil,
+		auth.Config{
+			JWTSecret:        cfg.JWTSecret,
+			JWTExpiry:        cfg.JWTExpiry,
+			JWTRefreshExpiry: cfg.JWTRefreshExpiry,
+			JWTIssuer:        cfg.JWTIssuer,
+			BcryptCost:       cfg.BcryptCost,
+			MaxLoginAttempts: cfg.LoginMaxAttempts,
+			LockoutDuration:  cfg.LoginLockoutDur,
+		},
+	)
+
+	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
-	router := gateway.NewRouter(health)
+	router := gateway.NewRouter(health, authHandler, cfg.JWTSecret)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr(),
@@ -96,4 +119,113 @@ func main() {
 	}
 
 	log.Info().Msg("argus stopped")
+}
+
+type userStoreAdapter struct {
+	s *store.UserStore
+}
+
+func (a *userStoreAdapter) GetByEmail(ctx context.Context, email string) (*auth.User, error) {
+	u, err := a.s.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return storeUserToAuth(u), nil
+}
+
+func (a *userStoreAdapter) GetByID(ctx context.Context, id uuid.UUID) (*auth.User, error) {
+	u, err := a.s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return storeUserToAuth(u), nil
+}
+
+func (a *userStoreAdapter) UpdateLoginSuccess(ctx context.Context, id uuid.UUID) error {
+	return a.s.UpdateLoginSuccess(ctx, id)
+}
+
+func (a *userStoreAdapter) IncrementFailedLogin(ctx context.Context, id uuid.UUID, lockUntil *time.Time) error {
+	return a.s.IncrementFailedLogin(ctx, id, lockUntil)
+}
+
+func (a *userStoreAdapter) SetTOTPSecret(ctx context.Context, id uuid.UUID, secret string) error {
+	return a.s.SetTOTPSecret(ctx, id, secret)
+}
+
+func (a *userStoreAdapter) EnableTOTP(ctx context.Context, id uuid.UUID) error {
+	return a.s.EnableTOTP(ctx, id)
+}
+
+func storeUserToAuth(u *store.User) *auth.User {
+	return &auth.User{
+		ID:               u.ID,
+		TenantID:         u.TenantID,
+		Email:            u.Email,
+		PasswordHash:     u.PasswordHash,
+		Name:             u.Name,
+		Role:             u.Role,
+		TOTPSecret:       u.TOTPSecret,
+		TOTPEnabled:      u.TOTPEnabled,
+		State:            u.State,
+		LastLoginAt:      u.LastLoginAt,
+		FailedLoginCount: u.FailedLoginCount,
+		LockedUntil:      u.LockedUntil,
+	}
+}
+
+type sessionStoreAdapter struct {
+	s *store.SessionStore
+}
+
+func (a *sessionStoreAdapter) Create(ctx context.Context, params auth.CreateSessionParams) (*auth.UserSession, error) {
+	sess, err := a.s.Create(ctx, store.CreateSessionParams{
+		UserID:           params.UserID,
+		RefreshTokenHash: params.RefreshTokenHash,
+		IPAddress:        params.IPAddress,
+		UserAgent:        params.UserAgent,
+		ExpiresAt:        params.ExpiresAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return storeSessionToAuth(sess), nil
+}
+
+func (a *sessionStoreAdapter) RevokeSession(ctx context.Context, sessionID uuid.UUID) error {
+	return a.s.RevokeSession(ctx, sessionID)
+}
+
+func (a *sessionStoreAdapter) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error {
+	return a.s.RevokeAllUserSessions(ctx, userID)
+}
+
+func (a *sessionStoreAdapter) GetByID(ctx context.Context, id uuid.UUID) (*auth.UserSession, error) {
+	sess, err := a.s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return storeSessionToAuth(sess), nil
+}
+
+func (a *sessionStoreAdapter) GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]auth.UserSession, error) {
+	sessions, err := a.s.GetActiveByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]auth.UserSession, len(sessions))
+	for i, sess := range sessions {
+		result[i] = *storeSessionToAuth(&sess)
+	}
+	return result, nil
+}
+
+func storeSessionToAuth(s *store.UserSession) *auth.UserSession {
+	return &auth.UserSession{
+		ID:               s.ID,
+		UserID:           s.UserID,
+		RefreshTokenHash: s.RefreshTokenHash,
+		ExpiresAt:        s.ExpiresAt,
+		RevokedAt:        s.RevokedAt,
+	}
 }

@@ -31,3 +31,39 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 8. Seed'leri tekrar calistirmak hata vermemeli (idempotent)
 9. `migrate ... down 3` -- 3 app migration geri alinabilmeli
 10. `migrate ... up` -- Tekrar uygulanabilmeli
+
+---
+
+## STORY-003: Authentication — JWT + Refresh Token + 2FA
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Tum servisleri baslat
+2. Login testi:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@argus.io","password":"admin"}' -c cookies.txt
+   ```
+   JWT token + refresh cookie donmeli
+3. Yanlis sifre ile login -- 401 INVALID_CREDENTIALS donmeli
+4. 5 kez yanlis sifre -- 403 ACCOUNT_LOCKED donmeli (15 dk)
+5. Refresh testi:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/auth/refresh -b cookies.txt
+   ```
+   Yeni JWT donmeli
+6. Logout testi:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/auth/logout \
+     -H 'Authorization: Bearer <token>' -b cookies.txt
+   ```
+   204 donmeli, sonraki refresh basarisiz olmali
+7. 2FA setup (JWT ile):
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/auth/2fa/setup \
+     -H 'Authorization: Bearer <token>'
+   ```
+   TOTP secret + QR URI donmeli
+8. 2FA verify -- Yanlis kod ile 401, dogru kod ile tam JWT donmeli
+9. Expired JWT ile protected route -- 401 donmeli

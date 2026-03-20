@@ -1,0 +1,63 @@
+package auth
+
+import (
+	"errors"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+)
+
+var (
+	ErrTokenExpired = errors.New("auth: token expired")
+	ErrTokenInvalid = errors.New("auth: token invalid")
+)
+
+type Claims struct {
+	UserID   uuid.UUID `json:"sub"`
+	TenantID uuid.UUID `json:"tenant_id"`
+	Role     string    `json:"role"`
+	Partial  bool      `json:"partial,omitempty"`
+	jwt.RegisteredClaims
+}
+
+func GenerateToken(secret string, userID, tenantID uuid.UUID, role string, expiry time.Duration, partial bool) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UserID:   userID,
+		TenantID: tenantID,
+		Role:     role,
+		Partial:  partial,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "argus",
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+func ValidateToken(tokenString, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, ErrTokenInvalid
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
+		return nil, ErrTokenInvalid
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, ErrTokenInvalid
+	}
+
+	return claims, nil
+}

@@ -14,14 +14,21 @@ const (
 )
 
 const (
-	CodeInternalError    = "INTERNAL_ERROR"
-	CodeInvalidFormat    = "INVALID_FORMAT"
-	CodeValidationError  = "VALIDATION_ERROR"
-	CodeNotFound         = "NOT_FOUND"
-	CodeConflict         = "CONFLICT"
-	CodeAlreadyExists    = "ALREADY_EXISTS"
-	CodeMSISDNNotFound   = "MSISDN_NOT_FOUND"
+	CodeInternalError      = "INTERNAL_ERROR"
+	CodeInvalidFormat      = "INVALID_FORMAT"
+	CodeValidationError    = "VALIDATION_ERROR"
+	CodeNotFound           = "NOT_FOUND"
+	CodeConflict           = "CONFLICT"
+	CodeAlreadyExists      = "ALREADY_EXISTS"
+	CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"
 	CodeMSISDNNotAvailable = "MSISDN_NOT_AVAILABLE"
+
+	CodeInvalidCredentials  = "INVALID_CREDENTIALS"
+	CodeAccountLocked       = "ACCOUNT_LOCKED"
+	CodeAccountDisabled     = "ACCOUNT_DISABLED"
+	CodeInvalid2FACode      = "INVALID_2FA_CODE"
+	CodeTokenExpired        = "TOKEN_EXPIRED"
+	CodeInvalidRefreshToken = "INVALID_REFRESH_TOKEN"
 )
 
 type SuccessResponse struct {
