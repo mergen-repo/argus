@@ -300,6 +300,8 @@ RADIUS Request → UDP listener (goroutine pool)
 | Operator IMSI prefix table | In-memory | 1hr | NATS on operator change |
 | Session state | Redis | Session duration | CoA/DM events |
 | Tenant config | Redis | 5min | NATS on tenant update |
+| EAP session state | Redis | 30s | Auto-expire (TTL) |
+| Auth vector pre-fetch | Redis list | 5min | Auto-expire (TTL) |
 | Rate limit counters | Redis | Sliding window | Auto-expire |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
 
