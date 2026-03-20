@@ -214,5 +214,13 @@
 | TEST-008 | 2026-03-20 | STORY-016: Concurrent EAP session test uses 10 goroutines with unique session IDs and IMSIs, verifying no state leakage (IMSI isolation). Sufficient for unit-level race detection. Production-scale concurrent load testing deferred to integration environment. | ACCEPTED |
 | TEST-009 | 2026-03-20 | STORY-017: Session manager tests use Redis DB 14 with FlushDB in cleanup. Session tests create Manager with nil store (Redis-only mode). Sweep tests validate idle/hard timeout detection and active session preservation. Handler tests validate API envelope, 404 on missing session, and bulk disconnect validation errors. | ACCEPTED |
 | TEST-010 | 2026-03-20 | STORY-017: BulkDisconnectProcessor tested at payload/result serialization level (4 tests). Full Process() integration test deferred — requires mock session manager and job store. Processor.Type() validated. | ACCEPTED |
+| TEST-011 | 2026-03-20 | STORY-019: Diameter tests with nil sessionMgr verify protocol logic and error handling without DB. DB integration tested at session manager level (STORY-015). Nil sessionMgr path returns success for CCR-I (session created in stateMap only) and success for CCR-U/CCR-T (no session found in DB, graceful handling). | ACCEPTED |
+| TEST-012 | 2026-03-20 | STORY-019: Watchdog timeout test uses 100ms WatchdogInterval + 500ms sleep. Generous buffer (5x interval) avoids flaky failures while verifying timeout behavior. Race detector enabled on all 53 tests. | ACCEPTED |
+| TEST-013 | 2026-03-20 | STORY-019: 53 Diameter tests cover all 13 ACs with positive and negative paths. All 10 story test scenarios implemented. No weak assertions — all tests verify specific result codes, session IDs, command codes, and AVP presence. | ACCEPTED |
+
+| PERF-020 | 2026-03-20 | STORY-019: Diameter peer connections stored in sync.Map — lock-free concurrent reads for multi-peer support. SessionStateMap uses RWMutex — reads don't block each other. No caching needed beyond in-memory structures (protocol-level data, not DB data). | ACCEPTED |
+
+| VAL-009 | 2026-03-20 | STORY-019: Gx/Gy handlers use 3-second context timeout for all DB operations (sessionMgr calls). Prevents slow DB from blocking Diameter message processing. Matches RADIUS handler timeout pattern (STORY-015). | ACCEPTED |
+| VAL-010 | 2026-03-20 | STORY-019: CER/CEA negotiates both Gx (16777238) and Gy (4) application IDs regardless of peer's declared capabilities. Peer can send CCR for any app; unsupported app returns DIAMETER_APPLICATION_UNSUPPORTED (3007). Future refinement: enforce negotiated-only apps. | ACCEPTED |
 
 ---

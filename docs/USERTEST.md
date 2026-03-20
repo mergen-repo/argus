@@ -262,6 +262,21 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-019: Diameter Protocol Server (Gx/Gy)
+
+Bu story icin manuel test senaryosu yok (backend/altyapi — Diameter TCP protokolu). Asagidaki komutlar ile dogrulama:
+
+1. `make up` -- Servisleri baslat (Diameter :3868 otomatik dinler)
+2. Health check ile Diameter durumu:
+   ```bash
+   curl -sk https://localhost:8084/api/health
+   ```
+   `{"aaa":{"radius":"ok","diameter":"ok",...}}` icermeli
+3. Unit testler: `go test -race ./internal/aaa/diameter/... -v`
+4. Diameter client ile CER/CEA handshake testi (harici Diameter test araci gerekli)
+
+---
+
 ## STORY-017: Session Management & Force Disconnect
 
 1. `make up` -- Tum servisleri baslat
