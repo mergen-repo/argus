@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -94,10 +95,17 @@ func main() {
 	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
 
 	tenantStore := store.NewTenantStore(pg.Pool)
-	auditSvc := audit.NewService()
+	auditStore := store.NewAuditStore(pg.Pool)
+	eventBus := bus.NewEventBus(ns)
+	auditSvc := audit.NewFullService(auditStore, eventBus, log.Logger)
+
+	if err := auditSvc.Start(ctx, &eventBusSubscriber{eventBus}); err != nil {
+		log.Fatal().Err(err).Msg("failed to start audit consumer")
+	}
 
 	tenantHandler := tenantapi.NewHandler(tenantStore, auditSvc, log.Logger)
 	userHandler := userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger)
+	auditHandler := auditapi.NewHandler(auditStore, auditSvc, log.Logger)
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
@@ -105,6 +113,7 @@ func main() {
 		AuthHandler:   authHandler,
 		TenantHandler: tenantHandler,
 		UserHandler:   userHandler,
+		AuditHandler:  auditHandler,
 		JWTSecret:     cfg.JWTSecret,
 		Logger:        log.Logger,
 	})
@@ -142,6 +151,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("http server shutdown error")
 	}
+
+	log.Info().Msg("stopping audit consumer")
+	auditSvc.Stop()
 
 	log.Info().Msg("closing nats connection")
 	ns.Close()
@@ -264,4 +276,12 @@ func storeSessionToAuth(s *store.UserSession) *auth.UserSession {
 		ExpiresAt:        s.ExpiresAt,
 		RevokedAt:        s.RevokedAt,
 	}
+}
+
+type eventBusSubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (audit.Subscription, error) {
+	return a.eb.QueueSubscribe(subject, queue, handler)
 }

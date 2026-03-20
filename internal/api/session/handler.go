@@ -23,7 +23,7 @@ type Handler struct {
 	sessionMgr *session.Manager
 	dmSender   *session.DMSender
 	eventBus   *bus.EventBus
-	auditSvc   *audit.Service
+	auditSvc   audit.Auditor
 	jobStore   *store.JobStore
 	logger     zerolog.Logger
 }
@@ -32,7 +32,7 @@ func NewHandler(
 	sessionMgr *session.Manager,
 	dmSender *session.DMSender,
 	eventBus *bus.EventBus,
-	auditSvc *audit.Service,
+	auditSvc audit.Auditor,
 	jobStore *store.JobStore,
 	logger zerolog.Logger,
 ) *Handler {
@@ -390,15 +390,23 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID, reason str
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
 
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, parseErr := uuid.Parse(cidStr); parseErr == nil {
+			correlationID = &cid
+		}
+	}
+
 	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
-		TenantID:   tenantID,
-		UserID:     userID,
-		Action:     action,
-		EntityType: "session",
-		EntityID:   entityID,
-		AfterData:  afterData,
-		IPAddress:  &ip,
-		UserAgent:  &ua,
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    "session",
+		EntityID:      entityID,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
 	})
 	if auditErr != nil {
 		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")

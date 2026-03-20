@@ -137,3 +137,41 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    EVENTS ve JOBS stream'leri gorunmeli
 5. Config validation -- JWT_SECRET bos birakilirsa container baslatilamamali
 6. Graceful shutdown -- `docker stop argus` 5 saniye icinde temiz kapanmali
+
+---
+
+## STORY-007: Audit Log Service — Tamper-Proof Hash Chain
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap ve JWT al (admin@argus.io)
+3. State-changing islem yap (user olustur veya guncelle) -- Audit entry NATS uzerinden olusturulur
+4. Audit log listele:
+   ```bash
+   curl -sk https://localhost/api/v1/audit-logs \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + audit log listesi donmeli (action, entity_type, entity_id, diff)
+5. Filtreleme testi:
+   ```bash
+   curl -sk 'https://localhost/api/v1/audit-logs?action=create&entity_type=user' \
+     -H 'Authorization: Bearer <token>'
+   ```
+   Sadece user create kayitlari donmeli
+6. Hash chain dogrulama:
+   ```bash
+   curl -sk 'https://localhost/api/v1/audit-logs/verify?count=100' \
+     -H 'Authorization: Bearer <token>'
+   ```
+   `{"verified": true, "entries_checked": N}` donmeli
+7. CSV export:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/audit-logs/export \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"from":"2026-03-01","to":"2026-03-31"}'
+   ```
+   CSV dosyasi donmeli (Content-Type: text/csv)
+8. Yetkisiz erisim (JWT olmadan veya analyst rolu ile) -- 401/403 donmeli
+9. Unit testler: `go test ./internal/audit/... ./internal/store/... ./internal/api/audit/... -v` -- 30 test gecmeli

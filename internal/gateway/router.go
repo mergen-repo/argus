@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -14,6 +15,7 @@ type RouterDeps struct {
 	AuthHandler   *authapi.AuthHandler
 	TenantHandler *tenantapi.Handler
 	UserHandler   *userapi.Handler
+	AuditHandler  *auditapi.Handler
 	JWTSecret     string
 	Logger        zerolog.Logger
 }
@@ -83,6 +85,16 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("api_user"))
 			r.Patch("/api/v1/users/{id}", deps.UserHandler.Update)
+		})
+	}
+
+	if deps.AuditHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
+			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
+			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
 		})
 	}
 

@@ -27,11 +27,11 @@ var validRoles = map[string]bool{
 type Handler struct {
 	userStore   *store.UserStore
 	tenantStore *store.TenantStore
-	auditSvc    *audit.Service
+	auditSvc    audit.Auditor
 	logger      zerolog.Logger
 }
 
-func NewHandler(userStore *store.UserStore, tenantStore *store.TenantStore, auditSvc *audit.Service, logger zerolog.Logger) *Handler {
+func NewHandler(userStore *store.UserStore, tenantStore *store.TenantStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		userStore:   userStore,
 		tenantStore: tenantStore,
@@ -305,6 +305,13 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, bef
 		userID = &uid
 	}
 
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, err := uuid.Parse(cidStr); err == nil {
+			correlationID = &cid
+		}
+	}
+
 	var beforeData, afterData json.RawMessage
 	if before != nil {
 		beforeData, _ = json.Marshal(before)
@@ -314,15 +321,16 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, bef
 	}
 
 	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
-		TenantID:   tenantID,
-		UserID:     userID,
-		Action:     action,
-		EntityType: "user",
-		EntityID:   entityID,
-		BeforeData: beforeData,
-		AfterData:  afterData,
-		IPAddress:  &ip,
-		UserAgent:  &ua,
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    "user",
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
 	})
 	if auditErr != nil {
 		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
