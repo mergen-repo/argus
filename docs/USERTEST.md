@@ -262,6 +262,26 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-015: RADIUS Authentication & Accounting Server
+
+Bu story icin manuel test senaryosu yok (backend/altyapi — RADIUS UDP protokolu). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Tum servisleri baslat
+2. RADIUS_SECRET env var set edilmis olmali (Docker Compose'da default var)
+3. Health check ile AAA durumu kontrol:
+   ```bash
+   curl -sk https://localhost:8084/api/health
+   ```
+   Cevap: `{"aaa":{"radius":"ok","sessions_active":0}}` icermeli
+4. RADIUS test (radtest veya radclient gerekli):
+   ```bash
+   echo "User-Name=310260000000001" | radclient -x localhost:1812 auth testing123
+   ```
+   Active SIM icin Access-Accept, bilinmeyen IMSI icin Access-Reject donmeli
+5. Unit testler: `go test ./internal/aaa/radius/... ./internal/store/... ./internal/aaa/session/... -v`
+
+---
+
 ## STORY-018: Pluggable Operator Adapter + Mock Simulator
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework backend-only. Asagidaki komutlar ile dogrulama yapilabilir:

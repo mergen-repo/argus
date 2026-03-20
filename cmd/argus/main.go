@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
+	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -154,7 +157,42 @@ func main() {
 	}
 	startCancel()
 
+	var radiusServer *aaaradius.Server
+	if cfg.RadiusSecret != "" {
+		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
+		simCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
+		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger)
+		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
+		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
+
+		radiusServer = aaaradius.NewServer(
+			aaaradius.ServerConfig{
+				AuthAddr:       fmt.Sprintf(":%d", cfg.RadiusAuthPort),
+				AcctAddr:       fmt.Sprintf(":%d", cfg.RadiusAcctPort),
+				DefaultSecret:  cfg.RadiusSecret,
+				WorkerPoolSize: cfg.RadiusWorkerPoolSize,
+			},
+			simCache,
+			sessionMgr,
+			operatorStore,
+			ippoolStore,
+			eventBus,
+			coaSender,
+			dmSender,
+			log.Logger,
+		)
+
+		radiusStartCtx, radiusStartCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := radiusServer.Start(radiusStartCtx); err != nil {
+			log.Fatal().Err(err).Msg("failed to start RADIUS server")
+		}
+		radiusStartCancel()
+	}
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
+	if radiusServer != nil {
+		health.SetAAAChecker(radiusServer)
+	}
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
 		AuthHandler:        authHandler,
@@ -210,6 +248,13 @@ func main() {
 	log.Info().Msg("shutting down http server")
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("http server shutdown error")
+	}
+
+	if radiusServer != nil {
+		log.Info().Msg("stopping RADIUS server")
+		if err := radiusServer.Stop(shutdownCtx); err != nil {
+			log.Error().Err(err).Msg("RADIUS server shutdown error")
+		}
 	}
 
 	log.Info().Msg("stopping job runner")

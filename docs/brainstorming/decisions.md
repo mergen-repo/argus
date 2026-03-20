@@ -161,11 +161,16 @@
 | PERF-010 | 2026-03-20 | STORY-013: Operator/APN lookups in BulkImportProcessor use per-job in-memory cache (map). Avoids N+1 queries for repeated operator_code/apn_name values across CSV rows. Cache lives only for the duration of one job. | ACCEPTED |
 | PERF-011 | 2026-03-20 | STORY-014: MSISDN pool list not cached in Redis — admin/manager endpoint, state changes frequently (assign/release), stale cache unacceptable. Cursor-based pagination makes list caching impractical. Same rationale as PERF-005/009. | ACCEPTED |
 | PERF-012 | 2026-03-20 | STORY-014: BulkImport uses per-row INSERT (not COPY) to enable per-row error tracking and partial success reporting. COPY would be faster for >1000 rows but loses error granularity. Acceptable for admin-only import operation. | ACCEPTED |
+| PERF-013 | 2026-03-20 | STORY-015: SIM cache (sim:imsi:{imsi}) TTL 5min in Redis, session cache (session:{id}) TTL = session_timeout. Acct-Session-ID index key (session:acct:{acctSessionID}) enables O(1) lookup without Redis SCAN. All cache patterns match ARCHITECTURE.md caching strategy. | ACCEPTED |
+| PERF-014 | 2026-03-20 | STORY-015: CountActive uses `SELECT COUNT(*) FROM sessions WHERE session_state = 'active'` — idx_sessions_tenant_active partial index applies. Acceptable for health check frequency (~1/min). Not called in hot path. | ACCEPTED |
 
 ## Validation Decisions
 
 | # | Date | Decision | Status |
 |---|------|----------|--------|
+| VAL-004 | 2026-03-20 | STORY-015: Per-operator RADIUS shared secret resolved from `adapter_config.radius_secret` JSON field in operators table, with fallback to global `RADIUS_SECRET` env var. The layeh/radius `PacketServer` uses `StaticSecretSource` for the global secret; per-operator secret is used post-auth for logging/verification purposes. Full per-request `SecretSource` implementation deferred until operator NAS-IP mapping is available. | ACCEPTED |
+| VAL-005 | 2026-03-20 | STORY-015: Acct-Stop handler now passes final byte counters to `TerminateWithCounters` instead of discarding them (was `Finalize(id, cause, 0,0,0,0)`). Gate fix ensures CDR accuracy for billing/analytics. | ACCEPTED |
+| VAL-006 | 2026-03-20 | STORY-015: Policy Engine delegation uses `Filter-Id: "default"` as placeholder. Full policy evaluation integration deferred to STORY-016/STORY-025. Plan explicitly states "(Future: Policy Engine evaluation -- for now, use SIM's timeout values)". | ACCEPTED |
 | VAL-001 | 2026-03-20 | STORY-018: Mock adapter uses `math/rand` for success rate simulation — acceptable, not security-sensitive. Cryptographic randomness (`crypto/rand`) not needed for mock/test behavior. | ACCEPTED |
 | VAL-002 | 2026-03-20 | STORY-018: RADIUS and Diameter adapters return `ErrUnsupportedProtocol` for `FetchAuthVectors` — these protocols do not natively support direct vector fetch. Correct per 3GPP spec (vector fetch is via MAP/Diameter S6a, not generic Gx/Gy). | ACCEPTED |
 | VAL-003 | 2026-03-20 | STORY-018: SBA adapter `FetchAuthVectors` returns zero-filled vector stubs after HTTP call — real UDM response parsing deferred to STORY-019/integration phase. Acceptable for framework extension story. | ACCEPTED |
@@ -174,6 +179,8 @@
 
 | # | Date | Decision | Status |
 |---|------|----------|--------|
+| TEST-004 | 2026-03-20 | STORY-015: RadiusSessionStore tests (5 tests) use real PostgreSQL and are skipped when DB is unavailable (`t.Skipf`). These are integration tests that validate full SQL roundtrips. Unit tests for RADIUS handlers use real UDP packets against a running server instance. | ACCEPTED |
+| TEST-005 | 2026-03-20 | STORY-015: Suspended SIM and operator-down rejection tested indirectly via code path analysis (handleAuth checks `sim.State != "active"` and `op.HealthStatus == "down"`). Full end-to-end tests for these paths require a SIM store with test data, which is covered by integration test environment. | ACCEPTED |
 | TEST-001 | 2026-03-20 | STORY-018: Configurable rate test uses 200 iterations with 20-80% margin (for 50% target). Wide margin prevents flaky failures while still validating probabilistic behavior. | ACCEPTED |
 | TEST-002 | 2026-03-20 | STORY-018: RADIUS/Diameter/SBA adapters tested at build level only (interface satisfaction). Network-level integration tests deferred to respective protocol stories (STORY-015, STORY-019). Mock adapter has full behavioral tests. | ACCEPTED |
 | TEST-003 | 2026-03-20 | STORY-018: `go test -race` used on all story test packages. 150 concurrent goroutines (mock_test) + 50 concurrent goroutines (router_test) provide sufficient race coverage. | ACCEPTED |

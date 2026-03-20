@@ -721,6 +721,21 @@ func (s *SIMStore) SetIPAndPolicy(ctx context.Context, simID uuid.UUID, ipAddres
 	return nil
 }
 
+func (s *SIMStore) GetByIMSI(ctx context.Context, imsi string) (*SIM, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+simColumns+` FROM sims WHERE imsi = $1 LIMIT 1`,
+		imsi,
+	)
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get sim by imsi: %w", err)
+	}
+	return sim, nil
+}
+
 func parseInt64(s string) (int64, error) {
 	var n int64
 	_, err := fmt.Sscanf(s, "%d", &n)

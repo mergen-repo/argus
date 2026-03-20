@@ -615,6 +615,21 @@ func (s *IPPoolStore) ReleaseIP(ctx context.Context, poolID, simID uuid.UUID) er
 	return nil
 }
 
+func (s *IPPoolStore) GetIPAddressByID(ctx context.Context, id uuid.UUID) (*IPAddress, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+ipAddressColumns+` FROM ip_addresses WHERE id = $1`,
+		id,
+	)
+	addr, err := scanIPAddress(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrIPNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get ip address by id: %w", err)
+	}
+	return addr, nil
+}
+
 func GenerateIPv4Addresses(cidr string) ([]string, error) {
 	ip, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {

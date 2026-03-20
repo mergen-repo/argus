@@ -18,7 +18,7 @@ import (
 func newTestHandler(t *testing.T) (*Handler, *sessModel.Manager) {
 	t.Helper()
 	logger := zerolog.Nop()
-	mgr := sessModel.NewManager()
+	mgr := sessModel.NewManager(nil, nil, logger)
 	h := NewHandler(mgr, nil, nil, nil, nil, logger)
 	return h, mgr
 }
