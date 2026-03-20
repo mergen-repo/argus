@@ -7,22 +7,12 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 )
 
-var roleLevels = map[string]int{
-	"api_user":         1,
-	"analyst":          2,
-	"policy_editor":    3,
-	"sim_manager":      4,
-	"operator_manager": 5,
-	"tenant_admin":     6,
-	"super_admin":      7,
-}
-
 func RoleLevel(role string) int {
-	return roleLevels[role]
+	return apierr.RoleLevel(role)
 }
 
 func HasRole(userRole, requiredRole string) bool {
-	return RoleLevel(userRole) >= RoleLevel(requiredRole)
+	return apierr.HasRole(userRole, requiredRole)
 }
 
 func RequireRole(minRole string) func(http.Handler) http.Handler {

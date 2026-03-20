@@ -35,6 +35,9 @@ const (
 	CodeForbidden        = "FORBIDDEN"
 	CodeInsufficientRole = "INSUFFICIENT_ROLE"
 	CodeScopeDenied      = "SCOPE_DENIED"
+
+	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
+	CodeTenantSuspended       = "TENANT_SUSPENDED"
 )
 
 type SuccessResponse struct {
@@ -100,4 +103,22 @@ func WriteError(w http.ResponseWriter, status int, code, message string, details
 		resp.Error.Details = details[0]
 	}
 	WriteJSON(w, status, resp)
+}
+
+var roleLevels = map[string]int{
+	"api_user":         1,
+	"analyst":          2,
+	"policy_editor":    3,
+	"sim_manager":      4,
+	"operator_manager": 5,
+	"tenant_admin":     6,
+	"super_admin":      7,
+}
+
+func RoleLevel(role string) int {
+	return roleLevels[role]
+}
+
+func HasRole(userRole, requiredRole string) bool {
+	return RoleLevel(userRole) >= RoleLevel(requiredRole)
 }

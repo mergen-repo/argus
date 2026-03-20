@@ -1,0 +1,242 @@
+package tenant
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/btopcu/argus/internal/apierr"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+)
+
+func withChiURLParam(r *http.Request, key, val string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add(key, val)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+}
+
+func TestToTenantResponse(t *testing.T) {
+	id := uuid.New()
+	domain := "test.example.com"
+	phone := "+905551234567"
+
+	resp := tenantResponse{
+		ID:           id.String(),
+		Name:         "Test Tenant",
+		Domain:       &domain,
+		ContactEmail: "admin@test.com",
+		ContactPhone: &phone,
+		MaxSims:      100000,
+		MaxApns:      100,
+		MaxUsers:     50,
+		State:        "active",
+		CreatedAt:    "2026-03-20T00:00:00Z",
+		UpdatedAt:    "2026-03-20T00:00:00Z",
+	}
+
+	if resp.ID != id.String() {
+		t.Errorf("ID = %v, want %v", resp.ID, id.String())
+	}
+	if resp.State != "active" {
+		t.Errorf("State = %q, want %q", resp.State, "active")
+	}
+	if *resp.Domain != "test.example.com" {
+		t.Errorf("Domain = %q, want %q", *resp.Domain, "test.example.com")
+	}
+}
+
+func TestValidTenantStateTransitions(t *testing.T) {
+	tests := []struct {
+		from    string
+		to      string
+		allowed bool
+	}{
+		{"active", "suspended", true},
+		{"active", "terminated", false},
+		{"active", "active", false},
+		{"suspended", "active", true},
+		{"suspended", "terminated", true},
+		{"terminated", "active", false},
+		{"terminated", "suspended", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.from+"_to_"+tt.to, func(t *testing.T) {
+			transitions := validTenantTransitions[tt.from]
+			found := false
+			for _, s := range transitions {
+				if s == tt.to {
+					found = true
+					break
+				}
+			}
+			if found != tt.allowed {
+				t.Errorf("transition %s -> %s: got allowed=%v, want %v", tt.from, tt.to, found, tt.allowed)
+			}
+		})
+	}
+}
+
+func TestCreateTenantValidation(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, logger)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "invalid json",
+			body:       `{invalid}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   apierr.CodeInvalidFormat,
+		},
+		{
+			name:       "missing name",
+			body:       `{"contact_email":"admin@test.com"}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeValidationError,
+		},
+		{
+			name:       "missing contact_email",
+			body:       `{"name":"Test"}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeValidationError,
+		},
+		{
+			name:       "missing both",
+			body:       `{}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeValidationError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.RoleKey, "super_admin")
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			h.Create(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rr.Code, tt.wantStatus)
+			}
+
+			var resp apierr.ErrorResponse
+			json.NewDecoder(rr.Body).Decode(&resp)
+			if resp.Error.Code != tt.wantCode {
+				t.Errorf("code = %q, want %q", resp.Error.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestGetTenantForbiddenForNonSuperAdmin(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, logger)
+
+	otherTenantID := uuid.New()
+	callerTenantID := uuid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+otherTenantID.String(), nil)
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, callerTenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+
+	req = withChiURLParam(req, "id", otherTenantID.String())
+
+	rr := httptest.NewRecorder()
+	h.Get(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestUpdateTenantForbiddenForNonSuperAdminChangingLimits(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, logger)
+
+	tenantID := uuid.New()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"change max_sims", `{"max_sims": 500000}`},
+		{"change max_apns", `{"max_apns": 200}`},
+		{"change max_users", `{"max_users": 100}`},
+		{"change state", `{"state": "suspended"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/"+tenantID.String(), strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, apierr.TenantIDKey, tenantID)
+			ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+			req = req.WithContext(ctx)
+
+			req = withChiURLParam(req, "id", tenantID.String())
+
+			rr := httptest.NewRecorder()
+			h.Update(rr, req)
+
+			if rr.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+func TestStatsForbiddenForOtherTenant(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, logger)
+
+	otherTenantID := uuid.New()
+	callerTenantID := uuid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+otherTenantID.String()+"/stats", nil)
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, callerTenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+
+	req = withChiURLParam(req, "id", otherTenantID.String())
+
+	rr := httptest.NewRecorder()
+	h.Stats(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestPtrStr(t *testing.T) {
+	val := "test"
+	if ptrStr(&val) != "test" {
+		t.Error("ptrStr should return the string value")
+	}
+	if ptrStr(nil) != "" {
+		t.Error("ptrStr(nil) should return empty string")
+	}
+}

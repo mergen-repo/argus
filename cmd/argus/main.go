@@ -9,6 +9,9 @@ import (
 	"time"
 
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	tenantapi "github.com/btopcu/argus/internal/api/tenant"
+	userapi "github.com/btopcu/argus/internal/api/user"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
@@ -82,8 +85,20 @@ func main() {
 
 	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
 
+	tenantStore := store.NewTenantStore(pg.Pool)
+	auditSvc := audit.NewService()
+
+	tenantHandler := tenantapi.NewHandler(tenantStore, auditSvc, log.Logger)
+	userHandler := userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger)
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
-	router := gateway.NewRouter(health, authHandler, cfg.JWTSecret)
+	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
+		Health:        health,
+		AuthHandler:   authHandler,
+		TenantHandler: tenantHandler,
+		UserHandler:   userHandler,
+		JWTSecret:     cfg.JWTSecret,
+	})
 
 	srv := &http.Server{
 		Addr:         cfg.Addr(),

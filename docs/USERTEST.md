@@ -79,3 +79,36 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). RBAC middleware unit 
 3. api_user rollu JWT ile sinirli erisim olmali (role yetersizse 403 donmeli)
 4. JWT olmadan protected route -- 401 donmeli (403 degil)
 5. Yanlis/eksik role ile istek -- 403 INSUFFICIENT_ROLE donmeli
+
+---
+
+## STORY-005: Tenant Management & User CRUD
+
+1. `make up` -- Tum servisleri baslat
+2. super_admin ile login yap (admin@argus.io)
+3. Tenant listele:
+   ```bash
+   curl -sk https://localhost/api/v1/tenants -H 'Authorization: Bearer <token>'
+   ```
+   200 + tenant listesi donmeli
+4. Yeni tenant olustur:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/tenants \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Test Corp","domain":"testcorp.com","contact_email":"admin@testcorp.com","max_sims":1000,"max_apns":10,"max_users":5}'
+   ```
+   201 donmeli
+5. Tenant detay: GET /api/v1/tenants/:id -- 200 + stats donmeli
+6. Kullanici olustur (tenant_admin olarak):
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/users \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"user@testcorp.com","name":"Test User","role":"analyst"}'
+   ```
+   201 + state="invited" donmeli
+7. max_users limitine ulasildiginda user olusturma -- 422 RESOURCE_LIMIT_EXCEEDED
+8. Kullanici guncelle (role degistir) -- 200
+9. Tenant state degistir (active → suspended) -- 200
+10. Farkli tenant'in verisine erisim denemesi -- 403 veya bos sonuc
