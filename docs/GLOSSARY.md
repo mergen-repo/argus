@@ -95,6 +95,9 @@
 | Dry-Run | Policy simulation without applying changes | Shows impact before commit |
 | SIM Segment | Saved filter/group of SIMs based on criteria | Group-first UX navigation unit |
 | Circuit Breaker | Pattern that disables a failing operator after N consecutive errors | Prevents cascade failures |
+| SLA Tracker | Component that records per-operator health check latency in Redis sorted sets (1-hour sliding window) and computes uptime %, p50/p95/p99 latency percentiles, and SLA violation detection against configurable targets. | SVC-06, STORY-021 |
+| SLA Violation | Condition where operator uptime percentage falls below the configured `sla_uptime_target`. Triggers an `alert.new` event via NATS with `alert_type: sla_violation`. | SVC-06, STORY-021, BR-5 |
+| Event Publisher | Interface (`EventPublisher`) for publishing structured events to NATS. Used by HealthChecker to emit `operator.health_changed` and `alert.triggered` events on state transitions. | SVC-06 -> bus, STORY-021 |
 | Dead Letter Queue | Storage for failed/unprocessable AAA requests | For retry and investigation |
 | IP Pool | A range of IP addresses (defined by CIDR) assigned to an APN, from which IPs are allocated to SIMs. Supports IPv4 and IPv6 separately. Tracks utilization and alerts at configurable thresholds. | IPAM (TBL-08) |
 | IP Allocation | Process of assigning the next available IP address from a pool to a SIM. Uses `FOR UPDATE SKIP LOCKED` for concurrent safety. | IPAM (ALGORITHMS.md Section 1) |

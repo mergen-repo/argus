@@ -38,6 +38,8 @@ Built-in observability layer: Redis-based counters for auth/s, session count, er
 - Blocked by: STORY-015 (RADIUS — generates auth metrics), STORY-017 (sessions — session count)
 - Blocks: STORY-043 (frontend dashboard uses metrics)
 
+> **Note (post-STORY-021):** STORY-021 implemented `SLATracker` (`internal/operator/sla.go`) with Redis sorted set-based latency recording and percentile computation (p50/p95/p99) per operator. Key pattern: `operator:latency:{id}`, 1-hour sliding window, auto-pruned via `ZRemRangeByScore`. This story's per-operator latency tracking can reuse or extend `SLATracker` rather than building a separate mechanism. The `SLAMetrics.ComputeMetrics()` method already computes uptime + latency percentiles. Additionally, the WS hub (`internal/ws/hub.go`) already supports `BroadcastAll` — this story's `metrics.realtime` event at 1s intervals can use the existing hub infrastructure. No effort change expected.
+
 ## Test Scenarios
 - [ ] 100 auth requests in 1s → auth_per_sec ≈ 100
 - [ ] 10 failures out of 100 → error_rate ≈ 0.10

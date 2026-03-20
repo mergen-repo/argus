@@ -47,7 +47,9 @@ Multi-channel notification service: in-app (stored in TBL-21), email (SMTP), Tel
 
 ## Dependencies
 - Blocked by: STORY-002 (DB — TBL-21, TBL-22), STORY-003 (auth — user context)
-- Blocks: STORY-036 (anomaly alerts), STORY-021 (operator failover alerts), STORY-050 (frontend notification center)
+- Blocks: STORY-036 (anomaly alerts), STORY-050 (frontend notification center)
+
+> **Note (post-STORY-021):** STORY-021 already implemented a foundational notification service (`internal/notification/service.go`) with: multi-channel dispatch (email, telegram, in_app), NATS queue subscription (`QueueSubscribe` on health + alert subjects), `HealthChangedPayload` / `AlertPayload` deserialization, `dispatchOperatorDown` / `dispatchRecovery` handlers, and channel-aware routing (email/telegram/inApp nil-safe). Current implementation uses nil senders (actual SMTP/Telegram/InApp store implementations deferred). This story should: (1) implement real `EmailSender`, `TelegramSender`, `InAppStore` adapters, (2) add TBL-21/TBL-22 persistence, (3) add REST API endpoints (API-130..134), (4) add webhook + SMS channels, (5) add per-user notification preferences, (6) add delivery tracking + retry with exponential backoff, (7) add rate limiting. The existing NATS subscription pattern and dispatch architecture can be extended rather than rebuilt. Effort may be reduced from XL to L.
 
 ## Test Scenarios
 - [ ] Create in-app notification → stored in TBL-21, WebSocket notification.new pushed

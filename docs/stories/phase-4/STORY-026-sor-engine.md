@@ -29,8 +29,10 @@ Implement Steering of Roaming (SoR) engine within SVC-06 (Operator Router). Uses
 - [ ] Bulk re-evaluation: trigger SoR recalculation for segment when operator costs change
 
 ## Dependencies
-- Blocked by: STORY-009 (operator CRUD), STORY-021 (failover triggers SoR)
+- Blocked by: STORY-009 (operator CRUD), STORY-018 (operator adapter), STORY-021 (failover triggers SoR)
 - Blocks: STORY-027 (RAT awareness uses SoR data)
+
+> **Note (post-STORY-021):** STORY-021 completed the failover system that triggers SoR. Key integration points: (1) `OperatorHealthEvent` on NATS `argus.events.operator.health` includes `current_status` and `circuit_breaker_state` — SoR engine should subscribe to this to invalidate cached routing decisions when operator goes down, (2) `HealthChecker.GetCircuitBreaker(opID)` returns per-operator circuit breaker state — SoR should check circuit state before routing, (3) `FailoverEngine.ExecuteAuth` (from STORY-018) already implements fallback_to_next — SoR should provide the "next-best operator" list that failover consumes. No effort change expected.
 
 ## Test Scenarios
 - [ ] IMSI prefix 234-10 routes to Operator A (priority 1)

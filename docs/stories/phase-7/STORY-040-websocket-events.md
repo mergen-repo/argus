@@ -47,6 +47,8 @@ WebSocket server (SVC-02) on :8081 with JWT authentication on connection. Suppor
 - Blocked by: STORY-001 (scaffold — NATS), STORY-003 (JWT auth)
 - Blocks: STORY-041 (frontend scaffold — WS client), STORY-043 (frontend dashboard — live data)
 
+> **Note (post-STORY-021):** STORY-021 already implemented the WS hub core (`internal/ws/hub.go`) with: `Hub` struct (RWMutex-protected connection map by tenant_id), `Register`/`Unregister`, `BroadcastAll`/`BroadcastToTenant`, `EventEnvelope` struct matching WEBSOCKET_EVENTS.md spec, `Connection` struct with `SendCh` channel + `Filters` slice, `MatchesFilter` with wildcard support, `SubscribeToNATS` for NATS-to-WS relay, `natsSubjectToWSType` mapping (8 event types), non-blocking send with buffer overflow protection, and graceful `Stop`. This story should focus on: (1) actual gorilla/websocket HTTP upgrade handler on :8081, (2) JWT authentication (query param + first-message), (3) ping/pong heartbeat (30s/10s), (4) max connections per tenant (100), (5) subscribe message handling, (6) reconnection close frames. Hub internals can be reused directly. Effort may be reduced from L to M.
+
 ## Test Scenarios
 - [ ] Connect with valid JWT → connection accepted, events start flowing
 - [ ] Connect with invalid JWT → connection rejected (4001 Unauthorized)

@@ -79,6 +79,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `ratelimit:` | Window size | Rate limit counters |
 | `operator:prefix:` | 1hr | IMSI prefix routing table |
 | `operator:health:` | 2 * health_check_interval_sec | Operator health status cache |
+| `operator:latency:` | 2hr (auto-pruned to 1hr window) | SLA latency samples per operator (sorted set, score=timestamp, member=latencyMs) |
 | `lock:` | 30s | Distributed locks (job runner) |
 
 ---

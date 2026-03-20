@@ -1,7 +1,7 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-20
-> Current phase: DEVELOPMENT — Phase 3: AAA Engine
+> Current phase: DEVELOPMENT — Phase 3 COMPLETE, Phase 4 ready
 > Overall progress: 35%
 
 ---
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 20/55 (36%)
-> Current story: STORY-021
-> Current step: —
+> Stories completed: 21/55 (38%)
+> Current story: —
+> Current step: Phase 3 Gate
 
 ### Phase 1: Foundation [DONE]
 
@@ -53,7 +53,7 @@
 | STORY-013 | Bulk SIM Import (CSV) | L | [x] DONE | — | STORY-011, STORY-006 | 2026-03-20 |
 | STORY-014 | MSISDN Number Pool Management | S | [x] DONE | — | STORY-011 | 2026-03-20 |
 
-### Phase 3: AAA Engine [IN PROGRESS]
+### Phase 3: AAA Engine [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -63,7 +63,7 @@
 | STORY-017 | Session Management & Force Disconnect | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [x] DONE | — | STORY-015, STORY-016 | 2026-03-20 |
-| STORY-021 | Operator Failover & Circuit Breaker | L | [~] IN PROGRESS | Commit | STORY-018 | — |
+| STORY-021 | Operator Failover & Circuit Breaker | L | [x] DONE | — | STORY-018 | 2026-03-20 |
 
 ### Phase 4: Policy & Orchestration [PENDING]
 
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | PHASE | Phase 3 (AAA Engine) completed — 7 stories (STORY-015 to STORY-021). RADIUS server, EAP-SIM/AKA/AKA', session management, pluggable operator adapter, Diameter Gx/Gy server, 5G SBA proxy, operator failover with circuit breaker, NATS event publishing, notification service (SVC-08), WebSocket hub, SLA tracking. All AAA protocols operational. | Phase 4 (Policy & Orchestration) ready to start |
+| 2026-03-20 | DONE | STORY-021 completed — Operator Failover & Circuit Breaker (remaining scope). NATS event publishing on health state transitions (operator.health_changed, alert.triggered), notification service (SVC-08) with multi-channel dispatch (email/telegram/in-app), WebSocket hub with NATS relay and tenant broadcast, SLA tracking with Redis sorted set latency and violation detection. 64 tests, all pass. | STORY-026 (SoR engine) unblocked, STORY-038/040 scope reduced |
 | 2026-03-20 | DONE | STORY-020 completed — 5G SBA HTTP/2 Proxy (AUSF/UDM). HTTP/2 server on :8443 with TLS/mTLS, AUSF 5G-AKA authentication (initiate + confirm), UDM security-information + auth-events + UECM registration, SUPI/SUCI resolution, S-NSSAI slice authentication, EAP-AKA' SBA proxy, NRF registration placeholder (register/deregister/heartbeat/discover/notify), session tracking with protocol_type='5g_sba' + slice_info JSONB, SBA health checker integrated into /api/health. Migration adds protocol_type + slice_info columns with partial index. 22 tests, all pass. | STORY-021 (next in Phase 3), STORY-027 (RAT awareness — 5G SBA already sets rat_type='nr_5g'), STORY-032 (CDR — should consume 5G SBA session events) |
 | 2026-03-20 | DONE | STORY-019 completed — Diameter Protocol Server (Gx/Gy). Full RFC 6733 base protocol, TCP :3868 listener, CER/CEA capabilities exchange, DWR/DWA watchdog + failover, DPR/DPA graceful disconnect, Gx (PCRF) CCR-I/U/T with PCC rules, Gy (OCS) CCR-I/U/T/E with credit control, RAR/RAA mid-session re-auth, AVP encode/decode (standard + 3GPP vendor-specific), session state machine (idle/open/pending/closed), multi-peer support, health check integration. 53 tests, all pass with -race. | STORY-020 (5G SBA), STORY-032 (CDR) unblocked |
 | 2026-03-20 | DONE | STORY-017 completed — Session Management & Concurrent Control. 4 session API endpoints (list, stats, disconnect, bulk disconnect), concurrent session control with oldest eviction, idle/hard timeout sweeper, Redis session cache, NATS session events, bulk disconnect as background job. 25 tests across 5 files. | STORY-025, STORY-033, STORY-036, STORY-052 unblocked (partial) |
