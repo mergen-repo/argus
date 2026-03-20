@@ -8,11 +8,12 @@ import (
 type contextKey string
 
 const (
-	TenantIDKey contextKey = "tenant_id"
-	UserIDKey   contextKey = "user_id"
-	RoleKey     contextKey = "role"
-	AuthTypeKey contextKey = "auth_type"
-	ScopesKey   contextKey = "scopes"
+	CorrelationIDKey contextKey = "correlation_id"
+	TenantIDKey      contextKey = "tenant_id"
+	UserIDKey        contextKey = "user_id"
+	RoleKey          contextKey = "role"
+	AuthTypeKey      contextKey = "auth_type"
+	ScopesKey        contextKey = "scopes"
 )
 
 const (

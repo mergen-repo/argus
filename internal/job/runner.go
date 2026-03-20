@@ -57,8 +57,6 @@ func (r *Runner) Start() error {
 		bus.SubjectJobQueue,
 		"job-runners",
 		r.handleMessage,
-		nats.DeliverNew(),
-		nats.AckExplicit(),
 	)
 	if err != nil {
 		return fmt.Errorf("subscribe to job queue: %w", err)

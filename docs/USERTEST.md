@@ -112,3 +112,28 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). RBAC middleware unit 
 8. Kullanici guncelle (role degistir) -- 200
 9. Tenant state degistir (active → suspended) -- 200
 10. Farkli tenant'in verisine erisim denemesi -- 403 veya bos sonuc
+
+---
+
+## STORY-006: Structured Logging, Config & NATS Event Bus
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Tum servisleri baslat
+2. Log formati kontrolu -- Argus container loglarinda JSON formatli cikti olmali:
+   ```bash
+   docker logs argus 2>&1 | head -5
+   ```
+   Her satirda `timestamp`, `level`, `service` alanlari bulunmali
+3. Correlation ID kontrolu:
+   ```bash
+   curl -sk https://localhost/api/health -v 2>&1 | grep X-Correlation-ID
+   ```
+   Response header'da X-Correlation-ID donmeli
+4. NATS stream kontrolu:
+   ```bash
+   docker exec nats nats stream ls 2>/dev/null
+   ```
+   EVENTS ve JOBS stream'leri gorunmeli
+5. Config validation -- JWT_SECRET bos birakilirsa container baslatilamamali
+6. Graceful shutdown -- `docker stop argus` 5 saniye icinde temiz kapanmali

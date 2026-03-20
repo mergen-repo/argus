@@ -5,7 +5,8 @@ import (
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog"
 )
 
 type RouterDeps struct {
@@ -14,6 +15,7 @@ type RouterDeps struct {
 	TenantHandler *tenantapi.Handler
 	UserHandler   *userapi.Handler
 	JWTSecret     string
+	Logger        zerolog.Logger
 }
 
 func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecret string) *chi.Mux {
@@ -21,16 +23,17 @@ func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecre
 		Health:      health,
 		AuthHandler: authHandler,
 		JWTSecret:   jwtSecret,
+		Logger:      zerolog.Nop(),
 	})
 }
 
 func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	r.Use(RecoveryWithZerolog(deps.Logger))
+	r.Use(CorrelationID())
+	r.Use(chimiddleware.RealIP)
+	r.Use(ZerologRequestLogger(deps.Logger))
 
 	r.Get("/api/health", deps.Health.Check)
 

@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
+	"github.com/rs/zerolog"
 )
 
 type Config struct {
@@ -98,7 +100,53 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
 	return &cfg, nil
+}
+
+var validEnvs = map[string]bool{
+	"development": true,
+	"staging":     true,
+	"production":  true,
+}
+
+var validDeploymentModes = map[string]bool{
+	"single":  true,
+	"cluster": true,
+}
+
+func (c *Config) Validate() error {
+	if !validEnvs[c.AppEnv] {
+		return fmt.Errorf("invalid APP_ENV %q: must be development, staging, or production", c.AppEnv)
+	}
+
+	if !validDeploymentModes[c.DeploymentMode] {
+		return fmt.Errorf("invalid DEPLOYMENT_MODE %q: must be single or cluster", c.DeploymentMode)
+	}
+
+	if _, err := zerolog.ParseLevel(strings.ToLower(c.LogLevel)); err != nil {
+		return fmt.Errorf("invalid LOG_LEVEL %q: %w", c.LogLevel, err)
+	}
+
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters (got %d)", len(c.JWTSecret))
+	}
+
+	if c.BcryptCost < 10 || c.BcryptCost > 14 {
+		return fmt.Errorf("BCRYPT_COST must be between 10 and 14 (got %d)", c.BcryptCost)
+	}
+
+	if c.DatabaseMaxConns <= 0 {
+		return fmt.Errorf("DATABASE_MAX_CONNS must be > 0 (got %d)", c.DatabaseMaxConns)
+	}
+
+	if c.RedisMaxConns <= 0 {
+		return fmt.Errorf("REDIS_MAX_CONNS must be > 0 (got %d)", c.RedisMaxConns)
+	}
+
+	return nil
 }
 
 func (c *Config) IsDev() bool {

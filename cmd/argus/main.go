@@ -34,9 +34,14 @@ func main() {
 		lvl = zerolog.InfoLevel
 	}
 	zerolog.SetGlobalLevel(lvl)
+	zerolog.TimeFieldFormat = time.RFC3339
 
 	if cfg.IsDev() {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
+			With().Timestamp().Str("service", "argus").Logger()
+	} else {
+		log.Logger = zerolog.New(os.Stdout).
+			With().Timestamp().Str("service", "argus").Logger()
 	}
 
 	log.Info().Str("env", cfg.AppEnv).Int("port", cfg.AppPort).Msg("starting argus")
@@ -58,12 +63,15 @@ func main() {
 	defer rdb.Close()
 	log.Info().Msg("redis connected")
 
-	ns, err := bus.NewNATS(ctx, cfg.NATSURL, cfg.NATSMaxReconnect, cfg.NATSReconnectWait)
+	ns, err := bus.NewNATS(ctx, cfg.NATSURL, cfg.NATSMaxReconnect, cfg.NATSReconnectWait, log.Logger)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect nats")
 	}
 	defer ns.Close()
-	log.Info().Msg("nats connected")
+
+	if err := ns.EnsureStreams(ctx); err != nil {
+		log.Fatal().Err(err).Msg("failed to create nats streams")
+	}
 
 	userStore := store.NewUserStore(pg.Pool)
 	sessionStore := store.NewSessionStore(pg.Pool)
@@ -98,6 +106,7 @@ func main() {
 		TenantHandler: tenantHandler,
 		UserHandler:   userHandler,
 		JWTSecret:     cfg.JWTSecret,
+		Logger:        log.Logger,
 	})
 
 	srv := &http.Server{
@@ -129,11 +138,23 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
+	log.Info().Msg("shutting down http server")
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("server shutdown error")
+		log.Error().Err(err).Msg("http server shutdown error")
 	}
 
-	log.Info().Msg("argus stopped")
+	log.Info().Msg("closing nats connection")
+	ns.Close()
+
+	log.Info().Msg("closing redis connection")
+	if err := rdb.Close(); err != nil {
+		log.Error().Err(err).Msg("redis close error")
+	}
+
+	log.Info().Msg("closing database connection")
+	pg.Close()
+
+	log.Info().Msg("argus stopped gracefully")
 }
 
 type userStoreAdapter struct {
