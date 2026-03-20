@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-20
-> Current phase: DEVELOPMENT — Phase 3 COMPLETE, Phase 4 ready
-> Overall progress: 35%
+> Current phase: DEVELOPMENT — Phase 4: Policy & Orchestration
+> Overall progress: 38%
 
 ---
 
@@ -26,8 +26,8 @@
 ## Development Phase [IN PROGRESS]
 
 > Stories completed: 21/55 (38%)
-> Current story: —
-> Current step: Phase 3 Gate
+> Current story: STORY-022
+> Current step: —
 
 ### Phase 1: Foundation [DONE]
 
