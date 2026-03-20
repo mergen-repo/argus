@@ -262,6 +262,60 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-011: SIM CRUD & State Machine
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. SIM olustur:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"iccid":"8990100000000000001","imsi":"310260000000001","msisdn":"+905551234567","operator_id":"<operator-id>","apn_id":"<apn-id>","sim_type":"triple_cut"}'
+   ```
+   201 + state:"ordered" donmeli
+4. Duplicate ICCID ile olustur → 409 ICCID_EXISTS donmeli
+5. SIM aktive et:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/activate \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + state:"active", ip_address atanmis olmali
+6. SIM askiya al:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/suspend \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"reason":"non-payment"}'
+   ```
+   200 + state:"suspended", IP korunmus olmali
+7. SIM devam ettir:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/resume \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + state:"active"
+8. SIM sonlandir (tenant_admin gerekli):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/terminate \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"reason":"contract-end"}'
+   ```
+   200 + state:"terminated", purge_at tarih hesaplanmis olmali
+9. Gecersiz gecis testi: ORDERED→SUSPENDED → 422 INVALID_STATE_TRANSITION donmeli
+10. SIM listele (filtreli):
+    ```bash
+    curl -sk "https://localhost:8084/api/v1/sims?state=active&limit=10" \
+      -H 'Authorization: Bearer <token>'
+    ```
+    200 + cursor-based pagination (meta.next_cursor) donmeli
+11. SIM detay: GET /api/v1/sims/{id} -- 200 + tum bilgiler
+12. State gecmisi: GET /api/v1/sims/{id}/history -- 200 + gecis kayitlari
+13. Unit testler: `go test ./internal/store/... ./internal/api/sim/... -v`
+
+---
+
 ## STORY-010: APN CRUD & IP Pool Management
 
 1. `make up` -- Tum servisleri baslat

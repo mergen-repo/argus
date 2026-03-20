@@ -43,9 +43,12 @@ const (
 
 	CodeRateLimited = "RATE_LIMITED"
 
-	CodeAPNHasActiveSIMs  = "APN_HAS_ACTIVE_SIMS"
-	CodePoolExhausted     = "POOL_EXHAUSTED"
-	CodeIPAlreadyAllocated = "IP_ALREADY_ALLOCATED"
+	CodeAPNHasActiveSIMs       = "APN_HAS_ACTIVE_SIMS"
+	CodePoolExhausted          = "POOL_EXHAUSTED"
+	CodeIPAlreadyAllocated     = "IP_ALREADY_ALLOCATED"
+	CodeICCIDExists            = "ICCID_EXISTS"
+	CodeIMSIExists             = "IMSI_EXISTS"
+	CodeInvalidStateTransition = "INVALID_STATE_TRANSITION"
 )
 
 type SuccessResponse struct {

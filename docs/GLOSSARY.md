@@ -72,7 +72,13 @@
 | SIM Segment | Saved filter/group of SIMs based on criteria | Group-first UX navigation unit |
 | Circuit Breaker | Pattern that disables a failing operator after N consecutive errors | Prevents cascade failures |
 | Dead Letter Queue | Storage for failed/unprocessable AAA requests | For retry and investigation |
-| IP Reclaim | Process of returning terminated SIM's IP to pool after grace period | Configurable retention |
+| IP Pool | A range of IP addresses (defined by CIDR) assigned to an APN, from which IPs are allocated to SIMs. Supports IPv4 and IPv6 separately. Tracks utilization and alerts at configurable thresholds. | IPAM (TBL-08) |
+| IP Allocation | Process of assigning the next available IP address from a pool to a SIM. Uses `FOR UPDATE SKIP LOCKED` for concurrent safety. | IPAM (ALGORITHMS.md Section 1) |
+| Static IP | An IP address permanently reserved for a specific SIM. Not returned to pool while SIM exists. Allocation type = `static`. | IPAM per-SIM reservation |
+| Dynamic IP | An IP address temporarily assigned to a SIM for the duration of a session. Returned to pool on session end. Allocation type = `dynamic`. | IPAM session-based |
+| IP Reclaim | Process of returning terminated SIM's IP to pool after grace period. IP enters `reclaiming` state with `reclaim_at` timestamp. | Configurable retention |
+| Dual-Stack | Supporting both IPv4 and IPv6 address families simultaneously. IP pools can have separate CIDRv4 and CIDRv6 ranges. | IPAM network addressing |
+| Pool Utilization | Percentage of allocated addresses in an IP pool (used_addresses / total_addresses * 100). Triggers alerts at warning (80%), critical (90%), and exhausted (100%) thresholds. | IPAM monitoring |
 | Pseudonymization | Replacing personal identifiers with irreversible hashes | KVKK/GDPR purge compliance |
 | Hash Chain | Sequential hashing linking each audit log entry to previous | Tamper detection |
 | Partial Token | Short-lived JWT (5min) with `partial: true` flag, issued when 2FA is required but not yet verified. Blocked by JWTAuth middleware; only accepted by JWTAuthAllowPartial for /2fa/verify endpoint. | 2FA authentication flow |

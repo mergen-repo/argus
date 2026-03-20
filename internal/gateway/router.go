@@ -7,6 +7,7 @@ import (
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/btopcu/argus/internal/store"
@@ -26,6 +27,7 @@ type RouterDeps struct {
 	OperatorHandler  *operatorapi.Handler
 	APNHandler       *apnapi.Handler
 	IPPoolHandler    *ippoolapi.Handler
+	SIMHandler       *simapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -198,6 +200,27 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Patch("/api/v1/api-keys/{id}", deps.APIKeyHandler.Update)
 			r.Post("/api/v1/api-keys/{id}/rotate", deps.APIKeyHandler.Rotate)
 			r.Delete("/api/v1/api-keys/{id}", deps.APIKeyHandler.Delete)
+		})
+	}
+
+	if deps.SIMHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/sims", deps.SIMHandler.List)
+			r.Post("/api/v1/sims", deps.SIMHandler.Create)
+			r.Get("/api/v1/sims/{id}", deps.SIMHandler.Get)
+			r.Get("/api/v1/sims/{id}/history", deps.SIMHandler.GetHistory)
+			r.Post("/api/v1/sims/{id}/activate", deps.SIMHandler.Activate)
+			r.Post("/api/v1/sims/{id}/suspend", deps.SIMHandler.Suspend)
+			r.Post("/api/v1/sims/{id}/resume", deps.SIMHandler.Resume)
+			r.Post("/api/v1/sims/{id}/report-lost", deps.SIMHandler.ReportLost)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
 		})
 	}
 

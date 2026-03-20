@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 2: Core SIM & APN
-> Overall progress: 15%
+> Overall progress: 18%
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 9/55 (16%)
-> Current story: STORY-010
-> Current step: Runner
+> Stories completed: 10/55 (18%)
+> Current story: STORY-011
+> Current step: —
 
 ### Phase 1: Foundation [DONE]
 
@@ -47,8 +47,8 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-009 | Operator CRUD & Health Check | L | [x] DONE | — | STORY-005 | 2026-03-20 |
-| STORY-010 | APN CRUD & IP Pool Management | L | [~] IN PROGRESS | Commit | STORY-009 | — |
-| STORY-011 | SIM CRUD & State Machine | XL | [ ] PENDING | — | STORY-010 | — |
+| STORY-010 | APN CRUD & IP Pool Management | L | [x] DONE | — | STORY-009 | 2026-03-20 |
+| STORY-011 | SIM CRUD & State Machine | XL | [~] IN PROGRESS | Commit | STORY-010 | — |
 | STORY-012 | SIM Segments & Group-First UX | M | [ ] PENDING | — | STORY-011 | — |
 | STORY-013 | Bulk SIM Import (CSV) | L | [ ] PENDING | — | STORY-011, STORY-006 | — |
 | STORY-014 | MSISDN Number Pool Management | S | [ ] PENDING | — | STORY-011 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-010 completed — APN CRUD, IP Pool CRUD, IP allocation/reservation/release, dual-stack IPv4+IPv6 | STORY-011 unblocked, STORY-013 partially unblocked |
 | 2026-03-20 | DONE | STORY-009 completed — Operator CRUD, health check, adapter registry, AES-256 encryption | STORY-018, STORY-021 updated (partial overlap) |
 | 2026-03-18 | INIT | Project initialized — Argus RADIUS/APN Management Platform | — |
 

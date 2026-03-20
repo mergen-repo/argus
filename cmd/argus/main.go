@@ -14,6 +14,7 @@ import (
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/btopcu/argus/internal/audit"
@@ -123,6 +124,8 @@ func main() {
 	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger)
 	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger)
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
+	simStore := store.NewSIMStore(pg.Pool)
+	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger)
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -142,6 +145,7 @@ func main() {
 		OperatorHandler:    operatorHandler,
 		APNHandler:         apnHandler,
 		IPPoolHandler:      ippoolHandler,
+		SIMHandler:         simHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

@@ -142,7 +142,7 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 |------|-------------|-------------|------------------|
 | `POOL_EXHAUSTED` | 422 | IP pool has no available addresses (100% utilization) | `{"status":"error","error":{"code":"POOL_EXHAUSTED","message":"IP pool 'fleet-pool-v4' is exhausted. No available addresses.","details":[{"pool_id":"uuid","total_addresses":65534,"used_addresses":65534,"utilization_pct":100}]}}` |
 | `IP_CONFLICT` | 409 | IP address is already allocated to another SIM | `{"status":"error","error":{"code":"IP_CONFLICT","message":"IP address 10.0.1.42 is already allocated","details":[{"address":"10.0.1.42","allocated_to_sim_id":"uuid"}]}}` |
-| `IP_ALREADY_RESERVED` | 409 | Attempting to reserve an IP that is already in reserved/allocated state | `{"status":"error","error":{"code":"IP_ALREADY_RESERVED","message":"IP address 10.0.1.42 is already reserved"}}` |
+| `IP_ALREADY_ALLOCATED` | 409 | Attempting to reserve an IP that is already in reserved/allocated state | `{"status":"error","error":{"code":"IP_ALREADY_ALLOCATED","message":"IP address 10.0.1.42 is already allocated"}}` |
 
 ---
 
@@ -283,7 +283,7 @@ const (
     // IP Pool
     CodePoolExhausted    = "POOL_EXHAUSTED"
     CodeIPConflict       = "IP_CONFLICT"
-    CodeIPAlreadyReserved = "IP_ALREADY_RESERVED"
+    CodeIPAlreadyAllocated = "IP_ALREADY_ALLOCATED"
 
     // Policy
     CodePolicyNotFound     = "POLICY_NOT_FOUND"

@@ -184,9 +184,9 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			msisdnPtr = &msisdn
 		}
 
-		sim, err := p.sims.Create(tenantCtx, store.CreateSIMParams{
+		sim, err := p.sims.Create(tenantCtx, job.TenantID, store.CreateSIMParams{
 			OperatorID: op.ID,
-			APNID:      &apn.ID,
+			APNID:      apn.ID,
 			ICCID:      iccid,
 			IMSI:       imsi,
 			MSISDN:     msisdnPtr,

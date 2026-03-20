@@ -132,6 +132,10 @@
 | DEV-024 | 2026-03-20 | STORY-010: Error codes `CodeAPNHasActiveSIMs`, `CodePoolExhausted`, `CodeIPAlreadyAllocated` added to apierr package as constants, replacing hardcoded string literals in handlers. Consistent with existing error code pattern. | ACCEPTED |
 | DEV-025 | 2026-03-20 | STORY-010: APN Archive method does not accept `userID` for `updated_by` — audit log captures the actor. The DB trigger `trg_apns_updated_at` handles `updated_at`. Acceptable for v1; if needed, `updated_by` can be added to Archive signature later. | ACCEPTED |
 | DEV-026 | 2026-03-20 | STORY-010: APN Archive SIM count query (`SELECT COUNT(*) FROM sims WHERE apn_id = $1`) is not scoped by tenant_id. Acceptable because `apn_id` is a globally unique UUID and the handler already verifies APN belongs to the tenant via `GetByID` before calling Archive. | ACCEPTED |
+| DEV-027 | 2026-03-20 | STORY-011: `sims` table has no `updated_at` trigger (unlike tenants, users, operators, apns). Gate fixed by adding explicit `updated_at = NOW()` to all UPDATE queries in SIMStore. DB trigger not added because modifying existing migration is not safe; a new migration could be added later for consistency. | ACCEPTED |
+| DEV-028 | 2026-03-20 | STORY-011: `TransitionState` method in SIMStore does not scope SELECT FOR UPDATE by tenant_id — queries `WHERE id = $1` only. Acceptable because this method is only called internally from bulk import (`job/import.go`) where the SIM was just created by the same process. All public-facing handlers use dedicated methods (Activate, Suspend, etc.) which scope by tenant_id. | ACCEPTED |
+| DEV-029 | 2026-03-20 | STORY-011: `stolen_lost` state has no outgoing transitions in the code (`validTransitions["stolen_lost"] = {}`). PRODUCT.md BR-1 defines `STOLEN/LOST -> TERMINATED` as valid. The story AC only specifies ACTIVE/SUSPENDED -> TERMINATED. Adding stolen_lost -> terminated can be done in a future enhancement when the story scope is expanded. | ACCEPTED |
+| DEV-030 | 2026-03-20 | STORY-011: Gate fixed SQL injection risk in `TransitionState` default case — replaced `fmt.Sprintf('state = '%s'', targetState)` with parameterized `state = $3`. Also fixed terminated case to use `$3::interval` parameter. Although `validateTransition` prevents arbitrary values from reaching these code paths, parameterized queries are the correct pattern. | ACCEPTED |
 
 ## Performance Decisions
 
@@ -141,5 +145,7 @@
 | PERF-002 | 2026-03-20 | STORY-009: operator:health:{id} Redis key with TTL = 2 * health_check_interval_sec. Provides fast health status lookup without DB hit. Fallback to DB on cache miss. | ACCEPTED |
 | PERF-003 | 2026-03-20 | STORY-010: APN and IP Pool list endpoints not cached in Redis — admin-only, low frequency. Same rationale as PERF-001. | ACCEPTED |
 | PERF-004 | 2026-03-20 | STORY-010: IP allocation uses DB-level FOR UPDATE SKIP LOCKED instead of Redis cache — correctness over speed for financial-grade IP inventory. Cache would introduce stale reads and double-allocation risk. | ACCEPTED |
+| PERF-005 | 2026-03-20 | STORY-011: SIM list and detail not cached in Redis — state transitions happen frequently, NATS invalidation would add complexity. Cursor-based pagination makes list caching impractical. Future: SIM auth data (IMSI->SIM) will be cached in Redis for AAA hot path (SVC-04). | ACCEPTED |
+| PERF-006 | 2026-03-20 | STORY-011: ILIKE search with prefix wildcard (`%q%`) on iccid/imsi/msisdn in combo search (q param). No index optimization possible for leading wildcard. Acceptable for admin use case; pg_trgm GIN index can be added later if search latency becomes an issue. | ACCEPTED |
 
 ---
