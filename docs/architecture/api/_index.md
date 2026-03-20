@@ -129,9 +129,9 @@
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-100 | GET | /api/v1/sessions | List active sessions | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
-| API-101 | GET | /api/v1/sessions/stats | Real-time session statistics | JWT (analyst+) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
+| API-101 | GET | /api/v1/sessions/stats | Real-time session statistics | JWT (analyst+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-102 | POST | /api/v1/sessions/:id/disconnect | Force disconnect session (CoA/DM) | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
-| API-103 | POST | /api/v1/sessions/bulk/disconnect | Bulk disconnect on segment | JWT (tenant_admin) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
+| API-103 | POST | /api/v1/sessions/bulk/disconnect | Bulk disconnect on segment | JWT (tenant_admin) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
 
 ## Analytics & CDR (6 endpoints)
 

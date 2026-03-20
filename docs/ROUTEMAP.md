@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 3: AAA Engine
-> Overall progress: 25%
+> Overall progress: 33%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 17/55 (31%)
-> Current story: STORY-017
+> Stories completed: 18/55 (33%)
+> Current story: STORY-019
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -53,14 +53,14 @@
 | STORY-013 | Bulk SIM Import (CSV) | L | [x] DONE | — | STORY-011, STORY-006 | 2026-03-20 |
 | STORY-014 | MSISDN Number Pool Management | S | [x] DONE | — | STORY-011 | 2026-03-20 |
 
-### Phase 3: AAA Engine [PENDING]
+### Phase 3: AAA Engine [IN PROGRESS]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-018 | Pluggable Operator Adapter + Mock Simulator | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-015 | RADIUS Authentication & Accounting Server | XL | [x] DONE | — | STORY-011, STORY-018 | 2026-03-20 |
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [x] DONE | — | STORY-015 | 2026-03-20 |
-| STORY-017 | Session Management & Force Disconnect | L | [~] IN PROGRESS | Commit | STORY-015 | — |
+| STORY-017 | Session Management & Force Disconnect | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [ ] PENDING | — | STORY-015 | — |
 | STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [ ] PENDING | — | STORY-019 | — |
 | STORY-021 | Operator Failover & Circuit Breaker | L | [ ] PENDING | — | STORY-018 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-017 completed — Session Management & Concurrent Control. 4 session API endpoints (list, stats, disconnect, bulk disconnect), concurrent session control with oldest eviction, idle/hard timeout sweeper, Redis session cache, NATS session events, bulk disconnect as background job. 25 tests across 5 files. | STORY-025, STORY-033, STORY-036, STORY-052 unblocked (partial) |
 | 2026-03-20 | DONE | STORY-016 completed — EAP-SIM/AKA/AKA' Authentication Methods. Redis state store (30s TTL), operator adapter bridge, vector caching (Redis list LPOP/RPUSH, batch pre-fetch), EAP-SIM Start flow (RFC 4186), SIM-type method selection, RADIUS EAP integration (Access-Challenge, MS-MPPE keys), session auth_method recording. 49 tests across 4 files. | STORY-020 unblocked (5G SBA uses AKA') |
 | 2026-03-20 | DONE | STORY-015 completed — RADIUS Authentication & Accounting Server. UDP :1812 auth + :1813 acct, SIM cache (Redis+DB), session manager (Redis+DB), CoA/DM, per-operator shared secret, health check AAA status, graceful shutdown. 15 RADIUS tests, 7 session tests, 5 store tests. | STORY-016, STORY-017, STORY-019, STORY-032 unblocked |
 | 2026-03-20 | DONE | STORY-018 completed — Pluggable Operator Adapter Framework. Extended Adapter interface with Authenticate/AccountingUpdate/FetchAuthVectors. Mock adapter with EAP triplet/quintet generation, RADIUS real forwarding, Diameter CER/CEA+DWR/DWA, new SBA adapter (HTTP/2), OperatorRouter 3 new methods with circuit breaker. 63 tests pass with -race. | STORY-015, STORY-016, STORY-019, STORY-020, STORY-021 unblocked |

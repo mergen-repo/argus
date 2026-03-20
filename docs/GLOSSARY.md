@@ -106,6 +106,11 @@
 | Auto-Purge | Automatic deletion of terminated SIM data after a configurable retention period (`purge_retention_days` per tenant). Sets `purge_at = terminated_at + N days`. Ensures KVKK/GDPR compliance by pseudonymizing personal data in audit logs. | BR-1, STORY-039 |
 | Bulk Import | Asynchronous CSV-based mass SIM provisioning. Upload creates a background job that processes rows: validate -> create SIM (ordered) -> auto-activate -> allocate IP -> assign default policy. Supports partial success (valid rows applied, invalid rows in error_report JSONB), progress via NATS, job cancellation (check every 100 rows), and error report CSV download. | WF-1, STORY-013, F-011, F-018 |
 | Job Runner | NATS JetStream-backed background job processor. Subscribes to `argus.jobs.queue`, locks jobs (`locked_by` worker ID), dispatches to registered processors, publishes progress and completion events. Supports cancellation, retry, and graceful shutdown. | SVC-09, STORY-013, STORY-031 |
+| Concurrent Session Control | Mechanism limiting the maximum number of simultaneous active sessions per SIM (`max_concurrent_sessions`). When the limit is reached on a new Accounting-Start, the oldest active session is evicted via Disconnect-Message (DM). | SVC-04, STORY-017, G-023 |
+| Idle Timeout | Time (seconds) after which a session with no accounting interim updates is automatically disconnected. Configurable per SIM, default 1800s (30min). Enforced by the Timeout Sweeper. | SVC-04, STORY-017, RADIUS Session-Timeout |
+| Hard Timeout | Maximum absolute session duration (seconds) regardless of activity. Configurable per SIM, default 86400s (24h). Enforced by the Timeout Sweeper. | SVC-04, STORY-017, RADIUS Session-Timeout |
+| Timeout Sweeper | Background goroutine that periodically scans Redis session cache (60s interval) and terminates sessions exceeding idle or hard timeout deadlines. Sends DM to NAS and publishes `session.ended` event. | SVC-04, STORY-017 |
+| Bulk Disconnect | Background job (`bulk_session_disconnect`) that disconnects all active sessions for a set of SIMs or a segment. Runs inline for <=100 SIMs, as an async job for >100. Sends DM per session, publishes events, tracks progress. | SVC-09, STORY-017 |
 
 ## Regulatory Terms
 
