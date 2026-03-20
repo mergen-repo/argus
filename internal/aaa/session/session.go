@@ -45,9 +45,12 @@ type Session struct {
 }
 
 type SessionFilter struct {
-	SimID      string
-	OperatorID string
-	APNID      string
+	TenantID    string
+	SimID       string
+	OperatorID  string
+	APNID       string
+	MinDuration *int
+	MinUsage    *int64
 }
 
 type SessionStats struct {
@@ -194,12 +197,201 @@ func (m *Manager) GetByAcctSessionID(ctx context.Context, acctSessionID string) 
 	return radiusSessionToSession(dbSess), nil
 }
 
-func (m *Manager) ListActive(_ context.Context, _ string, _ int, _ SessionFilter) ([]*Session, string, error) {
-	return nil, "", nil
+func (m *Manager) ListActive(ctx context.Context, cursor string, limit int, filter SessionFilter) ([]*Session, string, error) {
+	if m.sessionStore == nil {
+		return m.listActiveFromRedis(ctx, cursor, limit, filter)
+	}
+
+	var simID, operatorID, apnID *uuid.UUID
+	if filter.SimID != "" {
+		if id, err := uuid.Parse(filter.SimID); err == nil {
+			simID = &id
+		}
+	}
+	if filter.OperatorID != "" {
+		if id, err := uuid.Parse(filter.OperatorID); err == nil {
+			operatorID = &id
+		}
+	}
+	if filter.APNID != "" {
+		if id, err := uuid.Parse(filter.APNID); err == nil {
+			apnID = &id
+		}
+	}
+
+	var tenantID *uuid.UUID
+	if filter.TenantID != "" {
+		if id, err := uuid.Parse(filter.TenantID); err == nil {
+			tenantID = &id
+		}
+	}
+
+	dbSessions, nextCursor, err := m.sessionStore.ListActiveFiltered(ctx, store.ListActiveSessionsParams{
+		TenantID:    tenantID,
+		Cursor:      cursor,
+		Limit:       limit,
+		SimID:       simID,
+		OperatorID:  operatorID,
+		APNID:       apnID,
+		MinDuration: filter.MinDuration,
+		MinUsage:    filter.MinUsage,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("session manager: list active: %w", err)
+	}
+
+	var result []*Session
+	for i := range dbSessions {
+		result = append(result, radiusSessionToSession(&dbSessions[i]))
+	}
+	return result, nextCursor, nil
 }
 
-func (m *Manager) Stats(_ context.Context) (*SessionStats, error) {
-	return &SessionStats{}, nil
+func (m *Manager) listActiveFromRedis(ctx context.Context, _ string, limit int, filter SessionFilter) ([]*Session, string, error) {
+	if m.redisClient == nil {
+		return nil, "", nil
+	}
+
+	var redisCursor uint64
+	var result []*Session
+
+	for {
+		keys, nextCursor, err := m.redisClient.Scan(ctx, redisCursor, sessionKeyPrefix+"*", 200).Result()
+		if err != nil {
+			return nil, "", fmt.Errorf("session manager: redis scan: %w", err)
+		}
+
+		for _, key := range keys {
+			if !isSessionDataKey(key) {
+				continue
+			}
+			data, err := m.redisClient.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var sess Session
+			if err := json.Unmarshal(data, &sess); err != nil {
+				continue
+			}
+			if sess.SessionState != "active" {
+				continue
+			}
+			if filter.SimID != "" && sess.SimID != filter.SimID {
+				continue
+			}
+			if filter.OperatorID != "" && sess.OperatorID != filter.OperatorID {
+				continue
+			}
+			if filter.APNID != "" && sess.APNID != filter.APNID {
+				continue
+			}
+			result = append(result, &sess)
+			if limit > 0 && len(result) > limit {
+				break
+			}
+		}
+
+		redisCursor = nextCursor
+		if redisCursor == 0 || (limit > 0 && len(result) > limit) {
+			break
+		}
+	}
+
+	nextCursor := ""
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nextCursor, nil
+}
+
+func (m *Manager) Stats(ctx context.Context, tenantID string) (*SessionStats, error) {
+	if m.sessionStore == nil {
+		return m.statsFromRedis(ctx)
+	}
+
+	var tid *uuid.UUID
+	if tenantID != "" {
+		if id, err := uuid.Parse(tenantID); err == nil {
+			tid = &id
+		}
+	}
+
+	dbStats, err := m.sessionStore.GetActiveStats(ctx, tid)
+	if err != nil {
+		return nil, fmt.Errorf("session manager: stats: %w", err)
+	}
+
+	return &SessionStats{
+		TotalActive:    dbStats.TotalActive,
+		ByOperator:     dbStats.ByOperator,
+		ByAPN:          dbStats.ByAPN,
+		ByRATType:      make(map[string]int64),
+		AvgDurationSec: dbStats.AvgDurationSec,
+		AvgBytes:       dbStats.AvgBytes,
+	}, nil
+}
+
+func (m *Manager) statsFromRedis(ctx context.Context) (*SessionStats, error) {
+	stats := &SessionStats{
+		ByOperator: make(map[string]int64),
+		ByAPN:      make(map[string]int64),
+		ByRATType:  make(map[string]int64),
+	}
+
+	if m.redisClient == nil {
+		return stats, nil
+	}
+
+	var redisCursor uint64
+	var totalDuration float64
+	var totalBytes float64
+
+	for {
+		keys, nextCursor, err := m.redisClient.Scan(ctx, redisCursor, sessionKeyPrefix+"*", 200).Result()
+		if err != nil {
+			return stats, nil
+		}
+
+		for _, key := range keys {
+			if !isSessionDataKey(key) {
+				continue
+			}
+			data, err := m.redisClient.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var sess Session
+			if err := json.Unmarshal(data, &sess); err != nil {
+				continue
+			}
+			if sess.SessionState != "active" {
+				continue
+			}
+
+			stats.TotalActive++
+			stats.ByOperator[sess.OperatorID]++
+			if sess.APNID != "" {
+				stats.ByAPN[sess.APNID]++
+			}
+			if sess.RATType != "" {
+				stats.ByRATType[sess.RATType]++
+			}
+			totalDuration += time.Since(sess.StartedAt).Seconds()
+			totalBytes += float64(sess.BytesIn + sess.BytesOut)
+		}
+
+		redisCursor = nextCursor
+		if redisCursor == 0 {
+			break
+		}
+	}
+
+	if stats.TotalActive > 0 {
+		stats.AvgDurationSec = totalDuration / float64(stats.TotalActive)
+		stats.AvgBytes = totalBytes / float64(stats.TotalActive)
+	}
+
+	return stats, nil
 }
 
 func (m *Manager) GetSessionsForSIM(ctx context.Context, simID string) ([]*Session, error) {
@@ -327,6 +519,49 @@ func (m *Manager) CountActive(ctx context.Context) (int64, error) {
 	return m.sessionStore.CountActive(ctx)
 }
 
+func (m *Manager) CheckConcurrentLimit(ctx context.Context, simID string, maxSessions int) (bool, *Session, error) {
+	if maxSessions <= 0 {
+		return true, nil, nil
+	}
+
+	if m.sessionStore == nil {
+		return true, nil, nil
+	}
+
+	uid, err := uuid.Parse(simID)
+	if err != nil {
+		return false, nil, fmt.Errorf("session manager: invalid sim_id: %w", err)
+	}
+
+	count, err := m.sessionStore.CountActiveForSIM(ctx, uid)
+	if err != nil {
+		return false, nil, fmt.Errorf("session manager: count active for sim: %w", err)
+	}
+
+	if count < int64(maxSessions) {
+		return true, nil, nil
+	}
+
+	oldest, err := m.sessionStore.GetOldestActiveForSIM(ctx, uid)
+	if err != nil {
+		m.logger.Warn().Err(err).Str("sim_id", simID).Msg("failed to get oldest session for eviction")
+		return false, nil, nil
+	}
+
+	return false, radiusSessionToSession(oldest), nil
+}
+
+func (m *Manager) CountActiveForSIM(ctx context.Context, simID string) (int64, error) {
+	if m.sessionStore == nil {
+		return 0, nil
+	}
+	uid, err := uuid.Parse(simID)
+	if err != nil {
+		return 0, fmt.Errorf("session manager: invalid sim_id: %w", err)
+	}
+	return m.sessionStore.CountActiveForSIM(ctx, uid)
+}
+
 func radiusSessionToSession(rs *store.RadiusSession) *Session {
 	sess := &Session{
 		ID:           rs.ID.String(),
@@ -377,5 +612,9 @@ func nilIfEmpty(s string) *string {
 
 func isSessionDataKey(key string) bool {
 	prefix := sessionKeyPrefix
+	acctPrefix := sessionAcctKeyPrefix
+	if len(key) > len(acctPrefix) && key[:len(acctPrefix)] == acctPrefix {
+		return false
+	}
 	return len(key) > len(prefix) && key[:len(prefix)] == prefix
 }

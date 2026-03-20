@@ -123,20 +123,37 @@ func toSessionDTO(s *session.Session) sessionDTO {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	cursor := r.URL.Query().Get("cursor")
-	limitStr := r.URL.Query().Get("limit")
+	q := r.URL.Query()
+	cursor := q.Get("cursor")
 
-	limit := 20
-	if limitStr != "" {
-		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
-			limit = v
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
 		}
 	}
 
+	tenantIDStr := ""
+	if tid, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID); ok && tid != uuid.Nil {
+		tenantIDStr = tid.String()
+	}
+
 	filter := session.SessionFilter{
-		SimID:      r.URL.Query().Get("sim_id"),
-		OperatorID: r.URL.Query().Get("operator_id"),
-		APNID:      r.URL.Query().Get("apn_id"),
+		TenantID:   tenantIDStr,
+		SimID:      q.Get("sim_id"),
+		OperatorID: q.Get("operator_id"),
+		APNID:      q.Get("apn_id"),
+	}
+
+	if v := q.Get("min_duration"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			filter.MinDuration = &n
+		}
+	}
+	if v := q.Get("min_usage"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			filter.MinUsage = &n
+		}
 	}
 
 	sessions, nextCursor, err := h.sessionMgr.ListActive(r.Context(), cursor, limit, filter)
@@ -152,13 +169,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
-		Cursor: nextCursor,
-		Limit:  limit,
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
 	})
 }
 
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.sessionMgr.Stats(r.Context())
+	tenantIDStr := ""
+	if tid, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID); ok && tid != uuid.Nil {
+		tenantIDStr = tid.String()
+	}
+
+	stats, err := h.sessionMgr.Stats(r.Context(), tenantIDStr)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("session stats")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")

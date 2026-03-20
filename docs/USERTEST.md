@@ -262,6 +262,42 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-017: Session Management & Force Disconnect
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. Aktif session listele:
+   ```bash
+   curl -sk "https://localhost:8084/api/v1/sessions?limit=10" \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + aktif session listesi (cursor pagination)
+4. Session istatistikleri:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/sessions/stats \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + total_active, by_operator, by_apn, avg_duration, avg_bytes
+5. Force disconnect (aktif session varsa):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sessions/{id}/disconnect \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"reason":"test disconnect"}'
+   ```
+   200 + session terminated, audit log olusturulur
+6. Bulk disconnect (tenant_admin):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sessions/bulk/disconnect \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"segment_id":"<segment-id>","reason":"maintenance"}'
+   ```
+   >100 session icin 202 + job_id, <=100 icin 200 + disconnected_count
+7. Unit testler: `go test ./internal/aaa/session/... ./internal/api/session/... ./internal/job/... -v`
+
+---
+
 ## STORY-016: EAP-SIM/AKA/AKA' Authentication
 
 Bu story icin manuel test senaryosu yok (backend/altyapi — EAP protokol seviyesi). Asagidaki komutlar ile dogrulama yapilabilir:

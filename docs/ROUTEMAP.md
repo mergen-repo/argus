@@ -60,7 +60,7 @@
 | STORY-018 | Pluggable Operator Adapter + Mock Simulator | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-015 | RADIUS Authentication & Accounting Server | XL | [x] DONE | — | STORY-011, STORY-018 | 2026-03-20 |
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [x] DONE | — | STORY-015 | 2026-03-20 |
-| STORY-017 | Session Management & Force Disconnect | L | [ ] PENDING | — | STORY-015 | — |
+| STORY-017 | Session Management & Force Disconnect | L | [~] IN PROGRESS | Commit | STORY-015 | — |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [ ] PENDING | — | STORY-015 | — |
 | STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [ ] PENDING | — | STORY-019 | — |
 | STORY-021 | Operator Failover & Circuit Breaker | L | [ ] PENDING | — | STORY-018 | — |

@@ -473,6 +473,40 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		return
 	}
 
+	if sim.MaxConcurrentSessions > 0 {
+		allowed, oldest, checkErr := s.sessionMgr.CheckConcurrentLimit(ctx, sim.ID.String(), sim.MaxConcurrentSessions)
+		if checkErr != nil {
+			logger.Warn().Err(checkErr).Msg("concurrent session check failed")
+		} else if !allowed && oldest != nil {
+			logger.Info().
+				Str("sim_id", sim.ID.String()).
+				Str("evicted_session_id", oldest.ID).
+				Int("max_sessions", sim.MaxConcurrentSessions).
+				Msg("concurrent session limit reached, evicting oldest")
+
+			if s.dmSender != nil && oldest.NASIP != "" && oldest.AcctSessionID != "" {
+				_, _ = s.dmSender.SendDM(ctx, session.DMRequest{
+					NASIP:         oldest.NASIP,
+					AcctSessionID: oldest.AcctSessionID,
+					IMSI:          oldest.IMSI,
+				})
+			}
+			_ = s.sessionMgr.Terminate(ctx, oldest.ID, "concurrent_limit")
+
+			if s.eventBus != nil {
+				_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
+					"session_id":      oldest.ID,
+					"sim_id":          oldest.SimID,
+					"tenant_id":       oldest.TenantID,
+					"operator_id":     oldest.OperatorID,
+					"imsi":            oldest.IMSI,
+					"terminate_cause": "concurrent_limit",
+					"ended_at":        time.Now().UTC().Format(time.RFC3339),
+				})
+			}
+		}
+	}
+
 	nasIP := ""
 	if ip, err := rfc2865.NASIPAddress_Lookup(r.Packet); err == nil {
 		nasIP = ip.String()

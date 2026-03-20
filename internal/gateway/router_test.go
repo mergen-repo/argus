@@ -55,6 +55,35 @@ func TestRouterJobRoutesRegistered(t *testing.T) {
 	}
 }
 
+func TestRouterSessionRoutesNotRegisteredWhenNil(t *testing.T) {
+	health := &HealthHandler{}
+	router := NewRouterWithDeps(RouterDeps{
+		Health:    health,
+		JWTSecret: "test-secret",
+		Logger:    zerolog.Nop(),
+	})
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/sessions"},
+		{http.MethodGet, "/api/v1/sessions/stats"},
+		{http.MethodPost, "/api/v1/sessions/00000000-0000-0000-0000-000000000001/disconnect"},
+		{http.MethodPost, "/api/v1/sessions/bulk/disconnect"},
+	}
+
+	for _, rt := range routes {
+		req := httptest.NewRequest(rt.method, rt.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s: expected 404 when SessionHandler is nil, got %d", rt.method, rt.path, w.Code)
+		}
+	}
+}
+
 func TestRouterMSISDNPoolRoutesRegistered(t *testing.T) {
 	health := &HealthHandler{}
 	router := NewRouterWithDeps(RouterDeps{

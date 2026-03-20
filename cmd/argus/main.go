@@ -20,6 +20,7 @@ import (
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
+	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -158,6 +159,8 @@ func main() {
 	startCancel()
 
 	var radiusServer *aaaradius.Server
+	var sessionHandler *sessionapi.Handler
+	var sessionSweeper *aaasession.TimeoutSweeper
 	if cfg.RadiusSecret != "" {
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 		simCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
@@ -187,6 +190,14 @@ func main() {
 			log.Fatal().Err(err).Msg("failed to start RADIUS server")
 		}
 		radiusStartCancel()
+
+		sessionHandler = sessionapi.NewHandler(sessionMgr, dmSender, eventBus, auditSvc, jobStore, log.Logger)
+
+		sessionSweeper = aaasession.NewTimeoutSweeper(sessionMgr, dmSender, eventBus, rdb.Client, log.Logger)
+		sessionSweeper.Start()
+
+		disconnectProcessor := job.NewBulkDisconnectProcessor(jobStore, sessionMgr, dmSender, eventBus, log.Logger)
+		jobRunner.Register(disconnectProcessor)
 	}
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
@@ -208,6 +219,7 @@ func main() {
 		BulkHandler:        bulkHandler,
 		JobHandler:         jobHandler,
 		MSISDNHandler:      msisdnHandler,
+		SessionHandler:     sessionHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -255,6 +267,11 @@ func main() {
 		if err := radiusServer.Stop(shutdownCtx); err != nil {
 			log.Error().Err(err).Msg("RADIUS server shutdown error")
 		}
+	}
+
+	if sessionSweeper != nil {
+		log.Info().Msg("stopping session sweeper")
+		sessionSweeper.Stop()
 	}
 
 	log.Info().Msg("stopping job runner")

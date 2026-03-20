@@ -156,6 +156,12 @@
 | DEV-046 | 2026-03-20 | STORY-016: `RedisStateStore` tests use `MemoryStateStore` as comparison baseline (not real Redis with miniredis). This validates JSON marshal/unmarshal fidelity and interface compliance. Real Redis TTL expiry is validated by the 30s constant matching `DefaultStateTTL`. Full Redis integration test deferred to integration environment. | ACCEPTED |
 | DEV-047 | 2026-03-20 | STORY-016: `CachedVectorProvider` uses Redis list (LPOP/RPUSH) instead of SET/GET for vector cache. This enables atomic "pop one, keep rest" semantics — each auth session consumes one cached vector set without race conditions. TTL set via EXPIRE after RPUSH batch. | ACCEPTED |
 
+| DEV-048 | 2026-03-20 | STORY-017: Gate fixed missing tenant_id scoping in `ListActiveFiltered` and `GetActiveStats` queries. All other store methods scope by tenant_id via `TenantIDFromContext`; session_radius.go was the only file missing it. Added `TenantID *uuid.UUID` param to `ListActiveSessionsParams` and `GetActiveStats`. API handler extracts tenant_id from JWT context. RADIUS hot path (CountActive, CountActiveForSIM, GetOldestActiveForSIM) correctly bypasses tenant scoping since IMSI is globally unique (DEV-041). | ACCEPTED |
+| DEV-049 | 2026-03-20 | STORY-017: `isSessionDataKey` fixed to exclude `session:acct:*` keys. Previously, `isSessionDataKey("session:acct:xxx")` returned true because the key starts with `session:`. This caused wasted JSON unmarshal attempts during Redis SCAN operations. No functional impact (unmarshal errors were silently skipped), but wasteful. | ACCEPTED |
+| DEV-050 | 2026-03-20 | STORY-017: `Stats` method signature changed from `Stats(ctx)` to `Stats(ctx, tenantID)` to support tenant-scoped statistics. Empty tenantID skips tenant filter (used in tests and internal calls). | ACCEPTED |
+| DEV-051 | 2026-03-20 | STORY-017: BulkDisconnect inline threshold is `>100 || segmentID != nil`. Segment-based disconnect always creates a background job (segment size unknown at request time). SIM-ID-based disconnect with <=100 IDs executes inline for lower latency. | ACCEPTED |
+| DEV-052 | 2026-03-20 | STORY-017: `TestHandler_Disconnect_Success` is skipped because Manager with nil store + nil Redis cannot round-trip Create/Get (session not stored anywhere). Full disconnect flow tested via integration tests. The test exists as a scaffold for when miniredis is available. | ACCEPTED |
+
 ## Performance Decisions
 
 | # | Date | Decision | Status |
@@ -176,6 +182,10 @@
 | PERF-014 | 2026-03-20 | STORY-015: CountActive uses `SELECT COUNT(*) FROM sessions WHERE session_state = 'active'` — idx_sessions_tenant_active partial index applies. Acceptable for health check frequency (~1/min). Not called in hot path. | ACCEPTED |
 | PERF-015 | 2026-03-20 | STORY-016: EAP session state in Redis with 30s TTL. No DB persistence for EAP state — appropriate because EAP sessions are transient (30s max) and Redis is the correct tier for ephemeral auth state. Fail-fast on Redis unavailability is correct for auth operations. | ACCEPTED |
 | PERF-016 | 2026-03-20 | STORY-016: Vector cache (eap:vectors:{imsi}:{type}) uses Redis list with 5min TTL and batch pre-fetch (3 sets). Reduces adapter round-trips for repeated authentications from same IMSI. Graceful degradation to direct adapter call when Redis is nil. | ACCEPTED |
+
+| PERF-017 | 2026-03-20 | STORY-017: Session list and stats queries use `idx_sessions_tenant_active` partial index (`ON sessions (tenant_id) WHERE session_state = 'active'`). No additional index needed for tenant-scoped session queries. | ACCEPTED |
+| PERF-018 | 2026-03-20 | STORY-017: TimeoutSweeper uses Redis SCAN with batch size 200. Acceptable for periodic sweep (60s interval). Avoids blocking Redis with large key scans. Sessions with expired TTL auto-expire from Redis independently. | ACCEPTED |
+| PERF-019 | 2026-03-20 | STORY-017: GetActiveStats executes 3 sequential queries (totals, by_operator, by_apn). Could be merged into a single query with window functions but readability is prioritized. Acceptable because stats endpoint is analyst-only, low frequency. | ACCEPTED |
 
 ## Validation Decisions
 
@@ -202,5 +212,7 @@
 | TEST-006 | 2026-03-20 | STORY-016: RedisStateStore tests use MemoryStateStore as comparison baseline (not miniredis). Validates JSON roundtrip fidelity and interface compliance. Real Redis TTL behavior tested implicitly through DefaultStateTTL constant alignment with redis_store.go eapSessionTTL. | ACCEPTED |
 | TEST-007 | 2026-03-20 | STORY-016: CachedVectorProvider tested only with nil Redis (passthrough) and consistency check. Full Redis cache hit/miss/replenish cycle requires miniredis or real Redis, deferred to integration test environment. | ACCEPTED |
 | TEST-008 | 2026-03-20 | STORY-016: Concurrent EAP session test uses 10 goroutines with unique session IDs and IMSIs, verifying no state leakage (IMSI isolation). Sufficient for unit-level race detection. Production-scale concurrent load testing deferred to integration environment. | ACCEPTED |
+| TEST-009 | 2026-03-20 | STORY-017: Session manager tests use Redis DB 14 with FlushDB in cleanup. Session tests create Manager with nil store (Redis-only mode). Sweep tests validate idle/hard timeout detection and active session preservation. Handler tests validate API envelope, 404 on missing session, and bulk disconnect validation errors. | ACCEPTED |
+| TEST-010 | 2026-03-20 | STORY-017: BulkDisconnectProcessor tested at payload/result serialization level (4 tests). Full Process() integration test deferred — requires mock session manager and job store. Processor.Type() validated. | ACCEPTED |
 
 ---

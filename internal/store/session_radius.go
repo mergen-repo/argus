@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -205,4 +206,203 @@ func (s *RadiusSessionStore) ListActiveBySIM(ctx context.Context, simID uuid.UUI
 		results = append(results, sess)
 	}
 	return results, nil
+}
+
+type ListActiveSessionsParams struct {
+	TenantID    *uuid.UUID
+	Cursor      string
+	Limit       int
+	SimID       *uuid.UUID
+	OperatorID  *uuid.UUID
+	APNID       *uuid.UUID
+	MinDuration *int
+	MinUsage    *int64
+}
+
+type SessionStatsResult struct {
+	TotalActive    int64
+	ByOperator     map[string]int64
+	ByAPN          map[string]int64
+	AvgDurationSec float64
+	AvgBytes       float64
+}
+
+func (s *RadiusSessionStore) ListActiveFiltered(ctx context.Context, p ListActiveSessionsParams) ([]RadiusSession, string, error) {
+	limit := p.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{}
+	conditions := []string{"session_state = 'active'"}
+	argIdx := 1
+
+	if p.TenantID != nil {
+		conditions = append(conditions, fmt.Sprintf("tenant_id = $%d", argIdx))
+		args = append(args, *p.TenantID)
+		argIdx++
+	}
+	if p.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("sim_id = $%d", argIdx))
+		args = append(args, *p.SimID)
+		argIdx++
+	}
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.MinDuration != nil {
+		conditions = append(conditions, fmt.Sprintf("EXTRACT(EPOCH FROM (NOW() - started_at)) >= $%d", argIdx))
+		args = append(args, *p.MinDuration)
+		argIdx++
+	}
+	if p.MinUsage != nil {
+		conditions = append(conditions, fmt.Sprintf("(bytes_in + bytes_out) >= $%d", argIdx))
+		args = append(args, *p.MinUsage)
+		argIdx++
+	}
+	if p.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(p.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM sessions %s ORDER BY started_at DESC, id DESC LIMIT %s`,
+		radiusSessionColumns, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list active sessions filtered: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RadiusSession
+	for rows.Next() {
+		var sess RadiusSession
+		if err := rows.Scan(
+			&sess.ID, &sess.SimID, &sess.TenantID, &sess.OperatorID, &sess.APNID,
+			&sess.NASIP, &sess.FramedIP, &sess.CallingStationID, &sess.CalledStationID,
+			&sess.RATType, &sess.SessionState, &sess.AuthMethod,
+			&sess.PolicyVersionID, &sess.AcctSessionID,
+			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
+			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
+			&sess.LastInterimAt,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan active session: %w", err)
+		}
+		results = append(results, sess)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s *RadiusSessionStore) GetActiveStats(ctx context.Context, tenantID *uuid.UUID) (*SessionStatsResult, error) {
+	stats := &SessionStatsResult{
+		ByOperator: make(map[string]int64),
+		ByAPN:      make(map[string]int64),
+	}
+
+	tenantFilter := ""
+	var args []interface{}
+	if tenantID != nil {
+		tenantFilter = " AND tenant_id = $1"
+		args = append(args, *tenantID)
+	}
+
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*),
+			COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - started_at))), 0),
+			COALESCE(AVG(bytes_in + bytes_out), 0)
+		FROM sessions WHERE session_state = 'active'`+tenantFilter,
+		args...,
+	).Scan(&stats.TotalActive, &stats.AvgDurationSec, &stats.AvgBytes)
+	if err != nil {
+		return nil, fmt.Errorf("store: get active session stats: %w", err)
+	}
+
+	opRows, err := s.db.Query(ctx, `
+		SELECT operator_id::text, COUNT(*) FROM sessions
+		WHERE session_state = 'active'`+tenantFilter+` GROUP BY operator_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: get session stats by operator: %w", err)
+	}
+	defer opRows.Close()
+
+	for opRows.Next() {
+		var opID string
+		var count int64
+		if err := opRows.Scan(&opID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan operator stats: %w", err)
+		}
+		stats.ByOperator[opID] = count
+	}
+
+	apnRows, err := s.db.Query(ctx, `
+		SELECT COALESCE(apn_id::text, 'none'), COUNT(*) FROM sessions
+		WHERE session_state = 'active'`+tenantFilter+` GROUP BY apn_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: get session stats by apn: %w", err)
+	}
+	defer apnRows.Close()
+
+	for apnRows.Next() {
+		var apnID string
+		var count int64
+		if err := apnRows.Scan(&apnID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan apn stats: %w", err)
+		}
+		stats.ByAPN[apnID] = count
+	}
+
+	return stats, nil
+}
+
+func (s *RadiusSessionStore) CountActiveForSIM(ctx context.Context, simID uuid.UUID) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE sim_id = $1 AND session_state = 'active'`,
+		simID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active sessions for sim: %w", err)
+	}
+	return count, nil
+}
+
+func (s *RadiusSessionStore) GetOldestActiveForSIM(ctx context.Context, simID uuid.UUID) (*RadiusSession, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 AND session_state = 'active' ORDER BY started_at ASC LIMIT 1`,
+		simID,
+	)
+	sess, err := scanRadiusSession(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRadiusSessionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get oldest active session for sim: %w", err)
+	}
+	return sess, nil
 }
