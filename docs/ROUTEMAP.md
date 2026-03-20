@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 2: Core SIM & APN
-> Overall progress: 20%
+> Overall progress: 22%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 11/55 (20%)
-> Current story: STORY-012
+> Stories completed: 12/55 (22%)
+> Current story: STORY-013
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -49,7 +49,7 @@
 | STORY-009 | Operator CRUD & Health Check | L | [x] DONE | — | STORY-005 | 2026-03-20 |
 | STORY-010 | APN CRUD & IP Pool Management | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-011 | SIM CRUD & State Machine | XL | [x] DONE | — | STORY-010 | 2026-03-20 |
-| STORY-012 | SIM Segments & Group-First UX | M | [~] IN PROGRESS | Commit | STORY-011 | — |
+| STORY-012 | SIM Segments & Group-First UX | M | [x] DONE | — | STORY-011 | 2026-03-20 |
 | STORY-013 | Bulk SIM Import (CSV) | L | [ ] PENDING | — | STORY-011, STORY-006 | — |
 | STORY-014 | MSISDN Number Pool Management | S | [ ] PENDING | — | STORY-011 | — |
 
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-012 completed — Segment CRUD (6 endpoints), JSONB filter_definition, CountMatchingSIMs, StateSummary, sim_manager RBAC | STORY-030 unblocked (partial — also needs STORY-028, STORY-031) |
 | 2026-03-20 | DONE | STORY-011 completed — SIM CRUD, state machine (7 transitions), cursor pagination, IP allocation on activation, auto-purge scheduling | STORY-012, STORY-013, STORY-014 unblocked |
 | 2026-03-20 | DONE | STORY-010 completed — APN CRUD, IP Pool CRUD, IP allocation/reservation/release, dual-stack IPv4+IPv6 | STORY-011 unblocked, STORY-013 partially unblocked |
 | 2026-03-20 | DONE | STORY-009 completed — Operator CRUD, health check, adapter registry, AES-256 encryption | STORY-018, STORY-021 updated (partial overlap) |

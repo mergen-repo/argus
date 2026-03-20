@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (104 APIs, 24 tables, 10 services)
+> Scale: Large (107 APIs, 24 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -317,7 +317,7 @@ RADIUS Request → UDP listener (goroutine pool)
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 104 | API-001 to API-182 |
+| API-NNN | 107 | API-001 to API-182 |
 | TBL-NN | 24 | TBL-01 to TBL-24 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |

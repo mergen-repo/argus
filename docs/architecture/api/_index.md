@@ -73,13 +73,16 @@
 | API-052 | GET | /api/v1/sims/:id/usage | Get SIM usage analytics | JWT (analyst+) | See [STORY-034](../../stories/phase-6/STORY-034-usage-analytics.md) |
 | API-053 | POST | /api/v1/sims/compare | Compare 2 SIMs side-by-side | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 
-## SIM Segments & Bulk (7 endpoints)
+## SIM Segments & Bulk (10 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-060 | GET | /api/v1/sim-segments | List saved segments | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
 | API-061 | POST | /api/v1/sim-segments | Create saved segment (filter) | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
+| API-061b | GET | /api/v1/sim-segments/:id | Get segment detail | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
+| API-061c | DELETE | /api/v1/sim-segments/:id | Delete segment | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
 | API-062 | GET | /api/v1/sim-segments/:id/count | Count SIMs in segment | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
+| API-062b | GET | /api/v1/sim-segments/:id/summary | State summary for segment | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
 | API-063 | POST | /api/v1/sims/bulk/import | Bulk SIM import (CSV upload) | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md) |
 | API-064 | POST | /api/v1/sims/bulk/state-change | Bulk state change on segment | JWT (sim_manager+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
 | API-065 | POST | /api/v1/sims/bulk/policy-assign | Bulk policy assign on segment | JWT (policy_editor+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
@@ -222,4 +225,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 104 REST endpoints + 10 WebSocket event types**
+**Total: 107 REST endpoints + 10 WebSocket event types**

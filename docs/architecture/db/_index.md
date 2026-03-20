@@ -40,7 +40,7 @@
 |--------|------|--------|
 | Platform (Tenant, User, API Key) | [platform.md](platform.md) | TBL-01, TBL-02, TBL-03, TBL-04 |
 | Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23 |
-| SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24 |
+| SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
 | AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18 |
 | Audit, Jobs, Notifications | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22 |

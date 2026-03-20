@@ -197,3 +197,19 @@ Indexes:
 - `idx_msisdn_pool_msisdn` UNIQUE on (msisdn)
 - `idx_msisdn_pool_tenant_op_state` on (tenant_id, operator_id, state)
 - `idx_msisdn_pool_sim` on (sim_id) WHERE sim_id IS NOT NULL
+
+---
+
+## TBL-25: sim_segments
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| id | UUID | PK, DEFAULT gen_random_uuid() | Segment identifier |
+| tenant_id | UUID | FK → tenants.id, NOT NULL | Tenant |
+| name | VARCHAR(100) | NOT NULL | Segment name |
+| filter_definition | JSONB | NOT NULL, DEFAULT '{}' | Filter criteria (operator_id, state, apn_id, rat_type) |
+| created_by | UUID | FK → users.id | Creator |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Creation time |
+
+Indexes:
+- `idx_sim_segments_tenant_name` UNIQUE on (tenant_id, name)
