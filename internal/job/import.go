@@ -167,7 +167,7 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			continue
 		}
 
-		apn, err := p.resolveAPN(tenantCtx, apnName, apnCache)
+		apn, err := p.resolveAPN(tenantCtx, job.TenantID, op.ID, apnName, apnCache)
 		if err != nil {
 			rowErrors = append(rowErrors, ImportRowError{
 				Row:          rowNum,
@@ -291,11 +291,11 @@ func (p *BulkImportProcessor) resolveOperator(ctx context.Context, code string, 
 	return op, nil
 }
 
-func (p *BulkImportProcessor) resolveAPN(ctx context.Context, name string, cache map[string]*store.APN) (*store.APN, error) {
+func (p *BulkImportProcessor) resolveAPN(ctx context.Context, tenantID, operatorID uuid.UUID, name string, cache map[string]*store.APN) (*store.APN, error) {
 	if apn, ok := cache[name]; ok {
 		return apn, nil
 	}
-	apn, err := p.apns.GetByName(ctx, name)
+	apn, err := p.apns.GetByName(ctx, tenantID, operatorID, name)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *stor
 		return
 	}
 
-	pools, _, err := p.ipPools.List(ctx, "", 1, apnID)
+	pools, _, err := p.ipPools.List(ctx, sim.TenantID, "", 1, apnID)
 	if err != nil || len(pools) == 0 {
 		return
 	}
@@ -319,7 +319,7 @@ func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *stor
 		return
 	}
 
-	_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &result.Address.ID, defaultPolicyID)
+	_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &result.ID, defaultPolicyID)
 }
 
 func mapColumns(headers []string) (map[string]int, error) {

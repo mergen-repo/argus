@@ -23,7 +23,7 @@ Implemented operator management (CRUD, grants, health monitoring) with AES-256-G
 
 ## Architecture References Fulfilled
 - API-020 to API-027: All 8 operator endpoints implemented
-- TBL-06 (operators), TBL-07 (operator_grants), TBL-08 (operator_health_logs) fully utilized
+- TBL-05 (operators), TBL-06 (operator_grants), TBL-23 (operator_health_logs) fully utilized
 - SVC-06: Multi-operator routing with pluggable adapter registry
 - ALGORITHMS.md: Circuit breaker integration for operator health
 

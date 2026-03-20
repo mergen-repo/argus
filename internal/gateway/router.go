@@ -2,8 +2,10 @@ package gateway
 
 import (
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
+	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -22,6 +24,8 @@ type RouterDeps struct {
 	AuditHandler  *auditapi.Handler
 	APIKeyHandler    *apikeyapi.Handler
 	OperatorHandler  *operatorapi.Handler
+	APNHandler       *apnapi.Handler
+	IPPoolHandler    *ippoolapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -142,6 +146,46 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/operator-grants", deps.OperatorHandler.ListGrants)
+		})
+	}
+
+	if deps.APNHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/apns", deps.APNHandler.List)
+			r.Get("/api/v1/apns/{id}", deps.APNHandler.Get)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/apns", deps.APNHandler.Create)
+			r.Patch("/api/v1/apns/{id}", deps.APNHandler.Update)
+			r.Delete("/api/v1/apns/{id}", deps.APNHandler.Archive)
+		})
+	}
+
+	if deps.IPPoolHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("operator_manager"))
+			r.Get("/api/v1/ip-pools", deps.IPPoolHandler.List)
+			r.Get("/api/v1/ip-pools/{id}", deps.IPPoolHandler.Get)
+			r.Get("/api/v1/ip-pools/{id}/addresses", deps.IPPoolHandler.ListAddresses)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/ip-pools", deps.IPPoolHandler.Create)
+			r.Patch("/api/v1/ip-pools/{id}", deps.IPPoolHandler.Update)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Post("/api/v1/ip-pools/{id}/addresses/reserve", deps.IPPoolHandler.ReserveIP)
 		})
 	}
 

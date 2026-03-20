@@ -42,6 +42,10 @@ const (
 	CodeTenantSuspended       = "TENANT_SUSPENDED"
 
 	CodeRateLimited = "RATE_LIMITED"
+
+	CodeAPNHasActiveSIMs  = "APN_HAS_ACTIVE_SIMS"
+	CodePoolExhausted     = "POOL_EXHAUSTED"
+	CodeIPAlreadyAllocated = "IP_ALREADY_ALLOCATED"
 )
 
 type SuccessResponse struct {

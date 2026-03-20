@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 8/55 (15%)
-> Current story: STORY-009
+> Stories completed: 9/55 (16%)
+> Current story: STORY-010
 > Current step: Runner
 
 ### Phase 1: Foundation [DONE]
@@ -46,8 +46,8 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-009 | Operator CRUD & Health Check | L | [~] IN PROGRESS | Commit | STORY-005 | — |
-| STORY-010 | APN CRUD & IP Pool Management | L | [ ] PENDING | — | STORY-009 | — |
+| STORY-009 | Operator CRUD & Health Check | L | [x] DONE | — | STORY-005 | 2026-03-20 |
+| STORY-010 | APN CRUD & IP Pool Management | L | [~] IN PROGRESS | Commit | STORY-009 | — |
 | STORY-011 | SIM CRUD & State Machine | XL | [ ] PENDING | — | STORY-010 | — |
 | STORY-012 | SIM Segments & Group-First UX | M | [ ] PENDING | — | STORY-011 | — |
 | STORY-013 | Bulk SIM Import (CSV) | L | [ ] PENDING | — | STORY-011, STORY-006 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-009 completed — Operator CRUD, health check, adapter registry, AES-256 encryption | STORY-018, STORY-021 updated (partial overlap) |
 | 2026-03-18 | INIT | Project initialized — Argus RADIUS/APN Management Platform | — |
 
 ---

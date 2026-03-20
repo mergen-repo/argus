@@ -9,8 +9,10 @@ import (
 	"time"
 
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
+	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -115,8 +117,12 @@ func main() {
 	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
 
 	operatorStore := store.NewOperatorStore(pg.Pool)
+	apnStore := store.NewAPNStore(pg.Pool)
+	ippoolStore := store.NewIPPoolStore(pg.Pool)
 	adapterRegistry := adapter.NewRegistry()
 	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger)
+	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger)
+	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -134,6 +140,8 @@ func main() {
 		AuditHandler:       auditHandler,
 		APIKeyHandler:      apiKeyHandler,
 		OperatorHandler:    operatorHandler,
+		APNHandler:         apnHandler,
+		IPPoolHandler:      ippoolHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

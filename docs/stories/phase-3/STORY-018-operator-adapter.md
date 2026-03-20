@@ -6,6 +6,8 @@ As a platform operator, I want a pluggable adapter framework for operator connec
 ## Description
 Define the Adapter interface in internal/operator/adapter with methods for authentication vector fetch, RADIUS forwarding, Diameter forwarding, and health check. Implement a mock simulator adapter in internal/operator/mock that simulates operator responses (configurable success/failure rates, latency) for development and testing. The adapter registry selects the correct adapter based on operator protocol configuration (TBL-05).
 
+> **Note (post-STORY-009):** STORY-009 already implemented the adapter registry (`internal/operator/adapter/registry.go`), Adapter interface (`types.go`), mock/radius/diameter adapter stubs, `GetOrCreate`/`HasFactory` pattern, health check via adapter, and API-024 test connection. This story should focus on **extending** the existing adapters with full AAA methods (Authenticate, AccountingUpdate, FetchAuthVectors) and enhancing the mock simulator with EAP triplet/quintet generation. Effort may be reduced from L to M.
+
 ## Architecture Reference
 - Services: SVC-06 (Operator Router — internal/operator/adapter)
 - Database Tables: TBL-05 (operators — protocol, endpoint config)
@@ -17,18 +19,18 @@ Define the Adapter interface in internal/operator/adapter with methods for authe
 - SCR-040: Operator List — health status per operator
 
 ## Acceptance Criteria
-- [ ] Adapter interface defined: `Authenticate(ctx, req) (resp, error)`, `AccountingUpdate(ctx, req) error`, `HealthCheck(ctx) error`, `FetchAuthVectors(ctx, imsi, count) ([]Vector, error)`
-- [ ] Adapter registry: register adapters by protocol type (radius, diameter, sba, mock)
-- [ ] Adapter selection: SVC-06 picks adapter from TBL-05.protocol field
-- [ ] Mock adapter: configurable success_rate (0-100%), latency_ms, error_type
+- [x] Adapter interface defined: `HealthCheck(ctx) error` — done in STORY-009. Extend with `Authenticate(ctx, req) (resp, error)`, `AccountingUpdate(ctx, req) error`, `FetchAuthVectors(ctx, imsi, count) ([]Vector, error)`
+- [x] Adapter registry: register adapters by protocol type (radius, diameter, mock) — done in STORY-009. Add `sba` factory.
+- [x] Adapter selection: SVC-06 picks adapter via `Registry.GetOrCreate` — done in STORY-009
+- [ ] Mock adapter: configurable success_rate (0-100%), latency_ms, error_type — extend existing mock
 - [ ] Mock adapter: returns valid EAP triplets/quintets for test IMSIs
 - [ ] Mock adapter: simulates accounting acceptance
-- [ ] RADIUS adapter stub: forwards Access-Request to operator RADIUS endpoint
-- [ ] Diameter adapter stub: forwards CER/CEA, DWR/DWA to operator Diameter peer
-- [ ] POST /api/v1/operators/:id/test (API-024) triggers health check via adapter
+- [ ] RADIUS adapter: forwards Access-Request to operator RADIUS endpoint (upgrade from stub)
+- [ ] Diameter adapter: forwards CER/CEA, DWR/DWA to operator Diameter peer (upgrade from stub)
+- [x] POST /api/v1/operators/:id/test (API-024) triggers health check via adapter — done in STORY-009
 - [ ] Adapter timeout: configurable per operator (default 3s)
 - [ ] Adapter error wrapping: all adapter errors include operator_id and protocol type
-- [ ] Thread-safe: adapters are safe for concurrent use
+- [x] Thread-safe: adapters are safe for concurrent use (Registry uses sync.RWMutex) — done in STORY-009
 
 ## Dependencies
 - Blocked by: STORY-009 (operator CRUD), STORY-015 (RADIUS server)

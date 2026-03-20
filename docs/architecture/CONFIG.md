@@ -78,6 +78,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `tenant:config:` | 5min | Tenant configuration |
 | `ratelimit:` | Window size | Rate limit counters |
 | `operator:prefix:` | 1hr | IMSI prefix routing table |
+| `operator:health:` | 2 * health_check_interval_sec | Operator health status cache |
 | `lock:` | 30s | Distributed locks (job runner) |
 
 ---
@@ -116,6 +117,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `BCRYPT_COST` | int | `12` | No | bcrypt cost factor for password hashing. Range 10-14. Higher = slower but more secure. 12 is ~250ms on modern hardware. |
 | `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before account lockout. |
 | `LOGIN_LOCKOUT_DURATION` | duration | `15m` | No | Account lockout duration after max failed attempts. |
+| `ENCRYPTION_KEY` | string | — | No | 32-byte hex-encoded key for AES-256-GCM encryption of sensitive fields (adapter_config, sm_dp_plus_config). Empty = no encryption (dev mode passthrough). **Keep secret.** |
 
 ---
 
@@ -272,6 +274,7 @@ JWT_SECRET=change-me-to-a-long-random-string-at-least-32-chars
 JWT_EXPIRY=15m
 JWT_REFRESH_EXPIRY=168h
 BCRYPT_COST=12
+ENCRYPTION_KEY=  # 32-byte hex key for AES-256-GCM (empty = no encryption in dev)
 
 # === AAA ===
 RADIUS_AUTH_PORT=1812

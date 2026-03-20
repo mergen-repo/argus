@@ -129,6 +129,9 @@
 | DEV-021 | 2026-03-20 | STORY-009: Redis cache TTL for operator health was hardcoded to 60s. Gate fixed to use `2 * health_check_interval_sec` per operator, matching the plan spec. Minimum TTL floor of 30s added for safety. | ACCEPTED |
 | DEV-022 | 2026-03-20 | STORY-009: `validAdapterTypes` in handler includes `sba` but adapter registry has no SBA factory. Acceptable for now — SBA adapter is a future story. Health check will fail gracefully (logged error, no crash). Will be resolved when SBA adapter is implemented. | ACCEPTED |
 | DEV-023 | 2026-03-20 | STORY-009: `updated_at` column on operators table is handled by DB trigger `trg_operators_updated_at` (same pattern as tenants, users). No need for explicit `SET updated_at = NOW()` in Go code. | ACCEPTED |
+| DEV-024 | 2026-03-20 | STORY-010: Error codes `CodeAPNHasActiveSIMs`, `CodePoolExhausted`, `CodeIPAlreadyAllocated` added to apierr package as constants, replacing hardcoded string literals in handlers. Consistent with existing error code pattern. | ACCEPTED |
+| DEV-025 | 2026-03-20 | STORY-010: APN Archive method does not accept `userID` for `updated_by` — audit log captures the actor. The DB trigger `trg_apns_updated_at` handles `updated_at`. Acceptable for v1; if needed, `updated_by` can be added to Archive signature later. | ACCEPTED |
+| DEV-026 | 2026-03-20 | STORY-010: APN Archive SIM count query (`SELECT COUNT(*) FROM sims WHERE apn_id = $1`) is not scoped by tenant_id. Acceptable because `apn_id` is a globally unique UUID and the handler already verifies APN belongs to the tenant via `GetByID` before calling Archive. | ACCEPTED |
 
 ## Performance Decisions
 
@@ -136,5 +139,7 @@
 |---|------|----------|--------|
 | PERF-001 | 2026-03-20 | STORY-009: Operator list not cached in Redis — admin-only endpoint, low frequency, acceptable latency. | ACCEPTED |
 | PERF-002 | 2026-03-20 | STORY-009: operator:health:{id} Redis key with TTL = 2 * health_check_interval_sec. Provides fast health status lookup without DB hit. Fallback to DB on cache miss. | ACCEPTED |
+| PERF-003 | 2026-03-20 | STORY-010: APN and IP Pool list endpoints not cached in Redis — admin-only, low frequency. Same rationale as PERF-001. | ACCEPTED |
+| PERF-004 | 2026-03-20 | STORY-010: IP allocation uses DB-level FOR UPDATE SKIP LOCKED instead of Redis cache — correctness over speed for financial-grade IP inventory. Cache would introduce stale reads and double-allocation risk. | ACCEPTED |
 
 ---

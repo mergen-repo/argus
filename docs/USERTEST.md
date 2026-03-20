@@ -259,3 +259,33 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    201 donmeli
 8. Grant listele + sil: GET/DELETE /api/v1/operators/{id}/grants
 9. Unit testler: `go test ./internal/store/... ./internal/crypto/... ./internal/api/operator/... ./internal/operator/... -v`
+
+---
+
+## STORY-010: APN CRUD & IP Pool Management
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. APN olustur:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/apns \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"iot.fleet","operator_id":"<operator-id>","network_identifier":"iot.fleet.turkcell","ip_version":"ipv4"}'
+   ```
+   201 donmeli
+4. APN listele: GET /api/v1/apns -- 200 + APN listesi
+5. APN guncelle: PATCH /api/v1/apns/{id} -- 200
+6. IP Pool olustur:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/ip-pools \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Fleet Pool","apn_id":"<apn-id>","cidr":"10.100.0.0/24","type":"dynamic"}'
+   ```
+   201 + IP adresleri otomatik olusturulacak
+7. IP Pool listele: GET /api/v1/ip-pools -- 200 + pool listesi
+8. IP adresleri listele: GET /api/v1/ip-pools/{id}/addresses -- 200 + IP listesi
+9. Statik IP rezervasyon: POST /api/v1/ip-pools/{id}/reserve -- 201 + rezerve IP
+10. APN arsivleme: DELETE /api/v1/apns/{id} -- Aktif SIM varsa 422, yoksa 200
+11. Unit testler: `go test ./internal/store/... ./internal/api/apn/... ./internal/api/ippool/... -v`
