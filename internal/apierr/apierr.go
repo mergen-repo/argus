@@ -14,6 +14,7 @@ const (
 	RoleKey          contextKey = "role"
 	AuthTypeKey      contextKey = "auth_type"
 	ScopesKey        contextKey = "scopes"
+	APIKeyIDKey      contextKey = "api_key_id"
 )
 
 const (
@@ -39,6 +40,8 @@ const (
 
 	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
 	CodeTenantSuspended       = "TENANT_SUSPENDED"
+
+	CodeRateLimited = "RATE_LIMITED"
 )
 
 type SuccessResponse struct {

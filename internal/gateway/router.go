@@ -1,12 +1,15 @@
 package gateway
 
 import (
+	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
@@ -16,6 +19,11 @@ type RouterDeps struct {
 	TenantHandler *tenantapi.Handler
 	UserHandler   *userapi.Handler
 	AuditHandler  *auditapi.Handler
+	APIKeyHandler *apikeyapi.Handler
+	APIKeyStore   *store.APIKeyStore
+	RedisClient   *redis.Client
+	RateLimitPerMinute int
+	RateLimitPerHour   int
 	JWTSecret     string
 	Logger        zerolog.Logger
 }
@@ -36,6 +44,18 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 	r.Use(CorrelationID())
 	r.Use(chimiddleware.RealIP)
 	r.Use(ZerologRequestLogger(deps.Logger))
+
+	if deps.RedisClient != nil {
+		perMin := deps.RateLimitPerMinute
+		if perMin <= 0 {
+			perMin = 1000
+		}
+		perHour := deps.RateLimitPerHour
+		if perHour <= 0 {
+			perHour = 30000
+		}
+		r.Use(RateLimiter(deps.RedisClient, perMin, perHour, deps.Logger))
+	}
 
 	r.Get("/api/health", deps.Health.Check)
 
@@ -95,6 +115,18 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
 			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
+		})
+	}
+
+	if deps.APIKeyHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/api-keys", deps.APIKeyHandler.List)
+			r.Post("/api/v1/api-keys", deps.APIKeyHandler.Create)
+			r.Patch("/api/v1/api-keys/{id}", deps.APIKeyHandler.Update)
+			r.Post("/api/v1/api-keys/{id}/rotate", deps.APIKeyHandler.Rotate)
+			r.Delete("/api/v1/api-keys/{id}", deps.APIKeyHandler.Delete)
 		})
 	}
 

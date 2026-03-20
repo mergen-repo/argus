@@ -207,6 +207,51 @@ func TestRequireScope_EmptyScopes(t *testing.T) {
 	}
 }
 
+func TestRequireScope_WildcardAll(t *testing.T) {
+	handler := RequireScope("sims:read")(dummyHandler())
+	rec := httptest.NewRecorder()
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apierr.AuthTypeKey, "api_key")
+	ctx = context.WithValue(ctx, apierr.ScopesKey, []string{"*"})
+	req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
+
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for wildcard scope *, got %d", rec.Code)
+	}
+}
+
+func TestRequireScope_ResourceWildcard(t *testing.T) {
+	handler := RequireScope("sims:write")(dummyHandler())
+	rec := httptest.NewRecorder()
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apierr.AuthTypeKey, "api_key")
+	ctx = context.WithValue(ctx, apierr.ScopesKey, []string{"sims:*"})
+	req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
+
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for resource wildcard sims:*, got %d", rec.Code)
+	}
+}
+
+func TestRequireScope_ResourceWildcardDifferentResource(t *testing.T) {
+	handler := RequireScope("sims:read")(dummyHandler())
+	rec := httptest.NewRecorder()
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apierr.AuthTypeKey, "api_key")
+	ctx = context.WithValue(ctx, apierr.ScopesKey, []string{"cdrs:*"})
+	req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
+
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for cdrs:* when sims:read required, got %d", rec.Code)
+	}
+}
+
 func TestRequireRole_AllRolesHierarchy(t *testing.T) {
 	roles := []string{"api_user", "analyst", "policy_editor", "sim_manager", "operator_manager", "tenant_admin", "super_admin"}
 

@@ -175,3 +175,43 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    CSV dosyasi donmeli (Content-Type: text/csv)
 8. Yetkisiz erisim (JWT olmadan veya analyst rolu ile) -- 401/403 donmeli
 9. Unit testler: `go test ./internal/audit/... ./internal/store/... ./internal/api/audit/... -v` -- 30 test gecmeli
+
+---
+
+## STORY-008: API Key Management & Rate Limiting
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. API key olustur:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/api-keys \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Test Key","scopes":["sims:read","apns:read"]}'
+   ```
+   201 + `argus_{prefix}_{secret}` formatinda key donmeli (tek seferlik gosterilir)
+4. API key listele:
+   ```bash
+   curl -sk https://localhost/api/v1/api-keys -H 'Authorization: Bearer <token>'
+   ```
+   200 + key listesi (sadece prefix gorunur, secret gizli)
+5. API key ile istek yap:
+   ```bash
+   curl -sk https://localhost/api/v1/audit-logs \
+     -H 'X-API-Key: argus_{prefix}_{secret}'
+   ```
+   Scope izni varsa 200, yoksa 403 donmeli
+6. API key rotate:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/api-keys/{id}/rotate \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + yeni key donmeli, eski key 24 saat daha gecerli
+7. Rate limiting testi -- Cok sayida istek gonderildiginde 429 + Retry-After header donmeli
+8. API key sil (revoke):
+   ```bash
+   curl -sk -X DELETE https://localhost/api/v1/api-keys/{id} \
+     -H 'Authorization: Bearer <token>'
+   ```
+   204 donmeli, silinen key ile istek 401 donmeli
+9. Unit testler: `go test ./internal/store/... ./internal/api/apikey/... ./internal/gateway/... -v`

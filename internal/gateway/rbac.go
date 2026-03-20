@@ -47,11 +47,9 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 			}
 
 			scopes, _ := r.Context().Value(apierr.ScopesKey).([]string)
-			for _, s := range scopes {
-				if s == scope {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if hasScopeAccess(scopes, scope) {
+				next.ServeHTTP(w, r)
+				return
 			}
 
 			apierr.WriteError(w, http.StatusForbidden, apierr.CodeScopeDenied,

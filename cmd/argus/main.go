@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
@@ -107,15 +108,23 @@ func main() {
 	userHandler := userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger)
 	auditHandler := auditapi.NewHandler(auditStore, auditSvc, log.Logger)
 
+	apiKeyStore := store.NewAPIKeyStore(pg.Pool)
+	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
-		Health:        health,
-		AuthHandler:   authHandler,
-		TenantHandler: tenantHandler,
-		UserHandler:   userHandler,
-		AuditHandler:  auditHandler,
-		JWTSecret:     cfg.JWTSecret,
-		Logger:        log.Logger,
+		Health:             health,
+		AuthHandler:        authHandler,
+		TenantHandler:      tenantHandler,
+		UserHandler:        userHandler,
+		AuditHandler:       auditHandler,
+		APIKeyHandler:      apiKeyHandler,
+		APIKeyStore:        apiKeyStore,
+		RedisClient:        rdb.Client,
+		RateLimitPerMinute: cfg.RateLimitPerMinute,
+		RateLimitPerHour:   cfg.RateLimitPerHour,
+		JWTSecret:          cfg.JWTSecret,
+		Logger:             log.Logger,
 	})
 
 	srv := &http.Server{

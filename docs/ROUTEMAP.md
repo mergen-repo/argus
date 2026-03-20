@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 1: Foundation
-> Overall progress: 11%
+> Overall progress: 13%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 6/55 (11%)
-> Current story: STORY-007
+> Stories completed: 7/55 (13%)
+> Current story: STORY-008
 > Current step: Runner
 
 ### Phase 1: Foundation [IN PROGRESS]
@@ -39,8 +39,8 @@
 | STORY-004 | RBAC Middleware & Permission Enforcement | M | [x] DONE | — | STORY-003 | 2026-03-20 |
 | STORY-005 | Tenant Management & User CRUD | M | [x] DONE | — | STORY-004 | 2026-03-20 |
 | STORY-006 | Structured Logging, Config & NATS Event Bus | M | [x] DONE | — | STORY-001 | 2026-03-20 |
-| STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [~] IN PROGRESS | Commit | STORY-006 | — |
-| STORY-008 | API Key Management & Rate Limiting | M | [ ] PENDING | — | STORY-004, STORY-006 | — |
+| STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [x] DONE | — | STORY-006 | 2026-03-20 |
+| STORY-008 | API Key Management & Rate Limiting | M | [~] IN PROGRESS | Commit | STORY-004, STORY-006 | — |
 
 ### Phase 2: Core SIM & APN [PENDING]
 
