@@ -62,7 +62,7 @@
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-017 | Session Management & Force Disconnect | L | [x] DONE | — | STORY-015 | 2026-03-20 |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [x] DONE | — | STORY-015 | 2026-03-20 |
-| STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [ ] PENDING | — | STORY-015, STORY-016 | — |
+| STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [~] IN PROGRESS | Commit | STORY-015, STORY-016 | — |
 | STORY-021 | Operator Failover & Circuit Breaker | L | [ ] PENDING | — | STORY-018 | — |
 
 ### Phase 4: Policy & Orchestration [PENDING]

@@ -15,18 +15,19 @@ import (
 )
 
 type ServerConfig struct {
-	Port              int
-	OriginHost        string
-	OriginRealm       string
-	VendorID          uint32
-	WatchdogInterval  time.Duration
-	ProductName       string
+	Port             int
+	OriginHost       string
+	OriginRealm      string
+	VendorID         uint32
+	WatchdogInterval time.Duration
+	ProductName      string
 }
 
 type ServerDeps struct {
-	SessionMgr *session.Manager
-	EventBus   *bus.EventBus
-	Logger     zerolog.Logger
+	SessionMgr  *session.Manager
+	EventBus    *bus.EventBus
+	SIMResolver SIMResolver
+	Logger      zerolog.Logger
 }
 
 type PeerState int
@@ -95,6 +96,7 @@ type Server struct {
 
 	gxHandler *GxHandler
 	gyHandler *GyHandler
+	stateMap  *SessionStateMap
 
 	listener net.Listener
 	peers    sync.Map
@@ -120,16 +122,19 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	logger := deps.Logger.With().Str("component", "diameter_server").Logger()
 
+	stateMap := NewSessionStateMap()
+
 	s := &Server{
 		cfg:        cfg,
 		sessionMgr: deps.SessionMgr,
 		eventBus:   deps.EventBus,
 		logger:     logger,
+		stateMap:   stateMap,
 		stopCh:     make(chan struct{}),
 	}
 
-	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, logger)
-	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, logger)
+	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
+	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
 
 	s.hopID.Store(uint32(time.Now().UnixNano() & 0xFFFFFFFF))
 	s.endID.Store(uint32(time.Now().UnixNano()>>32) & 0xFFFFFFFF)
@@ -196,6 +201,17 @@ func (s *Server) IsRunning() bool {
 	return s.running
 }
 
+func (s *Server) Healthy() bool {
+	return s.IsRunning()
+}
+
+func (s *Server) ActiveSessionCount(ctx context.Context) (int64, error) {
+	if s.sessionMgr != nil {
+		return s.sessionMgr.CountActive(ctx)
+	}
+	return int64(s.stateMap.ActiveCount()), nil
+}
+
 func (s *Server) HealthCheck() error {
 	if !s.IsRunning() {
 		return fmt.Errorf("diameter server not running")
@@ -220,6 +236,10 @@ func (s *Server) PeerCount() int {
 
 func (s *Server) SessionManager() *session.Manager {
 	return s.sessionMgr
+}
+
+func (s *Server) SessionStateMap() *SessionStateMap {
+	return s.stateMap
 }
 
 func (s *Server) acceptLoop() {

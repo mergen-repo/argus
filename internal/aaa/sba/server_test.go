@@ -18,9 +18,10 @@ func newTestServer() *Server {
 	return NewServer(ServerConfig{
 		Port: 0,
 	}, ServerDeps{
-		SessionMgr: nil,
-		EventBus:   nil,
-		Logger:     testLogger(),
+		SessionMgr:      nil,
+		EventBus:        nil,
+		EAPStateMachine: nil,
+		Logger:          testLogger(),
 	})
 }
 
@@ -408,6 +409,139 @@ func TestUDMRegistration(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNRFDiscoverEndpoint(t *testing.T) {
+	srv := newTestServer()
+
+	req := httptest.NewRequest(http.MethodGet, "/nnrf-nfm/v1/nf-instances", nil)
+	w := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		ValidityPeriod int `json:"validityPeriod"`
+		NFInstances    []struct {
+			NFType string `json:"nfType"`
+		} `json:"nfInstances"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(result.NFInstances) == 0 {
+		t.Fatal("expected at least one NF instance")
+	}
+	if result.NFInstances[0].NFType != "AUSF" {
+		t.Errorf("expected AUSF, got %s", result.NFInstances[0].NFType)
+	}
+}
+
+func TestNRFStatusNotifyEndpoint(t *testing.T) {
+	srv := newTestServer()
+
+	body := `{"event":"NF_REGISTERED","nfInstanceId":"test-nf","nfStatus":"REGISTERED"}`
+	req := httptest.NewRequest(http.MethodPost, "/nnrf-nfm/v1/nf-status-notify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEAPProxyNoStateMachine(t *testing.T) {
+	srv := newTestServer()
+
+	body := `{"supiOrSuci":"imsi-286010123456789","servingNetworkName":"5G:test","authType":"EAP_AKA_PRIME"}`
+	req := httptest.NewRequest(http.MethodPost, "/nausf-auth/v1/eap-authentications", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEAPProxyInvalidSUPI(t *testing.T) {
+	srv := newTestServer()
+
+	body := `{"supiOrSuci":"invalid","servingNetworkName":"5G:test","authType":"EAP_AKA_PRIME"}`
+	req := httptest.NewRequest(http.MethodPost, "/nausf-auth/v1/eap-authentications", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEAPProxyContinueNoStateMachine(t *testing.T) {
+	srv := newTestServer()
+
+	body := `{"eapPayload":"dGVzdA=="}`
+	req := httptest.NewRequest(http.MethodPost, "/nausf-auth/v1/eap-sessions/test-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExtractEAPSessionID(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"/nausf-auth/v1/eap-sessions/abc-123", "abc-123"},
+		{"/nausf-auth/v1/eap-sessions/", ""},
+		{"/other/path", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := extractEAPSessionID(tt.path)
+			if got != tt.expected {
+				t.Errorf("extractEAPSessionID(%q) = %q, want %q", tt.path, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNRFRegistrationPlaceholder(t *testing.T) {
+	nrf := NewNRFRegistration(NRFConfig{
+		NFInstanceID: "test-nf",
+		NRFURL:       "https://nrf.example.com",
+	}, testLogger())
+
+	if err := nrf.Register(); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := nrf.Heartbeat(); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	if err := nrf.Deregister(); err != nil {
+		t.Fatalf("Deregister: %v", err)
+	}
+
+	profile := nrf.GetProfile()
+	if profile.NFType != "AUSF" {
+		t.Errorf("expected NFType=AUSF, got %s", profile.NFType)
+	}
+	if profile.NFStatus != "REGISTERED" {
+		t.Errorf("expected NFStatus=REGISTERED, got %s", profile.NFStatus)
+	}
+	if len(profile.NFServices) != 2 {
+		t.Errorf("expected 2 services, got %d", len(profile.NFServices))
 	}
 }
 

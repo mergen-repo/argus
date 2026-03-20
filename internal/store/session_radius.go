@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,9 +37,11 @@ type RadiusSession struct {
 	TerminateCause   *string    `json:"terminate_cause"`
 	BytesIn          int64      `json:"bytes_in"`
 	BytesOut         int64      `json:"bytes_out"`
-	PacketsIn        int64      `json:"packets_in"`
-	PacketsOut       int64      `json:"packets_out"`
-	LastInterimAt    *time.Time `json:"last_interim_at"`
+	PacketsIn        int64            `json:"packets_in"`
+	PacketsOut       int64            `json:"packets_out"`
+	LastInterimAt    *time.Time       `json:"last_interim_at"`
+	ProtocolType     string           `json:"protocol_type"`
+	SliceInfo        json.RawMessage  `json:"slice_info,omitempty"`
 }
 
 type CreateRadiusSessionParams struct {
@@ -54,12 +57,15 @@ type CreateRadiusSessionParams struct {
 	AuthMethod       *string
 	PolicyVersionID  *uuid.UUID
 	AcctSessionID    *string
+	ProtocolType     string
+	SliceInfo        json.RawMessage
 }
 
 var radiusSessionColumns = `id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip,
 	calling_station_id, called_station_id, rat_type, session_state, auth_method,
 	policy_version_id, acct_session_id, started_at, ended_at, terminate_cause,
-	bytes_in, bytes_out, packets_in, packets_out, last_interim_at`
+	bytes_in, bytes_out, packets_in, packets_out, last_interim_at,
+	protocol_type, slice_info`
 
 func scanRadiusSession(row pgx.Row) (*RadiusSession, error) {
 	var s RadiusSession
@@ -71,6 +77,7 @@ func scanRadiusSession(row pgx.Row) (*RadiusSession, error) {
 		&s.StartedAt, &s.EndedAt, &s.TerminateCause,
 		&s.BytesIn, &s.BytesOut, &s.PacketsIn, &s.PacketsOut,
 		&s.LastInterimAt,
+		&s.ProtocolType, &s.SliceInfo,
 	)
 	return &s, err
 }
@@ -84,15 +91,20 @@ func NewRadiusSessionStore(db *pgxpool.Pool) *RadiusSessionStore {
 }
 
 func (s *RadiusSessionStore) Create(ctx context.Context, p CreateRadiusSessionParams) (*RadiusSession, error) {
+	protocolType := p.ProtocolType
+	if protocolType == "" {
+		protocolType = "radius"
+	}
+
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO sessions (sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip,
 			calling_station_id, called_station_id, rat_type, auth_method,
-			policy_version_id, acct_session_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			policy_version_id, acct_session_id, protocol_type, slice_info)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING `+radiusSessionColumns,
 		p.SimID, p.TenantID, p.OperatorID, p.APNID, p.NASIP, p.FramedIP,
 		p.CallingStationID, p.CalledStationID, p.RATType, p.AuthMethod,
-		p.PolicyVersionID, p.AcctSessionID,
+		p.PolicyVersionID, p.AcctSessionID, protocolType, p.SliceInfo,
 	)
 
 	sess, err := scanRadiusSession(row)
@@ -200,6 +212,7 @@ func (s *RadiusSessionStore) ListActiveBySIM(ctx context.Context, simID uuid.UUI
 			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
 			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
 			&sess.LastInterimAt,
+			&sess.ProtocolType, &sess.SliceInfo,
 		); err != nil {
 			return nil, fmt.Errorf("store: scan radius session: %w", err)
 		}
@@ -300,6 +313,7 @@ func (s *RadiusSessionStore) ListActiveFiltered(ctx context.Context, p ListActiv
 			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
 			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
 			&sess.LastInterimAt,
+			&sess.ProtocolType, &sess.SliceInfo,
 		); err != nil {
 			return nil, "", fmt.Errorf("store: scan active session: %w", err)
 		}

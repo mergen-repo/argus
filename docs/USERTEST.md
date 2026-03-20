@@ -262,6 +262,27 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-020: 5G SBA HTTP/2 Proxy (AUSF/UDM)
+
+Bu story icin manuel test senaryosu yok (backend/altyapi — 5G SBA HTTP/2 protokolu). Asagidaki komutlar ile dogrulama:
+
+1. `make up` -- Servisleri baslat (SBA :8443 — SBA_ENABLED=true gerekli)
+2. Health check:
+   ```bash
+   curl -sk https://localhost:8084/api/health
+   ```
+   `{"aaa":{"sba":"ok",...}}` icermeli
+3. AUSF 5G-AKA baslat:
+   ```bash
+   curl -sk -X POST https://localhost:8443/nausf-auth/v1/ue-authentications \
+     -H 'Content-Type: application/json' \
+     -d '{"supiOrSuci":"imsi-310260000000001","servingNetworkName":"5G:mnc026.mcc310.3gppnetwork.org"}'
+   ```
+   201 + auth context + challenge donmeli
+4. Unit testler: `go test ./internal/aaa/sba/... -v`
+
+---
+
 ## STORY-019: Diameter Protocol Server (Gx/Gy)
 
 Bu story icin manuel test senaryosu yok (backend/altyapi — Diameter TCP protokolu). Asagidaki komutlar ile dogrulama:

@@ -9,7 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	aaadiameter "github.com/btopcu/argus/internal/aaa/diameter"
 	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
+	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
@@ -200,9 +202,66 @@ func main() {
 		jobRunner.Register(disconnectProcessor)
 	}
 
+	var diameterServer *aaadiameter.Server
+	if cfg.DiameterOriginHost != "" {
+		var diamSimResolver aaadiameter.SIMResolver
+		if simStore != nil {
+			diamSimResolver = aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
+		}
+
+		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
+		diamSessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger)
+
+		diameterServer = aaadiameter.NewServer(aaadiameter.ServerConfig{
+			Port:        cfg.DiameterPort,
+			OriginHost:  cfg.DiameterOriginHost,
+			OriginRealm: cfg.DiameterOriginRealm,
+		}, aaadiameter.ServerDeps{
+			SessionMgr:  diamSessionMgr,
+			EventBus:    eventBus,
+			SIMResolver: diamSimResolver,
+			Logger:      log.Logger,
+		})
+
+		if err := diameterServer.Start(); err != nil {
+			log.Fatal().Err(err).Msg("failed to start Diameter server")
+		}
+	}
+
+	var sbaServer *aaasba.Server
+	if cfg.SBAEnabled {
+		sbaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
+		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger)
+
+		sbaServer = aaasba.NewServer(aaasba.ServerConfig{
+			Port:        cfg.SBAPort,
+			TLSCertPath: cfg.TLSCertPath,
+			TLSKeyPath:  cfg.TLSKeyPath,
+			EnableMTLS:  cfg.SBAEnableMTLS,
+		}, aaasba.ServerDeps{
+			SessionMgr: sbaSessionMgr,
+			EventBus:   eventBus,
+			Logger:     log.Logger,
+		})
+
+		if err := sbaServer.Start(); err != nil {
+			log.Fatal().Err(err).Msg("failed to start SBA server")
+		}
+
+		if err := sbaServer.NRFRegistration().Register(); err != nil {
+			log.Warn().Err(err).Msg("NRF registration failed (placeholder)")
+		}
+	}
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
 		health.SetAAAChecker(radiusServer)
+	}
+	if diameterServer != nil {
+		health.SetDiameterChecker(diameterServer)
+	}
+	if sbaServer != nil {
+		health.SetSBAChecker(sbaServer)
 	}
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
@@ -267,6 +326,17 @@ func main() {
 		if err := radiusServer.Stop(shutdownCtx); err != nil {
 			log.Error().Err(err).Msg("RADIUS server shutdown error")
 		}
+	}
+
+	if diameterServer != nil {
+		log.Info().Msg("stopping Diameter server")
+		diameterServer.Stop()
+	}
+
+	if sbaServer != nil {
+		log.Info().Msg("stopping SBA server")
+		_ = sbaServer.NRFRegistration().Deregister()
+		sbaServer.Stop()
 	}
 
 	if sessionSweeper != nil {

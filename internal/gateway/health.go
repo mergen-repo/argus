@@ -16,12 +16,24 @@ type AAAHealthChecker interface {
 	ActiveSessionCount(ctx context.Context) (int64, error)
 }
 
+type DiameterHealthChecker interface {
+	Healthy() bool
+	ActiveSessionCount(ctx context.Context) (int64, error)
+}
+
+type SBAHealthChecker interface {
+	Healthy() bool
+	ActiveSessionCount(ctx context.Context) (int64, error)
+}
+
 type HealthHandler struct {
-	db      HealthChecker
-	redis   HealthChecker
-	nats    HealthChecker
-	aaa     AAAHealthChecker
-	startAt time.Time
+	db       HealthChecker
+	redis    HealthChecker
+	nats     HealthChecker
+	aaa      AAAHealthChecker
+	diameter DiameterHealthChecker
+	sba      SBAHealthChecker
+	startAt  time.Time
 }
 
 func NewHealthHandler(db, redis, nats HealthChecker) *HealthHandler {
@@ -37,6 +49,14 @@ func (h *HealthHandler) SetAAAChecker(aaa AAAHealthChecker) {
 	h.aaa = aaa
 }
 
+func (h *HealthHandler) SetDiameterChecker(d DiameterHealthChecker) {
+	h.diameter = d
+}
+
+func (h *HealthHandler) SetSBAChecker(sba SBAHealthChecker) {
+	h.sba = sba
+}
+
 type apiResponse struct {
 	Status string      `json:"status"`
 	Data   interface{} `json:"data,omitempty"`
@@ -50,6 +70,8 @@ type apiError struct {
 
 type aaaHealthData struct {
 	Radius         string `json:"radius"`
+	Diameter       string `json:"diameter,omitempty"`
+	SBA            string `json:"sba,omitempty"`
 	SessionsActive int64  `json:"sessions_active"`
 }
 
@@ -85,15 +107,39 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		healthy = false
 	}
 
-	if h.aaa != nil {
+	if h.aaa != nil || h.diameter != nil || h.sba != nil {
 		aaaData := &aaaHealthData{
-			Radius: "stopped",
+			Radius:   "stopped",
+			Diameter: "stopped",
+			SBA:      "stopped",
 		}
-		if h.aaa.Healthy() {
-			aaaData.Radius = "ok"
+		if h.aaa != nil {
+			if h.aaa.Healthy() {
+				aaaData.Radius = "ok"
+			}
+			if count, err := h.aaa.ActiveSessionCount(ctx); err == nil {
+				aaaData.SessionsActive += count
+			}
 		}
-		if count, err := h.aaa.ActiveSessionCount(ctx); err == nil {
-			aaaData.SessionsActive = count
+		if h.diameter != nil {
+			if h.diameter.Healthy() {
+				aaaData.Diameter = "ok"
+			}
+			if count, err := h.diameter.ActiveSessionCount(ctx); err == nil {
+				aaaData.SessionsActive += count
+			}
+		} else {
+			aaaData.Diameter = ""
+		}
+		if h.sba != nil {
+			if h.sba.Healthy() {
+				aaaData.SBA = "ok"
+			}
+			if count, err := h.sba.ActiveSessionCount(ctx); err == nil {
+				aaaData.SessionsActive += count
+			}
+		} else {
+			aaaData.SBA = ""
 		}
 		data.AAA = aaaData
 	}

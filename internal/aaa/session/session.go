@@ -13,6 +13,12 @@ import (
 )
 
 const (
+	ProtocolTypeRadius  = "radius"
+	ProtocolTypeDiameter = "diameter"
+	ProtocolType5GSBA   = "5g_sba"
+)
+
+const (
 	sessionKeyPrefix     = "session:"
 	sessionAcctKeyPrefix = "session:acct:"
 	defaultIdleTimeout   = 1800
@@ -35,13 +41,15 @@ type Session struct {
 	AuthMethod     string    `json:"auth_method,omitempty"`
 	SessionTimeout int       `json:"session_timeout"`
 	IdleTimeout    int       `json:"idle_timeout"`
-	RATType        string    `json:"rat_type,omitempty"`
-	BytesIn        uint64    `json:"bytes_in"`
-	BytesOut       uint64    `json:"bytes_out"`
-	StartedAt      time.Time `json:"started_at"`
-	LastInterimAt  time.Time `json:"last_interim_at"`
-	EndedAt        time.Time `json:"ended_at,omitempty"`
-	TerminateCause string    `json:"terminate_cause,omitempty"`
+	RATType        string          `json:"rat_type,omitempty"`
+	BytesIn        uint64          `json:"bytes_in"`
+	BytesOut       uint64          `json:"bytes_out"`
+	StartedAt      time.Time       `json:"started_at"`
+	LastInterimAt  time.Time       `json:"last_interim_at"`
+	EndedAt        time.Time       `json:"ended_at,omitempty"`
+	TerminateCause string          `json:"terminate_cause,omitempty"`
+	ProtocolType   string          `json:"protocol_type,omitempty"`
+	SliceInfo      json.RawMessage `json:"slice_info,omitempty"`
 }
 
 type SessionFilter struct {
@@ -112,6 +120,8 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			FramedIP:      framedIP,
 			AcctSessionID: acctSessionID,
 			AuthMethod:    authMethod,
+			ProtocolType:  sess.ProtocolType,
+			SliceInfo:     sess.SliceInfo,
 		})
 		if err != nil {
 			return fmt.Errorf("session manager: create: %w", err)
@@ -600,6 +610,8 @@ func radiusSessionToSession(rs *store.RadiusSession) *Session {
 	if rs.LastInterimAt != nil {
 		sess.LastInterimAt = *rs.LastInterimAt
 	}
+	sess.ProtocolType = rs.ProtocolType
+	sess.SliceInfo = rs.SliceInfo
 	return sess
 }
 

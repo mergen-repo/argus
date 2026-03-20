@@ -200,12 +200,19 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 	h.mu.Unlock()
 
 	if h.sessionMgr != nil {
+		var sliceInfoJSON json.RawMessage
+		if len(authCtx.AllowedNSSAI) > 0 {
+			sliceInfoJSON, _ = json.Marshal(authCtx.AllowedNSSAI)
+		}
+
 		sess := &session.Session{
 			IMSI:          extractIMSI(authCtx.SUPI),
 			AcctSessionID: "5g-sba-" + authCtxID,
 			RATType:       "nr_5g",
 			SessionState:  "active",
 			StartedAt:     time.Now().UTC(),
+			ProtocolType:  session.ProtocolType5GSBA,
+			SliceInfo:     sliceInfoJSON,
 		}
 		if err := h.sessionMgr.Create(context.Background(), sess); err != nil {
 			h.logger.Error().Err(err).

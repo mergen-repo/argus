@@ -50,6 +50,7 @@ type Config struct {
 	DiameterOriginRealm  string `envconfig:"DIAMETER_ORIGIN_REALM"`
 	SBAPort              int    `envconfig:"SBA_PORT" default:"8443"`
 	SBAEnabled           bool   `envconfig:"SBA_ENABLED" default:"false"`
+	SBAEnableMTLS        bool   `envconfig:"SBA_ENABLE_MTLS" default:"false"`
 
 	RateLimitPerMinute int    `envconfig:"RATE_LIMIT_DEFAULT_PER_MINUTE" default:"1000"`
 	RateLimitPerHour   int    `envconfig:"RATE_LIMIT_DEFAULT_PER_HOUR" default:"30000"`

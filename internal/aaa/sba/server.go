@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/eap"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/rs/zerolog"
@@ -23,9 +24,10 @@ type ServerConfig struct {
 }
 
 type ServerDeps struct {
-	SessionMgr *session.Manager
-	EventBus   *bus.EventBus
-	Logger     zerolog.Logger
+	SessionMgr   *session.Manager
+	EventBus     *bus.EventBus
+	EAPStateMachine *eap.StateMachine
+	Logger       zerolog.Logger
 }
 
 type Server struct {
@@ -35,8 +37,10 @@ type Server struct {
 	eventBus   *bus.EventBus
 	logger     zerolog.Logger
 
-	ausfHandler *AUSFHandler
-	udmHandler  *UDMHandler
+	ausfHandler     *AUSFHandler
+	udmHandler      *UDMHandler
+	eapProxyHandler *EAPProxyHandler
+	nrfRegistration *NRFRegistration
 
 	mu      sync.Mutex
 	running bool
@@ -54,6 +58,10 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	s.ausfHandler = NewAUSFHandler(deps.SessionMgr, deps.EventBus, logger)
 	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, logger)
+	s.eapProxyHandler = NewEAPProxyHandler(deps.EAPStateMachine, logger)
+	s.nrfRegistration = NewNRFRegistration(NRFConfig{
+		NFInstanceID: "argus-sba-01",
+	}, logger)
 
 	mux := http.NewServeMux()
 
@@ -65,6 +73,9 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		}
 		writeProblem(w, http.StatusNotFound, "RESOURCE_NOT_FOUND", "Unknown AUSF endpoint")
 	})
+
+	mux.HandleFunc("/nausf-auth/v1/eap-authentications", s.eapProxyHandler.HandleEAPAuth)
+	mux.HandleFunc("/nausf-auth/v1/eap-sessions/", s.eapProxyHandler.HandleEAPContinue)
 
 	mux.HandleFunc("/nudm-ueau/v1/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/security-information") {
@@ -85,6 +96,9 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		}
 		writeProblem(w, http.StatusNotFound, "RESOURCE_NOT_FOUND", "Unknown UDM UECM endpoint")
 	})
+
+	mux.HandleFunc("/nnrf-nfm/v1/nf-instances", s.nrfRegistration.HandleNFDiscover)
+	mux.HandleFunc("/nnrf-nfm/v1/nf-status-notify", s.nrfRegistration.HandleNFStatusNotify)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -202,5 +216,24 @@ func (s *Server) AUSFHandler() *AUSFHandler {
 
 func (s *Server) UDMHandler() *UDMHandler {
 	return s.udmHandler
+}
+
+func (s *Server) EAPProxyHandler() *EAPProxyHandler {
+	return s.eapProxyHandler
+}
+
+func (s *Server) NRFRegistration() *NRFRegistration {
+	return s.nrfRegistration
+}
+
+func (s *Server) Healthy() bool {
+	return s.IsRunning()
+}
+
+func (s *Server) ActiveSessionCount(ctx context.Context) (int64, error) {
+	if s.sessionMgr == nil {
+		return 0, nil
+	}
+	return s.sessionMgr.CountActive(ctx)
 }
 

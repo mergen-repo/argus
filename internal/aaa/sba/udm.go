@@ -158,6 +158,7 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 			RATType:       strings.ToLower(reg.RATType),
 			SessionState:  "active",
 			StartedAt:     time.Now().UTC(),
+			ProtocolType:  session.ProtocolType5GSBA,
 		}
 		if err := h.sessionMgr.Create(r.Context(), sess); err != nil {
 			h.logger.Error().Err(err).Str("supi", supi).Msg("failed to create session for AMF registration")
