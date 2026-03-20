@@ -31,6 +31,13 @@
 | Vector Cache | Redis list-based pre-fetch cache for authentication vectors. Key pattern `eap:vectors:{imsi}:{type}`, 5min TTL, batch size 3. Uses LPOP/RPUSH for atomic consume-one-keep-rest semantics. | SVC-04, STORY-016 |
 | CER/CEA | Capabilities Exchange Request/Answer — Diameter handshake to negotiate supported applications between peers | Diameter protocol (RFC 6733), STORY-018 adapter |
 | DWR/DWA | Device Watchdog Request/Answer — Diameter keepalive mechanism to detect peer failures | Diameter protocol (RFC 6733), STORY-018 adapter |
+| DPR/DPA | Disconnect Peer Request/Answer — Diameter graceful peer disconnection. Initiating peer sends DPR with Disconnect-Cause; receiving peer responds with DPA and closes the transport connection. | Diameter protocol (RFC 6733), STORY-019 |
+| CCR/CCA | Credit-Control Request/Answer — Diameter message pair for credit-control sessions (command code 272). Used in both Gx (policy) and Gy (charging) interfaces. CC-Request-Type: Initial (1), Update (2), Termination (3), Event (4). | Diameter Gx/Gy (RFC 4006), STORY-019 |
+| RAR/RAA | Re-Auth Request/Answer — Diameter message pair for server-initiated re-authorization (command code 258). Used to push mid-session policy changes from PCRF to PCEF. | Diameter Gx (RFC 6733), STORY-019 |
+| PCC Rules | Policy and Charging Control rules — QoS and charging rules installed on the PCEF via Gx Charging-Rule-Install AVP. Include QoS-Information (max bandwidth), Flow-Description, and precedence. | Diameter Gx (3GPP TS 29.212), STORY-019 |
+| OCS | Online Charging System — Real-time charging function implementing the Gy interface. Grants credit quotas (Granted-Service-Unit), receives usage reports (Used-Service-Unit), and manages prepaid account balances. | Diameter Gy (3GPP TS 32.299), STORY-019 |
+| Diameter Session-Id | Globally unique identifier for a Diameter session, formatted as `{DiameterIdentity};{high32};{low32};{optional}`. Maps to `acct_session_id` in TBL-17 sessions table. Shared correlation key across Gx and Gy interfaces. | Diameter protocol (RFC 6733), STORY-019 |
+| Diameter Peer | Remote Diameter node connected via TCP to the Argus Diameter server. Peer state transitions: idle (connected, no CER) -> open (CER/CEA complete) -> closing (DPR sent) -> closed. Managed in server.go via sync.Map. | Diameter protocol (RFC 6733), STORY-019 |
 
 ## SIM & Mobile Terms
 

@@ -45,6 +45,8 @@ CDR processing pipeline: accounting events from RADIUS (Acct-Start/Interim/Stop)
 - Blocked by: STORY-015 (RADIUS accounting events), STORY-019 (Diameter accounting), STORY-009 (operator rate config)
 - Blocks: STORY-034 (usage analytics), STORY-035 (cost analytics)
 
+> **Note (post-STORY-019):** STORY-019 Diameter Gx/Gy handlers publish session events to the same NATS topics as RADIUS: `argus.events.session.started` (on CCR-I), `argus.events.session.updated` (on CCR-U), `argus.events.session.ended` (on CCR-T). The CDR consumer should subscribe to these NATS topics and create CDR records regardless of whether the source is RADIUS or Diameter. Event payloads include session_id, sim_id, operator_id, bytes_in/bytes_out, and protocol_type. The Gy (credit-control) events additionally carry Granted-Service-Unit and Used-Service-Unit data useful for cost calculation.
+
 ## Test Scenarios
 - [ ] RADIUS Accounting-Start → CDR created with type=start, no cost yet
 - [ ] RADIUS Accounting-Interim → CDR with delta usage, cost calculated
