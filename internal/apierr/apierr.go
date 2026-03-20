@@ -11,6 +11,8 @@ const (
 	TenantIDKey contextKey = "tenant_id"
 	UserIDKey   contextKey = "user_id"
 	RoleKey     contextKey = "role"
+	AuthTypeKey contextKey = "auth_type"
+	ScopesKey   contextKey = "scopes"
 )
 
 const (
@@ -29,6 +31,10 @@ const (
 	CodeInvalid2FACode      = "INVALID_2FA_CODE"
 	CodeTokenExpired        = "TOKEN_EXPIRED"
 	CodeInvalidRefreshToken = "INVALID_REFRESH_TOKEN"
+
+	CodeForbidden        = "FORBIDDEN"
+	CodeInsufficientRole = "INSUFFICIENT_ROLE"
+	CodeScopeDenied      = "SCOPE_DENIED"
 )
 
 type SuccessResponse struct {

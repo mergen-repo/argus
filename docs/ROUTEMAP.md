@@ -27,7 +27,7 @@
 
 > Stories completed: 3/55 (5%)
 > Current story: STORY-004
-> Current step: —
+> Current step: Runner
 
 ### Phase 1: Foundation [IN PROGRESS]
 
@@ -36,7 +36,7 @@
 | STORY-001 | Project Scaffold & Docker Infrastructure | M | [x] DONE | — | — | 2026-03-20 |
 | STORY-002 | Core Database Schema & Migrations | L | [x] DONE | — | STORY-001 | 2026-03-20 |
 | STORY-003 | Authentication — JWT + Refresh + 2FA | M | [x] DONE | — | STORY-002 | 2026-03-20 |
-| STORY-004 | RBAC Middleware & Permission Enforcement | M | [ ] PENDING | — | STORY-003 | — |
+| STORY-004 | RBAC Middleware & Permission Enforcement | M | [~] IN PROGRESS | Commit | STORY-003 | — |
 | STORY-005 | Tenant Management & User CRUD | M | [ ] PENDING | — | STORY-004 | — |
 | STORY-006 | Structured Logging, Config & NATS Event Bus | M | [ ] PENDING | — | STORY-001 | — |
 | STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [ ] PENDING | — | STORY-006 | — |

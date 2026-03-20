@@ -67,3 +67,15 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    TOTP secret + QR URI donmeli
 8. 2FA verify -- Yanlis kod ile 401, dogru kod ile tam JWT donmeli
 9. Expired JWT ile protected route -- 401 donmeli
+
+---
+
+## STORY-004: RBAC Middleware & Permission Enforcement
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). RBAC middleware unit testleri ile dogrulanmistir:
+
+1. `go test ./internal/gateway/... -v` -- 12 test fonksiyonu gecmeli
+2. super_admin rollu JWT ile tum endpointlere erisim saglanmali
+3. api_user rollu JWT ile sinirli erisim olmali (role yetersizse 403 donmeli)
+4. JWT olmadan protected route -- 401 donmeli (403 degil)
+5. Yanlis/eksik role ile istek -- 403 INSUFFICIENT_ROLE donmeli

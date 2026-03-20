@@ -23,6 +23,7 @@ func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecre
 
 	r.Group(func(r chi.Router) {
 		r.Use(JWTAuth(jwtSecret))
+		r.Use(RequireRole("api_user"))
 		r.Post("/api/v1/auth/logout", authHandler.Logout)
 		r.Post("/api/v1/auth/2fa/setup", authHandler.Setup2FA)
 	})
