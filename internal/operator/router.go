@@ -244,6 +244,51 @@ func (r *OperatorRouter) SendDM(ctx context.Context, operatorID uuid.UUID, req a
 	return nil
 }
 
+func (r *OperatorRouter) Authenticate(ctx context.Context, operatorID uuid.UUID, req adapter.AuthenticateRequest) (*adapter.AuthenticateResponse, error) {
+	a, cb, err := r.resolveWithCircuitBreaker(operatorID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := a.Authenticate(ctx, req)
+	r.recordResult(cb, operatorID, a.Type(), err)
+	if err != nil {
+		return nil, adapter.WrapError(operatorID, a.Type(), err)
+	}
+
+	return resp, nil
+}
+
+func (r *OperatorRouter) AccountingUpdate(ctx context.Context, operatorID uuid.UUID, req adapter.AccountingUpdateRequest) error {
+	a, cb, err := r.resolveWithCircuitBreaker(operatorID)
+	if err != nil {
+		return err
+	}
+
+	err = a.AccountingUpdate(ctx, req)
+	r.recordResult(cb, operatorID, a.Type(), err)
+	if err != nil {
+		return adapter.WrapError(operatorID, a.Type(), err)
+	}
+
+	return nil
+}
+
+func (r *OperatorRouter) FetchAuthVectors(ctx context.Context, operatorID uuid.UUID, imsi string, count int) ([]adapter.AuthVector, error) {
+	a, cb, err := r.resolveWithCircuitBreaker(operatorID)
+	if err != nil {
+		return nil, err
+	}
+
+	vectors, err := a.FetchAuthVectors(ctx, imsi, count)
+	r.recordResult(cb, operatorID, a.Type(), err)
+	if err != nil {
+		return nil, adapter.WrapError(operatorID, a.Type(), err)
+	}
+
+	return vectors, nil
+}
+
 func (r *OperatorRouter) HealthCheck(ctx context.Context, operatorID uuid.UUID) adapter.HealthResult {
 	a, ok := r.registry.Get(operatorID)
 	if !ok {

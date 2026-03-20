@@ -28,7 +28,7 @@ type AdapterError struct {
 }
 
 func (e *AdapterError) Error() string {
-	return fmt.Sprintf("adapter [%s]: %v", e.ProtocolType, e.Err)
+	return fmt.Sprintf("adapter [%s] operator=%s: %v", e.ProtocolType, e.OperatorID, e.Err)
 }
 
 func (e *AdapterError) Unwrap() error {
@@ -42,6 +42,9 @@ type Adapter interface {
 	ForwardAcct(ctx context.Context, req AcctRequest) error
 	SendCoA(ctx context.Context, req CoARequest) error
 	SendDM(ctx context.Context, req DMRequest) error
+	Authenticate(ctx context.Context, req AuthenticateRequest) (*AuthenticateResponse, error)
+	AccountingUpdate(ctx context.Context, req AccountingUpdateRequest) error
+	FetchAuthVectors(ctx context.Context, imsi string, count int) ([]AuthVector, error)
 }
 
 const (
@@ -97,6 +100,47 @@ type DMRequest struct {
 	NASCoAPort int
 	SessionID  string
 	IMSI       string
+}
+
+const (
+	VectorTypeTriplet = "triplet"
+	VectorTypeQuintet = "quintet"
+)
+
+type AuthenticateRequest struct {
+	IMSI        string
+	MSISDN      string
+	APN         string
+	RATType     string
+	VisitedPLMN string
+}
+
+type AuthenticateResponse struct {
+	Success    bool
+	Code       string
+	SessionID  string
+	Attributes map[string]interface{}
+}
+
+type AccountingUpdateRequest struct {
+	IMSI         string
+	SessionID    string
+	StatusType   string
+	InputOctets  uint64
+	OutputOctets uint64
+	SessionTime  int
+	RATType      string
+}
+
+type AuthVector struct {
+	Type string
+	RAND []byte
+	SRES []byte
+	Kc   []byte
+	AUTN []byte
+	XRES []byte
+	CK   []byte
+	IK   []byte
 }
 
 func WrapError(operatorID uuid.UUID, protocolType string, err error) error {

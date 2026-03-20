@@ -31,6 +31,9 @@ func NewRegistry() *Registry {
 	r.factories["diameter"] = func(cfg json.RawMessage) (Adapter, error) {
 		return NewDiameterAdapter(cfg)
 	}
+	r.factories["sba"] = func(cfg json.RawMessage) (Adapter, error) {
+		return NewSBAAdapter(cfg)
+	}
 
 	return r
 }
@@ -112,6 +115,8 @@ func NewAdapter(adapterType string, config json.RawMessage) (Adapter, error) {
 		return NewRADIUSAdapter(config)
 	case "diameter":
 		return NewDiameterAdapter(config)
+	case "sba":
+		return NewSBAAdapter(config)
 	default:
 		return NewMockAdapter(json.RawMessage(`{"latency_ms":10}`))
 	}

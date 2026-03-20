@@ -295,6 +295,44 @@ func (r *RADIUSAdapter) SendDM(ctx context.Context, req DMRequest) error {
 	return nil
 }
 
+func (r *RADIUSAdapter) Authenticate(ctx context.Context, req AuthenticateRequest) (*AuthenticateResponse, error) {
+	authReq := AuthRequest{
+		IMSI:   req.IMSI,
+		MSISDN: req.MSISDN,
+		APN:    req.APN,
+		NASId:  r.config.Host,
+	}
+
+	resp, err := r.ForwardAuth(ctx, authReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthenticateResponse{
+		Success:    resp.Code == AuthAccept,
+		Code:       resp.Code,
+		SessionID:  fmt.Sprintf("radius-%s-%d", req.IMSI, time.Now().UnixNano()),
+		Attributes: resp.Attributes,
+	}, nil
+}
+
+func (r *RADIUSAdapter) AccountingUpdate(ctx context.Context, req AccountingUpdateRequest) error {
+	acctReq := AcctRequest{
+		IMSI:         req.IMSI,
+		SessionID:    req.SessionID,
+		StatusType:   req.StatusType,
+		InputOctets:  req.InputOctets,
+		OutputOctets: req.OutputOctets,
+		SessionTime:  req.SessionTime,
+	}
+
+	return r.ForwardAcct(ctx, acctReq)
+}
+
+func (r *RADIUSAdapter) FetchAuthVectors(_ context.Context, _ string, _ int) ([]AuthVector, error) {
+	return nil, fmt.Errorf("%w: RADIUS does not support direct vector fetch", ErrUnsupportedProtocol)
+}
+
 func (r *RADIUSAdapter) Type() string {
 	return "radius"
 }

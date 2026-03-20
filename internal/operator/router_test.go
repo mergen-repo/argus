@@ -28,6 +28,15 @@ func (f *failingAdapter) SendCoA(_ context.Context, _ adapter.CoARequest) error 
 func (f *failingAdapter) SendDM(_ context.Context, _ adapter.DMRequest) error {
 	return fmt.Errorf("simulated connection error")
 }
+func (f *failingAdapter) Authenticate(_ context.Context, _ adapter.AuthenticateRequest) (*adapter.AuthenticateResponse, error) {
+	return nil, fmt.Errorf("simulated connection error")
+}
+func (f *failingAdapter) AccountingUpdate(_ context.Context, _ adapter.AccountingUpdateRequest) error {
+	return fmt.Errorf("simulated connection error")
+}
+func (f *failingAdapter) FetchAuthVectors(_ context.Context, _ string, _ int) ([]adapter.AuthVector, error) {
+	return nil, fmt.Errorf("simulated connection error")
+}
 func (f *failingAdapter) Type() string { return "failing" }
 
 func TestRouterForwardAuth(t *testing.T) {
@@ -219,6 +228,117 @@ func TestRouterRemoveOperator(t *testing.T) {
 	}
 }
 
+func TestRouterAuthenticate(t *testing.T) {
+	router := newTestRouter()
+	opID := registerMockOperator(t, router, 100)
+
+	resp, err := router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{
+		IMSI:    "286010123456789",
+		APN:     "internet",
+		RATType: "LTE",
+	})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if !resp.Success {
+		t.Error("expected success=true")
+	}
+	if resp.Code != adapter.AuthAccept {
+		t.Errorf("code = %s, want AuthAccept", resp.Code)
+	}
+	if resp.SessionID == "" {
+		t.Error("expected non-empty session ID")
+	}
+}
+
+func TestRouterAuthenticate_NotFound(t *testing.T) {
+	router := newTestRouter()
+	_, err := router.Authenticate(context.Background(), uuid.New(), adapter.AuthenticateRequest{IMSI: "123"})
+	if err == nil {
+		t.Fatal("expected error for unknown operator")
+	}
+	var adapterErr *adapter.AdapterError
+	if !errors.As(err, &adapterErr) {
+		t.Fatalf("expected AdapterError, got %T: %v", err, err)
+	}
+	if !errors.Is(adapterErr.Err, adapter.ErrAdapterNotFound) {
+		t.Errorf("inner error = %v, want ErrAdapterNotFound", adapterErr.Err)
+	}
+}
+
+func TestRouterAuthenticate_ErrorWrapping(t *testing.T) {
+	router := newTestRouter()
+	opID := uuid.New()
+	router.RegisterOperator(opID, &failingAdapter{}, 100, 60)
+
+	_, err := router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{IMSI: "123"})
+	if err == nil {
+		t.Fatal("expected error from failing adapter")
+	}
+	var adapterErr *adapter.AdapterError
+	if !errors.As(err, &adapterErr) {
+		t.Fatalf("expected AdapterError, got %T: %v", err, err)
+	}
+	if adapterErr.OperatorID != opID {
+		t.Errorf("operator_id = %s, want %s", adapterErr.OperatorID, opID)
+	}
+	if adapterErr.ProtocolType != "failing" {
+		t.Errorf("protocol = %s, want failing", adapterErr.ProtocolType)
+	}
+}
+
+func TestRouterAccountingUpdate(t *testing.T) {
+	router := newTestRouter()
+	opID := registerMockOperator(t, router, 100)
+
+	err := router.AccountingUpdate(context.Background(), opID, adapter.AccountingUpdateRequest{
+		IMSI:         "286010123456789",
+		SessionID:    "sess-001",
+		StatusType:   adapter.AcctStart,
+		InputOctets:  1024,
+		OutputOctets: 2048,
+		SessionTime:  60,
+		RATType:      "LTE",
+	})
+	if err != nil {
+		t.Fatalf("accounting update: %v", err)
+	}
+}
+
+func TestRouterAccountingUpdate_NotFound(t *testing.T) {
+	router := newTestRouter()
+	err := router.AccountingUpdate(context.Background(), uuid.New(), adapter.AccountingUpdateRequest{IMSI: "123"})
+	if err == nil {
+		t.Fatal("expected error for unknown operator")
+	}
+}
+
+func TestRouterFetchAuthVectors(t *testing.T) {
+	router := newTestRouter()
+	opID := registerMockOperator(t, router, 100)
+
+	vectors, err := router.FetchAuthVectors(context.Background(), opID, "286010123456789", 3)
+	if err != nil {
+		t.Fatalf("fetch auth vectors: %v", err)
+	}
+	if len(vectors) != 3 {
+		t.Fatalf("vector count = %d, want 3", len(vectors))
+	}
+	for _, v := range vectors {
+		if v.Type != adapter.VectorTypeTriplet && v.Type != adapter.VectorTypeQuintet {
+			t.Errorf("unexpected vector type: %s", v.Type)
+		}
+	}
+}
+
+func TestRouterFetchAuthVectors_NotFound(t *testing.T) {
+	router := newTestRouter()
+	_, err := router.FetchAuthVectors(context.Background(), uuid.New(), "123", 1)
+	if err == nil {
+		t.Fatal("expected error for unknown operator")
+	}
+}
+
 func TestRouterConcurrentAccess(t *testing.T) {
 	router := newTestRouter()
 
@@ -237,6 +357,9 @@ func TestRouterConcurrentAccess(t *testing.T) {
 			_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "286010123456789"})
 			_ = router.ForwardAcct(context.Background(), opID, adapter.AcctRequest{IMSI: "286010123456789", SessionID: "s1"})
 			_ = router.HealthCheck(context.Background(), opID)
+			_, _ = router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{IMSI: "286010123456789", APN: "iot"})
+			_ = router.AccountingUpdate(context.Background(), opID, adapter.AccountingUpdateRequest{IMSI: "286010123456789", SessionID: "s1", StatusType: adapter.AcctInterim})
+			_, _ = router.FetchAuthVectors(context.Background(), opID, "286010123456789", 2)
 		}(i)
 	}
 	wg.Wait()

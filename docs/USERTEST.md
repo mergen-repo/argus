@@ -262,6 +262,29 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-018: Pluggable Operator Adapter + Mock Simulator
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework backend-only. Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Servisleri baslat
+2. Login yap ve JWT al
+3. Mock operator olustur (adapter_type: "mock"):
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/operators \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Mock Operator","code":"mock-op","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"success_rate":80,"latency_ms":50}}'
+   ```
+4. Test connection:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/operators/{id}/test \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + health status donmeli
+5. Unit testler: `go test -race ./internal/operator/... -v`
+
+---
+
 ## STORY-014: MSISDN Number Pool Management
 
 1. `make up` -- Tum servisleri baslat

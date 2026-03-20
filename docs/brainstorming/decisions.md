@@ -141,6 +141,9 @@
 | DEV-033 | 2026-03-20 | STORY-013: Gate fixed missing `HasMore` in Job handler's List ListMeta — all other 11 list handlers in the codebase set `HasMore: nextCursor != ""`. Job handler was the only one missing it. | ACCEPTED |
 | DEV-034 | 2026-03-20 | STORY-013: Gate extended JobStore.Cancel to allow cancelling `running` jobs (previously only `queued`/`retry_pending`). This enables the `CheckCancelled` mechanism in BulkImportProcessor to work — processor checks state every 100 rows and stops if cancelled. Without this, running jobs could never be cancelled, making the CheckCancelled code dead. | ACCEPTED |
 | DEV-035 | 2026-03-20 | STORY-013: CSV data stored inline in job payload JSONB (up to 50MB). Acceptable for v1. Future optimization: store CSV as file reference (S3/local) instead of inline in JSONB for very large files. | ACCEPTED |
+| DEV-036 | 2026-03-20 | STORY-014: Gate fixed missing `HasMore` in MSISDN List handler's ListMeta — all other 12 list handlers in the codebase set `HasMore: nextCursor != ""`. MSISDN handler was the only one missing it. | ACCEPTED |
+| DEV-037 | 2026-03-20 | STORY-014: Gate fixed MSISDN Release to use grace period. Original implementation immediately set state to 'available'. Now sets state='reserved' with `reserved_until = NOW() + grace_period_days`. Uses existing `reserved_until` column in msisdn_pool table. Default 30 days if not specified. | ACCEPTED |
+| DEV-038 | 2026-03-20 | STORY-014: Gate wired MSISDN release into SIM Terminate flow. SIMStore.Terminate now updates msisdn_pool state to 'reserved' with grace period (same pattern as IP release on lines 515-524). Uses same purgeInterval as IP reclaim for consistency. | ACCEPTED |
 
 ## Performance Decisions
 
@@ -156,5 +159,23 @@
 | PERF-008 | 2026-03-20 | STORY-012: Segment count and summary results not cached in Redis — SIM state transitions happen frequently, stale cache is unacceptable for count accuracy. Same rationale as PERF-005. | ACCEPTED |
 | PERF-009 | 2026-03-20 | STORY-013: Job list not cached in Redis — admin/manager endpoint, state changes frequently (queued→running→completed), stale cache unacceptable. Cursor-based pagination makes list caching impractical. Same rationale as PERF-005. | ACCEPTED |
 | PERF-010 | 2026-03-20 | STORY-013: Operator/APN lookups in BulkImportProcessor use per-job in-memory cache (map). Avoids N+1 queries for repeated operator_code/apn_name values across CSV rows. Cache lives only for the duration of one job. | ACCEPTED |
+| PERF-011 | 2026-03-20 | STORY-014: MSISDN pool list not cached in Redis — admin/manager endpoint, state changes frequently (assign/release), stale cache unacceptable. Cursor-based pagination makes list caching impractical. Same rationale as PERF-005/009. | ACCEPTED |
+| PERF-012 | 2026-03-20 | STORY-014: BulkImport uses per-row INSERT (not COPY) to enable per-row error tracking and partial success reporting. COPY would be faster for >1000 rows but loses error granularity. Acceptable for admin-only import operation. | ACCEPTED |
+
+## Validation Decisions
+
+| # | Date | Decision | Status |
+|---|------|----------|--------|
+| VAL-001 | 2026-03-20 | STORY-018: Mock adapter uses `math/rand` for success rate simulation — acceptable, not security-sensitive. Cryptographic randomness (`crypto/rand`) not needed for mock/test behavior. | ACCEPTED |
+| VAL-002 | 2026-03-20 | STORY-018: RADIUS and Diameter adapters return `ErrUnsupportedProtocol` for `FetchAuthVectors` — these protocols do not natively support direct vector fetch. Correct per 3GPP spec (vector fetch is via MAP/Diameter S6a, not generic Gx/Gy). | ACCEPTED |
+| VAL-003 | 2026-03-20 | STORY-018: SBA adapter `FetchAuthVectors` returns zero-filled vector stubs after HTTP call — real UDM response parsing deferred to STORY-019/integration phase. Acceptable for framework extension story. | ACCEPTED |
+
+## Testing Decisions
+
+| # | Date | Decision | Status |
+|---|------|----------|--------|
+| TEST-001 | 2026-03-20 | STORY-018: Configurable rate test uses 200 iterations with 20-80% margin (for 50% target). Wide margin prevents flaky failures while still validating probabilistic behavior. | ACCEPTED |
+| TEST-002 | 2026-03-20 | STORY-018: RADIUS/Diameter/SBA adapters tested at build level only (interface satisfaction). Network-level integration tests deferred to respective protocol stories (STORY-015, STORY-019). Mock adapter has full behavioral tests. | ACCEPTED |
+| TEST-003 | 2026-03-20 | STORY-018: `go test -race` used on all story test packages. 150 concurrent goroutines (mock_test) + 50 concurrent goroutines (router_test) provide sufficient race coverage. | ACCEPTED |
 
 ---

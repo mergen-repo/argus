@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -202,6 +204,111 @@ func (m *MockAdapter) SendDM(ctx context.Context, req DMRequest) error {
 	}
 
 	return nil
+}
+
+func (m *MockAdapter) Authenticate(ctx context.Context, req AuthenticateRequest) (*AuthenticateResponse, error) {
+	_, err := m.simulateLatency(ctx)
+	if err != nil {
+		return nil, ErrAdapterTimeout
+	}
+
+	if m.shouldSucceed() {
+		m.mu.Lock()
+		count := m.callCount
+		m.mu.Unlock()
+		return &AuthenticateResponse{
+			Success:   true,
+			Code:      AuthAccept,
+			SessionID: fmt.Sprintf("mock-session-%s-%d", req.IMSI, count),
+			Attributes: map[string]interface{}{
+				"apn":      req.APN,
+				"rat_type": req.RATType,
+			},
+		}, nil
+	}
+
+	return &AuthenticateResponse{
+		Success: false,
+		Code:    AuthReject,
+		Attributes: map[string]interface{}{
+			"reject_reason": m.config.ErrorType,
+		},
+	}, nil
+}
+
+func (m *MockAdapter) AccountingUpdate(ctx context.Context, req AccountingUpdateRequest) error {
+	_, err := m.simulateLatency(ctx)
+	if err != nil {
+		return ErrAdapterTimeout
+	}
+
+	if !m.shouldSucceed() {
+		return &AdapterError{
+			ProtocolType: "mock",
+			Err:          errSimulatedFailure,
+		}
+	}
+
+	return nil
+}
+
+func (m *MockAdapter) FetchAuthVectors(ctx context.Context, imsi string, count int) ([]AuthVector, error) {
+	_, err := m.simulateLatency(ctx)
+	if err != nil {
+		return nil, ErrAdapterTimeout
+	}
+
+	if count <= 0 {
+		count = 1
+	}
+
+	vectors := make([]AuthVector, count)
+	for i := 0; i < count; i++ {
+		if i%2 == 0 {
+			vectors[i] = mockGenerateTriplet(imsi, i)
+		} else {
+			vectors[i] = mockGenerateQuintet(imsi, i)
+		}
+	}
+
+	return vectors, nil
+}
+
+func mockDeterministicBytes(seed []byte, index int, length int) []byte {
+	input := make([]byte, len(seed)+1)
+	copy(input, seed)
+	input[len(seed)] = byte(index)
+	h := sha256.Sum256(input)
+	if length > 32 {
+		length = 32
+	}
+	out := make([]byte, length)
+	copy(out, h[:length])
+	return out
+}
+
+func mockGenerateTriplet(imsi string, vectorIndex int) AuthVector {
+	seed := sha256.Sum256([]byte("triplet-seed:" + imsi))
+	offset := vectorIndex * 10
+	return AuthVector{
+		Type: VectorTypeTriplet,
+		RAND: mockDeterministicBytes(seed[:], offset, 16),
+		SRES: mockDeterministicBytes(seed[:], offset+1, 4),
+		Kc:   mockDeterministicBytes(seed[:], offset+2, 8),
+	}
+}
+
+func mockGenerateQuintet(imsi string, vectorIndex int) AuthVector {
+	seed := sha256.Sum256([]byte("quintet-seed:" + imsi))
+	offset := vectorIndex * 10
+	return AuthVector{
+		Type: VectorTypeQuintet,
+		RAND: mockDeterministicBytes(seed[:], offset, 16),
+		AUTN: mockDeterministicBytes(seed[:], offset+1, 16),
+		XRES: mockDeterministicBytes(seed[:], offset+2, 8),
+		CK:   mockDeterministicBytes(seed[:], offset+3, 16),
+		IK:   mockDeterministicBytes(seed[:], offset+4, 16),
+	}
 }
 
 func (m *MockAdapter) Type() string {

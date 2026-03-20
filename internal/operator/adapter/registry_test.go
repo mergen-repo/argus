@@ -143,6 +143,25 @@ func TestRegistryRegisterCustomFactory(t *testing.T) {
 	}
 }
 
+func TestRegistryCreateSBAAdapter(t *testing.T) {
+	r := NewRegistry()
+	cfg := json.RawMessage(`{"host":"127.0.0.1","port":8443}`)
+	a, err := r.CreateAdapter("sba", cfg)
+	if err != nil {
+		t.Fatalf("create sba adapter: %v", err)
+	}
+	if a.Type() != "sba" {
+		t.Errorf("type = %q, want %q", a.Type(), "sba")
+	}
+}
+
+func TestRegistryHasFactorySBA(t *testing.T) {
+	r := NewRegistry()
+	if !r.HasFactory("sba") {
+		t.Error("expected sba factory to exist")
+	}
+}
+
 func TestRegistryConcurrentAccess(t *testing.T) {
 	r := NewRegistry()
 

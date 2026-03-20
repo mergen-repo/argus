@@ -23,10 +23,13 @@ type DiameterConfig struct {
 }
 
 type DiameterAdapter struct {
-	mu     sync.Mutex
-	config DiameterConfig
-	conn   net.Conn
-	hopID  uint32
+	mu       sync.Mutex
+	config   DiameterConfig
+	conn     net.Conn
+	hopID    uint32
+	cerDone  bool
+	watchdog bool
+	stopWd   chan struct{}
 }
 
 func NewDiameterAdapter(raw json.RawMessage) (*DiameterAdapter, error) {
@@ -283,6 +286,43 @@ func (d *DiameterAdapter) SendDM(ctx context.Context, req DMRequest) error {
 	return nil
 }
 
+func (d *DiameterAdapter) Authenticate(ctx context.Context, req AuthenticateRequest) (*AuthenticateResponse, error) {
+	authReq := AuthRequest{
+		IMSI:   req.IMSI,
+		MSISDN: req.MSISDN,
+		APN:    req.APN,
+	}
+
+	resp, err := d.ForwardAuth(ctx, authReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthenticateResponse{
+		Success:    resp.Code == AuthAccept,
+		Code:       resp.Code,
+		SessionID:  fmt.Sprintf("diameter-%s-%d", req.IMSI, time.Now().UnixNano()),
+		Attributes: resp.Attributes,
+	}, nil
+}
+
+func (d *DiameterAdapter) AccountingUpdate(ctx context.Context, req AccountingUpdateRequest) error {
+	acctReq := AcctRequest{
+		IMSI:         req.IMSI,
+		SessionID:    req.SessionID,
+		StatusType:   req.StatusType,
+		InputOctets:  req.InputOctets,
+		OutputOctets: req.OutputOctets,
+		SessionTime:  req.SessionTime,
+	}
+
+	return d.ForwardAcct(ctx, acctReq)
+}
+
+func (d *DiameterAdapter) FetchAuthVectors(_ context.Context, _ string, _ int) ([]AuthVector, error) {
+	return nil, fmt.Errorf("%w: Diameter does not support direct vector fetch", ErrUnsupportedProtocol)
+}
+
 func (d *DiameterAdapter) Type() string {
 	return "diameter"
 }
@@ -304,7 +344,112 @@ func (d *DiameterAdapter) getConnection(ctx context.Context) (net.Conn, error) {
 	}
 
 	d.conn = conn
+
+	if err := d.performCER(conn, timeout); err != nil {
+		conn.Close()
+		d.conn = nil
+		return nil, fmt.Errorf("CER handshake: %w", err)
+	}
+	d.cerDone = true
+
+	if !d.watchdog {
+		d.stopWd = make(chan struct{})
+		d.watchdog = true
+		go d.runWatchdog()
+	}
+
 	return conn, nil
+}
+
+func (d *DiameterAdapter) performCER(conn net.Conn, timeout time.Duration) error {
+	hopID := d.hopID + 1
+	d.hopID = hopID
+
+	cer := diameter.NewRequest(diameter.CommandCER, diameter.ApplicationIDDiameterBase, hopID, hopID)
+	cer.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginHost, diameter.AVPFlagMandatory, 0, d.config.OriginHost))
+	cer.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginRealm, diameter.AVPFlagMandatory, 0, d.config.OriginRealm))
+
+	hostIP := net.ParseIP("127.0.0.1").To4()
+	if hostIP != nil {
+		ipData := make([]byte, 6)
+		ipData[0] = 0
+		ipData[1] = 1
+		copy(ipData[2:], hostIP)
+		cer.AddAVP(&diameter.AVP{Code: diameter.AVPCodeHostIPAddress, Flags: diameter.AVPFlagMandatory, Data: ipData})
+	}
+
+	cer.AddAVP(diameter.NewAVPUint32(diameter.AVPCodeVendorID, diameter.AVPFlagMandatory, 0, 0))
+	cer.AddAVP(diameter.NewAVPString(diameter.AVPCodeProductName, 0, 0, "argus"))
+	cer.AddAVP(diameter.NewAVPUint32(diameter.AVPCodeAuthApplicationID, diameter.AVPFlagMandatory, 0, diameter.ApplicationIDGx))
+	cer.AddAVP(diameter.NewAVPUint32(diameter.AVPCodeAcctApplicationID, diameter.AVPFlagMandatory, 0, diameter.ApplicationIDGy))
+
+	cerData, err := cer.Encode()
+	if err != nil {
+		return fmt.Errorf("encode CER: %w", err)
+	}
+
+	conn.SetDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(cerData); err != nil {
+		return fmt.Errorf("write CER: %w", err)
+	}
+
+	cea, err := d.readMessage(conn, timeout)
+	if err != nil {
+		return fmt.Errorf("read CEA: %w", err)
+	}
+
+	resultCode := cea.GetResultCode()
+	if resultCode != diameter.ResultCodeSuccess {
+		return fmt.Errorf("CEA result code: %d", resultCode)
+	}
+
+	return nil
+}
+
+func (d *DiameterAdapter) runWatchdog() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopWd:
+			return
+		case <-ticker.C:
+			d.sendDWR()
+		}
+	}
+}
+
+func (d *DiameterAdapter) sendDWR() {
+	d.mu.Lock()
+	conn := d.conn
+	if conn == nil {
+		d.mu.Unlock()
+		return
+	}
+	hopID := d.hopID + 1
+	d.hopID = hopID
+	d.mu.Unlock()
+
+	dwr := diameter.NewRequest(diameter.CommandDWR, diameter.ApplicationIDDiameterBase, hopID, hopID)
+	dwr.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginHost, diameter.AVPFlagMandatory, 0, d.config.OriginHost))
+	dwr.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginRealm, diameter.AVPFlagMandatory, 0, d.config.OriginRealm))
+
+	dwrData, err := dwr.Encode()
+	if err != nil {
+		return
+	}
+
+	timeout := time.Duration(d.config.TimeoutMs) * time.Millisecond
+	conn.SetDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(dwrData); err != nil {
+		d.closeConnection()
+		return
+	}
+
+	if _, err := d.readMessage(conn, timeout); err != nil {
+		d.closeConnection()
+	}
 }
 
 func (d *DiameterAdapter) closeConnection() {
@@ -313,6 +458,11 @@ func (d *DiameterAdapter) closeConnection() {
 	if d.conn != nil {
 		d.conn.Close()
 		d.conn = nil
+		d.cerDone = false
+	}
+	if d.watchdog && d.stopWd != nil {
+		close(d.stopWd)
+		d.watchdog = false
 	}
 }
 
