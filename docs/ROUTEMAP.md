@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 15/55 (27%)
-> Current story: STORY-015
+> Stories completed: 16/55 (29%)
+> Current story: STORY-016
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -58,7 +58,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-018 | Pluggable Operator Adapter + Mock Simulator | L | [x] DONE | — | STORY-009 | 2026-03-20 |
-| STORY-015 | RADIUS Authentication & Accounting Server | XL | [~] IN PROGRESS | Commit | STORY-011, STORY-018 | — |
+| STORY-015 | RADIUS Authentication & Accounting Server | XL | [x] DONE | — | STORY-011, STORY-018 | 2026-03-20 |
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [ ] PENDING | — | STORY-015 | — |
 | STORY-017 | Session Management & Force Disconnect | L | [ ] PENDING | — | STORY-015 | — |
 | STORY-019 | Diameter Protocol Server (Gx/Gy) | XL | [ ] PENDING | — | STORY-015 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-015 completed — RADIUS Authentication & Accounting Server. UDP :1812 auth + :1813 acct, SIM cache (Redis+DB), session manager (Redis+DB), CoA/DM, per-operator shared secret, health check AAA status, graceful shutdown. 15 RADIUS tests, 7 session tests, 5 store tests. | STORY-016, STORY-017, STORY-019, STORY-032 unblocked |
 | 2026-03-20 | DONE | STORY-018 completed — Pluggable Operator Adapter Framework. Extended Adapter interface with Authenticate/AccountingUpdate/FetchAuthVectors. Mock adapter with EAP triplet/quintet generation, RADIUS real forwarding, Diameter CER/CEA+DWR/DWA, new SBA adapter (HTTP/2), OperatorRouter 3 new methods with circuit breaker. 63 tests pass with -race. | STORY-015, STORY-016, STORY-019, STORY-020, STORY-021 unblocked |
 | 2026-03-20 | PHASE | Phase 2 (Core SIM & APN) completed — 6 stories (STORY-009 to STORY-014). Operator CRUD, APN CRUD, IP Pool CRUD, SIM CRUD + state machine, segments, bulk import, MSISDN pool management all implemented. 47 routes registered, 24 DB tables in use. | Phase 3 (AAA Engine) ready to start |
 | 2026-03-20 | DONE | STORY-014 completed — MSISDN pool management with CSV import, list with state filtering, assign to SIM, global uniqueness, grace period release on SIM termination. 3 new routes. | Phase 2 complete |

@@ -145,6 +145,12 @@
 | DEV-037 | 2026-03-20 | STORY-014: Gate fixed MSISDN Release to use grace period. Original implementation immediately set state to 'available'. Now sets state='reserved' with `reserved_until = NOW() + grace_period_days`. Uses existing `reserved_until` column in msisdn_pool table. Default 30 days if not specified. | ACCEPTED |
 | DEV-038 | 2026-03-20 | STORY-014: Gate wired MSISDN release into SIM Terminate flow. SIMStore.Terminate now updates msisdn_pool state to 'reserved' with grace period (same pattern as IP release on lines 515-524). Uses same purgeInterval as IP reclaim for consistency. | ACCEPTED |
 
+| DEV-039 | 2026-03-20 | STORY-015: RADIUS server uses `radius.StaticSecretSource` for the PacketServer, meaning per-operator secret resolution is done inside the handler (not at the transport layer). The `getOperatorSecret()` helper reads `adapter_config.radius_secret` with fallback to `RADIUS_SECRET` env var. Per-request secret validation at transport level would require a custom SecretSource implementation which is deferred. | ACCEPTED |
+| DEV-040 | 2026-03-20 | STORY-015: Session manager `ListActive` and `Stats` methods remain stubs (return empty). Full implementation deferred to STORY-017 which adds the REST API layer for session management. The Manager struct and all methods needed by the RADIUS server are fully implemented. | ACCEPTED |
+| DEV-041 | 2026-03-20 | STORY-015: `SIMStore.GetByIMSI` queries without tenant_id filter. IMSI is globally unique (enforced by UNIQUE index on sims table). This is the only store method that bypasses tenant scoping — necessary for RADIUS auth where tenant_id is not known from the incoming packet. | ACCEPTED |
+| DEV-042 | 2026-03-20 | STORY-015: `RadiusSessionStore.CountActive` scans all active sessions without tenant_id filter. Used only for health check aggregate count. Acceptable with `idx_sessions_tenant_active` partial index. Per-tenant session count will be added in STORY-017. | ACCEPTED |
+| DEV-043 | 2026-03-20 | STORY-015: RADIUS server package placed in `internal/aaa/radius/` instead of `internal/protocol/radius/` as referenced in STORY-015 story doc. The plan correctly identified `internal/aaa/radius/` as the right location, consistent with existing `internal/aaa/session/` package. | ACCEPTED |
+
 ## Performance Decisions
 
 | # | Date | Decision | Status |

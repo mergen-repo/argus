@@ -201,7 +201,7 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-180 | GET | /api/health | Health check (DB, Redis, NATS, AAA) | None | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md) |
+| API-180 | GET | /api/health | Health check (DB, Redis, NATS, AAA) | None | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md), [STORY-015](../../stories/phase-3/STORY-015-radius-server.md) (AAA status) |
 | API-181 | GET | /api/v1/system/metrics | Built-in metrics (auth/s, latency, sessions) | JWT (super_admin) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-182 | GET | /api/v1/system/config | System configuration | JWT (super_admin) | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md) |
 
