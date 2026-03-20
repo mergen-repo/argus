@@ -26,8 +26,8 @@
 ## Development Phase [IN PROGRESS]
 
 > Stories completed: 14/55 (25%)
-> Current story: —
-> Current step: — (Phase 2 complete, Phase Gate pending)
+> Current story: STORY-018
+> Current step: —
 
 ### Phase 1: Foundation [DONE]
 
