@@ -32,6 +32,7 @@ type Session struct {
 	AcctSessionID  string    `json:"acct_session_id"`
 	FramedIP       string    `json:"framed_ip"`
 	SessionState   string    `json:"session_state"`
+	AuthMethod     string    `json:"auth_method,omitempty"`
 	SessionTimeout int       `json:"session_timeout"`
 	IdleTimeout    int       `json:"idle_timeout"`
 	RATType        string    `json:"rat_type,omitempty"`
@@ -97,6 +98,8 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 		framedIP := nilIfEmpty(sess.FramedIP)
 		acctSessionID := nilIfEmpty(sess.AcctSessionID)
 
+		authMethod := nilIfEmpty(sess.AuthMethod)
+
 		dbSess, err := m.sessionStore.Create(ctx, store.CreateRadiusSessionParams{
 			SimID:         simID,
 			TenantID:      tenantID,
@@ -105,6 +108,7 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			NASIP:         nasIP,
 			FramedIP:      framedIP,
 			AcctSessionID: acctSessionID,
+			AuthMethod:    authMethod,
 		})
 		if err != nil {
 			return fmt.Errorf("session manager: create: %w", err)
@@ -345,6 +349,9 @@ func radiusSessionToSession(rs *store.RadiusSession) *Session {
 	}
 	if rs.FramedIP != nil {
 		sess.FramedIP = *rs.FramedIP
+	}
+	if rs.AuthMethod != nil {
+		sess.AuthMethod = *rs.AuthMethod
 	}
 	if rs.RATType != nil {
 		sess.RATType = *rs.RATType

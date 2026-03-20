@@ -3,6 +3,7 @@ package eap
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -264,7 +265,7 @@ func TestStateMachineRegistration(t *testing.T) {
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(store, provider, testLogger())
 
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 	sm.RegisterMethod(NewAKAHandler())
 	sm.RegisterMethod(NewAKAPrimeHandler())
 
@@ -292,7 +293,7 @@ func TestStateMachineStartIdentity(t *testing.T) {
 	store := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(store, provider, testLogger())
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 
 	raw := sm.StartIdentity("sess-1")
 	pkt, err := Decode(raw)
@@ -311,7 +312,7 @@ func TestStateMachineEAPSIMFlow(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 
 	ctx := context.Background()
 	sessionID := "sim-flow-1"
@@ -319,9 +320,38 @@ func TestStateMachineEAPSIMFlow(t *testing.T) {
 	identityResp := NewIdentityResponse(0, "286010123456789")
 	identityRaw := Encode(identityResp)
 
-	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, identityRaw)
+	startRaw, err := sm.ProcessPacket(ctx, sessionID, identityRaw)
 	if err != nil {
 		t.Fatalf("ProcessPacket identity error: %v", err)
+	}
+
+	startPkt, err := Decode(startRaw)
+	if err != nil {
+		t.Fatalf("Decode start error: %v", err)
+	}
+	if startPkt.Code != CodeRequest {
+		t.Errorf("start Code = %d, want %d", startPkt.Code, CodeRequest)
+	}
+	if startPkt.Type != MethodSIM {
+		t.Errorf("start Type = %d, want %d", startPkt.Type, MethodSIM)
+	}
+
+	session, _ := stateStore.Get(ctx, sessionID)
+	if session == nil {
+		t.Fatal("session not found in state store after identity")
+	}
+	if session.State != StateSIMStart {
+		t.Errorf("session state = %q, want %q", session.State, StateSIMStart)
+	}
+	if session.Method != MethodSIM {
+		t.Errorf("session method = %d, want %d", session.Method, MethodSIM)
+	}
+
+	startResponseData := buildSIMStartResponseData()
+	startResp := NewResponse(startPkt.Identifier, MethodSIM, startResponseData)
+	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(startResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket start response error: %v", err)
 	}
 
 	challengePkt, err := Decode(challengeRaw)
@@ -331,19 +361,13 @@ func TestStateMachineEAPSIMFlow(t *testing.T) {
 	if challengePkt.Code != CodeRequest {
 		t.Errorf("challenge Code = %d, want %d", challengePkt.Code, CodeRequest)
 	}
-	if challengePkt.Type != MethodSIM {
-		t.Errorf("challenge Type = %d, want %d", challengePkt.Type, MethodSIM)
-	}
 
-	session, _ := stateStore.Get(ctx, sessionID)
+	session, _ = stateStore.Get(ctx, sessionID)
 	if session == nil {
-		t.Fatal("session not found in state store after identity")
+		t.Fatal("session not found after start response")
 	}
-	if session.State != StateChallenge {
-		t.Errorf("session state = %q, want %q", session.State, StateChallenge)
-	}
-	if session.Method != MethodSIM {
-		t.Errorf("session method = %d, want %d", session.Method, MethodSIM)
+	if session.SIMData == nil {
+		t.Fatal("session SIMData is nil after start response")
 	}
 
 	var combinedSRES []byte
@@ -481,7 +505,7 @@ func TestStateMachineSessionTimeout(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 
 	ctx := context.Background()
 	sessionID := "timeout-flow-1"
@@ -498,7 +522,7 @@ func TestStateMachineSessionTimeout(t *testing.T) {
 		_ = stateStore.Save(ctx, session)
 	}
 
-	simResp := NewResponse(1, MethodSIM, []byte{SimSubtypeChallenge, 0, 0})
+	simResp := NewResponse(1, MethodSIM, []byte{SimSubtypeStart, 0, 0})
 	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(simResp))
 	if err != nil {
 		t.Fatalf("ProcessPacket error: %v", err)
@@ -514,7 +538,7 @@ func TestStateMachineNAKNegotiation(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 	sm.RegisterMethod(NewAKAHandler())
 
 	ctx := context.Background()
@@ -548,7 +572,7 @@ func TestStateMachineUnknownMethodNAK(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
-	sm.RegisterMethod(NewSIMHandler())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 
 	ctx := context.Background()
 	sessionID := "unknown-nak-1"
@@ -638,6 +662,30 @@ func TestEncodeSIMVersionList(t *testing.T) {
 	}
 }
 
+func buildSIMStartResponseData() []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(SimSubtypeStart)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+
+	nonceMT := make([]byte, 16)
+	for i := range nonceMT {
+		nonceMT[i] = byte(i + 1)
+	}
+	buf.WriteByte(SimATNonceMT)
+	buf.WriteByte(5)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+	buf.Write(nonceMT)
+
+	buf.WriteByte(SimATSelectedVersion)
+	buf.WriteByte(1)
+	buf.WriteByte(0)
+	buf.WriteByte(1)
+
+	return buf.Bytes()
+}
+
 func buildSIMChallengeResponseData(combinedSRES []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(SimSubtypeChallenge)
@@ -651,6 +699,276 @@ func buildSIMChallengeResponseData(combinedSRES []byte) []byte {
 	buf.WriteByte(0)
 	buf.WriteByte(0)
 	buf.Write(macData)
+
+	return buf.Bytes()
+}
+
+func TestSIMTypeBasedMethodSelection_SIMType(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
+	sm.RegisterMethod(NewAKAHandler())
+	sm.RegisterMethod(NewAKAPrimeHandler())
+
+	sm.SetSIMTypeLookup(func(_ context.Context, _ string) (string, error) {
+		return "sim", nil
+	})
+
+	ctx := context.Background()
+	sessionID := "sim-type-sim-1"
+
+	identityResp := NewIdentityResponse(0, "286010111111111")
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket error: %v", err)
+	}
+
+	resultPkt, err := Decode(resultRaw)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if resultPkt.Type != MethodSIM {
+		t.Errorf("method = %d, want %d (MethodSIM) for SIM type", resultPkt.Type, MethodSIM)
+	}
+}
+
+func TestSIMTypeBasedMethodSelection_USIMType(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
+	sm.RegisterMethod(NewAKAHandler())
+	sm.RegisterMethod(NewAKAPrimeHandler())
+
+	sm.SetSIMTypeLookup(func(_ context.Context, _ string) (string, error) {
+		return "usim", nil
+	})
+
+	ctx := context.Background()
+	sessionID := "sim-type-usim-1"
+
+	identityResp := NewIdentityResponse(0, "286010222222222")
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket error: %v", err)
+	}
+
+	resultPkt, err := Decode(resultRaw)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if resultPkt.Type != MethodAKAPrime {
+		t.Errorf("method = %d, want %d (MethodAKAPrime) for USIM type", resultPkt.Type, MethodAKAPrime)
+	}
+}
+
+func TestSIMTypeBasedMethodSelection_ESIMType(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
+	sm.RegisterMethod(NewAKAPrimeHandler())
+
+	sm.SetSIMTypeLookup(func(_ context.Context, _ string) (string, error) {
+		return "esim", nil
+	})
+
+	ctx := context.Background()
+	sessionID := "sim-type-esim-1"
+
+	identityResp := NewIdentityResponse(0, "286010333333333")
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket error: %v", err)
+	}
+
+	resultPkt, err := Decode(resultRaw)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if resultPkt.Type != MethodAKAPrime {
+		t.Errorf("method = %d, want %d (MethodAKAPrime) for eSIM type", resultPkt.Type, MethodAKAPrime)
+	}
+}
+
+func TestConcurrentEAPSessions(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewAKAHandler())
+	sm.RegisterMethod(NewAKAPrimeHandler())
+
+	ctx := context.Background()
+	concurrency := 10
+	done := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func(idx int) {
+			sessionID := fmt.Sprintf("concurrent-%d", idx)
+			imsi := fmt.Sprintf("286010%09d", idx)
+
+			identityResp := NewIdentityResponse(0, imsi)
+			challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+			if err != nil {
+				done <- fmt.Errorf("session %d identity: %w", idx, err)
+				return
+			}
+
+			challengePkt, err := Decode(challengeRaw)
+			if err != nil {
+				done <- fmt.Errorf("session %d decode challenge: %w", idx, err)
+				return
+			}
+
+			session, err := stateStore.Get(ctx, sessionID)
+			if err != nil {
+				done <- fmt.Errorf("session %d get: %w", idx, err)
+				return
+			}
+			if session == nil {
+				done <- fmt.Errorf("session %d not found", idx)
+				return
+			}
+
+			if session.IMSI != imsi {
+				done <- fmt.Errorf("session %d IMSI = %q, want %q (state leakage)", idx, session.IMSI, imsi)
+				return
+			}
+
+			resData := buildAKAChallengeResponseData(session.AKAData.XRES)
+			akaResp := NewResponse(challengePkt.Identifier, challengePkt.Type, resData)
+			resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(akaResp))
+			if err != nil {
+				done <- fmt.Errorf("session %d challenge response: %w", idx, err)
+				return
+			}
+
+			resultPkt, _ := Decode(resultRaw)
+			if resultPkt.Code != CodeSuccess {
+				done <- fmt.Errorf("session %d result = %d, want Success", idx, resultPkt.Code)
+				return
+			}
+
+			done <- nil
+		}(i)
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func TestEAPAKASyncFailure(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewAKAHandler())
+
+	ctx := context.Background()
+	sessionID := "sync-fail-1"
+
+	identityResp := NewIdentityResponse(0, "286010123456789")
+	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket identity error: %v", err)
+	}
+
+	challengePkt, _ := Decode(challengeRaw)
+
+	syncFailData := buildAKASyncFailureData()
+	syncResp := NewResponse(challengePkt.Identifier, MethodAKA, syncFailData)
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(syncResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket sync failure error: %v", err)
+	}
+
+	resultPkt, _ := Decode(resultRaw)
+	if resultPkt.Code != CodeFailure {
+		t.Errorf("result Code = %d, want %d (Failure) for sync failure", resultPkt.Code, CodeFailure)
+	}
+}
+
+func TestGetSessionMSK_SIM(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
+
+	ctx := context.Background()
+	sessionID := "msk-sim-1"
+
+	identityResp := NewIdentityResponse(0, "286010123456789")
+	startRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket identity error: %v", err)
+	}
+	startPkt, _ := Decode(startRaw)
+
+	startResponseData := buildSIMStartResponseData()
+	startResp := NewResponse(startPkt.Identifier, MethodSIM, startResponseData)
+	_, err = sm.ProcessPacket(ctx, sessionID, Encode(startResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket start response error: %v", err)
+	}
+
+	msk, err := sm.GetSessionMSK(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetSessionMSK error: %v", err)
+	}
+	if len(msk) != 64 {
+		t.Errorf("MSK length = %d, want 64", len(msk))
+	}
+}
+
+func TestGetSessionMSK_AKA(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	sm.RegisterMethod(NewAKAHandler())
+
+	ctx := context.Background()
+	sessionID := "msk-aka-1"
+
+	identityResp := NewIdentityResponse(0, "286010123456789")
+	_, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket identity error: %v", err)
+	}
+
+	msk, err := sm.GetSessionMSK(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetSessionMSK error: %v", err)
+	}
+	if len(msk) != 64 {
+		t.Errorf("MSK length = %d, want 64", len(msk))
+	}
+}
+
+func buildAKASyncFailureData() []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(AKASubtypeSyncFail)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+
+	auts := make([]byte, 14)
+	for i := range auts {
+		auts[i] = byte(i)
+	}
+	totalLen := 4 + len(auts)
+	padding := (4 - totalLen%4) % 4
+	attrLen := uint8((totalLen + padding) / 4)
+
+	buf.WriteByte(AKAATAuts)
+	buf.WriteByte(attrLen)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+	buf.Write(auts)
+	for i := 0; i < padding; i++ {
+		buf.WriteByte(0)
+	}
 
 	return buf.Bytes()
 }

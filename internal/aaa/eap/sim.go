@@ -23,10 +23,16 @@ const (
 	SimVersion1 uint16 = 1
 )
 
-type SIMHandler struct{}
+type SIMHandler struct {
+	provider AuthVectorProvider
+}
 
 func NewSIMHandler() *SIMHandler {
 	return &SIMHandler{}
+}
+
+func NewSIMHandlerWithProvider(provider AuthVectorProvider) *SIMHandler {
+	return &SIMHandler{provider: provider}
 }
 
 func (h *SIMHandler) Type() MethodType {
@@ -53,10 +59,6 @@ func (h *SIMHandler) StartChallenge(ctx context.Context, session *EAPSession, pr
 }
 
 func (h *SIMHandler) HandleResponse(ctx context.Context, session *EAPSession, pkt *Packet) (*Packet, error) {
-	if session.SIMData == nil {
-		return NewFailure(pkt.Identifier), nil
-	}
-
 	if len(pkt.Data) < 3 {
 		return NewFailure(pkt.Identifier), nil
 	}
@@ -64,11 +66,59 @@ func (h *SIMHandler) HandleResponse(ctx context.Context, session *EAPSession, pk
 	subtype := pkt.Data[0]
 
 	switch subtype {
+	case SimSubtypeStart:
+		return h.handleStartResponse(ctx, session, pkt)
 	case SimSubtypeChallenge:
+		if session.SIMData == nil {
+			return NewFailure(pkt.Identifier), nil
+		}
 		return h.handleChallengeResponse(session, pkt)
 	default:
 		return NewFailure(pkt.Identifier), nil
 	}
+}
+
+func (h *SIMHandler) handleStartResponse(ctx context.Context, session *EAPSession, pkt *Packet) (*Packet, error) {
+	attrs := pkt.Data[3:]
+
+	nonceMT := extractSIMAttribute(attrs, SimATNonceMT)
+	if nonceMT == nil || len(nonceMT) < 16 {
+		return NewFailure(pkt.Identifier), nil
+	}
+
+	selectedVersionRaw := extractSIMAttribute(attrs, SimATSelectedVersion)
+	selectedVersion := SimVersion1
+	if selectedVersionRaw != nil && len(selectedVersionRaw) >= 2 {
+		selectedVersion = uint16(selectedVersionRaw[0])<<8 | uint16(selectedVersionRaw[1])
+	}
+
+	session.SIMStartData = &SIMStartData{
+		SelectedVersion: selectedVersion,
+	}
+	copy(session.SIMStartData.NonceMT[:], nonceMT[:16])
+
+	provider := h.provider
+	if provider == nil {
+		return NewFailure(pkt.Identifier), nil
+	}
+
+	triplets, err := provider.GetSIMTriplets(ctx, session.IMSI)
+	if err != nil {
+		return nil, fmt.Errorf("get SIM triplets after start: %w", err)
+	}
+
+	session.SIMData = &SIMChallengeData{
+		RAND: triplets.RAND,
+		SRES: triplets.SRES,
+		Kc:   triplets.Kc,
+	}
+	session.SIMData.MSK = deriveSIMMSK(triplets.Kc)
+
+	session.State = StateChallenge
+	session.Identifier = pkt.Identifier + 1
+
+	data := buildSIMChallengeRequest(triplets, session.Identifier)
+	return NewRequest(session.Identifier, MethodSIM, data), nil
 }
 
 func (h *SIMHandler) handleChallengeResponse(session *EAPSession, pkt *Packet) (*Packet, error) {
@@ -89,6 +139,28 @@ func (h *SIMHandler) handleChallengeResponse(session *EAPSession, pkt *Packet) (
 	}
 
 	return NewFailure(pkt.Identifier), nil
+}
+
+func buildSIMStartRequest(identifier uint8) *Packet {
+	var buf bytes.Buffer
+
+	buf.WriteByte(SimSubtypeStart)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+
+	versionList := EncodeSIMVersionList([]uint16{SimVersion1})
+	attrLen := uint8((4 + 2 + len(versionList) + 3) / 4)
+	buf.WriteByte(SimATVersionList)
+	buf.WriteByte(attrLen)
+	buf.WriteByte(byte(len(versionList) >> 8))
+	buf.WriteByte(byte(len(versionList)))
+	buf.Write(versionList)
+	padding := (4 - (2+len(versionList))%4) % 4
+	for i := 0; i < padding; i++ {
+		buf.WriteByte(0)
+	}
+
+	return NewRequest(identifier, MethodSIM, buf.Bytes())
 }
 
 func buildSIMChallengeRequest(triplets *SIMTriplets, identifier uint8) []byte {

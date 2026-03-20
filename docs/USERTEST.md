@@ -262,6 +262,18 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-016: EAP-SIM/AKA/AKA' Authentication
+
+Bu story icin manuel test senaryosu yok (backend/altyapi — EAP protokol seviyesi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make up` -- Servisleri baslat
+2. EAP akisi RADIUS uzerinden calisir (radclient ile EAP-Message attribute gondermek gerekir)
+3. Mock operator'de EAP vector uretimi otomatik (success_rate config)
+4. Unit testler: `go test ./internal/aaa/eap/... -v -count=1`
+5. Race detection: `go test -race ./internal/aaa/eap/... -v`
+
+---
+
 ## STORY-015: RADIUS Authentication & Accounting Server
 
 Bu story icin manuel test senaryosu yok (backend/altyapi — RADIUS UDP protokolu). Asagidaki komutlar ile dogrulama yapilabilir:

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/eap"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
@@ -16,6 +17,8 @@ import (
 	radius "layeh.com/radius"
 	"layeh.com/radius/rfc2865"
 	"layeh.com/radius/rfc2866"
+	"layeh.com/radius/rfc2869"
+	"layeh.com/radius/vendors/microsoft"
 )
 
 const (
@@ -35,7 +38,9 @@ type Server struct {
 	eventBus      *bus.EventBus
 	coaSender     *session.CoASender
 	dmSender      *session.DMSender
-	logger        zerolog.Logger
+	eapMachine     *eap.StateMachine
+	eapAuthResults sync.Map
+	logger         zerolog.Logger
 
 	authServer *radius.PacketServer
 	acctServer *radius.PacketServer
@@ -166,6 +171,10 @@ func (s *Server) Healthy() bool {
 	return s.running
 }
 
+func (s *Server) SetEAPMachine(machine *eap.StateMachine) {
+	s.eapMachine = machine
+}
+
 func (s *Server) ActiveSessionCount(ctx context.Context) (int64, error) {
 	return s.sessionMgr.CountActive(ctx)
 }
@@ -181,6 +190,163 @@ func (s *Server) handleAuth(w radius.ResponseWriter, r *radius.Request) {
 		Str("type", "auth").
 		Logger()
 
+	eapMessage := rfc2869.EAPMessage_Get(r.Packet)
+	if len(eapMessage) > 0 && s.eapMachine != nil {
+		s.handleEAPAuth(ctx, w, r, eapMessage, logger, startTime)
+		return
+	}
+
+	s.handleDirectAuth(ctx, w, r, logger, startTime)
+}
+
+func (s *Server) handleEAPAuth(ctx context.Context, w radius.ResponseWriter, r *radius.Request, eapMessage []byte, logger zerolog.Logger, startTime time.Time) {
+	stateAttr := rfc2865.State_Get(r.Packet)
+	sessionID := string(stateAttr)
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("eap-%s-%d-%d", r.RemoteAddr.String(), r.Packet.Identifier, time.Now().UnixNano())
+	}
+
+	logger = logger.With().Str("eap_session_id", sessionID).Logger()
+
+	eapPkt, err := eap.Decode(eapMessage)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to decode EAP-Message")
+		s.sendReject(w, r.Packet, "EAP_DECODE_ERROR")
+		return
+	}
+
+	if eapPkt.Code == eap.CodeResponse && eapPkt.Type == eap.MethodIdentity {
+		imsi := string(eapPkt.Data)
+		if imsi != "" {
+			sim, err := s.simCache.GetByIMSI(ctx, imsi)
+			if err != nil {
+				if err == store.ErrSIMNotFound {
+					logger.Info().Str("imsi", imsi).Msg("EAP Access-Reject: SIM not found")
+					s.sendEAPReject(w, r.Packet, eapPkt.Identifier)
+					return
+				}
+				logger.Error().Err(err).Msg("SIM lookup failed during EAP")
+				s.sendEAPReject(w, r.Packet, eapPkt.Identifier)
+				return
+			}
+
+			if sim.State != "active" {
+				logger.Info().Str("sim_state", sim.State).Msg("EAP Access-Reject: SIM not active")
+				s.sendEAPReject(w, r.Packet, eapPkt.Identifier)
+				return
+			}
+		}
+	}
+
+	respRaw, err := s.eapMachine.ProcessPacket(ctx, sessionID, eapMessage)
+	if err != nil {
+		logger.Error().Err(err).Msg("EAP processing error")
+		s.sendEAPReject(w, r.Packet, eapPkt.Identifier)
+		return
+	}
+
+	respPkt, err := eap.Decode(respRaw)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to decode EAP response")
+		s.sendEAPReject(w, r.Packet, eapPkt.Identifier)
+		return
+	}
+
+	switch respPkt.Code {
+	case eap.CodeSuccess:
+		s.sendEAPAccept(ctx, w, r, respRaw, sessionID, logger, startTime)
+
+	case eap.CodeFailure:
+		s.sendEAPReject(w, r.Packet, respPkt.Identifier)
+		logger.Info().
+			Dur("latency_ms", time.Since(startTime)).
+			Msg("EAP authentication failed, Access-Reject sent")
+
+	default:
+		challenge := r.Packet.Response(radius.CodeAccessChallenge)
+		rfc2869.EAPMessage_Set(challenge, respRaw)
+		rfc2865.State_Set(challenge, []byte(sessionID))
+
+		if err := w.Write(challenge); err != nil {
+			logger.Error().Err(err).Msg("failed to send Access-Challenge")
+			return
+		}
+		logger.Debug().
+			Dur("latency_ms", time.Since(startTime)).
+			Msg("EAP Access-Challenge sent")
+	}
+}
+
+func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *radius.Request, eapSuccessRaw []byte, sessionID string, logger zerolog.Logger, startTime time.Time) {
+	accept := r.Packet.Response(radius.CodeAccessAccept)
+	rfc2869.EAPMessage_Set(accept, eapSuccessRaw)
+
+	msk, _ := s.eapMachine.GetSessionMSK(ctx, sessionID)
+	if len(msk) >= 64 {
+		sendKey := msk[:32]
+		recvKey := msk[32:64]
+		microsoft.MSMPPESendKey_Add(accept, sendKey)
+		microsoft.MSMPPERecvKey_Add(accept, recvKey)
+	}
+
+	imsi, _ := rfc2865.UserName_LookupString(r.Packet)
+	if imsi != "" {
+		sim, err := s.simCache.GetByIMSI(ctx, imsi)
+		if err == nil && sim != nil {
+			if sim.IPAddressID != nil {
+				ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
+				if err == nil && ipAddr.AddressV4 != nil {
+					if ip := net.ParseIP(*ipAddr.AddressV4); ip != nil {
+						rfc2865.FramedIPAddress_Set(accept, ip.To4())
+					}
+				}
+			}
+
+			sessionTimeout := sim.SessionHardTimeoutSec
+			if sessionTimeout <= 0 {
+				sessionTimeout = 86400
+			}
+			rfc2865.SessionTimeout_Set(accept, rfc2865.SessionTimeout(sessionTimeout))
+
+			idleTimeout := sim.SessionIdleTimeoutSec
+			if idleTimeout <= 0 {
+				idleTimeout = 3600
+			}
+			rfc2865.IdleTimeout_Set(accept, rfc2865.IdleTimeout(idleTimeout))
+		}
+	}
+
+	rfc2865.FilterID_SetString(accept, "default")
+
+	if err := w.Write(accept); err != nil {
+		logger.Error().Err(err).Msg("failed to send EAP Access-Accept")
+		return
+	}
+
+	eapMethod, _ := s.eapMachine.GetSessionMethod(ctx, sessionID)
+	methodStr := eapMethod.String()
+
+	acceptIMSI, _ := rfc2865.UserName_LookupString(r.Packet)
+	if acceptIMSI != "" && methodStr != "" {
+		s.eapAuthResults.Store(acceptIMSI, methodStr)
+	}
+
+	logger.Info().
+		Dur("latency_ms", time.Since(startTime)).
+		Str("eap_method", methodStr).
+		Msg("EAP Access-Accept sent")
+}
+
+func (s *Server) sendEAPReject(w radius.ResponseWriter, request *radius.Packet, eapIdentifier uint8) {
+	reject := request.Response(radius.CodeAccessReject)
+	failPkt := eap.NewFailure(eapIdentifier)
+	rfc2869.EAPMessage_Set(reject, eap.Encode(failPkt))
+	if err := w.Write(reject); err != nil {
+		s.logger.Error().Err(err).Msg("failed to send EAP Access-Reject")
+	}
+}
+
+func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, r *radius.Request, logger zerolog.Logger, startTime time.Time) {
 	imsi, err := rfc2865.UserName_LookupString(r.Packet)
 	if err != nil || imsi == "" {
 		logger.Warn().Msg("Access-Request missing User-Name (IMSI)")
@@ -317,6 +483,11 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		framedIP = ip.String()
 	}
 
+	var authMethod string
+	if v, ok := s.eapAuthResults.LoadAndDelete(imsi); ok {
+		authMethod, _ = v.(string)
+	}
+
 	sess := &session.Session{
 		ID:             uuid.New().String(),
 		SimID:          sim.ID.String(),
@@ -328,6 +499,7 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		AcctSessionID:  acctSessionID,
 		FramedIP:       framedIP,
 		SessionState:   "active",
+		AuthMethod:     authMethod,
 		SessionTimeout: sim.SessionHardTimeoutSec,
 		IdleTimeout:    sim.SessionIdleTimeoutSec,
 		BytesIn:        0,

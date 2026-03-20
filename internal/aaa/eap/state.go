@@ -13,6 +13,7 @@ import (
 const (
 	StateIdentity    SessionState = "identity"
 	StateMethodNeg   SessionState = "method_negotiation"
+	StateSIMStart    SessionState = "sim_start"
 	StateChallenge   SessionState = "challenge"
 	StateSuccess     SessionState = "success"
 	StateFailure     SessionState = "failure"
@@ -41,6 +42,8 @@ type AKAQuintets struct {
 	IK    [16]byte
 }
 
+type SIMTypeLookupFunc func(ctx context.Context, imsi string) (string, error)
+
 type EAPSession struct {
 	ID         string       `json:"id"`
 	IMSI       string       `json:"imsi"`
@@ -50,8 +53,14 @@ type EAPSession struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	ExpiresAt  time.Time    `json:"expires_at"`
 
-	SIMData *SIMChallengeData `json:"sim_data,omitempty"`
-	AKAData *AKAChallengeData `json:"aka_data,omitempty"`
+	SIMStartData *SIMStartData      `json:"sim_start_data,omitempty"`
+	SIMData      *SIMChallengeData  `json:"sim_data,omitempty"`
+	AKAData      *AKAChallengeData  `json:"aka_data,omitempty"`
+}
+
+type SIMStartData struct {
+	NonceMT         [16]byte `json:"nonce_mt"`
+	SelectedVersion uint16   `json:"selected_version"`
 }
 
 type SIMChallengeData struct {
@@ -83,11 +92,12 @@ type MethodHandler interface {
 }
 
 type StateMachine struct {
-	store      StateStore
-	provider   AuthVectorProvider
-	methods    map[MethodType]MethodHandler
-	logger     zerolog.Logger
-	mu         sync.RWMutex
+	store         StateStore
+	provider      AuthVectorProvider
+	methods       map[MethodType]MethodHandler
+	simTypeLookup SIMTypeLookupFunc
+	logger        zerolog.Logger
+	mu            sync.RWMutex
 }
 
 func NewStateMachine(store StateStore, provider AuthVectorProvider, logger zerolog.Logger) *StateMachine {
@@ -97,6 +107,12 @@ func NewStateMachine(store StateStore, provider AuthVectorProvider, logger zerol
 		methods:  make(map[MethodType]MethodHandler),
 		logger:   logger.With().Str("component", "eap_state_machine").Logger(),
 	}
+}
+
+func (sm *StateMachine) SetSIMTypeLookup(fn SIMTypeLookupFunc) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.simTypeLookup = fn
 }
 
 func (sm *StateMachine) RegisterMethod(handler MethodHandler) {
@@ -161,6 +177,8 @@ func (sm *StateMachine) ProcessPacket(ctx context.Context, sessionID string, raw
 		respPkt, err = sm.handleIdentity(ctx, session, pkt)
 	case StateMethodNeg:
 		respPkt, err = sm.handleMethodNegotiation(ctx, session, pkt)
+	case StateSIMStart:
+		respPkt, err = sm.handleChallenge(ctx, session, pkt)
 	case StateChallenge:
 		respPkt, err = sm.handleChallenge(ctx, session, pkt)
 	default:
@@ -186,13 +204,12 @@ func (sm *StateMachine) handleIdentity(ctx context.Context, session *EAPSession,
 	session.IMSI = identity
 	session.Identifier = pkt.Identifier + 1
 
-	method := sm.selectMethod(identity)
+	method := sm.selectMethod(ctx, identity)
 	if method == MethodType(0) {
 		return NewFailure(pkt.Identifier), nil
 	}
 
 	session.Method = method
-	session.State = StateChallenge
 	session.ExpiresAt = time.Now().UTC().Add(DefaultStateTTL)
 
 	sm.mu.RLock()
@@ -202,6 +219,22 @@ func (sm *StateMachine) handleIdentity(ctx context.Context, session *EAPSession,
 	if !ok {
 		return NewFailure(pkt.Identifier), nil
 	}
+
+	if method == MethodSIM {
+		session.State = StateSIMStart
+		startPkt := buildSIMStartRequest(session.Identifier)
+		if err := sm.store.Save(ctx, session); err != nil {
+			return nil, fmt.Errorf("save session: %w", err)
+		}
+		sm.logger.Info().
+			Str("session_id", session.ID).
+			Str("imsi", session.IMSI).
+			Str("method", method.String()).
+			Msg("EAP-SIM Start initiated")
+		return startPkt, nil
+	}
+
+	session.State = StateChallenge
 
 	challengePkt, err := handler.StartChallenge(ctx, session, sm.provider)
 	if err != nil {
@@ -247,9 +280,23 @@ func (sm *StateMachine) handleMethodNegotiation(ctx context.Context, session *EA
 	}
 
 	session.Method = selectedMethod
-	session.State = StateChallenge
 	session.Identifier = pkt.Identifier + 1
 	session.ExpiresAt = time.Now().UTC().Add(DefaultStateTTL)
+
+	if selectedMethod == MethodSIM {
+		session.State = StateSIMStart
+		startPkt := buildSIMStartRequest(session.Identifier)
+		if err := sm.store.Save(ctx, session); err != nil {
+			return nil, fmt.Errorf("save session: %w", err)
+		}
+		sm.logger.Info().
+			Str("session_id", session.ID).
+			Str("method", selectedMethod.String()).
+			Msg("EAP-SIM Start after NAK negotiation")
+		return startPkt, nil
+	}
+
+	session.State = StateChallenge
 
 	sm.mu.RLock()
 	handler := sm.methods[selectedMethod]
@@ -314,7 +361,39 @@ func (sm *StateMachine) handleChallenge(ctx context.Context, session *EAPSession
 	return respPkt, nil
 }
 
-func (sm *StateMachine) selectMethod(identity string) MethodType {
+func (sm *StateMachine) selectMethod(ctx context.Context, identity string) MethodType {
+	sm.mu.RLock()
+	lookupFn := sm.simTypeLookup
+	sm.mu.RUnlock()
+
+	if lookupFn != nil {
+		simType, err := lookupFn(ctx, identity)
+		if err == nil {
+			switch simType {
+			case "sim":
+				sm.mu.RLock()
+				_, ok := sm.methods[MethodSIM]
+				sm.mu.RUnlock()
+				if ok {
+					return MethodSIM
+				}
+			case "usim", "esim", "isim":
+				sm.mu.RLock()
+				_, hasAKAPrime := sm.methods[MethodAKAPrime]
+				_, hasAKA := sm.methods[MethodAKA]
+				sm.mu.RUnlock()
+				if hasAKAPrime {
+					return MethodAKAPrime
+				}
+				if hasAKA {
+					return MethodAKA
+				}
+			}
+		} else {
+			sm.logger.Warn().Err(err).Str("imsi", identity).Msg("SIM type lookup failed, falling back to priority selection")
+		}
+	}
+
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
