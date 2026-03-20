@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 1: Foundation
-> Overall progress: 9%
+> Overall progress: 11%
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 5/55 (9%)
-> Current story: STORY-006
-> Current step: Runner
+> Stories completed: 6/55 (11%)
+> Current story: STORY-007
+> Current step: —
 
 ### Phase 1: Foundation [IN PROGRESS]
 
@@ -38,7 +38,7 @@
 | STORY-003 | Authentication — JWT + Refresh + 2FA | M | [x] DONE | — | STORY-002 | 2026-03-20 |
 | STORY-004 | RBAC Middleware & Permission Enforcement | M | [x] DONE | — | STORY-003 | 2026-03-20 |
 | STORY-005 | Tenant Management & User CRUD | M | [x] DONE | — | STORY-004 | 2026-03-20 |
-| STORY-006 | Structured Logging, Config & NATS Event Bus | M | [~] IN PROGRESS | Commit | STORY-001 | — |
+| STORY-006 | Structured Logging, Config & NATS Event Bus | M | [x] DONE | — | STORY-001 | 2026-03-20 |
 | STORY-007 | Audit Log Service — Tamper-Proof Hash Chain | L | [ ] PENDING | — | STORY-006 | — |
 | STORY-008 | API Key Management & Rate Limiting | M | [ ] PENDING | — | STORY-004, STORY-006 | — |
 
