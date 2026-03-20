@@ -33,7 +33,7 @@ Define the Adapter interface in internal/operator/adapter with methods for authe
 - [x] Thread-safe: adapters are safe for concurrent use (Registry uses sync.RWMutex) — done in STORY-009
 
 ## Dependencies
-- Blocked by: STORY-009 (operator CRUD), STORY-015 (RADIUS server)
+- Blocked by: STORY-009 (operator CRUD)
 - Blocks: STORY-016 (EAP vector fetch), STORY-019 (Diameter server), STORY-021 (operator failover)
 
 ## Test Scenarios

@@ -9,7 +9,7 @@ Implemented APN management (CRUD, archive with active SIM check) and IP Pool man
 - `internal/store/apn.go` — APNStore: Create, GetByID, GetByName, List, Update, Archive, CountByTenant
 - `internal/store/ippool.go` — IPPoolStore: Create (bulk IP gen from CIDR), GetByID, List, Update, ListAddresses, ReserveStaticIP, AllocateIP, ReleaseIP
 - `internal/api/apn/handler.go` — APN handlers: List (API-030), Create (API-031), Get (API-032), Update (API-033), Archive (API-034)
-- `internal/api/ippool/handler.go` — IPPool handlers: List (API-040), Create (API-041), Get (API-042), Update (API-043), ListAddresses (API-044), ReserveIP (API-045), AllocateIP, ReleaseIP
+- `internal/api/ippool/handler.go` — IPPool handlers: List (API-080), Create (API-081), Get (API-082), Update (API-083), ListAddresses (API-084), ReserveIP (API-085), AllocateIP, ReleaseIP
 - `internal/store/apn_test.go` — APN store tests
 - `internal/api/apn/handler_test.go` — APN handler validation tests
 - `internal/api/ippool/handler_test.go` — IPPool handler validation tests
@@ -23,7 +23,7 @@ Implemented APN management (CRUD, archive with active SIM check) and IP Pool man
 
 ## Architecture References Fulfilled
 - API-030 to API-034: APN endpoints
-- API-040 to API-045: IP Pool endpoints
+- API-080 to API-085: IP Pool endpoints
 - TBL-03 (apns), TBL-09 (ip_pools), TBL-10 (ip_addresses) fully utilized
 - ALGORITHMS.md Section 1: IP allocation algorithm with FOR UPDATE SKIP LOCKED
 - G-016: APN deletion rules (hard block if active SIMs)

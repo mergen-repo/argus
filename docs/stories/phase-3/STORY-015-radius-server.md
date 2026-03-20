@@ -49,7 +49,7 @@ Implement a RADIUS server listening on UDP :1812 (authentication) and :1813 (acc
 
 ## Dependencies
 - Blocked by: STORY-001 (scaffold), STORY-002 (DB schema), STORY-011 (SIM CRUD), STORY-010 (APN/IP)
-- Blocks: STORY-016 (EAP-SIM/AKA), STORY-017 (session management), STORY-018 (operator adapter), STORY-032 (CDR processing)
+- Blocks: STORY-016 (EAP-SIM/AKA), STORY-017 (session management), STORY-032 (CDR processing)
 
 ## Test Scenarios
 - [ ] Valid Access-Request with known IMSI → Access-Accept with Framed-IP

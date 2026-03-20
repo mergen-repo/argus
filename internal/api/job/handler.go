@@ -119,8 +119,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
-		Cursor: nextCursor,
-		Limit:  limit,
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
 	})
 }
 
@@ -157,12 +158,8 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 			apierr.WriteError(w, http.StatusNotFound, CodeJobNotFound, "Job not found")
 			return
 		}
-		if err == store.ErrJobAlreadyRunning {
-			apierr.WriteError(w, http.StatusConflict, CodeJobAlreadyRunning, "Job is currently running and cannot be cancelled")
-			return
-		}
 		h.logger.Error().Err(err).Msg("cancel job")
-		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, err.Error())
 		return
 	}
 

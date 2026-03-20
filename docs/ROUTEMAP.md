@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 14/55 (25%)
-> Current story: STORY-018
+> Stories completed: 15/55 (27%)
+> Current story: STORY-015
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -57,7 +57,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-018 | Pluggable Operator Adapter + Mock Simulator | L | [~] IN PROGRESS | Commit | STORY-009 | — |
+| STORY-018 | Pluggable Operator Adapter + Mock Simulator | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-015 | RADIUS Authentication & Accounting Server | XL | [ ] PENDING | — | STORY-011, STORY-018 | — |
 | STORY-016 | EAP-SIM/AKA/AKA' Authentication | L | [ ] PENDING | — | STORY-015 | — |
 | STORY-017 | Session Management & Force Disconnect | L | [ ] PENDING | — | STORY-015 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-018 completed — Pluggable Operator Adapter Framework. Extended Adapter interface with Authenticate/AccountingUpdate/FetchAuthVectors. Mock adapter with EAP triplet/quintet generation, RADIUS real forwarding, Diameter CER/CEA+DWR/DWA, new SBA adapter (HTTP/2), OperatorRouter 3 new methods with circuit breaker. 63 tests pass with -race. | STORY-015, STORY-016, STORY-019, STORY-020, STORY-021 unblocked |
 | 2026-03-20 | PHASE | Phase 2 (Core SIM & APN) completed — 6 stories (STORY-009 to STORY-014). Operator CRUD, APN CRUD, IP Pool CRUD, SIM CRUD + state machine, segments, bulk import, MSISDN pool management all implemented. 47 routes registered, 24 DB tables in use. | Phase 3 (AAA Engine) ready to start |
 | 2026-03-20 | DONE | STORY-014 completed — MSISDN pool management with CSV import, list with state filtering, assign to SIM, global uniqueness, grace period release on SIM termination. 3 new routes. | Phase 2 complete |
 | 2026-03-20 | DONE | STORY-013 completed — Bulk SIM Import (CSV upload, background job processing, partial success, NATS progress, cancellation, error report CSV download). 6 new routes. Job runner + import processor wired in main.go. | STORY-031 scope reduced (job runner + API-120..123 already implemented), STORY-014 next |
