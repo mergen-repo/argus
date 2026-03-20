@@ -7,6 +7,7 @@ import (
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
@@ -28,6 +29,7 @@ type RouterDeps struct {
 	APNHandler       *apnapi.Handler
 	IPPoolHandler    *ippoolapi.Handler
 	SIMHandler       *simapi.Handler
+	SegmentHandler   *segmentapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -221,6 +223,19 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
+		})
+	}
+
+	if deps.SegmentHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/sim-segments", deps.SegmentHandler.List)
+			r.Post("/api/v1/sim-segments", deps.SegmentHandler.Create)
+			r.Get("/api/v1/sim-segments/{id}", deps.SegmentHandler.GetByID)
+			r.Delete("/api/v1/sim-segments/{id}", deps.SegmentHandler.Delete)
+			r.Get("/api/v1/sim-segments/{id}/count", deps.SegmentHandler.Count)
+			r.Get("/api/v1/sim-segments/{id}/summary", deps.SegmentHandler.StateSummary)
 		})
 	}
 

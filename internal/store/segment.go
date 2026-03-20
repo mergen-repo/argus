@@ -184,22 +184,26 @@ func (s *SegmentStore) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *SegmentStore) CountMatchingSIMs(ctx context.Context, id uuid.UUID) (int64, error) {
+func (s *SegmentStore) buildSegmentFilterQuery(ctx context.Context, id uuid.UUID) (*SegmentFilter, uuid.UUID, error) {
 	seg, err := s.GetByID(ctx, id)
 	if err != nil {
-		return 0, err
+		return nil, uuid.Nil, err
 	}
 
 	tenantID, err := TenantIDFromContext(ctx)
 	if err != nil {
-		return 0, err
+		return nil, uuid.Nil, err
 	}
 
 	var filter SegmentFilter
 	if err := json.Unmarshal(seg.FilterDefinition, &filter); err != nil {
-		return 0, fmt.Errorf("parse filter definition: %w", err)
+		return nil, uuid.Nil, fmt.Errorf("parse filter definition: %w", err)
 	}
 
+	return &filter, tenantID, nil
+}
+
+func buildFilterConditions(filter *SegmentFilter, tenantID uuid.UUID) ([]string, []interface{}, int) {
 	args := []interface{}{tenantID}
 	conditions := []string{"tenant_id = $1"}
 	argIdx := 2
@@ -225,6 +229,16 @@ func (s *SegmentStore) CountMatchingSIMs(ctx context.Context, id uuid.UUID) (int
 		argIdx++
 	}
 
+	return conditions, args, argIdx
+}
+
+func (s *SegmentStore) CountMatchingSIMs(ctx context.Context, id uuid.UUID) (int64, error) {
+	filter, tenantID, err := s.buildSegmentFilterQuery(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+
+	conditions, args, _ := buildFilterConditions(filter, tenantID)
 	where := "WHERE " + strings.Join(conditions, " AND ")
 	query := fmt.Sprintf("SELECT COUNT(*) FROM sims %s", where)
 
@@ -234,4 +248,35 @@ func (s *SegmentStore) CountMatchingSIMs(ctx context.Context, id uuid.UUID) (int
 		return 0, fmt.Errorf("count matching sims: %w", err)
 	}
 	return count, nil
+}
+
+func (s *SegmentStore) StateSummary(ctx context.Context, id uuid.UUID) (map[string]int64, int64, error) {
+	filter, tenantID, err := s.buildSegmentFilterQuery(ctx, id)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	conditions, args, _ := buildFilterConditions(filter, tenantID)
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	query := fmt.Sprintf("SELECT state, COUNT(*) FROM sims %s GROUP BY state", where)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("state summary: %w", err)
+	}
+	defer rows.Close()
+
+	byState := make(map[string]int64)
+	var total int64
+	for rows.Next() {
+		var state string
+		var count int64
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, 0, fmt.Errorf("scan state summary: %w", err)
+		}
+		byState[state] = count
+		total += count
+	}
+
+	return byState, total, nil
 }

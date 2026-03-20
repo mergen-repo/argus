@@ -136,6 +136,8 @@
 | DEV-028 | 2026-03-20 | STORY-011: `TransitionState` method in SIMStore does not scope SELECT FOR UPDATE by tenant_id — queries `WHERE id = $1` only. Acceptable because this method is only called internally from bulk import (`job/import.go`) where the SIM was just created by the same process. All public-facing handlers use dedicated methods (Activate, Suspend, etc.) which scope by tenant_id. | ACCEPTED |
 | DEV-029 | 2026-03-20 | STORY-011: `stolen_lost` state has no outgoing transitions in the code (`validTransitions["stolen_lost"] = {}`). PRODUCT.md BR-1 defines `STOLEN/LOST -> TERMINATED` as valid. The story AC only specifies ACTIVE/SUSPENDED -> TERMINATED. Adding stolen_lost -> terminated can be done in a future enhancement when the story scope is expanded. | ACCEPTED |
 | DEV-030 | 2026-03-20 | STORY-011: Gate fixed SQL injection risk in `TransitionState` default case — replaced `fmt.Sprintf('state = '%s'', targetState)` with parameterized `state = $3`. Also fixed terminated case to use `$3::interval` parameter. Although `validateTransition` prevents arbitrary values from reaching these code paths, parameterized queries are the correct pattern. | ACCEPTED |
+| DEV-031 | 2026-03-20 | STORY-012: Gate fixed missing `HasMore` in segment List handler's ListMeta — all other handlers (tenant, user, audit, sim, apn, operator, ippool, apikey) set `HasMore: nextCursor != ""`. Segment handler was the only one missing it. | ACCEPTED |
+| DEV-032 | 2026-03-20 | STORY-012: No Update (PATCH) endpoint for segments. Story ACs and plan do not specify Update. Segments are create-once, delete-if-wrong. Update can be added in a future enhancement if needed. | ACCEPTED |
 
 ## Performance Decisions
 
@@ -147,5 +149,7 @@
 | PERF-004 | 2026-03-20 | STORY-010: IP allocation uses DB-level FOR UPDATE SKIP LOCKED instead of Redis cache — correctness over speed for financial-grade IP inventory. Cache would introduce stale reads and double-allocation risk. | ACCEPTED |
 | PERF-005 | 2026-03-20 | STORY-011: SIM list and detail not cached in Redis — state transitions happen frequently, NATS invalidation would add complexity. Cursor-based pagination makes list caching impractical. Future: SIM auth data (IMSI->SIM) will be cached in Redis for AAA hot path (SVC-04). | ACCEPTED |
 | PERF-006 | 2026-03-20 | STORY-011: ILIKE search with prefix wildcard (`%q%`) on iccid/imsi/msisdn in combo search (q param). No index optimization possible for leading wildcard. Acceptable for admin use case; pg_trgm GIN index can be added later if search latency becomes an issue. | ACCEPTED |
+| PERF-007 | 2026-03-20 | STORY-012: Segment filter by `rat_type` has no composite index on sims table. Acceptable because rat_type is optional and typically combined with other indexed filters (operator_id, state, apn_id). PostgreSQL can use the primary filter index + sequential filter. Can add `idx_sims_tenant_rat_type` later if query latency exceeds targets. | ACCEPTED |
+| PERF-008 | 2026-03-20 | STORY-012: Segment count and summary results not cached in Redis — SIM state transitions happen frequently, stale cache is unacceptable for count accuracy. Same rationale as PERF-005. | ACCEPTED |
 
 ---

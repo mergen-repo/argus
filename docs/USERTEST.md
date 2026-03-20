@@ -262,6 +262,37 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-012: SIM Segments & Group-First UX
+
+1. `make up` -- Tum servisleri baslat
+2. Login yap (admin@argus.io) ve JWT al
+3. Segment olustur:
+   ```bash
+   curl -sk -X POST https://localhost:8084/api/v1/sim-segments \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Active IoT SIMs","filter_definition":{"state":"active","rat_type":"nb_iot"}}'
+   ```
+   201 + segment donmeli
+4. Segment listele: GET /api/v1/sim-segments -- 200 + segment listesi
+5. Segment detay: GET /api/v1/sim-segments/{id} -- 200 + segment detayi
+6. Segment count:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/sim-segments/{id}/count \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + `{"count": N}` donmeli
+7. State summary:
+   ```bash
+   curl -sk https://localhost:8084/api/v1/sim-segments/{id}/summary \
+     -H 'Authorization: Bearer <token>'
+   ```
+   200 + state bazinda sayilar donmeli (active, suspended, vb.)
+8. Segment sil: DELETE /api/v1/sim-segments/{id} -- 204
+9. Unit testler: `go test ./internal/store/... ./internal/api/segment/... -v`
+
+---
+
 ## STORY-011: SIM CRUD & State Machine
 
 1. `make up` -- Tum servisleri baslat

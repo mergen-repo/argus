@@ -44,6 +44,12 @@ type countDTO struct {
 	Count     int64     `json:"count"`
 }
 
+type summaryDTO struct {
+	SegmentID uuid.UUID        `json:"segment_id"`
+	Total     int64            `json:"total"`
+	ByState   map[string]int64 `json:"by_state"`
+}
+
 const timeFmt = "2006-01-02T15:04:05Z07:00"
 
 func toSegmentDTO(s *store.SimSegment) segmentDTO {
@@ -85,8 +91,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
-		Cursor: nextCursor,
-		Limit:  limit,
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
 	})
 }
 
@@ -178,5 +185,53 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteSuccess(w, http.StatusOK, countDTO{
 		SegmentID: id,
 		Count:     count,
+	})
+}
+
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid segment ID")
+		return
+	}
+
+	seg, err := h.segments.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("get segment")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, toSegmentDTO(seg))
+}
+
+func (h *Handler) StateSummary(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid segment ID")
+		return
+	}
+
+	byState, total, err := h.segments.StateSummary(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("segment state summary")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, summaryDTO{
+		SegmentID: id,
+		Total:     total,
+		ByState:   byState,
 	})
 }
