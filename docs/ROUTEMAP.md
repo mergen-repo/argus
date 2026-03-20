@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-20
 > Current phase: DEVELOPMENT — Phase 2: Core SIM & APN
-> Overall progress: 22%
+> Overall progress: 24%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 12/55 (22%)
-> Current story: STORY-013
+> Stories completed: 13/55 (24%)
+> Current story: STORY-014
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -50,7 +50,7 @@
 | STORY-010 | APN CRUD & IP Pool Management | L | [x] DONE | — | STORY-009 | 2026-03-20 |
 | STORY-011 | SIM CRUD & State Machine | XL | [x] DONE | — | STORY-010 | 2026-03-20 |
 | STORY-012 | SIM Segments & Group-First UX | M | [x] DONE | — | STORY-011 | 2026-03-20 |
-| STORY-013 | Bulk SIM Import (CSV) | L | [~] IN PROGRESS | Commit | STORY-011, STORY-006 | — |
+| STORY-013 | Bulk SIM Import (CSV) | L | [x] DONE | — | STORY-011, STORY-006 | 2026-03-20 |
 | STORY-014 | MSISDN Number Pool Management | S | [ ] PENDING | — | STORY-011 | — |
 
 ### Phase 3: AAA Engine [PENDING]
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-20 | DONE | STORY-013 completed — Bulk SIM Import (CSV upload, background job processing, partial success, NATS progress, cancellation, error report CSV download). 6 new routes. Job runner + import processor wired in main.go. | STORY-031 scope reduced (job runner + API-120..123 already implemented), STORY-014 next |
 | 2026-03-20 | DONE | STORY-012 completed — Segment CRUD (6 endpoints), JSONB filter_definition, CountMatchingSIMs, StateSummary, sim_manager RBAC | STORY-030 unblocked (partial — also needs STORY-028, STORY-031) |
 | 2026-03-20 | DONE | STORY-011 completed — SIM CRUD, state machine (7 transitions), cursor pagination, IP allocation on activation, auto-purge scheduling | STORY-012, STORY-013, STORY-014 unblocked |
 | 2026-03-20 | DONE | STORY-010 completed — APN CRUD, IP Pool CRUD, IP allocation/reservation/release, dual-stack IPv4+IPv6 | STORY-011 unblocked, STORY-013 partially unblocked |

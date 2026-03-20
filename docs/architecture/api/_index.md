@@ -144,14 +144,15 @@
 | API-114 | GET | /api/v1/cdrs | List CDRs (time-range query) | JWT (analyst+) | See [STORY-032](../../stories/phase-6/STORY-032-cdr-processing.md) |
 | API-115 | POST | /api/v1/cdrs/export | Export CDRs to CSV | JWT (analyst+) | See [STORY-032](../../stories/phase-6/STORY-032-cdr-processing.md) |
 
-## Jobs (4 endpoints)
+## Jobs (5 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-120 | GET | /api/v1/jobs | List jobs | JWT (sim_manager+) | See [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
-| API-121 | GET | /api/v1/jobs/:id | Get job detail + progress | JWT (sim_manager+) | See [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
-| API-122 | POST | /api/v1/jobs/:id/cancel | Cancel running job | JWT (tenant_admin) | See [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
-| API-123 | POST | /api/v1/jobs/:id/retry | Retry failed items | JWT (sim_manager+) | See [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
+| API-120 | GET | /api/v1/jobs | List jobs | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md), [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
+| API-121 | GET | /api/v1/jobs/:id | Get job detail + progress | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md), [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
+| API-122 | POST | /api/v1/jobs/:id/cancel | Cancel running job | JWT (tenant_admin) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md), [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
+| API-123 | POST | /api/v1/jobs/:id/retry | Retry failed items | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md), [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
+| API-124 | GET | /api/v1/jobs/:id/errors | Download job error report (JSON or CSV) | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md) |
 
 ## Notifications (5 endpoints)
 
@@ -225,4 +226,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 107 REST endpoints + 10 WebSocket event types**
+**Total: 108 REST endpoints + 10 WebSocket event types**

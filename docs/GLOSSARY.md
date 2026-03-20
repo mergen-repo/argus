@@ -89,6 +89,8 @@
 | Correlation ID | UUID v4 generated per HTTP request, propagated via Go context, emitted as `X-Request-ID` response header | Cross-cutting request tracing identifier used in structured logging, audit entries, and observability |
 | SIM State Machine | Finite state machine governing SIM lifecycle: ORDERED -> ACTIVE <-> SUSPENDED -> TERMINATED -> PURGED + STOLEN/LOST. Each transition is validated, logged in sim_state_history (TBL-11), and triggers side effects (IP allocation, purge scheduling, etc.). | BR-1 (PRODUCT.md), STORY-011 |
 | Auto-Purge | Automatic deletion of terminated SIM data after a configurable retention period (`purge_retention_days` per tenant). Sets `purge_at = terminated_at + N days`. Ensures KVKK/GDPR compliance by pseudonymizing personal data in audit logs. | BR-1, STORY-039 |
+| Bulk Import | Asynchronous CSV-based mass SIM provisioning. Upload creates a background job that processes rows: validate -> create SIM (ordered) -> auto-activate -> allocate IP -> assign default policy. Supports partial success (valid rows applied, invalid rows in error_report JSONB), progress via NATS, job cancellation (check every 100 rows), and error report CSV download. | WF-1, STORY-013, F-011, F-018 |
+| Job Runner | NATS JetStream-backed background job processor. Subscribes to `argus.jobs.queue`, locks jobs (`locked_by` worker ID), dispatches to registered processors, publishes progress and completion events. Supports cancellation, retry, and graceful shutdown. | SVC-09, STORY-013, STORY-031 |
 
 ## Regulatory Terms
 
