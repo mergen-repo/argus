@@ -303,8 +303,23 @@ func (h *Handler) ErrorReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeErrorReportCSV(w http.ResponseWriter, report json.RawMessage) {
-	var errors []jobtypes.ImportRowError
-	if err := json.Unmarshal(report, &errors); err != nil {
+	var bulkErrors []jobtypes.BulkOpError
+	if err := json.Unmarshal(report, &bulkErrors); err == nil && len(bulkErrors) > 0 && bulkErrors[0].ErrorCode != "" {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=error_report.csv")
+		w.WriteHeader(http.StatusOK)
+
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"sim_id", "iccid", "error_code", "error_message"})
+		for _, e := range bulkErrors {
+			writer.Write([]string{e.SimID, e.ICCID, e.ErrorCode, e.ErrorMessage})
+		}
+		writer.Flush()
+		return
+	}
+
+	var importErrors []jobtypes.ImportRowError
+	if err := json.Unmarshal(report, &importErrors); err != nil {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to parse error report")
 		return
 	}
@@ -315,7 +330,7 @@ func (h *Handler) writeErrorReportCSV(w http.ResponseWriter, report json.RawMess
 
 	writer := csv.NewWriter(w)
 	writer.Write([]string{"row", "iccid", "error"})
-	for _, e := range errors {
+	for _, e := range importErrors {
 		writer.Write([]string{
 			strconv.Itoa(e.Row),
 			e.ICCID,

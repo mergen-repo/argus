@@ -280,3 +280,70 @@ func (s *SegmentStore) StateSummary(ctx context.Context, id uuid.UUID) (map[stri
 
 	return byState, total, nil
 }
+
+type SIMBulkInfo struct {
+	ID              uuid.UUID  `json:"id"`
+	ICCID           string     `json:"iccid"`
+	State           string     `json:"state"`
+	SimType         string     `json:"sim_type"`
+	PolicyVersionID *uuid.UUID `json:"policy_version_id"`
+	OperatorID      uuid.UUID  `json:"operator_id"`
+	ESimProfileID   *uuid.UUID `json:"esim_profile_id"`
+}
+
+func (s *SegmentStore) ListMatchingSIMIDs(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error) {
+	filter, tenantID, err := s.buildSegmentFilterQuery(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	conditions, args, _ := buildFilterConditions(filter, tenantID)
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	query := fmt.Sprintf("SELECT id FROM sims %s ORDER BY id", where)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list matching sim ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan sim id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SegmentStore) ListMatchingSIMIDsWithDetails(ctx context.Context, id uuid.UUID) ([]SIMBulkInfo, error) {
+	filter, tenantID, err := s.buildSegmentFilterQuery(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	conditions, args, _ := buildFilterConditions(filter, tenantID)
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	query := fmt.Sprintf(
+		"SELECT id, iccid, state, sim_type, policy_version_id, operator_id, esim_profile_id FROM sims %s ORDER BY id",
+		where,
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list matching sim details: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SIMBulkInfo
+	for rows.Next() {
+		var s SIMBulkInfo
+		if err := rows.Scan(&s.ID, &s.ICCID, &s.State, &s.SimType, &s.PolicyVersionID, &s.OperatorID, &s.ESimProfileID); err != nil {
+			return nil, fmt.Errorf("scan sim bulk info: %w", err)
+		}
+		results = append(results, s)
+	}
+	return results, nil
+}

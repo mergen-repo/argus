@@ -20,13 +20,15 @@ const maxUploadSize = 50 << 20 // 50MB
 
 type BulkHandler struct {
 	jobs     *store.JobStore
+	segments *store.SegmentStore
 	eventBus *bus.EventBus
 	logger   zerolog.Logger
 }
 
-func NewBulkHandler(jobs *store.JobStore, eventBus *bus.EventBus, logger zerolog.Logger) *BulkHandler {
+func NewBulkHandler(jobs *store.JobStore, segments *store.SegmentStore, eventBus *bus.EventBus, logger zerolog.Logger) *BulkHandler {
 	return &BulkHandler{
 		jobs:     jobs,
+		segments: segments,
 		eventBus: eventBus,
 		logger:   logger,
 	}
@@ -36,6 +38,19 @@ type bulkImportResponse struct {
 	JobID    string `json:"job_id"`
 	TenantID string `json:"tenant_id"`
 	Status   string `json:"status"`
+}
+
+type bulkJobResponse struct {
+	JobID          string `json:"job_id"`
+	Status         string `json:"status"`
+	EstimatedCount int64  `json:"estimated_count"`
+}
+
+var validBulkTargetStates = map[string]bool{
+	"active":      true,
+	"suspended":   true,
+	"terminated":  true,
+	"stolen_lost": true,
 }
 
 func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +174,207 @@ func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
 			JobID:    j.ID.String(),
 			TenantID: j.TenantID.String(),
 			Status:   "queued",
+		},
+	})
+}
+
+func (h *BulkHandler) StateChange(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SegmentID   uuid.UUID `json:"segment_id"`
+		TargetState string    `json:"target_state"`
+		Reason      *string   `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid JSON body")
+		return
+	}
+
+	if req.SegmentID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "segment_id is required")
+		return
+	}
+	if !validBulkTargetStates[req.TargetState] {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			fmt.Sprintf("Invalid target_state: %q. Must be one of: active, suspended, terminated, stolen_lost", req.TargetState))
+		return
+	}
+
+	count, err := h.segments.CountMatchingSIMs(r.Context(), req.SegmentID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeNotFound, "Segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("count segment sims for state change")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to count segment SIMs")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"segment_id":   req.SegmentID,
+		"target_state": req.TargetState,
+		"reason":       req.Reason,
+	})
+
+	j, err := h.jobs.Create(r.Context(), store.CreateJobParams{
+		Type:       job.JobTypeBulkStateChange,
+		Priority:   5,
+		Payload:    payload,
+		TotalItems: int(count),
+		CreatedBy:  userIDFromRequest(r),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create bulk state change job")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to create job")
+		return
+	}
+
+	_ = h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, job.JobMessage{
+		JobID:    j.ID,
+		TenantID: j.TenantID,
+		Type:     job.JobTypeBulkStateChange,
+	})
+
+	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
+		Status: "success",
+		Data: bulkJobResponse{
+			JobID:          j.ID.String(),
+			Status:         "queued",
+			EstimatedCount: count,
+		},
+	})
+}
+
+func (h *BulkHandler) PolicyAssign(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SegmentID       uuid.UUID `json:"segment_id"`
+		PolicyVersionID uuid.UUID `json:"policy_version_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid JSON body")
+		return
+	}
+
+	if req.SegmentID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "segment_id is required")
+		return
+	}
+	if req.PolicyVersionID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "policy_version_id is required")
+		return
+	}
+
+	count, err := h.segments.CountMatchingSIMs(r.Context(), req.SegmentID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeNotFound, "Segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("count segment sims for policy assign")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to count segment SIMs")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"segment_id":        req.SegmentID,
+		"policy_version_id": req.PolicyVersionID,
+	})
+
+	j, err := h.jobs.Create(r.Context(), store.CreateJobParams{
+		Type:       job.JobTypeBulkPolicyAssign,
+		Priority:   5,
+		Payload:    payload,
+		TotalItems: int(count),
+		CreatedBy:  userIDFromRequest(r),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create bulk policy assign job")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to create job")
+		return
+	}
+
+	_ = h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, job.JobMessage{
+		JobID:    j.ID,
+		TenantID: j.TenantID,
+		Type:     job.JobTypeBulkPolicyAssign,
+	})
+
+	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
+		Status: "success",
+		Data: bulkJobResponse{
+			JobID:          j.ID.String(),
+			Status:         "queued",
+			EstimatedCount: count,
+		},
+	})
+}
+
+func (h *BulkHandler) OperatorSwitch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SegmentID        uuid.UUID `json:"segment_id"`
+		TargetOperatorID uuid.UUID `json:"target_operator_id"`
+		TargetAPNID      uuid.UUID `json:"target_apn_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid JSON body")
+		return
+	}
+
+	if req.SegmentID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "segment_id is required")
+		return
+	}
+	if req.TargetOperatorID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "target_operator_id is required")
+		return
+	}
+	if req.TargetAPNID == uuid.Nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "target_apn_id is required")
+		return
+	}
+
+	count, err := h.segments.CountMatchingSIMs(r.Context(), req.SegmentID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeNotFound, "Segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("count segment sims for operator switch")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to count segment SIMs")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"segment_id":         req.SegmentID,
+		"target_operator_id": req.TargetOperatorID,
+		"target_apn_id":      req.TargetAPNID,
+	})
+
+	j, err := h.jobs.Create(r.Context(), store.CreateJobParams{
+		Type:       job.JobTypeBulkEsimSwitch,
+		Priority:   5,
+		Payload:    payload,
+		TotalItems: int(count),
+		CreatedBy:  userIDFromRequest(r),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create bulk operator switch job")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to create job")
+		return
+	}
+
+	_ = h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, job.JobMessage{
+		JobID:    j.ID,
+		TenantID: j.TenantID,
+		Type:     job.JobTypeBulkEsimSwitch,
+	})
+
+	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
+		Status: "success",
+		Data: bulkJobResponse{
+			JobID:          j.ID.String(),
+			Status:         "queued",
+			EstimatedCount: count,
 		},
 	})
 }

@@ -758,3 +758,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    202 + job_id + state=queued
 5. Rate limit testi: Ayni SIM'e arka arkaya 11+ OTA komutu gonder -- 429 OTA_RATE_LIMIT (limit: 10/saat)
 6. Unit testler: `go test ./internal/ota/... ./internal/store/ ./internal/job/ ./internal/api/ota/... -v` -- 78+ OTA test gecmeli
+
+---
+
+## STORY-030: Bulk Operations (State Change, Policy Assign, Operator Switch)
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Bulk state change: `curl -k -X POST https://localhost/api/v1/sims/bulk/state-change -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_state":"suspended","reason":"maintenance"}'` -- 202 + job_id + estimated_count
+2. Bulk policy assign: `curl -k -X POST https://localhost/api/v1/sims/bulk/policy-assign -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","policy_version_id":"<VER_UUID>"}'` -- 202 + job_id
+3. Bulk operator switch: `curl -k -X POST https://localhost/api/v1/sims/bulk/operator-switch -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_operator_id":"<OP_UUID>","target_apn_id":"<APN_UUID>"}'` -- 202 + job_id
+4. Job progress: WebSocket'ten job progress event'leri gelmeli
+5. Error report CSV: `curl -k https://localhost/api/v1/jobs/<JOB_UUID>/error-report -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
+6. Unit testler: `go test ./internal/job/... ./internal/api/sim/... -v`

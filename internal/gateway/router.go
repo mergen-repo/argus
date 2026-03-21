@@ -269,6 +269,19 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
+			r.Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("policy_editor"))
+			r.Post("/api/v1/sims/bulk/policy-assign", deps.BulkHandler.PolicyAssign)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/sims/bulk/operator-switch", deps.BulkHandler.OperatorSwitch)
 		})
 	}
 

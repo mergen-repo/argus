@@ -83,7 +83,7 @@
 | STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | Review | STORY-006, STORY-013 | 2026-03-21 |
 | STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | Review | STORY-011 | 2026-03-21 |
 | STORY-029 | OTA SIM Management (APDU) | M | [x] DONE | — | STORY-011, STORY-031 | 2026-03-22 |
-| STORY-030 | Bulk State Change / Policy / Operator Switch | L | [ ] PENDING | — | STORY-012, STORY-028, STORY-031 | — |
+| STORY-030 | Bulk State Change / Policy / Operator Switch | L | [~] IN PROGRESS | Commit | STORY-012, STORY-028, STORY-031 | — |
 
 ### Phase 6: Analytics & BI [PENDING]
 
