@@ -14,6 +14,7 @@ import (
 	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
+	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
@@ -174,7 +175,10 @@ func main() {
 
 	cdrStore := store.NewCDRStore(pg.Pool)
 	usageAnalyticsStore := store.NewUsageAnalyticsStore(pg.Pool)
+	costAnalyticsStore := store.NewCostAnalyticsStore(pg.Pool)
+	costService := costsvc.NewService(costAnalyticsStore, log.Logger)
 	analyticsHandler := analyticsapi.NewHandler(usageAnalyticsStore, log.Logger)
+	analyticsHandler.SetCostService(costService)
 	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")

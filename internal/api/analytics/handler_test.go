@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/btopcu/argus/internal/analytics/cost"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -199,4 +200,165 @@ func TestValidGroupBy(t *testing.T) {
 	if validGroupBy["invalid"] {
 		t.Error("validGroupBy[invalid] = true, want false")
 	}
+}
+
+func TestHandler_GetCost_NoCostService(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestHandler_GetCost_NoTenantContext(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost", nil)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandler_GetCost_InvalidPeriod(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?period=invalid", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_CustomPeriodMissingDates(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?period=custom", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_CustomPeriodFromAfterTo(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?period=custom&from=2026-03-22T00:00:00Z&to=2026-03-01T00:00:00Z", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_InvalidOperatorID(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?operator_id=not-a-uuid", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_InvalidAPNID(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?apn_id=not-a-uuid", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_InvalidFromFormat(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?period=custom&from=bad&to=2026-03-22T00:00:00Z", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_InvalidToFormat(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	h.costService = &cost.Service{}
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cost?period=custom&from=2026-03-01T00:00:00Z&to=bad", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetCost(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandler_GetCost_DefaultPeriod(t *testing.T) {
+	t.Skip("requires database connection")
 }

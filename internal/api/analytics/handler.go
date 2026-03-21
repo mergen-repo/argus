@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/cost"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -12,8 +13,9 @@ import (
 )
 
 type Handler struct {
-	usageStore *store.UsageAnalyticsStore
-	logger     zerolog.Logger
+	usageStore  *store.UsageAnalyticsStore
+	costService *cost.Service
+	logger      zerolog.Logger
 }
 
 func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *Handler {
@@ -21,6 +23,10 @@ func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *H
 		usageStore: usageStore,
 		logger:     logger.With().Str("component", "analytics_handler").Logger(),
 	}
+}
+
+func (h *Handler) SetCostService(svc *cost.Service) {
+	h.costService = svc
 }
 
 type timeSeriesDTO struct {
@@ -293,4 +299,94 @@ func deltaPercent(current, previous int64) float64 {
 		return 100.0
 	}
 	return float64(current-previous) / float64(previous) * 100.0
+}
+
+func (h *Handler) GetCost(w http.ResponseWriter, r *http.Request) {
+	if h.costService == nil {
+		apierr.WriteError(w, http.StatusServiceUnavailable, apierr.CodeInternalError, "Cost analytics not available")
+		return
+	}
+
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	q := r.URL.Query()
+
+	period := q.Get("period")
+	if period == "" {
+		period = "30d"
+	}
+	if !validPeriods[period] {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+			fmt.Sprintf("Invalid period %q, supported: 1h, 24h, 7d, 30d, custom", period))
+		return
+	}
+
+	var from, to time.Time
+	if period == "custom" {
+		fromStr := q.Get("from")
+		toStr := q.Get("to")
+		if fromStr == "" || toStr == "" {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+				"'from' and 'to' are required for custom period")
+			return
+		}
+		var err error
+		from, err = time.Parse(time.RFC3339, fromStr)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+				"Invalid 'from' date format, expected RFC3339")
+			return
+		}
+		to, err = time.Parse(time.RFC3339, toStr)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+				"Invalid 'to' date format, expected RFC3339")
+			return
+		}
+		if from.After(to) {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+				"'from' must be before 'to'")
+			return
+		}
+	} else {
+		from, to = store.ResolveTimeRange(period)
+	}
+
+	var operatorID *uuid.UUID
+	if v := q.Get("operator_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			operatorID = &id
+		} else {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator_id format")
+			return
+		}
+	}
+
+	var apnID *uuid.UUID
+	if v := q.Get("apn_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			apnID = &id
+		} else {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid apn_id format")
+			return
+		}
+	}
+
+	var ratType *string
+	if v := q.Get("rat_type"); v != "" {
+		ratType = &v
+	}
+
+	result, err := h.costService.GetCostAnalytics(r.Context(), tenantID, from, to, operatorID, apnID, ratType)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("get cost analytics")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, result)
 }

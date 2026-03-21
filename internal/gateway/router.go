@@ -374,6 +374,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/analytics/usage", deps.AnalyticsHandler.GetUsage)
+			r.Get("/api/v1/analytics/cost", deps.AnalyticsHandler.GetCost)
 		})
 	}
 

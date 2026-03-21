@@ -806,3 +806,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 3. RAT tipi gruplama: `curl -k "https://localhost/api/v1/analytics/usage?period=30d&group_by=rat_type" -H "Authorization: Bearer $TOKEN"` -- 200
 4. Karsilastirma modu: `curl -k "https://localhost/api/v1/analytics/usage?period=24h&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
 5. Unit testler: `go test ./internal/store/ ./internal/api/analytics/... -v`
+
+---
+
+## STORY-035: Cost Analytics & Optimization
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Maliyet analizi: `curl -k "https://localhost/api/v1/analytics/cost?period=30d" -H "Authorization: Bearer $TOKEN"` -- 200 + total_cost, by_operator, cost_per_mb, top_expensive_sims, trend, suggestions
+2. Karsilastirma: `curl -k "https://localhost/api/v1/analytics/cost?period=30d&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
+3. Operator filtre: `curl -k "https://localhost/api/v1/analytics/cost?period=30d&operator_id=<OP_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
+4. Unit testler: `go test ./internal/analytics/cost/... ./internal/api/analytics/... -v`
