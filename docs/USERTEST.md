@@ -783,3 +783,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 3. CDR export: `curl -k -X POST https://localhost/api/v1/cdrs/export -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"from":"2026-03-01T00:00:00Z","to":"2026-03-31T23:59:59Z","format":"csv"}'` -- 202 + job_id
 4. NATS event test: RADIUS accounting event gonderdikten sonra CDR tablosunda yeni kayit olusturulmali
 5. Unit testler: `go test ./internal/analytics/cdr/... ./internal/store/ ./internal/api/cdr/... ./internal/job/ -v`
+
+---
+
+## STORY-033: Built-In Observability & Real-Time Metrics
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Sistem metrikleri: `curl -k https://localhost/api/v1/system/metrics -H "Authorization: Bearer $TOKEN"` -- 200 + auth_per_sec, error_rate, latency, active_sessions, by_operator, system_status
+2. Prometheus: `curl -k https://localhost/metrics` -- OpenMetrics format text
+3. WebSocket: ws://localhost:8081 baglantisi ile metrics.realtime event'leri 1 saniyede bir gelmeli
+4. Unit testler: `go test ./internal/analytics/metrics/... ./internal/api/metrics/... -v`

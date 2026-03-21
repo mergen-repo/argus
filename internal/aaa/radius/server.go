@@ -27,6 +27,10 @@ const (
 	drainTimeout = 5 * time.Second
 )
 
+type MetricsRecorder interface {
+	RecordAuth(ctx context.Context, operatorID uuid.UUID, success bool, latencyMs int)
+}
+
 type Server struct {
 	authAddr       string
 	acctAddr       string
@@ -42,6 +46,7 @@ type Server struct {
 	dmSender      *session.DMSender
 	eapMachine     *eap.StateMachine
 	eapAuthResults sync.Map
+	metricsRecorder MetricsRecorder
 	logger         zerolog.Logger
 
 	authServer *radius.PacketServer
@@ -177,6 +182,18 @@ func (s *Server) SetEAPMachine(machine *eap.StateMachine) {
 	s.eapMachine = machine
 }
 
+func (s *Server) SetMetricsRecorder(mr MetricsRecorder) {
+	s.metricsRecorder = mr
+}
+
+func (s *Server) recordAuthMetric(ctx context.Context, operatorID uuid.UUID, success bool, startTime time.Time) {
+	if s.metricsRecorder == nil {
+		return
+	}
+	latencyMs := int(time.Since(startTime).Milliseconds())
+	s.metricsRecorder.RecordAuth(ctx, operatorID, success, latencyMs)
+}
+
 func (s *Server) ActiveSessionCount(ctx context.Context) (int64, error) {
 	return s.sessionMgr.CountActive(ctx)
 }
@@ -260,6 +277,13 @@ func (s *Server) handleEAPAuth(ctx context.Context, w radius.ResponseWriter, r *
 
 	case eap.CodeFailure:
 		s.sendEAPReject(w, r.Packet, respPkt.Identifier)
+		var failOpID uuid.UUID
+		if failIMSI, _ := rfc2865.UserName_LookupString(r.Packet); failIMSI != "" {
+			if sim, err := s.simCache.GetByIMSI(ctx, failIMSI); err == nil && sim != nil {
+				failOpID = sim.OperatorID
+			}
+		}
+		s.recordAuthMetric(ctx, failOpID, false, startTime)
 		logger.Info().
 			Dur("latency_ms", time.Since(startTime)).
 			Msg("EAP authentication failed, Access-Reject sent")
@@ -325,6 +349,14 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 		return
 	}
 
+	var operatorID uuid.UUID
+	if imsi != "" {
+		if sim, err := s.simCache.GetByIMSI(ctx, imsi); err == nil && sim != nil {
+			operatorID = sim.OperatorID
+		}
+	}
+	s.recordAuthMetric(ctx, operatorID, true, startTime)
+
 	eapMethod, _ := s.eapMachine.GetSessionMethod(ctx, sessionID)
 	methodStr := eapMethod.String()
 
@@ -374,6 +406,7 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		reason := fmt.Sprintf("SIM_%s", sim.State)
 		logger.Info().Str("sim_state", sim.State).Msg("Access-Reject: SIM not active")
 		s.sendReject(w, r.Packet, reason)
+		s.recordAuthMetric(ctx, sim.OperatorID, false, startTime)
 		return
 	}
 
@@ -381,12 +414,14 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 	if err != nil {
 		logger.Error().Err(err).Msg("operator lookup failed")
 		s.sendReject(w, r.Packet, "INTERNAL_ERROR")
+		s.recordAuthMetric(ctx, sim.OperatorID, false, startTime)
 		return
 	}
 
 	if op.HealthStatus == "down" {
 		logger.Info().Str("operator", op.Code).Msg("Access-Reject: operator unavailable")
 		s.sendReject(w, r.Packet, "OPERATOR_UNAVAILABLE")
+		s.recordAuthMetric(ctx, op.ID, false, startTime)
 		return
 	}
 
@@ -419,6 +454,8 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		logger.Error().Err(err).Msg("failed to send Access-Accept")
 		return
 	}
+
+	s.recordAuthMetric(ctx, op.ID, true, startTime)
 
 	logger.Info().
 		Dur("latency_ms", time.Since(startTime)).

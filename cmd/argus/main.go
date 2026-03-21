@@ -14,12 +14,14 @@ import (
 	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
+	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
+	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -371,6 +373,29 @@ func main() {
 		}
 	}
 
+	metricsCollector := analyticmetrics.NewCollector(rdb.Client, log.Logger)
+
+	radiusSessionStore2 := store.NewRadiusSessionStore(pg.Pool)
+	metricsCollector.SetSessionCounter(radiusSessionStore2)
+
+	if radiusServer != nil {
+		radiusServer.SetMetricsRecorder(metricsCollector)
+	}
+
+	activeOps, activeOpsErr := operatorStore.ListActive(context.Background())
+	if activeOpsErr == nil {
+		opIDs := make([]uuid.UUID, 0, len(activeOps))
+		for _, op := range activeOps {
+			opIDs = append(opIDs, op.ID)
+		}
+		metricsCollector.SetOperatorIDs(opIDs)
+	}
+
+	metricsPusher := analyticmetrics.NewPusher(metricsCollector, wsHub, log.Logger)
+	metricsPusher.Start()
+
+	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
 		health.SetAAAChecker(radiusServer)
@@ -401,6 +426,7 @@ func main() {
 		PolicyHandler:      policyHandler,
 		OTAHandler:         otaHandler,
 		CDRHandler:         cdrHandler,
+		MetricsHandler:     metricsHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -476,6 +502,9 @@ func main() {
 
 	log.Info().Msg("stopping job runner")
 	jobRunner.Stop()
+
+	log.Info().Msg("stopping metrics pusher")
+	metricsPusher.Stop()
 
 	log.Info().Msg("stopping ws hub")
 	wsHub.Stop()
