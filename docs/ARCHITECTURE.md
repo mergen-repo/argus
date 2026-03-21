@@ -305,6 +305,8 @@ RADIUS Request → UDP listener (goroutine pool)
 | Auth vector pre-fetch | Redis list | 5min | Auto-expire (TTL) |
 | Rate limit counters | Redis | Sliding window | Auto-expire |
 | SoR decision (per-SIM) | Redis | 1hr (configurable) | NATS on operator health change |
+| Auth rate counters | Redis INCR | 5s | Auto-expire (TTL) |
+| Auth latency window | Redis ZSET | 120s | Auto-expire + 60s sliding prune |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
 
 ## Extension Points (for FUTURE.md)

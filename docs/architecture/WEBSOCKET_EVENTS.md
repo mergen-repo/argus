@@ -358,35 +358,26 @@ Fired when a policy staged rollout advances or completes a stage.
 
 ### 10. metrics.realtime
 
-Fired every 1 second. Contains aggregated real-time metrics for the tenant dashboard.
+Fired every 1 second. Contains aggregated real-time metrics for the system dashboard. Broadcast via `Hub.BroadcastAll` by the Metrics Pusher goroutine (STORY-033).
 
 ```json
 {
   "type": "metrics.realtime",
   "id": "evt_k7l8m9n0",
-  "timestamp": "2026-03-18T14:30:01.000Z",
+  "timestamp": "2026-03-22T14:30:01.000Z",
   "data": {
-    "auth_requests_per_sec": 1234,
-    "auth_success_per_sec": 1210,
-    "auth_reject_per_sec": 24,
-    "acct_requests_per_sec": 3456,
+    "auth_per_sec": 1234,
+    "error_rate": 0.02,
+    "latency_p50": 4,
+    "latency_p95": 18,
     "active_sessions": 4234567,
-    "sessions_started_1m": 567,
-    "sessions_ended_1m": 543,
-    "avg_latency_ms": 4.2,
-    "p95_latency_ms": 18.5,
-    "p99_latency_ms": 42.3,
-    "bytes_in_per_sec": 123456789,
-    "bytes_out_per_sec": 34567890,
-    "error_rate_pct": 0.02,
-    "operator_health": {
-      "turkcell": { "status": "healthy", "latency_ms": 12 },
-      "vodafone": { "status": "healthy", "latency_ms": 8 },
-      "turk_telekom": { "status": "degraded", "latency_ms": 89 }
-    }
+    "system_status": "healthy",
+    "timestamp": "2026-03-22T14:30:01.000000000Z"
   }
 }
 ```
+
+> **Note:** Full per-operator breakdown and p99 latency are available via the REST endpoint `GET /api/v1/system/metrics` (API-181). The WS payload is intentionally lightweight for 1-second push frequency.
 
 ---
 

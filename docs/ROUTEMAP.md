@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-22
 > Current phase: DEVELOPMENT — Phase 6: Analytics & BI
-> Overall progress: 55%
+> Overall progress: 58%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 31/55 (56%)
+> Stories completed: 32/55 (58%)
 > Current story: —
 > Current step: —
 
@@ -90,7 +90,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-032 | CDR Processing & Rating Engine | L | [x] DONE | — | STORY-015, STORY-019 | 2026-03-22 |
-| STORY-033 | Real-Time Metrics & Observability | M | [~] IN PROGRESS | Commit | STORY-006, STORY-015 | — |
+| STORY-033 | Real-Time Metrics & Observability | M | [x] DONE | — | STORY-006, STORY-015 | 2026-03-22 |
 | STORY-034 | Usage Analytics Dashboard | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-035 | Cost Analytics & Optimization | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-036 | Anomaly Detection Engine | L | [ ] PENDING | — | STORY-032, STORY-017 | — |
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-033 review completed. 4 new glossary terms added (Metrics Collector, MetricsRecorder Interface, Metrics Pusher, System Health Status). ARCHITECTURE.md caching table updated with auth rate counters and latency window rows. WEBSOCKET_EVENTS.md metrics.realtime schema updated to match actual RealtimePayload implementation (simplified from original spec). | ROUTEMAP.md, GLOSSARY.md, ARCHITECTURE.md, WEBSOCKET_EVENTS.md |
+| 2026-03-22 | DONE | STORY-033 completed -- Built-In Observability & Real-Time Metrics. Redis-based auth rate counters (INCR with 5s TTL), latency percentiles (p50/p95/p99) via sorted set with 60s sliding window, per-operator metrics breakdown, system health status (healthy/degraded/critical). GET /api/v1/system/metrics (super_admin), GET /metrics (Prometheus/OpenMetrics), WS metrics.realtime push every 1s. RADIUS server instrumented via MetricsRecorder interface. 13 new tests, 41 packages passing. | STORY-043 (frontend dashboard) partially unblocked |
 | 2026-03-22 | REVIEW | STORY-032 review completed. 4 new glossary terms added (Rating Engine, Cost Aggregation, CDR Consumer, CDR Export). CDR term expanded. Job Runner term updated with cdr_export processor. ALGORITHMS.md Section 5 package path corrected. idx_cdrs_dedup added to TBL-18 index docs. STORY-034, STORY-035 fully unblocked. | ROUTEMAP.md, GLOSSARY.md, ALGORITHMS.md, db/aaa-analytics.md |
 | 2026-03-22 | DONE | STORY-032 completed -- CDR Processing & Rating Engine. NATS consumer on 3 session subjects (protocol-agnostic: RADIUS, Diameter, 5G SBA). Rating engine with 4 factors (base rate, RAT multiplier, time-of-day, volume tier). CDR store with idempotent insert, list with filters, cost aggregation, streaming export. 2 API endpoints (API-114, API-115). CDR export as background job (streaming CSV). Dedup unique index on (session_id, timestamp, record_type). 29 new tests, 825 total passing. | STORY-034, STORY-035 unblocked |
 | 2026-03-22 | GATE | Phase 5 Gate PASS — Deploy OK, smoke OK, 797/797 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 3 runtime bugs fixed: OTA security_mode default empty string (DB check constraint), job runner tenant context missing (segment queries failed), OTA FK on partitioned sims table (removed like esim_profiles pattern). Report: docs/reports/phase-5-gate.md | Phase 6 ready |
