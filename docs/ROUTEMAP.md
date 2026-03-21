@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-21
 > Current phase: DEVELOPMENT — Phase 4: Policy & Orchestration
-> Overall progress: 44%
+> Overall progress: 47%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 24/55 (44%)
-> Current story: STORY-025
+> Stories completed: 26/55 (47%)
+> Current story: STORY-027
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -72,8 +72,8 @@
 | STORY-022 | Policy DSL Parser & Evaluator | XL | [x] DONE | — | STORY-006 | 2026-03-21 |
 | STORY-023 | Policy CRUD & Versioning | M | [x] DONE | — | STORY-022 | 2026-03-21 |
 | STORY-024 | Policy Dry-Run Simulation | L | [x] DONE | — | STORY-023, STORY-011 | 2026-03-21 |
-| STORY-025 | Policy Staged Rollout (Canary) | XL | [~] IN PROGRESS | Commit | STORY-024, STORY-017 | — |
-| STORY-026 | Steering of Roaming Engine | L | [ ] PENDING | — | STORY-018 | — |
+| STORY-025 | Policy Staged Rollout (Canary) | XL | [x] DONE | — | STORY-024, STORY-017 | 2026-03-21 |
+| STORY-026 | Steering of Roaming Engine | L | [x] DONE | — | STORY-018 | 2026-03-21 |
 | STORY-027 | RAT-Type Awareness (All Layers) | M | [ ] PENDING | — | STORY-015, STORY-022 | — |
 
 ### Phase 5: eSIM & Advanced Ops [PENDING]
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-21 | DONE | STORY-025 completed — Policy Staged Rollout (Canary). Rollout service (internal/policy/rollout/) with StartRollout, ExecuteStage, AdvanceRollout, RollbackRollout, GetProgress. 4 API endpoints (API-096 to API-099) under policy_editor role. Store: TBL-15 (policy_assignments), TBL-16 (policy_rollouts) with 15 store methods. CoA dispatch per active session in batches of 1000. NATS policy.rollout_progress events, WebSocket push. Async processor for stages >100K SIMs. SessionProvider/CoADispatcher interfaces for cross-service DI. Gate fixes: tenantID resolution (critical), policy_id response, errors field. 25 new tests, 1008 total passing. | STORY-046 (frontend policy editor) unblocked for rollout UI |
 | 2026-03-21 | DONE | STORY-024 completed — Policy Dry-Run Simulation. DryRun service (internal/policy/dryrun/) with Execute(), CountMatchingSIMs(), buildFiltersFromMatch(), DetectBehavioralChanges(). Async job processor for >100K SIMs (internal/job/dryrun.go). Handler: POST /api/v1/policy-versions/:id/dry-run (API-094) with sync 200 / async 202 split. SIMFleetFilters + aggregation queries in store/sim.go (reusable by STORY-025). Redis cache 5min TTL. 26 new tests, 623 total passing. | STORY-025 (staged rollout) unblocked — can use dry-run data + fleet query infrastructure |
 | 2026-03-21 | DONE | STORY-023 completed — Policy CRUD & Versioning. PolicyStore (internal/store/policy.go) with full CRUD for policies and versions. PolicyHandler (internal/api/policy/handler.go) with 9 HTTP endpoints (API-090 to API-095 + version management). Version state machine: draft -> active -> superseded/archived. DSL validation before activation via dsl.CompileSource/Validate. Routes under RequireRole("policy_editor"). SELECT FOR UPDATE for activation race safety. HasAssignedSIMs EXISTS check for soft-delete. 28 story tests, 613 total passing. | STORY-024 (dry-run), STORY-025 (rollout) unblocked |
 | 2026-03-21 | DONE | STORY-022 completed — Policy DSL Parser & Evaluator. Full lexer, parser (recursive descent), AST, compiler (AST → JSON with unit normalization), evaluator (MATCH filtering, WHEN evaluation with last-match-wins, CHARGING with RAT multiplier). 7 source files + 4 test files in `internal/policy/dsl/`. 47 tests, all pass. Gate fixed time_of_day range evaluation with midnight wrapping. Pure computation library — no DB/Redis/NATS I/O. | STORY-023/024/025/027 unblocked, STORY-046 (frontend policy editor) partially unblocked |

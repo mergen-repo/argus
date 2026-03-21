@@ -674,3 +674,14 @@ Onkosul: `make up` + en az 1 aktif policy version + birkac SIM olmali.
 4. Rollback: POST /api/v1/policy-rollouts/{rollout_id}/rollback -- 200 + reverted_count
 5. Aktif rollout varken yeni rollout: 422 ROLLOUT_IN_PROGRESS donmeli
 6. Unit testler: `go test ./internal/policy/rollout/... ./internal/job/... ./internal/api/policy/... -v`
+
+---
+
+## STORY-026: Steering of Roaming (SoR) Engine
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Unit testler: `go test ./internal/operator/sor/... -v` -- 16 test gecmeli
+2. Migrasyon: `make db-migrate` -- sor_fields migrasyonu uygulanmali
+3. Full suite: `go test ./... -count=1` -- Tum testler gecmeli, regresyon yok
+4. Build: `go build ./...` -- Hatasiz derlenmeli

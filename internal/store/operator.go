@@ -49,8 +49,29 @@ type OperatorGrant struct {
 	TenantID   uuid.UUID  `json:"tenant_id"`
 	OperatorID uuid.UUID  `json:"operator_id"`
 	Enabled    bool       `json:"enabled"`
+	SoRPriority int       `json:"sor_priority"`
+	CostPerMB  *float64   `json:"cost_per_mb"`
+	Region     *string    `json:"region"`
 	GrantedAt  time.Time  `json:"granted_at"`
 	GrantedBy  *uuid.UUID `json:"granted_by"`
+}
+
+type GrantWithOperator struct {
+	OperatorGrant
+	OperatorName      string   `json:"operator_name"`
+	OperatorCode      string   `json:"operator_code"`
+	MCC               string   `json:"mcc"`
+	MNC               string   `json:"mnc"`
+	SupportedRATTypes []string `json:"supported_rat_types"`
+	HealthStatus      string   `json:"health_status"`
+	OperatorState     string   `json:"operator_state"`
+}
+
+type UpdateGrantParams struct {
+	SoRPriority *int
+	CostPerMB   *float64
+	Region      *string
+	Enabled     *bool
 }
 
 type OperatorHealthLog struct {
@@ -410,9 +431,9 @@ func (s *OperatorStore) CreateGrant(ctx context.Context, tenantID, operatorID uu
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO operator_grants (tenant_id, operator_id, granted_by)
 		VALUES ($1, $2, $3)
-		RETURNING id, tenant_id, operator_id, enabled, granted_at, granted_by
+		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
 	`, tenantID, operatorID, grantedBy).
-		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.GrantedAt, &g.GrantedBy)
+		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
 	if err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, ErrGrantExists
@@ -424,7 +445,7 @@ func (s *OperatorStore) CreateGrant(ctx context.Context, tenantID, operatorID uu
 
 func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]OperatorGrant, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, tenant_id, operator_id, enabled, granted_at, granted_by
+		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
 		FROM operator_grants
 		WHERE tenant_id = $1
 		ORDER BY granted_at DESC
@@ -437,7 +458,7 @@ func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]O
 	var results []OperatorGrant
 	for rows.Next() {
 		var g OperatorGrant
-		if err := rows.Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.GrantedAt, &g.GrantedBy); err != nil {
+		if err := rows.Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy); err != nil {
 			return nil, fmt.Errorf("store: scan operator grant: %w", err)
 		}
 		results = append(results, g)
@@ -448,9 +469,9 @@ func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]O
 func (s *OperatorStore) GetGrantByID(ctx context.Context, id uuid.UUID) (*OperatorGrant, error) {
 	var g OperatorGrant
 	err := s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, operator_id, enabled, granted_at, granted_by
+		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
 		FROM operator_grants WHERE id = $1
-	`, id).Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.GrantedAt, &g.GrantedBy)
+	`, id).Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrGrantNotFound
 	}
@@ -538,4 +559,82 @@ func (s *OperatorStore) CountFailures24h(ctx context.Context, operatorID uuid.UU
 		return 0, 0, fmt.Errorf("store: count failures 24h: %w", err)
 	}
 	return total, failures, nil
+}
+
+func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uuid.UUID) ([]GrantWithOperator, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT g.id, g.tenant_id, g.operator_id, g.enabled, g.sor_priority, g.cost_per_mb, g.region,
+			g.granted_at, g.granted_by,
+			o.name, o.code, o.mcc, o.mnc, o.supported_rat_types, o.health_status, o.state
+		FROM operator_grants g
+		JOIN operators o ON o.id = g.operator_id
+		WHERE g.tenant_id = $1 AND g.enabled = true AND o.state = 'active'
+		ORDER BY g.sor_priority ASC, g.cost_per_mb ASC NULLS LAST
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list grants with operators: %w", err)
+	}
+	defer rows.Close()
+
+	var results []GrantWithOperator
+	for rows.Next() {
+		var gw GrantWithOperator
+		if err := rows.Scan(
+			&gw.ID, &gw.TenantID, &gw.OperatorID, &gw.Enabled,
+			&gw.SoRPriority, &gw.CostPerMB, &gw.Region,
+			&gw.GrantedAt, &gw.GrantedBy,
+			&gw.OperatorName, &gw.OperatorCode, &gw.MCC, &gw.MNC,
+			&gw.SupportedRATTypes, &gw.HealthStatus, &gw.OperatorState,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan grant with operator: %w", err)
+		}
+		results = append(results, gw)
+	}
+	return results, nil
+}
+
+func (s *OperatorStore) UpdateGrant(ctx context.Context, id uuid.UUID, p UpdateGrantParams) (*OperatorGrant, error) {
+	sets := []string{}
+	args := []interface{}{id}
+	argIdx := 2
+
+	if p.SoRPriority != nil {
+		sets = append(sets, fmt.Sprintf("sor_priority = $%d", argIdx))
+		args = append(args, *p.SoRPriority)
+		argIdx++
+	}
+	if p.CostPerMB != nil {
+		sets = append(sets, fmt.Sprintf("cost_per_mb = $%d", argIdx))
+		args = append(args, *p.CostPerMB)
+		argIdx++
+	}
+	if p.Region != nil {
+		sets = append(sets, fmt.Sprintf("region = $%d", argIdx))
+		args = append(args, *p.Region)
+		argIdx++
+	}
+	if p.Enabled != nil {
+		sets = append(sets, fmt.Sprintf("enabled = $%d", argIdx))
+		args = append(args, *p.Enabled)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		return s.GetGrantByID(ctx, id)
+	}
+
+	query := fmt.Sprintf(`UPDATE operator_grants SET %s WHERE id = $1
+		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by`,
+		strings.Join(sets, ", "))
+
+	var g OperatorGrant
+	err := s.db.QueryRow(ctx, query, args...).
+		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrGrantNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: update operator grant: %w", err)
+	}
+	return &g, nil
 }
