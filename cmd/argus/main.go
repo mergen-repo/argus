@@ -21,6 +21,7 @@ import (
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -143,6 +144,9 @@ func main() {
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
 	msisdnStore := store.NewMSISDNStore(pg.Pool)
 	msisdnHandler := msisdnapi.NewHandler(msisdnStore, log.Logger)
+
+	policyStore := store.NewPolicyStore(pg.Pool)
+	policyHandler := policyapi.NewHandler(policyStore, auditSvc, log.Logger)
 
 	jobStore := store.NewJobStore(pg.Pool)
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
@@ -306,6 +310,7 @@ func main() {
 		JobHandler:         jobHandler,
 		MSISDNHandler:      msisdnHandler,
 		SessionHandler:     sessionHandler,
+		PolicyHandler:      policyHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

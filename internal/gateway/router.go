@@ -9,6 +9,7 @@ import (
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -37,6 +38,7 @@ type RouterDeps struct {
 	JobHandler       *jobapi.Handler
 	MSISDNHandler    *msisdnapi.Handler
 	SessionHandler   *sessionapi.Handler
+	PolicyHandler    *policyapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -283,6 +285,22 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/msisdn-pool/import", deps.MSISDNHandler.Import)
+		})
+	}
+
+	if deps.PolicyHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("policy_editor"))
+			r.Get("/api/v1/policies", deps.PolicyHandler.List)
+			r.Post("/api/v1/policies", deps.PolicyHandler.Create)
+			r.Get("/api/v1/policies/{id}", deps.PolicyHandler.Get)
+			r.Patch("/api/v1/policies/{id}", deps.PolicyHandler.Update)
+			r.Delete("/api/v1/policies/{id}", deps.PolicyHandler.Delete)
+			r.Post("/api/v1/policies/{id}/versions", deps.PolicyHandler.CreateVersion)
+			r.Patch("/api/v1/policy-versions/{id}", deps.PolicyHandler.UpdateVersion)
+			r.Post("/api/v1/policy-versions/{id}/activate", deps.PolicyHandler.ActivateVersion)
+			r.Get("/api/v1/policy-versions/{id1}/diff/{id2}", deps.PolicyHandler.DiffVersions)
 		})
 	}
 

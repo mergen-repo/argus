@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-03-20
+> Last updated: 2026-03-21
 > Current phase: DEVELOPMENT — Phase 4: Policy & Orchestration
-> Overall progress: 38%
+> Overall progress: 40%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 21/55 (38%)
-> Current story: STORY-022
+> Stories completed: 22/55 (40%)
+> Current story: STORY-023
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -69,8 +69,8 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-022 | Policy DSL Parser & Evaluator | XL | [~] IN PROGRESS | Commit | STORY-006 | — |
-| STORY-023 | Policy CRUD & Versioning | M | [ ] PENDING | — | STORY-022 | — |
+| STORY-022 | Policy DSL Parser & Evaluator | XL | [x] DONE | — | STORY-006 | 2026-03-21 |
+| STORY-023 | Policy CRUD & Versioning | M | [~] IN PROGRESS | Commit | STORY-022 | — |
 | STORY-024 | Policy Dry-Run Simulation | L | [ ] PENDING | — | STORY-023, STORY-011 | — |
 | STORY-025 | Policy Staged Rollout (Canary) | XL | [ ] PENDING | — | STORY-024, STORY-017 | — |
 | STORY-026 | Steering of Roaming Engine | L | [ ] PENDING | — | STORY-018 | — |
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-21 | DONE | STORY-022 completed — Policy DSL Parser & Evaluator. Full lexer, parser (recursive descent), AST, compiler (AST → JSON with unit normalization), evaluator (MATCH filtering, WHEN evaluation with last-match-wins, CHARGING with RAT multiplier). 7 source files + 4 test files in `internal/policy/dsl/`. 47 tests, all pass. Gate fixed time_of_day range evaluation with midnight wrapping. Pure computation library — no DB/Redis/NATS I/O. | STORY-023/024/025/027 unblocked, STORY-046 (frontend policy editor) partially unblocked |
 | 2026-03-20 | PHASE | Phase 3 (AAA Engine) completed — 7 stories (STORY-015 to STORY-021). RADIUS server, EAP-SIM/AKA/AKA', session management, pluggable operator adapter, Diameter Gx/Gy server, 5G SBA proxy, operator failover with circuit breaker, NATS event publishing, notification service (SVC-08), WebSocket hub, SLA tracking. All AAA protocols operational. | Phase 4 (Policy & Orchestration) ready to start |
 | 2026-03-20 | DONE | STORY-021 completed — Operator Failover & Circuit Breaker (remaining scope). NATS event publishing on health state transitions (operator.health_changed, alert.triggered), notification service (SVC-08) with multi-channel dispatch (email/telegram/in-app), WebSocket hub with NATS relay and tenant broadcast, SLA tracking with Redis sorted set latency and violation detection. 64 tests, all pass. | STORY-026 (SoR engine) unblocked, STORY-038/040 scope reduced |
 | 2026-03-20 | DONE | STORY-020 completed — 5G SBA HTTP/2 Proxy (AUSF/UDM). HTTP/2 server on :8443 with TLS/mTLS, AUSF 5G-AKA authentication (initiate + confirm), UDM security-information + auth-events + UECM registration, SUPI/SUCI resolution, S-NSSAI slice authentication, EAP-AKA' SBA proxy, NRF registration placeholder (register/deregister/heartbeat/discover/notify), session tracking with protocol_type='5g_sba' + slice_info JSONB, SBA health checker integrated into /api/health. Migration adds protocol_type + slice_info columns with partial index. 22 tests, all pass. | STORY-021 (next in Phase 3), STORY-027 (RAT awareness — 5G SBA already sets rat_type='nr_5g'), STORY-032 (CDR — should consume 5G SBA session events) |

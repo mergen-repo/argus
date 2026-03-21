@@ -614,3 +614,25 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 1. Unit testler: `go test ./internal/policy/dsl/... -v` -- 47+ test gecmeli
 2. Full suite: `go test ./... -count=1` -- Tum testler gecmeli, regresyon yok
 3. Build: `go build ./...` -- Hatasiz derlenmeli
+
+---
+
+## STORY-023: Policy CRUD & Versioning
+
+Onkosul: `make up` ile Docker ortami calisir durumda olmali.
+
+1. Policy olustur:
+   ```bash
+   curl -sk https://localhost/api/v1/policies \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"Test Policy","description":"Test","scope":"global","dsl_source":"POLICY \"test\" { MATCH { apn = \"iot\" } RULES { bandwidth_down = 1mbps } }"}'
+   ```
+   201 + policy id + v1 draft donmeli
+2. Policy listele: GET /api/v1/policies -- 200 + policy listesi
+3. Policy detay: GET /api/v1/policies/{id} -- 200 + tum versionlar
+4. Yeni versiyon olustur: POST /api/v1/policies/{id}/versions -- 201 + v2 draft
+5. Versiyon aktive et: PUT /api/v1/policies/{id}/versions/{vid}/activate -- 200 + state=active
+6. Syntax hatali DSL ile aktivasyon: 422 INVALID_DSL donmeli
+7. Policy sil (SIM atanmamis): DELETE /api/v1/policies/{id} -- 200
+8. Unit testler: `go test ./internal/store/... ./internal/api/policy/... -v`
