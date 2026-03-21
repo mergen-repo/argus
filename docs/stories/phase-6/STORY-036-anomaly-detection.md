@@ -55,3 +55,8 @@ Rule-based anomaly detection engine: detect SIM cloning (same IMSI authenticatin
 ## Effort Estimate
 - Size: L
 - Complexity: High
+
+## Post-STORY-030 Notes (from review)
+- Bulk operations (state change, policy assign, eSIM switch) can generate bursts of 10K+ SIM events in seconds (batch size 100, NATS progress every batch).
+- Anomaly detection rules (auth flood, mass disconnect, data spikes) should filter events with `source=bulk_job` to avoid false positives during bulk operations.
+- The `job.progress` and `job.completed` NATS events include `type` field identifying the bulk operation type -- use this to correlate event bursts with bulk jobs.

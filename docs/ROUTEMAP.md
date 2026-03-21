@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-22
-> Current phase: DEVELOPMENT — Phase 5: eSIM & Advanced Ops
-> Overall progress: 53%
+> Current phase: DEVELOPMENT — Phase 5: eSIM & Advanced Ops [DONE, Gate Pending]
+> Overall progress: 55%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 29/55 (53%)
+> Stories completed: 30/55 (55%)
 > Current story: —
 > Current step: —
 
@@ -76,14 +76,14 @@
 | STORY-026 | Steering of Roaming Engine | L | [x] DONE | — | STORY-018 | 2026-03-21 |
 | STORY-027 | RAT-Type Awareness (All Layers) | M | [x] DONE | — | STORY-015, STORY-022 | 2026-03-21 |
 
-### Phase 5: eSIM & Advanced Ops [PENDING]
+### Phase 5: eSIM & Advanced Ops [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | Review | STORY-006, STORY-013 | 2026-03-21 |
-| STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | Review | STORY-011 | 2026-03-21 |
+| STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | — | STORY-006, STORY-013 | 2026-03-21 |
+| STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | — | STORY-011 | 2026-03-21 |
 | STORY-029 | OTA SIM Management (APDU) | M | [x] DONE | — | STORY-011, STORY-031 | 2026-03-22 |
-| STORY-030 | Bulk State Change / Policy / Operator Switch | L | [~] IN PROGRESS | Commit | STORY-012, STORY-028, STORY-031 | — |
+| STORY-030 | Bulk State Change / Policy / Operator Switch | L | [x] DONE | — | STORY-012, STORY-028, STORY-031 | 2026-03-22 |
 
 ### Phase 6: Analytics & BI [PENDING]
 
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-030 review completed. 3 glossary terms added (Bulk Operation, Undo Record, Partial Success). Job Runner glossary term updated with real vs. stub processor list. USERTEST error report endpoint path fixed (/error-report -> /errors). 1 STORY-036 post-note added (bulk event burst filtering). Phase 5 complete -- Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, USERTEST.md, STORY-036 |
+| 2026-03-22 | DONE | STORY-030 completed -- Bulk Operations (State Change, Policy Assign, Operator Switch). 3 bulk API endpoints (API-064..066), 3 real job processors replacing stubs, forward+undo mode with per-SIM previous_state tracking, per-SIM distributed locking (30s TTL), partial success with error_report JSONB, CSV error report export, eSIM switch uses ESimProfileStore.Switch() and skips physical SIMs, batch size 100, NATS progress publishing. SegmentStore extended with ListMatchingSIMIDs and ListMatchingSIMIDsWithDetails. 13 new tests, 797 total passing. | Phase 5 complete, Phase Gate ready |
 | 2026-03-22 | REVIEW | STORY-029 review completed. 7 glossary terms added (SMS-PP, BIP, KIC, KID, GSM 03.48, TAR + APDU enriched). Decision IDs renumbered to DEV-090..094 (collision with STORY-028 DEV-085..088 fixed). TBL-26 (ota_commands) added to DB schema index. USERTEST.md endpoint paths corrected (4 wrong URLs fixed). OTA Redis key namespace `ota:ratelimit:` added to CONFIG.md. | GLOSSARY.md, decisions.md, db/_index.md, CONFIG.md, ARCHITECTURE.md, USERTEST.md, ROUTEMAP.md |
 | 2026-03-22 | DONE | STORY-029 completed -- OTA SIM Management via APDU Commands. 5 OTA command types, APDU builder, SMS-PP/BIP encoding, AES-128-CBC/HMAC-SHA256 security, Redis rate limiting (10/SIM/hour), 4 API endpoints, real OTA job processor replacing stub, ota_commands table (TBL-26) with 5 indexes. 78 OTA tests, 784 total passing. | STORY-030 ready (all Phase 5 deps met except STORY-029→030 is not a dep) |
 | 2026-03-21 | REVIEW | STORY-028 review completed. 3 glossary terms added (eSIM Profile State Machine, Profile Switch, SM-DP+ Adapter). 4 decisions recorded (DEV-085..088: tenant scoping via JOIN, SM-DP+ fire-and-forget, apn_id NULL on switch, available state merged into disabled). 2 spec divergences noted (no `available` state, no CoA/DM on switch -- both acceptable for v1). Post-notes for STORY-030: Switch sets apn_id=NULL, bulk processor must handle APN reassignment; use GetEnabledProfileForSIM before switch; handle mixed physical+eSIM segments. | GLOSSARY.md, decisions.md, STORY-030 |
