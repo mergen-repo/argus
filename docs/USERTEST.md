@@ -794,3 +794,15 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 2. Prometheus: `curl -k https://localhost/metrics` -- OpenMetrics format text
 3. WebSocket: ws://localhost:8081 baglantisi ile metrics.realtime event'leri 1 saniyede bir gelmeli
 4. Unit testler: `go test ./internal/analytics/metrics/... ./internal/api/metrics/... -v`
+
+---
+
+## STORY-034: Usage Analytics Dashboards
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Son 24 saat kullanim: `curl -k "https://localhost/api/v1/analytics/usage?period=24h" -H "Authorization: Bearer $TOKEN"` -- 200 + time_series (15min buckets), totals, breakdowns
+2. Operator bazli gruplama: `curl -k "https://localhost/api/v1/analytics/usage?period=7d&group_by=operator" -H "Authorization: Bearer $TOKEN"` -- 200 + operator bazli breakdowns
+3. RAT tipi gruplama: `curl -k "https://localhost/api/v1/analytics/usage?period=30d&group_by=rat_type" -H "Authorization: Bearer $TOKEN"` -- 200
+4. Karsilastirma modu: `curl -k "https://localhost/api/v1/analytics/usage?period=24h&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
+5. Unit testler: `go test ./internal/store/ ./internal/api/analytics/... -v`

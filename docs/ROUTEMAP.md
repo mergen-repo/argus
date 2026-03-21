@@ -91,7 +91,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-032 | CDR Processing & Rating Engine | L | [x] DONE | — | STORY-015, STORY-019 | 2026-03-22 |
 | STORY-033 | Real-Time Metrics & Observability | M | [x] DONE | — | STORY-006, STORY-015 | 2026-03-22 |
-| STORY-034 | Usage Analytics Dashboard | M | [ ] PENDING | — | STORY-032 | — |
+| STORY-034 | Usage Analytics Dashboard | M | [~] IN PROGRESS | Commit | STORY-032 | — |
 | STORY-035 | Cost Analytics & Optimization | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-036 | Anomaly Detection Engine | L | [ ] PENDING | — | STORY-032, STORY-017 | — |
 | STORY-037 | Connectivity Diagnostics | M | [ ] PENDING | — | STORY-015, STORY-011 | — |

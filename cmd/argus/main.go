@@ -19,6 +19,7 @@ import (
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -172,6 +173,8 @@ func main() {
 	otaHandler := otaapi.NewHandler(otaStore, simStore, jobStore, eventBus, otaRateLimiter, auditSvc, log.Logger)
 
 	cdrStore := store.NewCDRStore(pg.Pool)
+	usageAnalyticsStore := store.NewUsageAnalyticsStore(pg.Pool)
+	analyticsHandler := analyticsapi.NewHandler(usageAnalyticsStore, log.Logger)
 	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
@@ -426,6 +429,7 @@ func main() {
 		PolicyHandler:      policyHandler,
 		OTAHandler:         otaHandler,
 		CDRHandler:         cdrHandler,
+		AnalyticsHandler:   analyticsHandler,
 		MetricsHandler:     metricsHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,

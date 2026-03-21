@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -46,6 +47,7 @@ type RouterDeps struct {
 	PolicyHandler    *policyapi.Handler
 	OTAHandler       *otaapi.Handler
 	CDRHandler       *cdrapi.Handler
+	AnalyticsHandler *analyticsapi.Handler
 	MetricsHandler   *metricsapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
@@ -364,6 +366,14 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/cdrs", deps.CDRHandler.List)
 			r.Post("/api/v1/cdrs/export", deps.CDRHandler.Export)
+		})
+	}
+
+	if deps.AnalyticsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/analytics/usage", deps.AnalyticsHandler.GetUsage)
 		})
 	}
 
