@@ -654,3 +654,23 @@ Onkosul: `make up` + en az 1 policy ve birkac SIM olmali.
 2. Segment filtresi ile dry-run: `{"segment_id":"<id>"}` -- sadece segment SIM'leri
 3. Gecersiz DSL ile dry-run: 422 + derleme hatalari
 4. Unit testler: `go test ./internal/policy/dryrun/... ./internal/api/policy/... -v`
+
+---
+
+## STORY-025: Policy Staged Rollout (Canary)
+
+Onkosul: `make up` + en az 1 aktif policy version + birkac SIM olmali.
+
+1. Staged rollout baslat:
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/policy-versions/{vid}/rollout \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{"stages":[1,10,100]}'
+   ```
+   201 + rollout_id, stages, state="in_progress" donmeli
+2. Rollout ilerleme: GET /api/v1/policy-rollouts/{rollout_id} -- 200 + current_stage, migrated_count
+3. Advance (sonraki stage): POST /api/v1/policy-rollouts/{rollout_id}/advance -- 200 + next stage
+4. Rollback: POST /api/v1/policy-rollouts/{rollout_id}/rollback -- 200 + reverted_count
+5. Aktif rollout varken yeni rollout: 422 ROLLOUT_IN_PROGRESS donmeli
+6. Unit testler: `go test ./internal/policy/rollout/... ./internal/job/... ./internal/api/policy/... -v`

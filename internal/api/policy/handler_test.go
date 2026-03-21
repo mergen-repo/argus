@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -231,7 +232,7 @@ func TestComputeDiffEmpty(t *testing.T) {
 }
 
 func TestNewHandler(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 	if h == nil {
 		t.Fatal("NewHandler returned nil")
 	}
@@ -262,7 +263,7 @@ func TestValidPolicyStates(t *testing.T) {
 }
 
 func TestHandlerCreateInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
@@ -283,7 +284,7 @@ func TestHandlerCreateInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerCreateMissingRequiredFields(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body := `{"description": "only description"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(body))
@@ -309,7 +310,7 @@ func TestHandlerCreateMissingRequiredFields(t *testing.T) {
 }
 
 func TestHandlerCreateInvalidScope(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body := `{"name": "test", "scope": "invalid_scope", "dsl_source": "x"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(body))
@@ -323,7 +324,7 @@ func TestHandlerCreateInvalidScope(t *testing.T) {
 }
 
 func TestHandlerGetInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/policies/not-a-uuid", nil)
 	w := httptest.NewRecorder()
@@ -336,7 +337,7 @@ func TestHandlerGetInvalidID(t *testing.T) {
 }
 
 func TestHandlerDeleteInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/policies/bad-id", nil)
 	w := httptest.NewRecorder()
@@ -349,7 +350,7 @@ func TestHandlerDeleteInvalidID(t *testing.T) {
 }
 
 func TestHandlerUpdateInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/policies/"+uuid.New().String(), strings.NewReader("bad"))
 	w := httptest.NewRecorder()
@@ -362,7 +363,7 @@ func TestHandlerUpdateInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerActivateVersionInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/bad/activate", nil)
 	w := httptest.NewRecorder()
@@ -375,7 +376,7 @@ func TestHandlerActivateVersionInvalidID(t *testing.T) {
 }
 
 func TestHandlerUpdateVersionInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/policy-versions/"+uuid.New().String(), strings.NewReader("bad"))
 	w := httptest.NewRecorder()
@@ -388,7 +389,7 @@ func TestHandlerUpdateVersionInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerUpdateVersionEmptyDSL(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	versionID := uuid.New().String()
 	body := `{"dsl_source": ""}`
@@ -408,7 +409,7 @@ func TestHandlerUpdateVersionEmptyDSL(t *testing.T) {
 }
 
 func TestHandlerDiffInvalidID1(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-versions/bad/diff/"+uuid.New().String(), nil)
 	w := httptest.NewRecorder()
@@ -421,7 +422,7 @@ func TestHandlerDiffInvalidID1(t *testing.T) {
 }
 
 func TestHandlerCreateVersionInvalidPolicyID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies/bad-id/versions", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -434,7 +435,7 @@ func TestHandlerCreateVersionInvalidPolicyID(t *testing.T) {
 }
 
 func TestHandlerUpdateInvalidState(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	policyID := uuid.New().String()
 	invalidState := "invalid_state"
@@ -455,7 +456,7 @@ func TestHandlerUpdateInvalidState(t *testing.T) {
 }
 
 func TestHandlerDryRunInvalidVersionID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/bad-id/dry-run", nil)
 	w := httptest.NewRecorder()
@@ -468,7 +469,7 @@ func TestHandlerDryRunInvalidVersionID(t *testing.T) {
 }
 
 func TestHandlerDryRunInvalidSegmentID(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	versionID := uuid.New().String()
 	body := `{"segment_id": "not-a-uuid"}`
@@ -497,7 +498,7 @@ func TestHandlerDryRunInvalidSegmentID(t *testing.T) {
 }
 
 func TestHandlerDryRunNoDryRunService(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	versionID := uuid.New().String()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/dry-run", nil)
@@ -516,7 +517,7 @@ func TestHandlerDryRunNoDryRunService(t *testing.T) {
 }
 
 func TestHandlerDryRunInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	versionID := uuid.New().String()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/dry-run", strings.NewReader("not-json"))
@@ -532,5 +533,242 @@ func TestHandlerDryRunInvalidJSON(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerStartRolloutInvalidVersionID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/bad-id/rollout", nil)
+	w := httptest.NewRecorder()
+
+	h.StartRollout(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerStartRolloutNoService(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	versionID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/rollout", nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", versionID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.StartRollout(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandlerStartRolloutInvalidStages(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+	h.rolloutSvc = &rollout.Service{}
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"stage out of range", `{"stages": [0, 10, 100]}`},
+		{"stage > 100", `{"stages": [1, 10, 150]}`},
+		{"not ascending", `{"stages": [10, 5, 100]}`},
+		{"last not 100", `{"stages": [1, 10, 50]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			versionID := uuid.New().String()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/rollout", strings.NewReader(tt.body))
+			req.Header.Set("Content-Length", "30")
+
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", versionID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+			w := httptest.NewRecorder()
+			h.StartRollout(w, req)
+
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Errorf("Status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
+			}
+		})
+	}
+}
+
+func TestHandlerAdvanceRolloutInvalidID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-rollouts/bad-id/advance", nil)
+	w := httptest.NewRecorder()
+
+	h.AdvanceRollout(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerAdvanceRolloutNoService(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	rolloutID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-rollouts/"+rolloutID+"/advance", nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", rolloutID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.AdvanceRollout(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandlerRollbackRolloutInvalidID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-rollouts/bad-id/rollback", nil)
+	w := httptest.NewRecorder()
+
+	h.RollbackRollout(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerRollbackRolloutNoService(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	rolloutID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-rollouts/"+rolloutID+"/rollback", nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", rolloutID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.RollbackRollout(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandlerGetRolloutInvalidID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-rollouts/bad-id", nil)
+	w := httptest.NewRecorder()
+
+	h.GetRollout(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerGetRolloutNoService(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop())
+
+	rolloutID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-rollouts/"+rolloutID, nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", rolloutID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.GetRollout(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestToRolloutResponse(t *testing.T) {
+	now := time.Now()
+	prevID := uuid.New()
+	startedAt := now.Add(-1 * time.Hour)
+	completedAt := now
+	rolledBackAt := now
+
+	ro := &store.PolicyRollout{
+		ID:                uuid.New(),
+		PolicyVersionID:   uuid.New(),
+		PreviousVersionID: &prevID,
+		Strategy:          "canary",
+		Stages:            json.RawMessage(`[{"pct":1,"status":"completed"},{"pct":10,"status":"pending"}]`),
+		CurrentStage:      0,
+		TotalSIMs:         10000,
+		MigratedSIMs:      100,
+		State:             "in_progress",
+		StartedAt:         &startedAt,
+		CompletedAt:       &completedAt,
+		RolledBackAt:      &rolledBackAt,
+		CreatedAt:         now,
+	}
+
+	resp := toRolloutResponse(ro)
+
+	if resp.RolloutID != ro.ID.String() {
+		t.Errorf("RolloutID = %q, want %q", resp.RolloutID, ro.ID.String())
+	}
+	if resp.VersionID != ro.PolicyVersionID.String() {
+		t.Errorf("VersionID = %q, want %q", resp.VersionID, ro.PolicyVersionID.String())
+	}
+	if resp.PreviousVersionID == nil || *resp.PreviousVersionID != prevID.String() {
+		t.Error("PreviousVersionID should be set")
+	}
+	if resp.TotalSIMs != 10000 {
+		t.Errorf("TotalSIMs = %d, want 10000", resp.TotalSIMs)
+	}
+	if resp.MigratedSIMs != 100 {
+		t.Errorf("MigratedSIMs = %d, want 100", resp.MigratedSIMs)
+	}
+	if resp.State != "in_progress" {
+		t.Errorf("State = %q, want %q", resp.State, "in_progress")
+	}
+	if resp.StartedAt == nil {
+		t.Error("StartedAt should be set")
+	}
+	if resp.CompletedAt == nil {
+		t.Error("CompletedAt should be set")
+	}
+	if resp.RolledBackAt == nil {
+		t.Error("RolledBackAt should be set")
+	}
+}
+
+func TestToRolloutResponseNilOptionals(t *testing.T) {
+	ro := &store.PolicyRollout{
+		ID:              uuid.New(),
+		PolicyVersionID: uuid.New(),
+		Stages:          json.RawMessage(`[]`),
+		State:           "pending",
+		CreatedAt:       time.Now(),
+	}
+
+	resp := toRolloutResponse(ro)
+
+	if resp.PreviousVersionID != nil {
+		t.Error("PreviousVersionID should be nil")
+	}
+	if resp.StartedAt != nil {
+		t.Error("StartedAt should be nil")
+	}
+	if resp.CompletedAt != nil {
+		t.Error("CompletedAt should be nil")
+	}
+	if resp.RolledBackAt != nil {
+		t.Error("RolledBackAt should be nil")
 	}
 }

@@ -23,6 +23,7 @@ import (
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
+	"github.com/btopcu/argus/internal/policy/rollout"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -150,15 +151,18 @@ func main() {
 
 	policyStore := store.NewPolicyStore(pg.Pool)
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
-	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, jobStore, eventBus, auditSvc, log.Logger)
+	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
+	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
 
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
+	rolloutStageProc := job.NewRolloutStageProcessor(rolloutSvc, policyStore, jobStore, eventBus, log.Logger)
 	jobRunner := job.NewRunner(jobStore, eventBus, log.Logger)
 	jobRunner.Register(importProcessor)
 	jobRunner.Register(dryRunProcessor)
+	jobRunner.Register(rolloutStageProc)
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
 	}
@@ -191,6 +195,7 @@ func main() {
 	if err := wsHub.SubscribeToNATS(&eventBusWSSubscriber{eventBus}, []string{
 		bus.SubjectOperatorHealthChanged,
 		bus.SubjectAlertTriggered,
+		bus.SubjectPolicyRolloutProgress,
 	}); err != nil {
 		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
 	}
@@ -235,6 +240,9 @@ func main() {
 
 		disconnectProcessor := job.NewBulkDisconnectProcessor(jobStore, sessionMgr, dmSender, eventBus, log.Logger)
 		jobRunner.Register(disconnectProcessor)
+
+		rolloutSvc.SetSessionProvider(&rolloutSessionAdapter{mgr: sessionMgr})
+		rolloutSvc.SetCoADispatcher(&rolloutCoAAdapter{sender: coaSender})
 	}
 
 	var diameterServer *aaadiameter.Server
@@ -556,4 +564,46 @@ func (a *eventBusWSSubscriber) QueueSubscribe(subject, queue string, handler fun
 		return nil, err
 	}
 	return &natsSubWrapper{sub: sub}, nil
+}
+
+type rolloutSessionAdapter struct {
+	mgr *aaasession.Manager
+}
+
+func (a *rolloutSessionAdapter) GetSessionsForSIM(ctx context.Context, simID string) ([]rollout.SessionInfo, error) {
+	sessions, err := a.mgr.GetSessionsForSIM(ctx, simID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]rollout.SessionInfo, 0, len(sessions))
+	for _, s := range sessions {
+		result = append(result, rollout.SessionInfo{
+			ID:            s.ID,
+			SimID:         s.SimID,
+			NASIP:         s.NASIP,
+			AcctSessionID: s.AcctSessionID,
+			IMSI:          s.IMSI,
+		})
+	}
+	return result, nil
+}
+
+type rolloutCoAAdapter struct {
+	sender *aaasession.CoASender
+}
+
+func (a *rolloutCoAAdapter) SendCoA(ctx context.Context, req rollout.CoARequest) (*rollout.CoAResult, error) {
+	result, err := a.sender.SendCoA(ctx, aaasession.CoARequest{
+		NASIP:         req.NASIP,
+		AcctSessionID: req.AcctSessionID,
+		IMSI:          req.IMSI,
+		Attributes:    req.Attributes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &rollout.CoAResult{
+		Status:  result.Status,
+		Message: result.Message,
+	}, nil
 }

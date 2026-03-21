@@ -14,6 +14,7 @@ import (
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/dsl"
+	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ var validPolicyStates = map[string]bool{
 type Handler struct {
 	policyStore *store.PolicyStore
 	dryRunSvc   *dryrun.Service
+	rolloutSvc  *rollout.Service
 	jobStore    *store.JobStore
 	eventBus    *bus.EventBus
 	auditSvc    audit.Auditor
@@ -45,6 +47,7 @@ type Handler struct {
 func NewHandler(
 	policyStore *store.PolicyStore,
 	dryRunSvc *dryrun.Service,
+	rolloutSvc *rollout.Service,
 	jobStore *store.JobStore,
 	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
@@ -53,6 +56,7 @@ func NewHandler(
 	return &Handler{
 		policyStore: policyStore,
 		dryRunSvc:   dryRunSvc,
+		rolloutSvc:  rolloutSvc,
 		jobStore:    jobStore,
 		eventBus:    eventBus,
 		auditSvc:    auditSvc,
@@ -918,4 +922,307 @@ func userIDFromContext(r *http.Request) *uuid.UUID {
 		return nil
 	}
 	return &uid
+}
+
+type startRolloutRequest struct {
+	Stages []int `json:"stages"`
+}
+
+type rolloutResponse struct {
+	RolloutID         string          `json:"rollout_id"`
+	VersionID         string          `json:"version_id"`
+	PolicyID          string          `json:"policy_id,omitempty"`
+	PreviousVersionID *string         `json:"previous_version_id,omitempty"`
+	Stages            json.RawMessage `json:"stages"`
+	CurrentStage      int             `json:"current_stage"`
+	TotalSIMs         int             `json:"total_sims"`
+	MigratedSIMs      int             `json:"migrated_sims"`
+	Errors            []string        `json:"errors"`
+	State             string          `json:"state"`
+	StartedAt         *string         `json:"started_at,omitempty"`
+	CompletedAt       *string         `json:"completed_at,omitempty"`
+	RolledBackAt      *string         `json:"rolled_back_at,omitempty"`
+	CreatedAt         string          `json:"created_at"`
+}
+
+type advanceResponse struct {
+	RolloutID      string `json:"rollout_id"`
+	CurrentStagePct int   `json:"current_stage_pct"`
+	MigratedCount  int    `json:"migrated_count"`
+	TotalCount     int    `json:"total_count"`
+	State          string `json:"state"`
+}
+
+type rollbackRequest struct {
+	Reason *string `json:"reason"`
+}
+
+type rollbackResponse struct {
+	RolloutID    string  `json:"rollout_id"`
+	State        string  `json:"state"`
+	RevertedCount int    `json:"reverted_count"`
+	RolledBackAt *string `json:"rolled_back_at,omitempty"`
+}
+
+func toRolloutResponse(r *store.PolicyRollout) rolloutResponse {
+	resp := rolloutResponse{
+		RolloutID:    r.ID.String(),
+		VersionID:    r.PolicyVersionID.String(),
+		Stages:       r.Stages,
+		CurrentStage: r.CurrentStage,
+		TotalSIMs:    r.TotalSIMs,
+		MigratedSIMs: r.MigratedSIMs,
+		Errors:       []string{},
+		State:        r.State,
+		CreatedAt:    r.CreatedAt.Format(time.RFC3339Nano),
+	}
+	if r.PreviousVersionID != nil {
+		s := r.PreviousVersionID.String()
+		resp.PreviousVersionID = &s
+	}
+	if r.StartedAt != nil {
+		s := r.StartedAt.Format(time.RFC3339Nano)
+		resp.StartedAt = &s
+	}
+	if r.CompletedAt != nil {
+		s := r.CompletedAt.Format(time.RFC3339Nano)
+		resp.CompletedAt = &s
+	}
+	if r.RolledBackAt != nil {
+		s := r.RolledBackAt.Format(time.RFC3339Nano)
+		resp.RolledBackAt = &s
+	}
+	return resp
+}
+
+func (h *Handler) StartRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	versionID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid version ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	var req startRolloutRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+			return
+		}
+	}
+
+	if len(req.Stages) > 0 {
+		for i, pct := range req.Stages {
+			if pct < 1 || pct > 100 {
+				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+					fmt.Sprintf("Stage percentage must be between 1 and 100, got %d", pct))
+				return
+			}
+			if i > 0 && pct <= req.Stages[i-1] {
+				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+					"Stage percentages must be in ascending order")
+				return
+			}
+		}
+		if req.Stages[len(req.Stages)-1] != 100 {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+				"Last stage must be 100%")
+			return
+		}
+	}
+
+	userID := userIDFromContext(r)
+	ro, err := h.rolloutSvc.StartRollout(r.Context(), tenantID, versionID, req.Stages, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrPolicyVersionNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Policy version not found")
+			return
+		}
+		if errors.Is(err, store.ErrVersionNotDraft) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "VERSION_NOT_DRAFT",
+				"Only draft versions can start a rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutInProgress) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_IN_PROGRESS",
+				"A rollout is already in progress for this policy")
+			return
+		}
+		h.logger.Error().Err(err).Str("version_id", idStr).Msg("start rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	resp := toRolloutResponse(ro)
+	if h.policyStore != nil {
+		if policyID, pErr := h.policyStore.GetPolicyIDForRollout(r.Context(), ro.ID); pErr == nil {
+			resp.PolicyID = policyID.String()
+		}
+	}
+	h.createAuditEntry(r, "policy_rollout.start", ro.ID.String(), nil, resp)
+	apierr.WriteSuccess(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) AdvanceRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	rolloutID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid rollout ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	ro, err := h.rolloutSvc.AdvanceRollout(r.Context(), tenantID, rolloutID)
+	if err != nil {
+		if errors.Is(err, store.ErrRolloutNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Rollout not found")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutCompleted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_COMPLETED",
+				"Rollout already completed")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutRolledBack) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ROLLED_BACK",
+				"Rollout was already rolled back")
+			return
+		}
+		if errors.Is(err, store.ErrStageInProgress) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "STAGE_IN_PROGRESS",
+				"Current stage is still processing")
+			return
+		}
+		h.logger.Error().Err(err).Str("rollout_id", idStr).Msg("advance rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	var currentStagePct int
+	var stages []store.RolloutStage
+	if err := json.Unmarshal(ro.Stages, &stages); err == nil && ro.CurrentStage < len(stages) {
+		currentStagePct = stages[ro.CurrentStage].Pct
+	}
+
+	resp := advanceResponse{
+		RolloutID:       ro.ID.String(),
+		CurrentStagePct: currentStagePct,
+		MigratedCount:   ro.MigratedSIMs,
+		TotalCount:      ro.TotalSIMs,
+		State:           ro.State,
+	}
+
+	h.createAuditEntry(r, "policy_rollout.advance", ro.ID.String(), nil, resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) RollbackRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	rolloutID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid rollout ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	var req rollbackRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+			return
+		}
+	}
+
+	reason := ""
+	if req.Reason != nil {
+		reason = *req.Reason
+	}
+
+	ro, revertedCount, err := h.rolloutSvc.RollbackRollout(r.Context(), tenantID, rolloutID, reason)
+	if err != nil {
+		if errors.Is(err, store.ErrRolloutNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Rollout not found")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutCompleted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_COMPLETED",
+				"Cannot rollback a completed rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutRolledBack) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ROLLED_BACK",
+				"Rollout was already rolled back")
+			return
+		}
+		h.logger.Error().Err(err).Str("rollout_id", idStr).Msg("rollback rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	var rolledBackAt *string
+	if ro.RolledBackAt != nil {
+		s := ro.RolledBackAt.Format(time.RFC3339Nano)
+		rolledBackAt = &s
+	}
+
+	resp := rollbackResponse{
+		RolloutID:     ro.ID.String(),
+		State:         ro.State,
+		RevertedCount: revertedCount,
+		RolledBackAt:  rolledBackAt,
+	}
+
+	h.createAuditEntry(r, "policy_rollout.rollback", ro.ID.String(), nil, resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) GetRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	rolloutID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid rollout ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	ro, err := h.rolloutSvc.GetProgress(r.Context(), tenantID, rolloutID)
+	if err != nil {
+		if errors.Is(err, store.ErrRolloutNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Rollout not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("rollout_id", idStr).Msg("get rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	resp := toRolloutResponse(ro)
+	if h.policyStore != nil {
+		if policyID, err := h.policyStore.GetPolicyIDForRollout(r.Context(), rolloutID); err == nil {
+			s := policyID.String()
+			resp.PolicyID = s
+		}
+	}
+	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
