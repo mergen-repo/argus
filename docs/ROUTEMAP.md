@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 30/55 (55%)
+> Stories completed: 31/55 (56%)
 > Current story: —
 > Current step: —
 
@@ -89,7 +89,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-032 | CDR Processing & Rating Engine | L | [~] IN PROGRESS | Commit | STORY-015, STORY-019 | — |
+| STORY-032 | CDR Processing & Rating Engine | L | [x] DONE | — | STORY-015, STORY-019 | 2026-03-22 |
 | STORY-033 | Real-Time Metrics & Observability | M | [ ] PENDING | — | STORY-006, STORY-015 | — |
 | STORY-034 | Usage Analytics Dashboard | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-035 | Cost Analytics & Optimization | M | [ ] PENDING | — | STORY-032 | — |
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-032 review completed. 4 new glossary terms added (Rating Engine, Cost Aggregation, CDR Consumer, CDR Export). CDR term expanded. Job Runner term updated with cdr_export processor. ALGORITHMS.md Section 5 package path corrected. idx_cdrs_dedup added to TBL-18 index docs. STORY-034, STORY-035 fully unblocked. | ROUTEMAP.md, GLOSSARY.md, ALGORITHMS.md, db/aaa-analytics.md |
+| 2026-03-22 | DONE | STORY-032 completed -- CDR Processing & Rating Engine. NATS consumer on 3 session subjects (protocol-agnostic: RADIUS, Diameter, 5G SBA). Rating engine with 4 factors (base rate, RAT multiplier, time-of-day, volume tier). CDR store with idempotent insert, list with filters, cost aggregation, streaming export. 2 API endpoints (API-114, API-115). CDR export as background job (streaming CSV). Dedup unique index on (session_id, timestamp, record_type). 29 new tests, 825 total passing. | STORY-034, STORY-035 unblocked |
 | 2026-03-22 | GATE | Phase 5 Gate PASS — Deploy OK, smoke OK, 797/797 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 3 runtime bugs fixed: OTA security_mode default empty string (DB check constraint), job runner tenant context missing (segment queries failed), OTA FK on partitioned sims table (removed like esim_profiles pattern). Report: docs/reports/phase-5-gate.md | Phase 6 ready |
 | 2026-03-22 | PHASE | Phase 5 (eSIM & Advanced Ops) completed — 4 stories (STORY-028, STORY-029, STORY-030, STORY-031). eSIM profile management with SM-DP+ adapter, OTA SIM management via APDU/SMS-PP/BIP, bulk operations (state change/policy assign/operator switch), background job system with distributed locking. All eSIM and advanced ops features operational. | Phase 6 (Analytics & BI) ready to start |
 | 2026-03-22 | REVIEW | STORY-030 review completed. 3 glossary terms added (Bulk Operation, Undo Record, Partial Success). Job Runner glossary term updated with real vs. stub processor list. USERTEST error report endpoint path fixed (/error-report -> /errors). 1 STORY-036 post-note added (bulk event burst filtering). Phase 5 complete -- Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, USERTEST.md, STORY-036 |

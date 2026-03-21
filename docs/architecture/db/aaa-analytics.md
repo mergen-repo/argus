@@ -28,6 +28,7 @@ TimescaleDB hypertable — partitioned by started_at.
 | packets_in | BIGINT | NOT NULL, DEFAULT 0 | Download packets |
 | packets_out | BIGINT | NOT NULL, DEFAULT 0 | Upload packets |
 | last_interim_at | TIMESTAMPTZ | | Last interim accounting update |
+| sor_decision | JSONB | | SoR engine decision record (operator, reason, fallbacks) |
 
 Indexes:
 - `idx_sessions_sim_active` on (sim_id) WHERE session_state = 'active'
@@ -72,6 +73,7 @@ Indexes:
 - `idx_cdrs_tenant_time` on (tenant_id, timestamp DESC)
 - `idx_cdrs_tenant_operator_time` on (tenant_id, operator_id, timestamp DESC)
 - `idx_cdrs_sim_time` on (sim_id, timestamp DESC)
+- `idx_cdrs_dedup` UNIQUE on (session_id, timestamp, record_type) -- deduplication index for idempotent inserts (STORY-032)
 
 TimescaleDB:
 ```sql

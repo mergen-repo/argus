@@ -306,7 +306,7 @@ FUNCTION should_alert(tenant_id, alert_type, entity_id) → bool
 
 ## 5. Cost Calculation
 
-**Package**: `internal/analytics/cost/`
+**Package**: `internal/analytics/cdr/`
 **Triggered by**: Accounting-Stop event (CDR creation)
 
 ### Per-Session Cost
