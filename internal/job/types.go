@@ -12,6 +12,7 @@ const (
 	JobTypeSLAReport        = "sla_report"
 	JobTypePolicyDryRun     = "policy_dry_run"
 	JobTypeRolloutStage     = "policy_rollout_stage"
+	JobTypeCDRExport        = "cdr_export"
 )
 
 var AllJobTypes = []string{
@@ -26,4 +27,5 @@ var AllJobTypes = []string{
 	JobTypeSLAReport,
 	JobTypePolicyDryRun,
 	JobTypeRolloutStage,
+	JobTypeCDRExport,
 }

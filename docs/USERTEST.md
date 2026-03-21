@@ -771,3 +771,15 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. Job progress: WebSocket'ten job progress event'leri gelmeli
 5. Error report CSV: `curl -k https://localhost/api/v1/jobs/<JOB_UUID>/errors -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
 6. Unit testler: `go test ./internal/job/... ./internal/api/sim/... -v`
+
+---
+
+## STORY-032: CDR Processing & Rating Engine
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. CDR listele: `curl -k https://localhost/api/v1/cdrs?from=2026-03-01T00:00:00Z&to=2026-03-31T23:59:59Z -H "Authorization: Bearer $TOKEN"` -- 200 + paginated CDR list
+2. SIM bazli CDR: `curl -k "https://localhost/api/v1/cdrs?sim_id=<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + filtered list
+3. CDR export: `curl -k -X POST https://localhost/api/v1/cdrs/export -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"from":"2026-03-01T00:00:00Z","to":"2026-03-31T23:59:59Z","format":"csv"}'` -- 202 + job_id
+4. NATS event test: RADIUS accounting event gonderdikten sonra CDR tablosunda yeni kayit olusturulmali
+5. Unit testler: `go test ./internal/analytics/cdr/... ./internal/store/ ./internal/api/cdr/... ./internal/job/ -v`

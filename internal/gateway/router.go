@@ -5,6 +5,7 @@ import (
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
@@ -43,6 +44,7 @@ type RouterDeps struct {
 	SessionHandler   *sessionapi.Handler
 	PolicyHandler    *policyapi.Handler
 	OTAHandler       *otaapi.Handler
+	CDRHandler       *cdrapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -351,6 +353,15 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/bulk/ota", deps.OTAHandler.BulkSend)
+		})
+	}
+
+	if deps.CDRHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/cdrs", deps.CDRHandler.List)
+			r.Post("/api/v1/cdrs/export", deps.CDRHandler.Export)
 		})
 	}
 

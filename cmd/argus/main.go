@@ -13,10 +13,12 @@ import (
 	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
 	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
+	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
@@ -167,6 +169,13 @@ func main() {
 	otaRateLimiter := ota.NewRateLimiter(rdb.Client, ota.DefaultMaxOTAPerSimPerHour)
 	otaHandler := otaapi.NewHandler(otaStore, simStore, jobStore, eventBus, otaRateLimiter, auditSvc, log.Logger)
 
+	cdrStore := store.NewCDRStore(pg.Pool)
+	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
+	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
+		log.Fatal().Err(err).Msg("failed to start cdr consumer")
+	}
+	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, log.Logger)
+
 	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
@@ -193,6 +202,9 @@ func main() {
 	jobRunner.Register(bulkPolicyAssignProc)
 	jobRunner.Register(otaProcessor)
 	jobRunner.Register(bulkEsimSwitchProc)
+
+	cdrExportProc := job.NewCDRExportProcessor(jobStore, cdrStore, eventBus, log.Logger)
+	jobRunner.Register(cdrExportProc)
 
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
@@ -388,6 +400,7 @@ func main() {
 		SessionHandler:     sessionHandler,
 		PolicyHandler:      policyHandler,
 		OTAHandler:         otaHandler,
+		CDRHandler:         cdrHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -472,6 +485,9 @@ func main() {
 
 	log.Info().Msg("stopping health checker")
 	healthChecker.Stop()
+
+	log.Info().Msg("stopping cdr consumer")
+	cdrConsumer.Stop()
 
 	log.Info().Msg("stopping audit consumer")
 	auditSvc.Stop()
@@ -632,6 +648,18 @@ type eventBusWSSubscriber struct {
 }
 
 func (a *eventBusWSSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (ws.Subscription, error) {
+	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
+	if err != nil {
+		return nil, err
+	}
+	return &natsSubWrapper{sub: sub}, nil
+}
+
+type eventBusCDRSubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusCDRSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (cdrsvc.Subscription, error) {
 	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
 	if err != nil {
 		return nil, err

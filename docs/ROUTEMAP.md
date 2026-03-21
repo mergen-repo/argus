@@ -89,7 +89,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-032 | CDR Processing & Rating Engine | L | [ ] PENDING | — | STORY-015, STORY-019 | — |
+| STORY-032 | CDR Processing & Rating Engine | L | [~] IN PROGRESS | Commit | STORY-015, STORY-019 | — |
 | STORY-033 | Real-Time Metrics & Observability | M | [ ] PENDING | — | STORY-006, STORY-015 | — |
 | STORY-034 | Usage Analytics Dashboard | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-035 | Cost Analytics & Optimization | M | [ ] PENDING | — | STORY-032 | — |
