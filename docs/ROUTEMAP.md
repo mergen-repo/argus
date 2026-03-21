@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 33/55 (60%)
+> Stories completed: 34/55 (62%)
 > Current story: —
 > Current step: —
 
@@ -92,7 +92,7 @@
 | STORY-032 | CDR Processing & Rating Engine | L | [x] DONE | — | STORY-015, STORY-019 | 2026-03-22 |
 | STORY-033 | Real-Time Metrics & Observability | M | [x] DONE | — | STORY-006, STORY-015 | 2026-03-22 |
 | STORY-034 | Usage Analytics Dashboard | M | [x] DONE | — | STORY-032 | 2026-03-22 |
-| STORY-035 | Cost Analytics & Optimization | M | [~] IN PROGRESS | Commit | STORY-032 | — |
+| STORY-035 | Cost Analytics & Optimization | M | [x] DONE | — | STORY-032 | 2026-03-22 |
 | STORY-036 | Anomaly Detection Engine | L | [ ] PENDING | — | STORY-032, STORY-017 | — |
 | STORY-037 | Connectivity Diagnostics | M | [ ] PENDING | — | STORY-015, STORY-011 | — |
 
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-035 review completed. 3 new glossary terms added (Cost Analytics, Optimization Suggestion, Cost Per MB). deltaPercent duplication noted (handler.go + service.go). Trend data unfiltered by apn_id/rat_type (cdrs_daily limitation, matches STORY-034). segment_id filter deferred (matches STORY-034 DEV-110). 0 blocking changes for downstream stories. | ROUTEMAP.md, GLOSSARY.md |
+| 2026-03-22 | DONE | STORY-035 completed -- Cost Analytics & Optimization. GET /api/v1/analytics/cost (API-112) with total cost, per-carrier breakdown, cost per MB by operator/RAT, top 20 expensive SIMs, trend, comparison mode, 3 optimization suggestion types (operator_switch, inactive_sims, low_usage). 8 store methods, CostService with suggestion engine. 22 new tests. | STORY-036 next |
 | 2026-03-22 | REVIEW | STORY-034 review completed. 3 new glossary terms added (Usage Analytics, Period Resolution, Real-Time Aggregation). cdrs_monthly continuous aggregate documented in aaa-analytics.md. API-052 (per-SIM usage) noted as unimplemented -- not in STORY-034 scope. 0 blocking changes for downstream stories. | ROUTEMAP.md, GLOSSARY.md, db/aaa-analytics.md |
 | 2026-03-22 | DONE | STORY-034 completed -- Usage Analytics Dashboards. GET /api/v1/analytics/usage (API-111) with period resolution (1h/24h/7d/30d/custom), group-by (operator/apn/rat_type), breakdowns, top 20 consumers, comparison mode with delta percentages. TimescaleDB cdrs_monthly aggregate created, real-time aggregation enabled on all 3 views. SQL injection prevention via dimension allowlist. 39 new tests. | STORY-035 next |
 | 2026-03-22 | REVIEW | STORY-033 review completed. 4 new glossary terms added (Metrics Collector, MetricsRecorder Interface, Metrics Pusher, System Health Status). ARCHITECTURE.md caching table updated with auth rate counters and latency window rows. WEBSOCKET_EVENTS.md metrics.realtime schema updated to match actual RealtimePayload implementation (simplified from original spec). | ROUTEMAP.md, GLOSSARY.md, ARCHITECTURE.md, WEBSOCKET_EVENTS.md |
