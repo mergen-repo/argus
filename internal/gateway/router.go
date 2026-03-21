@@ -5,6 +5,7 @@ import (
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	esimapi "github.com/btopcu/argus/internal/api/esim"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -33,6 +34,7 @@ type RouterDeps struct {
 	APNHandler       *apnapi.Handler
 	IPPoolHandler    *ippoolapi.Handler
 	SIMHandler       *simapi.Handler
+	ESimHandler      *esimapi.Handler
 	SegmentHandler   *segmentapi.Handler
 	BulkHandler      *simapi.BulkHandler
 	JobHandler       *jobapi.Handler
@@ -232,6 +234,18 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
+		})
+	}
+
+	if deps.ESimHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Get("/api/v1/esim-profiles", deps.ESimHandler.List)
+			r.Get("/api/v1/esim-profiles/{id}", deps.ESimHandler.Get)
+			r.Post("/api/v1/esim-profiles/{id}/enable", deps.ESimHandler.Enable)
+			r.Post("/api/v1/esim-profiles/{id}/disable", deps.ESimHandler.Disable)
+			r.Post("/api/v1/esim-profiles/{id}/switch", deps.ESimHandler.Switch)
 		})
 	}
 

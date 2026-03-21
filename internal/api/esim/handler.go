@@ -1,0 +1,476 @@
+package esim
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	esimpkg "github.com/btopcu/argus/internal/esim"
+	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/store"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+)
+
+type Handler struct {
+	esimStore   *store.ESimProfileStore
+	simStore    *store.SIMStore
+	smdpAdapter esimpkg.SMDPAdapter
+	auditSvc    audit.Auditor
+	logger      zerolog.Logger
+}
+
+func NewHandler(
+	esimStore *store.ESimProfileStore,
+	simStore *store.SIMStore,
+	smdpAdapter esimpkg.SMDPAdapter,
+	auditSvc audit.Auditor,
+	logger zerolog.Logger,
+) *Handler {
+	return &Handler{
+		esimStore:   esimStore,
+		simStore:    simStore,
+		smdpAdapter: smdpAdapter,
+		auditSvc:    auditSvc,
+		logger:      logger.With().Str("component", "esim_handler").Logger(),
+	}
+}
+
+type profileResponse struct {
+	ID                string  `json:"id"`
+	SimID             string  `json:"sim_id"`
+	EID               string  `json:"eid"`
+	SMDPPlusID        *string `json:"sm_dp_plus_id,omitempty"`
+	OperatorID        string  `json:"operator_id"`
+	ProfileState      string  `json:"profile_state"`
+	ICCIDOnProfile    *string `json:"iccid_on_profile,omitempty"`
+	LastProvisionedAt *string `json:"last_provisioned_at,omitempty"`
+	LastError         *string `json:"last_error,omitempty"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+type switchResponse struct {
+	SimID      string          `json:"sim_id"`
+	OldProfile profileResponse `json:"old_profile"`
+	NewProfile profileResponse `json:"new_profile"`
+	NewOperatorID string       `json:"new_operator_id"`
+}
+
+type switchRequest struct {
+	TargetProfileID string `json:"target_profile_id"`
+}
+
+func toProfileResponse(p *store.ESimProfile) profileResponse {
+	resp := profileResponse{
+		ID:           p.ID.String(),
+		SimID:        p.SimID.String(),
+		EID:          p.EID,
+		SMDPPlusID:   p.SMDPPlusID,
+		OperatorID:   p.OperatorID.String(),
+		ProfileState: p.ProfileState,
+		ICCIDOnProfile: p.ICCIDOnProfile,
+		LastError:    p.LastError,
+		CreatedAt:    p.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:    p.UpdatedAt.Format(time.RFC3339Nano),
+	}
+	if p.LastProvisionedAt != nil {
+		v := p.LastProvisionedAt.Format(time.RFC3339Nano)
+		resp.LastProvisionedAt = &v
+	}
+	return resp
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	q := r.URL.Query()
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	var simID *uuid.UUID
+	if v := q.Get("sim_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid sim_id format")
+			return
+		}
+		simID = &parsed
+	}
+
+	var operatorID *uuid.UUID
+	if v := q.Get("operator_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator_id format")
+			return
+		}
+		operatorID = &parsed
+	}
+
+	params := store.ListESimProfilesParams{
+		Cursor:     q.Get("cursor"),
+		Limit:      limit,
+		SimID:      simID,
+		OperatorID: operatorID,
+		State:      q.Get("state"),
+	}
+
+	profiles, nextCursor, err := h.esimStore.List(r.Context(), tenantID, params)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list esim profiles")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	items := make([]profileResponse, 0, len(profiles))
+	for _, p := range profiles {
+		items = append(items, toProfileResponse(&p))
+	}
+
+	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
+	})
+}
+
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid eSIM profile ID format")
+		return
+	}
+
+	profile, err := h.esimStore.GetByID(r.Context(), tenantID, id)
+	if err != nil {
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("get esim profile")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
+}
+
+func (h *Handler) Enable(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	profileID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid eSIM profile ID format")
+		return
+	}
+
+	existing, err := h.esimStore.GetByID(r.Context(), tenantID, profileID)
+	if err != nil {
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("get esim profile for enable")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	sim, err := h.simStore.GetByID(r.Context(), tenantID, existing.SimID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("sim_id", existing.SimID.String()).Msg("get sim for esim enable")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if sim.SimType != "esim" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeNotESIM, "SIM is not an eSIM type")
+		return
+	}
+
+	if h.smdpAdapter != nil {
+		smdpErr := h.smdpAdapter.EnableProfile(r.Context(), esimpkg.EnableProfileRequest{
+			EID:       existing.EID,
+			ProfileID: profileID,
+		})
+		if smdpErr != nil {
+			h.logger.Warn().Err(smdpErr).Str("profile_id", idStr).Msg("SM-DP+ enable profile failed (continuing)")
+		}
+	}
+
+	userID := userIDFromCtx(r)
+
+	profile, err := h.esimStore.Enable(r.Context(), tenantID, profileID, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrProfileAlreadyEnabled) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeProfileAlreadyEnabled,
+				"Another profile is already enabled for this SIM")
+			return
+		}
+		if errors.Is(err, store.ErrInvalidProfileState) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidProfileState,
+				fmt.Sprintf("Cannot enable profile in '%s' state", existing.ProfileState))
+			return
+		}
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("enable esim profile")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "esim_profile.enable", profileID.String(), existing, profile, userID)
+
+	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
+}
+
+func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	profileID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid eSIM profile ID format")
+		return
+	}
+
+	existing, err := h.esimStore.GetByID(r.Context(), tenantID, profileID)
+	if err != nil {
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("get esim profile for disable")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.smdpAdapter != nil {
+		smdpErr := h.smdpAdapter.DisableProfile(r.Context(), esimpkg.DisableProfileRequest{
+			EID:       existing.EID,
+			ProfileID: profileID,
+		})
+		if smdpErr != nil {
+			h.logger.Warn().Err(smdpErr).Str("profile_id", idStr).Msg("SM-DP+ disable profile failed (continuing)")
+		}
+	}
+
+	userID := userIDFromCtx(r)
+
+	profile, err := h.esimStore.Disable(r.Context(), tenantID, profileID, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrInvalidProfileState) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidProfileState,
+				fmt.Sprintf("Cannot disable profile in '%s' state", existing.ProfileState))
+			return
+		}
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("disable esim profile")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "esim_profile.disable", profileID.String(), existing, profile, userID)
+
+	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
+}
+
+func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	sourceProfileID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid eSIM profile ID format")
+		return
+	}
+
+	var req switchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	if req.TargetProfileID == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "target_profile_id is required")
+		return
+	}
+
+	targetProfileID, err := uuid.Parse(req.TargetProfileID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid target_profile_id format")
+		return
+	}
+
+	sourceProfile, err := h.esimStore.GetByID(r.Context(), tenantID, sourceProfileID)
+	if err != nil {
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Source eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("get source esim profile for switch")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	sim, err := h.simStore.GetByID(r.Context(), tenantID, sourceProfile.SimID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("sim_id", sourceProfile.SimID.String()).Msg("get sim for esim switch")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if sim.SimType != "esim" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeNotESIM, "SIM is not an eSIM type")
+		return
+	}
+
+	if h.smdpAdapter != nil {
+		smdpErr := h.smdpAdapter.DisableProfile(r.Context(), esimpkg.DisableProfileRequest{
+			EID:       sourceProfile.EID,
+			ProfileID: sourceProfileID,
+		})
+		if smdpErr != nil {
+			h.logger.Warn().Err(smdpErr).Str("profile_id", idStr).Msg("SM-DP+ disable source profile failed (continuing)")
+		}
+
+		targetProfile, _ := h.esimStore.GetByID(r.Context(), tenantID, targetProfileID)
+		if targetProfile != nil {
+			smdpErr = h.smdpAdapter.EnableProfile(r.Context(), esimpkg.EnableProfileRequest{
+				EID:       targetProfile.EID,
+				ProfileID: targetProfileID,
+			})
+			if smdpErr != nil {
+				h.logger.Warn().Err(smdpErr).Str("profile_id", targetProfileID.String()).Msg("SM-DP+ enable target profile failed (continuing)")
+			}
+		}
+	}
+
+	userID := userIDFromCtx(r)
+
+	result, err := h.esimStore.Switch(r.Context(), tenantID, sourceProfileID, targetProfileID, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrSameProfile) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeSameProfile,
+				"Source and target profiles are the same")
+			return
+		}
+		if errors.Is(err, store.ErrDifferentSIM) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeDifferentSIM,
+				"Source and target profiles belong to different SIMs")
+			return
+		}
+		if errors.Is(err, store.ErrInvalidProfileState) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidProfileState,
+				"Invalid profile state for switch operation")
+			return
+		}
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("source", idStr).Str("target", req.TargetProfileID).Msg("switch esim profiles")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "esim_profile.switch", sourceProfileID.String(),
+		map[string]interface{}{"source_profile_id": sourceProfileID, "target_profile_id": targetProfileID},
+		result, userID)
+
+	resp := switchResponse{
+		SimID:         result.SimID.String(),
+		OldProfile:    toProfileResponse(result.OldProfile),
+		NewProfile:    toProfileResponse(result.NewProfile),
+		NewOperatorID: result.NewOperatorID.String(),
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}, userID *uuid.UUID) {
+	if h.auditSvc == nil {
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, err := uuid.Parse(cidStr); err == nil {
+			correlationID = &cid
+		}
+	}
+
+	var beforeData, afterData json.RawMessage
+	if before != nil {
+		beforeData, _ = json.Marshal(before)
+	}
+	if after != nil {
+		afterData, _ = json.Marshal(after)
+	}
+
+	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    "esim_profile",
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
+	})
+	if auditErr != nil {
+		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
+	}
+}
+
+func userIDFromCtx(r *http.Request) *uuid.UUID {
+	uid, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || uid == uuid.Nil {
+		return nil
+	}
+	return &uid
+}

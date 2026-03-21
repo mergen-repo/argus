@@ -17,6 +17,7 @@ import (
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
+	esimapi "github.com/btopcu/argus/internal/api/esim"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -33,6 +34,7 @@ import (
 	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
+	esimpkg "github.com/btopcu/argus/internal/esim"
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/job"
@@ -142,6 +144,9 @@ func main() {
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	simStore := store.NewSIMStore(pg.Pool)
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger)
+	esimStore := store.NewESimProfileStore(pg.Pool)
+	smdpAdapter := esimpkg.NewMockSMDPAdapter(log.Logger)
+	esimHandler := esimapi.NewHandler(esimStore, simStore, smdpAdapter, auditSvc, log.Logger)
 	segmentStore := store.NewSegmentStore(pg.Pool)
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
 	msisdnStore := store.NewMSISDNStore(pg.Pool)
@@ -369,6 +374,7 @@ func main() {
 		APNHandler:         apnHandler,
 		IPPoolHandler:      ippoolHandler,
 		SIMHandler:         simHandler,
+		ESimHandler:        esimHandler,
 		SegmentHandler:     segmentHandler,
 		BulkHandler:        bulkHandler,
 		JobHandler:         jobHandler,

@@ -708,3 +708,18 @@ Onkosul: `make up` ile Docker ortami calisir durumda olmali.
 4. Job tekrar: POST /api/v1/jobs/{id}/retry -- 201 + new_job_id (veya 422 hala calisiyor)
 5. Unit testler: `go test ./internal/job/... ./internal/api/job/... -v` -- 40+ test gecmeli
 6. Full suite: `go test ./... -count=1` -- 696+ test gecmeli
+
+---
+
+## STORY-028: eSIM Profile Management
+
+Onkosul: `make up` + en az 1 eSIM tipi SIM olmali.
+
+1. Profil listele: GET /api/v1/esim-profiles?sim_id={id} -- 200 + profil listesi
+2. Profil detay: GET /api/v1/esim-profiles/{id} -- 200 + iccid, operator, state
+3. Profil etkinlestir: POST /api/v1/esim-profiles/{id}/enable -- 200 + state=enabled
+4. Zaten aktif profil varken enable: 422 PROFILE_ALREADY_ENABLED
+5. Profil devre disi: POST /api/v1/esim-profiles/{id}/disable -- 200 + state=disabled
+6. Profil degistir: POST /api/v1/esim-profiles/{id}/switch -- 200 + yeni operator bilgisi
+7. Fiziksel SIM'de enable: 422 NOT_ESIM
+8. Unit testler: `go test ./internal/store/... ./internal/api/esim/... -v`
