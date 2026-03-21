@@ -22,6 +22,7 @@ import (
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/rollout"
@@ -39,6 +40,7 @@ import (
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/ota"
 	"github.com/btopcu/argus/internal/operator"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/ws"
@@ -161,6 +163,10 @@ func main() {
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
 
+	otaStore := store.NewOTAStore(pg.Pool)
+	otaRateLimiter := ota.NewRateLimiter(rdb.Client, ota.DefaultMaxOTAPerSimPerHour)
+	otaHandler := otaapi.NewHandler(otaStore, simStore, jobStore, eventBus, otaRateLimiter, auditSvc, log.Logger)
+
 	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
@@ -178,14 +184,14 @@ func main() {
 	slaReportStub := job.NewStubProcessor(job.JobTypeSLAReport, jobStore, eventBus, log.Logger)
 	bulkStateChangeStub := job.NewStubProcessor(job.JobTypeBulkStateChange, jobStore, eventBus, log.Logger)
 	bulkPolicyAssignStub := job.NewStubProcessor(job.JobTypeBulkPolicyAssign, jobStore, eventBus, log.Logger)
-	otaCommandStub := job.NewStubProcessor(job.JobTypeOTACommand, jobStore, eventBus, log.Logger)
+	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
 	bulkEsimSwitchStub := job.NewStubProcessor(job.JobTypeBulkEsimSwitch, jobStore, eventBus, log.Logger)
 	jobRunner.Register(purgeSweepStub)
 	jobRunner.Register(ipReclaimStub)
 	jobRunner.Register(slaReportStub)
 	jobRunner.Register(bulkStateChangeStub)
 	jobRunner.Register(bulkPolicyAssignStub)
-	jobRunner.Register(otaCommandStub)
+	jobRunner.Register(otaProcessor)
 	jobRunner.Register(bulkEsimSwitchStub)
 
 	if err := jobRunner.Start(); err != nil {
@@ -381,6 +387,7 @@ func main() {
 		MSISDNHandler:      msisdnHandler,
 		SessionHandler:     sessionHandler,
 		PolicyHandler:      policyHandler,
+		OTAHandler:         otaHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

@@ -10,6 +10,7 @@ import (
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
@@ -41,6 +42,7 @@ type RouterDeps struct {
 	MSISDNHandler    *msisdnapi.Handler
 	SessionHandler   *sessionapi.Handler
 	PolicyHandler    *policyapi.Handler
+	OTAHandler       *otaapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -320,6 +322,22 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Post("/api/v1/policy-rollouts/{id}/advance", deps.PolicyHandler.AdvanceRollout)
 			r.Post("/api/v1/policy-rollouts/{id}/rollback", deps.PolicyHandler.RollbackRollout)
 			r.Get("/api/v1/policy-rollouts/{id}", deps.PolicyHandler.GetRollout)
+		})
+	}
+
+	if deps.OTAHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Post("/api/v1/sims/{id}/ota", deps.OTAHandler.SendToSIM)
+			r.Get("/api/v1/sims/{id}/ota", deps.OTAHandler.ListHistory)
+			r.Get("/api/v1/ota-commands/{commandId}", deps.OTAHandler.GetCommand)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/sims/bulk/ota", deps.OTAHandler.BulkSend)
 		})
 	}
 

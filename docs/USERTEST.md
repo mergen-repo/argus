@@ -723,3 +723,16 @@ Onkosul: `make up` + en az 1 eSIM tipi SIM olmali.
 6. Profil degistir: POST /api/v1/esim-profiles/{id}/switch -- 200 + yeni operator bilgisi
 7. Fiziksel SIM'de enable: 422 NOT_ESIM
 8. Unit testler: `go test ./internal/store/... ./internal/api/esim/... -v`
+
+---
+
+## STORY-029: OTA SIM Management via APDU Commands
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. OTA komutu gonder: `curl -k -X POST https://localhost/api/v1/ota/commands -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"sim_id":"<SIM_UUID>","command_type":"update_file","delivery_channel":"sms_pp","apdu_data":"00A40004","file_path":"3F00/7F20/6F07"}'` -- 201 + command_id + status=queued
+2. OTA komutlarini listele: `curl -k https://localhost/api/v1/ota/commands?sim_id=<SIM_UUID> -H "Authorization: Bearer $TOKEN"` -- 200 + paginated list
+3. OTA komut detayi: `curl -k https://localhost/api/v1/ota/commands/<CMD_UUID> -H "Authorization: Bearer $TOKEN"` -- 200 + command details with delivery status
+4. Bulk OTA: `curl -k -X POST https://localhost/api/v1/ota/commands/bulk -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","command_type":"update_file","delivery_channel":"sms_pp","apdu_data":"00A40004"}'` -- 202 + job_id
+5. Rate limit testi: Ayni SIM'e arka arkaya 20+ OTA komutu gonder -- 429 OTA_RATE_LIMIT
+6. Unit testler: `go test ./internal/ota/... ./internal/store/ ./internal/job/ ./internal/api/ota/... -v`

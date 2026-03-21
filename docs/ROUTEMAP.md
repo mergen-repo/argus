@@ -81,8 +81,8 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | Review | STORY-006, STORY-013 | 2026-03-21 |
-| STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | Gate | STORY-011 | 2026-03-21 |
-| STORY-029 | OTA SIM Management (APDU) | M | [ ] PENDING | — | STORY-011, STORY-031 | — |
+| STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | Review | STORY-011 | 2026-03-21 |
+| STORY-029 | OTA SIM Management (APDU) | M | [~] IN PROGRESS | Commit | STORY-011, STORY-031 | — |
 | STORY-030 | Bulk State Change / Policy / Operator Switch | L | [ ] PENDING | — | STORY-012, STORY-028, STORY-031 | — |
 
 ### Phase 6: Analytics & BI [PENDING]
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-21 | REVIEW | STORY-028 review completed. 3 glossary terms added (eSIM Profile State Machine, Profile Switch, SM-DP+ Adapter). 4 decisions recorded (DEV-085..088: tenant scoping via JOIN, SM-DP+ fire-and-forget, apn_id NULL on switch, available state merged into disabled). 2 spec divergences noted (no `available` state, no CoA/DM on switch -- both acceptable for v1). Post-notes for STORY-030: Switch sets apn_id=NULL, bulk processor must handle APN reassignment; use GetEnabledProfileForSIM before switch; handle mixed physical+eSIM segments. | GLOSSARY.md, decisions.md, STORY-030 |
 | 2026-03-21 | GATE | Phase 4 Gate PASS — Deploy OK, smoke OK, 672/672 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 1 runtime bug fixed: SQL ambiguous column in JOIN queries (GetVersionWithTenant, GetRolloutByIDWithTenant, GetActiveRolloutForPolicy). Report: docs/reports/phase-4-gate.md | Phase 5 ready |
 | 2026-03-21 | PHASE | Phase 4 (Policy & Orchestration) completed — 6 stories (STORY-022 to STORY-027). Policy DSL parser/evaluator, CRUD with versioning, dry-run simulation, staged rollout with CoA, Steering of Roaming engine, RAT-type awareness across all layers. All policy and orchestration features operational. | Phase 5 (eSIM & Advanced Ops) ready to start |
 | 2026-03-21 | DONE | STORY-027 completed — RAT-Type Awareness (All Layers). Canonical `rattype` package (internal/aaa/rattype/) with enum + mapping functions for RADIUS/Diameter/5G SBA. DSL parser extended with 14 RAT aliases. SoR engine aligned to canonical constants. Session -> SIM last_rat_type update via functional options (WithSIMStore). 14 files modified, 672 tests passing. | F-026 (RAT-type awareness) fully delivered. Phase 4 complete. |
