@@ -81,6 +81,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `operator:health:` | 2 * health_check_interval_sec | Operator health status cache |
 | `operator:latency:` | 2hr (auto-pruned to 1hr window) | SLA latency samples per operator (sorted set, score=timestamp, member=latencyMs) |
 | `lock:` | 30s | Distributed locks (job runner) |
+| `ota:ratelimit:` | 1hr | OTA per-SIM rate limit counters (INCR + EXPIRE) |
 
 ---
 
@@ -151,6 +152,30 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `RATE_LIMIT_ALGORITHM` | string | `sliding_window` | No | Algorithm: `sliding_window` (default, most accurate) or `fixed_window` (simpler, slightly less accurate). |
 | `RATE_LIMIT_AUTH_PER_MINUTE` | int | `10` | No | Login attempts per minute per IP (brute force protection). |
 | `RATE_LIMIT_ENABLED` | bool | `true` | No | Master switch to disable rate limiting (useful in development). |
+
+---
+
+## Background Jobs (SVC-09)
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `JOB_MAX_CONCURRENT_PER_TENANT` | int | `5` | No | Maximum simultaneously running background jobs per tenant. Prevents a single tenant from monopolizing job runner capacity. |
+| `JOB_TIMEOUT_MINUTES` | int | `30` | No | Minutes before a stale running job (no progress) is automatically marked as failed by the timeout detector. |
+| `JOB_TIMEOUT_CHECK_INTERVAL` | duration | `5m` | No | How often the timeout detector sweeps for stale running jobs. |
+| `JOB_LOCK_TTL` | duration | `60s` | No | Redis distributed lock TTL for job-level and SIM-level locks (SETNX). Auto-renewed during execution. |
+| `JOB_LOCK_RENEW_INTERVAL` | duration | `30s` | No | How often the lock renewal goroutine extends the lock TTL. Must be less than `JOB_LOCK_TTL`. |
+| `CRON_ENABLED` | bool | `true` | No | Enable/disable the cron scheduler. Set to `false` in test environments or when running multiple instances without Redis dedup. |
+| `CRON_PURGE_SWEEP` | string | `@daily` | No | Cron schedule for the purge sweep job (KVKK/GDPR auto-purge of terminated SIMs). Supports `@daily`, `@hourly`, `@weekly`, `@monthly`, or 5-field cron expressions. |
+| `CRON_IP_RECLAIM` | string | `@hourly` | No | Cron schedule for the IP reclaim job (returns terminated SIM IPs to pool after grace period). |
+| `CRON_SLA_REPORT` | string | `@daily` | No | Cron schedule for the SLA report generation job. |
+
+### Redis Key Patterns (Job System)
+
+| Pattern | TTL | Purpose |
+|---------|-----|---------|
+| `argus:lock:job:{id}` | `JOB_LOCK_TTL` | Distributed lock per job (prevents concurrent processing) |
+| `argus:lock:sim:{id}` | `JOB_LOCK_TTL` | Distributed lock per SIM (prevents concurrent bulk ops on same SIM) |
+| `argus:cron:{name}:{tick}` | ~schedule interval | Cron dedup key (SETNX ensures single-instance execution per tick) |
 
 ---
 
@@ -293,6 +318,17 @@ SBA_ENABLE_MTLS=false
 RATE_LIMIT_DEFAULT_PER_MINUTE=1000
 RATE_LIMIT_DEFAULT_PER_HOUR=30000
 RATE_LIMIT_ALGORITHM=sliding_window
+
+# === Background Jobs ===
+JOB_MAX_CONCURRENT_PER_TENANT=5
+JOB_TIMEOUT_MINUTES=30
+JOB_TIMEOUT_CHECK_INTERVAL=5m
+JOB_LOCK_TTL=60s
+JOB_LOCK_RENEW_INTERVAL=30s
+CRON_ENABLED=true
+CRON_PURGE_SWEEP=@daily
+CRON_IP_RECLAIM=@hourly
+CRON_SLA_REPORT=@daily
 
 # === Notifications (optional) ===
 # SMTP_HOST=smtp.gmail.com

@@ -135,6 +135,7 @@ argus/
 │   │   ├── diameter/             # Diameter server
 │   │   ├── sba/                  # 5G SBA proxy
 │   │   ├── eap/                  # EAP-SIM/AKA handlers
+│   │   ├── rattype/              # RAT type canonical enum & mapping
 │   │   └── session/              # Session management
 │   ├── policy/                   # SVC-05: Policy engine
 │   │   ├── dsl/                  # DSL parser
@@ -303,6 +304,7 @@ RADIUS Request → UDP listener (goroutine pool)
 | EAP session state | Redis | 30s | Auto-expire (TTL) |
 | Auth vector pre-fetch | Redis list | 5min | Auto-expire (TTL) |
 | Rate limit counters | Redis | Sliding window | Auto-expire |
+| SoR decision (per-SIM) | Redis | 1hr (configurable) | NATS on operator health change |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
 
 ## Extension Points (for FUTURE.md)
@@ -320,7 +322,7 @@ RADIUS Request → UDP listener (goroutine pool)
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
 | API-NNN | 108 | API-001 to API-182 |
-| TBL-NN | 24 | TBL-01 to TBL-24 |
+| TBL-NN | 26 | TBL-01 to TBL-26 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |
 
@@ -352,7 +354,7 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
 | [architecture/api/](architecture/api/_index.md) | API surface (108 endpoints + story links) |
-| [architecture/db/](architecture/db/_index.md) | Database schema (25 tables) |
+| [architecture/db/](architecture/db/_index.md) | Database schema (26 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
 

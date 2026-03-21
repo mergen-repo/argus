@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-03-21
+> Last updated: 2026-03-22
 > Current phase: DEVELOPMENT — Phase 5: eSIM & Advanced Ops
-> Overall progress: 52%
+> Overall progress: 53%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 28/55 (51%)
+> Stories completed: 29/55 (53%)
 > Current story: —
 > Current step: —
 
@@ -82,7 +82,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | Review | STORY-006, STORY-013 | 2026-03-21 |
 | STORY-028 | eSIM Profile Management & SM-DP+ | L | [x] DONE | Review | STORY-011 | 2026-03-21 |
-| STORY-029 | OTA SIM Management (APDU) | M | [~] IN PROGRESS | Commit | STORY-011, STORY-031 | — |
+| STORY-029 | OTA SIM Management (APDU) | M | [x] DONE | — | STORY-011, STORY-031 | 2026-03-22 |
 | STORY-030 | Bulk State Change / Policy / Operator Switch | L | [ ] PENDING | — | STORY-012, STORY-028, STORY-031 | — |
 
 ### Phase 6: Analytics & BI [PENDING]
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-029 review completed. 7 glossary terms added (SMS-PP, BIP, KIC, KID, GSM 03.48, TAR + APDU enriched). Decision IDs renumbered to DEV-090..094 (collision with STORY-028 DEV-085..088 fixed). TBL-26 (ota_commands) added to DB schema index. USERTEST.md endpoint paths corrected (4 wrong URLs fixed). OTA Redis key namespace `ota:ratelimit:` added to CONFIG.md. | GLOSSARY.md, decisions.md, db/_index.md, CONFIG.md, ARCHITECTURE.md, USERTEST.md, ROUTEMAP.md |
+| 2026-03-22 | DONE | STORY-029 completed -- OTA SIM Management via APDU Commands. 5 OTA command types, APDU builder, SMS-PP/BIP encoding, AES-128-CBC/HMAC-SHA256 security, Redis rate limiting (10/SIM/hour), 4 API endpoints, real OTA job processor replacing stub, ota_commands table (TBL-26) with 5 indexes. 78 OTA tests, 784 total passing. | STORY-030 ready (all Phase 5 deps met except STORY-029→030 is not a dep) |
 | 2026-03-21 | REVIEW | STORY-028 review completed. 3 glossary terms added (eSIM Profile State Machine, Profile Switch, SM-DP+ Adapter). 4 decisions recorded (DEV-085..088: tenant scoping via JOIN, SM-DP+ fire-and-forget, apn_id NULL on switch, available state merged into disabled). 2 spec divergences noted (no `available` state, no CoA/DM on switch -- both acceptable for v1). Post-notes for STORY-030: Switch sets apn_id=NULL, bulk processor must handle APN reassignment; use GetEnabledProfileForSIM before switch; handle mixed physical+eSIM segments. | GLOSSARY.md, decisions.md, STORY-030 |
 | 2026-03-21 | GATE | Phase 4 Gate PASS — Deploy OK, smoke OK, 672/672 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 1 runtime bug fixed: SQL ambiguous column in JOIN queries (GetVersionWithTenant, GetRolloutByIDWithTenant, GetActiveRolloutForPolicy). Report: docs/reports/phase-4-gate.md | Phase 5 ready |
 | 2026-03-21 | PHASE | Phase 4 (Policy & Orchestration) completed — 6 stories (STORY-022 to STORY-027). Policy DSL parser/evaluator, CRUD with versioning, dry-run simulation, staged rollout with CoA, Steering of Roaming engine, RAT-type awareness across all layers. All policy and orchestration features operational. | Phase 5 (eSIM & Advanced Ops) ready to start |
