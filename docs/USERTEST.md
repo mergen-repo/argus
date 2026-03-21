@@ -604,3 +604,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 9. Statik IP rezervasyon: POST /api/v1/ip-pools/{id}/reserve -- 201 + rezerve IP
 10. APN arsivleme: DELETE /api/v1/apns/{id} -- Aktif SIM varsa 422, yoksa 200
 11. Unit testler: `go test ./internal/store/... ./internal/api/apn/... ./internal/api/ippool/... -v`
+
+---
+
+## STORY-022: Policy DSL Parser & Evaluator
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Unit testler: `go test ./internal/policy/dsl/... -v` -- 47+ test gecmeli
+2. Full suite: `go test ./... -count=1` -- Tum testler gecmeli, regresyon yok
+3. Build: `go build ./...` -- Hatasiz derlenmeli

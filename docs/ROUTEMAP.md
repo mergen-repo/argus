@@ -69,7 +69,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-022 | Policy DSL Parser & Evaluator | XL | [ ] PENDING | — | STORY-006 | — |
+| STORY-022 | Policy DSL Parser & Evaluator | XL | [~] IN PROGRESS | Commit | STORY-006 | — |
 | STORY-023 | Policy CRUD & Versioning | M | [ ] PENDING | — | STORY-022 | — |
 | STORY-024 | Policy Dry-Run Simulation | L | [ ] PENDING | — | STORY-023, STORY-011 | — |
 | STORY-025 | Policy Staged Rollout (Canary) | XL | [ ] PENDING | — | STORY-024, STORY-017 | — |
