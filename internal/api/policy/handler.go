@@ -11,6 +11,8 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -33,17 +35,26 @@ var validPolicyStates = map[string]bool{
 
 type Handler struct {
 	policyStore *store.PolicyStore
+	dryRunSvc   *dryrun.Service
+	jobStore    *store.JobStore
+	eventBus    *bus.EventBus
 	auditSvc    audit.Auditor
 	logger      zerolog.Logger
 }
 
 func NewHandler(
 	policyStore *store.PolicyStore,
+	dryRunSvc *dryrun.Service,
+	jobStore *store.JobStore,
+	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
 ) *Handler {
 	return &Handler{
 		policyStore: policyStore,
+		dryRunSvc:   dryRunSvc,
+		jobStore:    jobStore,
+		eventBus:    eventBus,
 		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "policy_handler").Logger(),
 	}
@@ -777,6 +788,128 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, bef
 	if auditErr != nil {
 		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
 	}
+}
+
+type dryRunRequest struct {
+	SegmentID *string `json:"segment_id"`
+}
+
+type dryRunAsyncResponse struct {
+	JobID   string `json:"job_id"`
+	Message string `json:"message"`
+}
+
+func (h *Handler) DryRun(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	versionID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid version ID format")
+		return
+	}
+
+	var req dryRunRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+			return
+		}
+	}
+
+	var segmentID *uuid.UUID
+	if req.SegmentID != nil && *req.SegmentID != "" {
+		parsed, parseErr := uuid.Parse(*req.SegmentID)
+		if parseErr != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid segment_id format")
+			return
+		}
+		segmentID = &parsed
+	}
+
+	if h.dryRunSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Dry-run service not available")
+		return
+	}
+
+	count, err := h.dryRunSvc.CountMatchingSIMs(r.Context(), tenantID, versionID, segmentID)
+	if err != nil {
+		if errors.Is(err, store.ErrPolicyVersionNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Policy version not found")
+			return
+		}
+		if dryrun.IsDSLError(err) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "INVALID_DSL", err.Error())
+			return
+		}
+		h.logger.Error().Err(err).Str("version_id", idStr).Msg("count matching sims for dry-run")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if count > dryrun.AsyncThreshold() {
+		if h.jobStore == nil || h.eventBus == nil {
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Async processing not available")
+			return
+		}
+
+		payload := map[string]interface{}{
+			"version_id": versionID.String(),
+			"segment_id": nil,
+		}
+		if segmentID != nil {
+			payload["segment_id"] = segmentID.String()
+		}
+		payloadJSON, _ := json.Marshal(payload)
+
+		userID := userIDFromContext(r)
+
+		job, createErr := h.jobStore.CreateWithTenantID(r.Context(), tenantID, store.CreateJobParams{
+			Type:       "policy_dry_run",
+			Priority:   5,
+			Payload:    payloadJSON,
+			TotalItems: count,
+			CreatedBy:  userID,
+		})
+		if createErr != nil {
+			h.logger.Error().Err(createErr).Msg("create dry-run job")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+
+		msgData, _ := json.Marshal(map[string]interface{}{
+			"job_id":    job.ID.String(),
+			"tenant_id": tenantID.String(),
+			"type":      "policy_dry_run",
+		})
+		_ = h.eventBus.PublishRaw(r.Context(), bus.SubjectJobQueue, msgData)
+
+		apierr.WriteSuccess(w, http.StatusAccepted, dryRunAsyncResponse{
+			JobID:   job.ID.String(),
+			Message: "Dry-run queued for async processing. Use GET /api/v1/jobs/" + job.ID.String() + " to check status.",
+		})
+		return
+	}
+
+	result, err := h.dryRunSvc.Execute(r.Context(), dryrun.DryRunRequest{
+		VersionID: versionID,
+		TenantID:  tenantID,
+		SegmentID: segmentID,
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrPolicyVersionNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Policy version not found")
+			return
+		}
+		if dryrun.IsDSLError(err) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "INVALID_DSL", err.Error())
+			return
+		}
+		h.logger.Error().Err(err).Str("version_id", idStr).Msg("execute dry-run")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, result)
 }
 
 func userIDFromContext(r *http.Request) *uuid.UUID {

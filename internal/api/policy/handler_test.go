@@ -231,7 +231,7 @@ func TestComputeDiffEmpty(t *testing.T) {
 }
 
 func TestNewHandler(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 	if h == nil {
 		t.Fatal("NewHandler returned nil")
 	}
@@ -262,7 +262,7 @@ func TestValidPolicyStates(t *testing.T) {
 }
 
 func TestHandlerCreateInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
@@ -283,7 +283,7 @@ func TestHandlerCreateInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerCreateMissingRequiredFields(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body := `{"description": "only description"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(body))
@@ -309,7 +309,7 @@ func TestHandlerCreateMissingRequiredFields(t *testing.T) {
 }
 
 func TestHandlerCreateInvalidScope(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body := `{"name": "test", "scope": "invalid_scope", "dsl_source": "x"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(body))
@@ -323,7 +323,7 @@ func TestHandlerCreateInvalidScope(t *testing.T) {
 }
 
 func TestHandlerGetInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/policies/not-a-uuid", nil)
 	w := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestHandlerGetInvalidID(t *testing.T) {
 }
 
 func TestHandlerDeleteInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/policies/bad-id", nil)
 	w := httptest.NewRecorder()
@@ -349,7 +349,7 @@ func TestHandlerDeleteInvalidID(t *testing.T) {
 }
 
 func TestHandlerUpdateInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/policies/"+uuid.New().String(), strings.NewReader("bad"))
 	w := httptest.NewRecorder()
@@ -362,7 +362,7 @@ func TestHandlerUpdateInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerActivateVersionInvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/bad/activate", nil)
 	w := httptest.NewRecorder()
@@ -375,7 +375,7 @@ func TestHandlerActivateVersionInvalidID(t *testing.T) {
 }
 
 func TestHandlerUpdateVersionInvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/policy-versions/"+uuid.New().String(), strings.NewReader("bad"))
 	w := httptest.NewRecorder()
@@ -388,7 +388,7 @@ func TestHandlerUpdateVersionInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerUpdateVersionEmptyDSL(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	versionID := uuid.New().String()
 	body := `{"dsl_source": ""}`
@@ -408,7 +408,7 @@ func TestHandlerUpdateVersionEmptyDSL(t *testing.T) {
 }
 
 func TestHandlerDiffInvalidID1(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-versions/bad/diff/"+uuid.New().String(), nil)
 	w := httptest.NewRecorder()
@@ -421,7 +421,7 @@ func TestHandlerDiffInvalidID1(t *testing.T) {
 }
 
 func TestHandlerCreateVersionInvalidPolicyID(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/policies/bad-id/versions", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -434,7 +434,7 @@ func TestHandlerCreateVersionInvalidPolicyID(t *testing.T) {
 }
 
 func TestHandlerUpdateInvalidState(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
 
 	policyID := uuid.New().String()
 	invalidState := "invalid_state"
@@ -451,5 +451,86 @@ func TestHandlerUpdateInvalidState(t *testing.T) {
 
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("Status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+func TestHandlerDryRunInvalidVersionID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/bad-id/dry-run", nil)
+	w := httptest.NewRecorder()
+
+	h.DryRun(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlerDryRunInvalidSegmentID(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+
+	versionID := uuid.New().String()
+	body := `{"segment_id": "not-a-uuid"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/dry-run", strings.NewReader(body))
+	req.Header.Set("Content-Length", "30")
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", versionID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+
+	h.DryRun(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if resp["status"] != "error" {
+		t.Errorf("status = %q, want %q", resp["status"], "error")
+	}
+}
+
+func TestHandlerDryRunNoDryRunService(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+
+	versionID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/dry-run", nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", versionID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+
+	h.DryRun(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandlerDryRunInvalidJSON(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, zerolog.Nop())
+
+	versionID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/policy-versions/"+versionID+"/dry-run", strings.NewReader("not-json"))
+	req.Header.Set("Content-Length", "8")
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", versionID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+
+	h.DryRun(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }

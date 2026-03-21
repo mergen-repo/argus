@@ -103,6 +103,39 @@ func (s *JobStore) Create(ctx context.Context, p CreateJobParams) (*Job, error) 
 	return &job, nil
 }
 
+func (s *JobStore) CreateWithTenantID(ctx context.Context, tenantID uuid.UUID, p CreateJobParams) (*Job, error) {
+	priority := p.Priority
+	if priority == 0 {
+		priority = 5
+	}
+
+	payload := p.Payload
+	if payload == nil {
+		payload = json.RawMessage(`{}`)
+	}
+
+	var job Job
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO jobs (tenant_id, type, state, priority, payload, total_items, created_by)
+		VALUES ($1, $2, 'queued', $3, $4, $5, $6)
+		RETURNING id, tenant_id, type, state, priority, payload,
+			total_items, processed_items, failed_items, progress_pct,
+			error_report, result, max_retries, retry_count, retry_backoff_sec,
+			scheduled_at, started_at, completed_at, created_at, created_by,
+			locked_by, locked_at
+	`, tenantID, p.Type, priority, payload, p.TotalItems, p.CreatedBy).Scan(
+		&job.ID, &job.TenantID, &job.Type, &job.State, &job.Priority, &job.Payload,
+		&job.TotalItems, &job.ProcessedItems, &job.FailedItems, &job.ProgressPct,
+		&job.ErrorReport, &job.Result, &job.MaxRetries, &job.RetryCount, &job.RetryBackoffSec,
+		&job.ScheduledAt, &job.StartedAt, &job.CompletedAt, &job.CreatedAt, &job.CreatedBy,
+		&job.LockedBy, &job.LockedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create job with tenant: %w", err)
+	}
+	return &job, nil
+}
+
 func (s *JobStore) GetByID(ctx context.Context, id uuid.UUID) (*Job, error) {
 	tenantID, err := TenantIDFromContext(ctx)
 	if err != nil {

@@ -138,6 +138,14 @@ func (eb *EventBus) Publish(ctx context.Context, subject string, payload interfa
 	return nil
 }
 
+func (eb *EventBus) PublishRaw(ctx context.Context, subject string, data []byte) error {
+	_, err := eb.js.Publish(ctx, subject, data)
+	if err != nil {
+		return fmt.Errorf("bus: publish raw %s: %w", subject, err)
+	}
+	return nil
+}
+
 type MessageHandler func(subject string, data []byte)
 
 func (eb *EventBus) Subscribe(subject string, handler MessageHandler) (*nats.Subscription, error) {

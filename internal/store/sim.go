@@ -741,3 +741,196 @@ func parseInt64(s string) (int64, error) {
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
 }
+
+type SIMFleetFilters struct {
+	OperatorIDs []uuid.UUID
+	APNIDs      []uuid.UUID
+	RATTypes    []string
+	SegmentID   *uuid.UUID
+}
+
+type OperatorCount struct {
+	Name  string
+	Count int
+}
+
+type APNCount struct {
+	Name  string
+	Count int
+}
+
+type RATCount struct {
+	Name  string
+	Count int
+}
+
+func (s *SIMStore) buildFleetFilterClauses(tenantID uuid.UUID, filters SIMFleetFilters, argIdx int, args []interface{}) ([]string, []interface{}, int) {
+	conditions := []string{fmt.Sprintf("s.tenant_id = $%d", argIdx)}
+	args = append(args, tenantID)
+	argIdx++
+
+	conditions = append(conditions, "s.state = 'active'")
+
+	if len(filters.OperatorIDs) > 0 {
+		placeholders := make([]string, len(filters.OperatorIDs))
+		for i, id := range filters.OperatorIDs {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, id)
+			argIdx++
+		}
+		conditions = append(conditions, fmt.Sprintf("s.operator_id IN (%s)", strings.Join(placeholders, ", ")))
+	}
+
+	if len(filters.APNIDs) > 0 {
+		placeholders := make([]string, len(filters.APNIDs))
+		for i, id := range filters.APNIDs {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, id)
+			argIdx++
+		}
+		conditions = append(conditions, fmt.Sprintf("s.apn_id IN (%s)", strings.Join(placeholders, ", ")))
+	}
+
+	if len(filters.RATTypes) > 0 {
+		placeholders := make([]string, len(filters.RATTypes))
+		for i, rt := range filters.RATTypes {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, rt)
+			argIdx++
+		}
+		conditions = append(conditions, fmt.Sprintf("s.rat_type IN (%s)", strings.Join(placeholders, ", ")))
+	}
+
+	return conditions, args, argIdx
+}
+
+func (s *SIMStore) CountByFilters(ctx context.Context, tenantID uuid.UUID, filters SIMFleetFilters) (int, error) {
+	args := []interface{}{}
+	conditions, args, _ := s.buildFleetFilterClauses(tenantID, filters, 1, args)
+
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM sims s WHERE %s`, strings.Join(conditions, " AND "))
+
+	var count int
+	err := s.db.QueryRow(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count sims by filters: %w", err)
+	}
+	return count, nil
+}
+
+func (s *SIMStore) AggregateByOperator(ctx context.Context, tenantID uuid.UUID, filters SIMFleetFilters) ([]OperatorCount, error) {
+	args := []interface{}{}
+	conditions, args, _ := s.buildFleetFilterClauses(tenantID, filters, 1, args)
+
+	query := fmt.Sprintf(
+		`SELECT o.name, COUNT(*) FROM sims s JOIN operators o ON s.operator_id = o.id WHERE %s GROUP BY o.id, o.name ORDER BY COUNT(*) DESC`,
+		strings.Join(conditions, " AND "),
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: aggregate by operator: %w", err)
+	}
+	defer rows.Close()
+
+	var results []OperatorCount
+	for rows.Next() {
+		var oc OperatorCount
+		if err := rows.Scan(&oc.Name, &oc.Count); err != nil {
+			return nil, fmt.Errorf("store: scan operator count: %w", err)
+		}
+		results = append(results, oc)
+	}
+	return results, nil
+}
+
+func (s *SIMStore) AggregateByAPN(ctx context.Context, tenantID uuid.UUID, filters SIMFleetFilters) ([]APNCount, error) {
+	args := []interface{}{}
+	conditions, args, _ := s.buildFleetFilterClauses(tenantID, filters, 1, args)
+
+	query := fmt.Sprintf(
+		`SELECT COALESCE(a.name, 'unassigned'), COUNT(*) FROM sims s LEFT JOIN apns a ON s.apn_id = a.id WHERE %s GROUP BY a.id, a.name ORDER BY COUNT(*) DESC`,
+		strings.Join(conditions, " AND "),
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: aggregate by apn: %w", err)
+	}
+	defer rows.Close()
+
+	var results []APNCount
+	for rows.Next() {
+		var ac APNCount
+		if err := rows.Scan(&ac.Name, &ac.Count); err != nil {
+			return nil, fmt.Errorf("store: scan apn count: %w", err)
+		}
+		results = append(results, ac)
+	}
+	return results, nil
+}
+
+func (s *SIMStore) AggregateByRATType(ctx context.Context, tenantID uuid.UUID, filters SIMFleetFilters) ([]RATCount, error) {
+	args := []interface{}{}
+	conditions, args, _ := s.buildFleetFilterClauses(tenantID, filters, 1, args)
+
+	query := fmt.Sprintf(
+		`SELECT COALESCE(s.rat_type, 'unknown'), COUNT(*) FROM sims s WHERE %s GROUP BY s.rat_type ORDER BY COUNT(*) DESC`,
+		strings.Join(conditions, " AND "),
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: aggregate by rat type: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RATCount
+	for rows.Next() {
+		var rc RATCount
+		if err := rows.Scan(&rc.Name, &rc.Count); err != nil {
+			return nil, fmt.Errorf("store: scan rat count: %w", err)
+		}
+		results = append(results, rc)
+	}
+	return results, nil
+}
+
+func (s *SIMStore) FetchSample(ctx context.Context, tenantID uuid.UUID, filters SIMFleetFilters, limit int) ([]SIM, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+
+	args := []interface{}{}
+	conditions, args, argIdx := s.buildFleetFilterClauses(tenantID, filters, 1, args)
+
+	args = append(args, limit)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(
+		`SELECT %s FROM sims s WHERE %s ORDER BY s.created_at DESC LIMIT %s`,
+		simColumns, strings.Join(conditions, " AND "), limitPlaceholder,
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: fetch sample sims: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SIM
+	for rows.Next() {
+		var sim SIM
+		if err := rows.Scan(
+			&sim.ID, &sim.TenantID, &sim.OperatorID, &sim.APNID, &sim.ICCID, &sim.IMSI, &sim.MSISDN,
+			&sim.IPAddressID, &sim.PolicyVersionID, &sim.ESimProfileID, &sim.SimType, &sim.State, &sim.RATType,
+			&sim.MaxConcurrentSessions, &sim.SessionIdleTimeoutSec, &sim.SessionHardTimeoutSec,
+			&sim.Metadata, &sim.ActivatedAt, &sim.SuspendedAt, &sim.TerminatedAt, &sim.PurgeAt,
+			&sim.CreatedAt, &sim.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan sample sim: %w", err)
+		}
+		results = append(results, sim)
+	}
+	return results, nil
+}

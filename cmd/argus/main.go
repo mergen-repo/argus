@@ -22,6 +22,7 @@ import (
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
+	"github.com/btopcu/argus/internal/policy/dryrun"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -145,16 +146,19 @@ func main() {
 	msisdnStore := store.NewMSISDNStore(pg.Pool)
 	msisdnHandler := msisdnapi.NewHandler(msisdnStore, log.Logger)
 
-	policyStore := store.NewPolicyStore(pg.Pool)
-	policyHandler := policyapi.NewHandler(policyStore, auditSvc, log.Logger)
-
 	jobStore := store.NewJobStore(pg.Pool)
+
+	policyStore := store.NewPolicyStore(pg.Pool)
+	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
+	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, jobStore, eventBus, auditSvc, log.Logger)
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
 
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
+	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
 	jobRunner := job.NewRunner(jobStore, eventBus, log.Logger)
 	jobRunner.Register(importProcessor)
+	jobRunner.Register(dryRunProcessor)
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
 	}

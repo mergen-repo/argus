@@ -463,6 +463,36 @@ func (s *PolicyStore) HasAssignedSIMs(ctx context.Context, policyID uuid.UUID) (
 	return exists, nil
 }
 
+func (s *PolicyStore) UpdateDryRunResult(ctx context.Context, versionID uuid.UUID, result json.RawMessage, affectedCount int) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE policy_versions SET dry_run_result = $2, affected_sim_count = $3
+		WHERE id = $1`,
+		versionID, result, affectedCount,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update dry run result: %w", err)
+	}
+	return nil
+}
+
+func (s *PolicyStore) GetVersionWithTenant(ctx context.Context, versionID, tenantID uuid.UUID) (*PolicyVersion, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT `+policyVersionColumns+`
+		FROM policy_versions pv
+		JOIN policies p ON pv.policy_id = p.id
+		WHERE pv.id = $1 AND p.tenant_id = $2`,
+		versionID, tenantID,
+	)
+	v, err := scanPolicyVersion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPolicyVersionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get version with tenant: %w", err)
+	}
+	return v, nil
+}
+
 func (s *PolicyStore) GetActiveVersionSummary(ctx context.Context, policyID uuid.UUID) (*PolicyVersion, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+policyVersionColumns+` FROM policy_versions WHERE policy_id = $1 AND state = 'active' LIMIT 1`,

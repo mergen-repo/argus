@@ -300,6 +300,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Post("/api/v1/policies/{id}/versions", deps.PolicyHandler.CreateVersion)
 			r.Patch("/api/v1/policy-versions/{id}", deps.PolicyHandler.UpdateVersion)
 			r.Post("/api/v1/policy-versions/{id}/activate", deps.PolicyHandler.ActivateVersion)
+			r.Post("/api/v1/policy-versions/{id}/dry-run", deps.PolicyHandler.DryRun)
 			r.Get("/api/v1/policy-versions/{id1}/diff/{id2}", deps.PolicyHandler.DiffVersions)
 		})
 	}

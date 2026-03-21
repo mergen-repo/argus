@@ -636,3 +636,21 @@ Onkosul: `make up` ile Docker ortami calisir durumda olmali.
 6. Syntax hatali DSL ile aktivasyon: 422 INVALID_DSL donmeli
 7. Policy sil (SIM atanmamis): DELETE /api/v1/policies/{id} -- 200
 8. Unit testler: `go test ./internal/store/... ./internal/api/policy/... -v`
+
+---
+
+## STORY-024: Policy Dry-Run Simulation
+
+Onkosul: `make up` + en az 1 policy ve birkac SIM olmali.
+
+1. Dry-run calistir (sync):
+   ```bash
+   curl -sk -X POST https://localhost/api/v1/policy-versions/{vid}/dry-run \
+     -H 'Authorization: Bearer <token>' \
+     -H 'Content-Type: application/json' \
+     -d '{}'
+   ```
+   200 + total_affected, by_operator, by_apn, by_rat, behavioral_changes, sample_sims donmeli
+2. Segment filtresi ile dry-run: `{"segment_id":"<id>"}` -- sadece segment SIM'leri
+3. Gecersiz DSL ile dry-run: 422 + derleme hatalari
+4. Unit testler: `go test ./internal/policy/dryrun/... ./internal/api/policy/... -v`
