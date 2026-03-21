@@ -206,7 +206,7 @@ func main() {
 	if cfg.RadiusSecret != "" {
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 		simCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
-		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger)
+		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
 		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
 		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
 
@@ -253,7 +253,7 @@ func main() {
 		}
 
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
-		diamSessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger)
+		diamSessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
 
 		diameterServer = aaadiameter.NewServer(aaadiameter.ServerConfig{
 			Port:        cfg.DiameterPort,
@@ -274,7 +274,7 @@ func main() {
 	var sbaServer *aaasba.Server
 	if cfg.SBAEnabled {
 		sbaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
-		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger)
+		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
 
 		sbaServer = aaasba.NewServer(aaasba.ServerConfig{
 			Port:        cfg.SBAPort,

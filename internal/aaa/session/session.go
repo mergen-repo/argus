@@ -79,15 +79,28 @@ type SessionCounters struct {
 
 type Manager struct {
 	sessionStore *store.RadiusSessionStore
+	simStore     *store.SIMStore
 	redisClient  *redis.Client
 	logger       zerolog.Logger
 }
 
-func NewManager(sessionStore *store.RadiusSessionStore, redisClient *redis.Client, logger zerolog.Logger) *Manager {
-	return &Manager{
+func NewManager(sessionStore *store.RadiusSessionStore, redisClient *redis.Client, logger zerolog.Logger, opts ...ManagerOption) *Manager {
+	m := &Manager{
 		sessionStore: sessionStore,
 		redisClient:  redisClient,
 		logger:       logger.With().Str("component", "session_manager").Logger(),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+type ManagerOption func(*Manager)
+
+func WithSIMStore(simStore *store.SIMStore) ManagerOption {
+	return func(m *Manager) {
+		m.simStore = simStore
 	}
 }
 
@@ -111,6 +124,8 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 
 		authMethod := nilIfEmpty(sess.AuthMethod)
 
+		ratType := nilIfEmpty(sess.RATType)
+
 		dbSess, err := m.sessionStore.Create(ctx, store.CreateRadiusSessionParams{
 			SimID:         simID,
 			TenantID:      tenantID,
@@ -120,6 +135,7 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			FramedIP:      framedIP,
 			AcctSessionID: acctSessionID,
 			AuthMethod:    authMethod,
+			RATType:       ratType,
 			ProtocolType:  sess.ProtocolType,
 			SliceInfo:     sess.SliceInfo,
 		})
@@ -129,6 +145,15 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 
 		sess.ID = dbSess.ID.String()
 		sess.StartedAt = dbSess.StartedAt
+
+		if sess.RATType != "" && m.simStore != nil && simID != uuid.Nil {
+			if err := m.simStore.UpdateLastRATType(ctx, simID, operatorID, sess.RATType); err != nil {
+				m.logger.Warn().Err(err).
+					Str("sim_id", sess.SimID).
+					Str("rat_type", sess.RATType).
+					Msg("failed to update SIM last_rat_type")
+			}
+		}
 	}
 
 	ttl := time.Duration(sess.SessionTimeout) * time.Second

@@ -934,3 +934,17 @@ func (s *SIMStore) FetchSample(ctx context.Context, tenantID uuid.UUID, filters 
 	}
 	return results, nil
 }
+
+func (s *SIMStore) UpdateLastRATType(ctx context.Context, simID uuid.UUID, operatorID uuid.UUID, ratType string) error {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE sims SET rat_type = $3, updated_at = NOW() WHERE id = $1 AND operator_id = $2`,
+		simID, operatorID, ratType,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update last rat_type: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSIMNotFound
+	}
+	return nil
+}

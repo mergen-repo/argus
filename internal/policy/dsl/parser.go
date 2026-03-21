@@ -27,6 +27,9 @@ var unitSet = map[string]bool{
 
 var validRATTypes = map[string]bool{
 	"nb_iot": true, "lte_m": true, "lte": true, "nr_5g": true,
+	"utran": true, "geran": true, "nr_5g_nsa": true,
+	"cat_m1": true, "2g": true, "3g": true, "4g": true,
+	"5g": true, "5g_sa": true, "5g_nsa": true, "unknown": true,
 }
 
 var validMatchFields = map[string]bool{

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
@@ -208,7 +209,7 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 		sess := &session.Session{
 			IMSI:          extractIMSI(authCtx.SUPI),
 			AcctSessionID: "5g-sba-" + authCtxID,
-			RATType:       "nr_5g",
+			RATType:       rattype.NR5G,
 			SessionState:  "active",
 			StartedAt:     time.Now().UTC(),
 			ProtocolType:  session.ProtocolType5GSBA,

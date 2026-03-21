@@ -685,3 +685,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 2. Migrasyon: `make db-migrate` -- sor_fields migrasyonu uygulanmali
 3. Full suite: `go test ./... -count=1` -- Tum testler gecmeli, regresyon yok
 4. Build: `go build ./...` -- Hatasiz derlenmeli
+
+---
+
+## STORY-027: RAT-Type Awareness (All Layers)
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Unit testler: `go test ./internal/aaa/rattype/... -v` -- 9 test gecmeli
+2. Full suite: `go test ./... -count=1` -- 672+ test gecmeli, regresyon yok
+3. Build: `go build ./...` -- Hatasiz derlenmeli

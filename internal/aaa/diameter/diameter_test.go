@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/rs/zerolog"
 )
 
@@ -785,11 +786,11 @@ func TestMapDiameterRATType(t *testing.T) {
 		{1004, "lte"},
 		{1005, "nb_iot"},
 		{1009, "nr_5g"},
-		{9999, "unknown_9999"},
+		{9999, "unknown"},
 	}
 	for _, tt := range tests {
-		if got := mapDiameterRATType(tt.input); got != tt.want {
-			t.Errorf("mapDiameterRATType(%d) = %q, want %q", tt.input, got, tt.want)
+		if got := rattype.FromDiameter(tt.input); got != tt.want {
+			t.Errorf("rattype.FromDiameter(%d) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

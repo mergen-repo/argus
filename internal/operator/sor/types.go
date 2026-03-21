@@ -3,6 +3,7 @@ package sor
 import (
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/google/uuid"
 )
 
@@ -48,7 +49,15 @@ const (
 	ReasonDefault         = "default"
 )
 
-var DefaultRATPreferenceOrder = []string{"5G", "4G", "3G", "2G", "NB-IoT", "LTE-M"}
+var DefaultRATPreferenceOrder = []string{
+	rattype.NR5G,
+	rattype.NR5GNSA,
+	rattype.LTE,
+	rattype.UTRAN,
+	rattype.GERAN,
+	rattype.NBIOT,
+	rattype.LTEM,
+}
 
 func DefaultConfig() SoRConfig {
 	return SoRConfig{

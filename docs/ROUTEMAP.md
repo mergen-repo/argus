@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-21
 > Current phase: DEVELOPMENT — Phase 4: Policy & Orchestration
-> Overall progress: 47%
+> Overall progress: 49%
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 26/55 (47%)
-> Current story: STORY-027
+> Stories completed: 27/55 (49%)
+> Current story: STORY-028
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -74,7 +74,7 @@
 | STORY-024 | Policy Dry-Run Simulation | L | [x] DONE | — | STORY-023, STORY-011 | 2026-03-21 |
 | STORY-025 | Policy Staged Rollout (Canary) | XL | [x] DONE | — | STORY-024, STORY-017 | 2026-03-21 |
 | STORY-026 | Steering of Roaming Engine | L | [x] DONE | — | STORY-018 | 2026-03-21 |
-| STORY-027 | RAT-Type Awareness (All Layers) | M | [ ] PENDING | — | STORY-015, STORY-022 | — |
+| STORY-027 | RAT-Type Awareness (All Layers) | M | [x] DONE | — | STORY-015, STORY-022 | 2026-03-21 |
 
 ### Phase 5: eSIM & Advanced Ops [PENDING]
 
@@ -157,6 +157,7 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-21 | REVIEW | STORY-026 review completed. SoR cache row added to ARCHITECTURE.md caching table. TBL-06 schema updated with sor_priority, cost_per_mb, supported_rat_types columns. TBL-17 schema updated with sor_decision JSONB. 5 glossary terms added (SoR Decision, SoR Priority, Operator Lock, IMSI Prefix Routing, Cost-Based Selection). Post-STORY-026 note added to STORY-027 for RAT enum alignment. | ARCHITECTURE.md, GLOSSARY.md, db/operator.md, db/aaa-analytics.md, STORY-027 |
 | 2026-03-21 | DONE | STORY-025 completed — Policy Staged Rollout (Canary). Rollout service (internal/policy/rollout/) with StartRollout, ExecuteStage, AdvanceRollout, RollbackRollout, GetProgress. 4 API endpoints (API-096 to API-099) under policy_editor role. Store: TBL-15 (policy_assignments), TBL-16 (policy_rollouts) with 15 store methods. CoA dispatch per active session in batches of 1000. NATS policy.rollout_progress events, WebSocket push. Async processor for stages >100K SIMs. SessionProvider/CoADispatcher interfaces for cross-service DI. Gate fixes: tenantID resolution (critical), policy_id response, errors field. 25 new tests, 1008 total passing. | STORY-046 (frontend policy editor) unblocked for rollout UI |
 | 2026-03-21 | DONE | STORY-024 completed — Policy Dry-Run Simulation. DryRun service (internal/policy/dryrun/) with Execute(), CountMatchingSIMs(), buildFiltersFromMatch(), DetectBehavioralChanges(). Async job processor for >100K SIMs (internal/job/dryrun.go). Handler: POST /api/v1/policy-versions/:id/dry-run (API-094) with sync 200 / async 202 split. SIMFleetFilters + aggregation queries in store/sim.go (reusable by STORY-025). Redis cache 5min TTL. 26 new tests, 623 total passing. | STORY-025 (staged rollout) unblocked — can use dry-run data + fleet query infrastructure |
 | 2026-03-21 | DONE | STORY-023 completed — Policy CRUD & Versioning. PolicyStore (internal/store/policy.go) with full CRUD for policies and versions. PolicyHandler (internal/api/policy/handler.go) with 9 HTTP endpoints (API-090 to API-095 + version management). Version state machine: draft -> active -> superseded/archived. DSL validation before activation via dsl.CompileSource/Validate. Routes under RequireRole("policy_editor"). SELECT FOR UPDATE for activation race safety. HasAssignedSIMs EXISTS check for soft-delete. 28 story tests, 613 total passing. | STORY-024 (dry-run), STORY-025 (rollout) unblocked |

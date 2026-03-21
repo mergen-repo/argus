@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
@@ -112,7 +113,7 @@ func (h *GxHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 	if ratAVP != nil {
 		ratVal, err := ratAVP.GetUint32()
 		if err == nil {
-			sess.RATType = mapDiameterRATType(ratVal)
+			sess.RATType = rattype.FromDiameter(ratVal)
 		}
 	}
 
@@ -263,19 +264,3 @@ func (h *GxHandler) handleTermination(msg *Message, sessionID, imsi string, ccRe
 	return cca
 }
 
-func mapDiameterRATType(rat uint32) string {
-	switch rat {
-	case 1000:
-		return "utran"
-	case 1001:
-		return "geran"
-	case 1004:
-		return "lte"
-	case 1005:
-		return "nb_iot"
-	case 1009:
-		return "nr_5g"
-	default:
-		return fmt.Sprintf("unknown_%d", rat)
-	}
-}

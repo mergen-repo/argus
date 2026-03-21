@@ -505,8 +505,8 @@ func TestSoR_DefaultConfig(t *testing.T) {
 	if config.CacheTTL != time.Hour {
 		t.Errorf("default cache TTL = %v, want 1h", config.CacheTTL)
 	}
-	if len(config.RATPreferenceOrder) != 6 {
-		t.Errorf("default RAT preference order length = %d, want 6", len(config.RATPreferenceOrder))
+	if len(config.RATPreferenceOrder) != 7 {
+		t.Errorf("default RAT preference order length = %d, want 7", len(config.RATPreferenceOrder))
 	}
 }
 

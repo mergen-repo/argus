@@ -2,6 +2,7 @@ package radius
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/aaa/eap"
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
@@ -522,6 +524,8 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		authMethod, _ = v.(string)
 	}
 
+	ratTypeStr := extract3GPPRATType(r.Packet)
+
 	sess := &session.Session{
 		ID:             uuid.New().String(),
 		SimID:          sim.ID.String(),
@@ -534,6 +538,7 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		FramedIP:       framedIP,
 		SessionState:   "active",
 		AuthMethod:     authMethod,
+		RATType:        ratTypeStr,
 		SessionTimeout: sim.SessionHardTimeoutSec,
 		IdleTimeout:    sim.SessionIdleTimeoutSec,
 		BytesIn:        0,
@@ -563,6 +568,7 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 			"imsi":        imsi,
 			"nas_ip":      nasIP,
 			"framed_ip":   framedIP,
+			"rat_type":    sess.RATType,
 			"started_at":  sess.StartedAt.Format(time.RFC3339),
 		}
 		if err := s.eventBus.Publish(ctx, bus.SubjectSessionStarted, payload); err != nil {
@@ -570,7 +576,7 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		}
 	}
 
-	logger.Info().Str("session_id", sess.ID).Msg("session started")
+	logger.Info().Str("session_id", sess.ID).Str("rat_type", sess.RATType).Msg("session started")
 }
 
 func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctSessionID string, logger zerolog.Logger) {
@@ -658,4 +664,49 @@ func (s *Server) getOperatorSecret(op *store.Operator) []byte {
 		}
 	}
 	return []byte(s.defaultSecret)
+}
+
+const (
+	vendorID3GPP         uint32 = 10415
+	vendorType3GPPRATType uint8 = 21
+)
+
+func extract3GPPRATType(pkt *radius.Packet) string {
+	vsaAttr, ok := pkt.Lookup(radius.Type(26))
+	if !ok {
+		return ""
+	}
+	raw := []byte(vsaAttr)
+	if len(raw) < 7 {
+		return ""
+	}
+
+	vendorID := binary.BigEndian.Uint32(raw[0:4])
+	if vendorID != vendorID3GPP {
+		return ""
+	}
+
+	vendorType := raw[4]
+	if vendorType != vendorType3GPPRATType {
+		return ""
+	}
+
+	vendorLen := int(raw[5])
+	if vendorLen < 3 || 4+vendorLen > len(raw) {
+		return ""
+	}
+
+	valueBytes := raw[6 : 4+vendorLen]
+	if len(valueBytes) == 0 {
+		return ""
+	}
+
+	var ratVal uint8
+	if len(valueBytes) >= 4 {
+		ratVal = uint8(binary.BigEndian.Uint32(valueBytes))
+	} else {
+		ratVal = valueBytes[len(valueBytes)-1]
+	}
+
+	return rattype.FromRADIUS(ratVal)
 }

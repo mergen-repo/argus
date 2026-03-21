@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
@@ -115,6 +116,14 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 				}
 				if sim.MSISDN != nil && msisdn == "" {
 					sess.MSISDN = *sim.MSISDN
+				}
+			}
+
+			ratAVP := msg.FindAVPVendor(AVPCodeRATType3GPP, VendorID3GPP)
+			if ratAVP != nil {
+				ratVal, err := ratAVP.GetUint32()
+				if err == nil {
+					sess.RATType = rattype.FromDiameter(ratVal)
 				}
 			}
 

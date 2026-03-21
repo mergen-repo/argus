@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
@@ -155,7 +156,7 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 		sess := &session.Session{
 			IMSI:          extractIMSI(supi),
 			AcctSessionID: "5g-reg-" + uuid.New().String(),
-			RATType:       strings.ToLower(reg.RATType),
+			RATType:       rattype.FromSBA(reg.RATType),
 			SessionState:  "active",
 			StartedAt:     time.Now().UTC(),
 			ProtocolType:  session.ProtocolType5GSBA,
