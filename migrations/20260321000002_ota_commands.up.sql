@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS ota_commands (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID NOT NULL REFERENCES tenants(id),
-    sim_id          UUID NOT NULL REFERENCES sims(id),
+    sim_id          UUID NOT NULL,
     command_type    VARCHAR(30) NOT NULL CHECK (command_type IN ('UPDATE_FILE', 'INSTALL_APPLET', 'DELETE_APPLET', 'READ_FILE', 'SIM_TOOLKIT')),
     channel         VARCHAR(10) NOT NULL DEFAULT 'sms_pp' CHECK (channel IN ('sms_pp', 'bip')),
     status          VARCHAR(15) NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'delivered', 'executed', 'confirmed', 'failed')),

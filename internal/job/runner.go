@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -171,7 +172,8 @@ func (r *Runner) releaseSlot(tenantID uuid.UUID) {
 }
 
 func (r *Runner) processJob(msg JobMessage, processor Processor) {
-	ctx, cancel := context.WithCancel(context.Background())
+	bgCtx := context.WithValue(context.Background(), apierr.TenantIDKey, msg.TenantID)
+	ctx, cancel := context.WithCancel(bgCtx)
 	defer cancel()
 
 	r.cancelMu.Lock()

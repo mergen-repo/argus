@@ -204,11 +204,20 @@ func (h *Handler) SendToSIM(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 3
 	}
 
+	securityMode := req.SecurityMode
+	if securityMode == "" {
+		securityMode = string(otapkg.SecurityNone)
+	}
+	channel := req.Channel
+	if channel == "" {
+		channel = string(otapkg.ChannelSMSPP)
+	}
+
 	cmd, err := h.otaStore.Create(r.Context(), tenantID, store.CreateOTACommandParams{
 		SimID:        simID,
 		CommandType:  req.CommandType,
-		Channel:      req.Channel,
-		SecurityMode: req.SecurityMode,
+		Channel:      channel,
+		SecurityMode: securityMode,
 		APDUData:     apduData,
 		Payload:      req.Payload,
 		MaxRetries:   maxRetries,
