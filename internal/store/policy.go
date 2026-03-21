@@ -483,7 +483,9 @@ func (s *PolicyStore) UpdateDryRunResult(ctx context.Context, versionID uuid.UUI
 
 func (s *PolicyStore) GetVersionWithTenant(ctx context.Context, versionID, tenantID uuid.UUID) (*PolicyVersion, error) {
 	row := s.db.QueryRow(ctx, `
-		SELECT `+policyVersionColumns+`
+		SELECT pv.id, pv.policy_id, pv.version, pv.dsl_content, pv.compiled_rules,
+			pv.state, pv.affected_sim_count, pv.dry_run_result, pv.activated_at, pv.rolled_back_at,
+			pv.created_at, pv.created_by
 		FROM policy_versions pv
 		JOIN policies p ON pv.policy_id = p.id
 		WHERE pv.id = $1 AND p.tenant_id = $2`,
@@ -660,7 +662,9 @@ func (s *PolicyStore) GetRolloutByID(ctx context.Context, rolloutID uuid.UUID) (
 
 func (s *PolicyStore) GetRolloutByIDWithTenant(ctx context.Context, rolloutID, tenantID uuid.UUID) (*PolicyRollout, error) {
 	row := s.db.QueryRow(ctx, `
-		SELECT `+rolloutColumns+`
+		SELECT pr.id, pr.policy_version_id, pr.previous_version_id, pr.strategy, pr.stages,
+			pr.current_stage, pr.total_sims, pr.migrated_sims, pr.state, pr.started_at, pr.completed_at,
+			pr.rolled_back_at, pr.created_at, pr.created_by
 		FROM policy_rollouts pr
 		JOIN policy_versions pv ON pr.policy_version_id = pv.id
 		JOIN policies p ON pv.policy_id = p.id
@@ -679,7 +683,9 @@ func (s *PolicyStore) GetRolloutByIDWithTenant(ctx context.Context, rolloutID, t
 
 func (s *PolicyStore) GetActiveRolloutForPolicy(ctx context.Context, policyID uuid.UUID) (*PolicyRollout, error) {
 	row := s.db.QueryRow(ctx, `
-		SELECT `+rolloutColumns+`
+		SELECT pr.id, pr.policy_version_id, pr.previous_version_id, pr.strategy, pr.stages,
+			pr.current_stage, pr.total_sims, pr.migrated_sims, pr.state, pr.started_at, pr.completed_at,
+			pr.rolled_back_at, pr.created_at, pr.created_by
 		FROM policy_rollouts pr
 		JOIN policy_versions pv ON pr.policy_version_id = pv.id
 		WHERE pv.policy_id = $1 AND pr.state IN ('pending', 'in_progress')
