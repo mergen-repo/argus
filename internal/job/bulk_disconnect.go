@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const JobTypeBulkDisconnect = "bulk_session_disconnect"
 
 type BulkDisconnectPayload struct {
 	SimIDs    []string `json:"sim_ids"`

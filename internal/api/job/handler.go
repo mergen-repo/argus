@@ -4,8 +4,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/bus"
@@ -22,10 +24,15 @@ const (
 	CodeJobCancelled      = "JOB_CANCELLED"
 )
 
+type JobCanceller interface {
+	CancelJob(jobID uuid.UUID)
+}
+
 type Handler struct {
-	jobs     *store.JobStore
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs      *store.JobStore
+	eventBus  *bus.EventBus
+	canceller JobCanceller
+	logger    zerolog.Logger
 }
 
 func NewHandler(jobs *store.JobStore, eventBus *bus.EventBus, logger zerolog.Logger) *Handler {
@@ -34,6 +41,10 @@ func NewHandler(jobs *store.JobStore, eventBus *bus.EventBus, logger zerolog.Log
 		eventBus: eventBus,
 		logger:   logger,
 	}
+}
+
+func (h *Handler) SetCanceller(c JobCanceller) {
+	h.canceller = c
 }
 
 type jobDTO struct {
@@ -54,6 +65,8 @@ type jobDTO struct {
 	CompletedAt    *string         `json:"completed_at,omitempty"`
 	CreatedAt      string          `json:"created_at"`
 	CreatedBy      *string         `json:"created_by,omitempty"`
+	Duration       *string         `json:"duration,omitempty"`
+	LockedBy       *string         `json:"locked_by,omitempty"`
 }
 
 const timeFmt = "2006-01-02T15:04:05Z07:00"
@@ -74,10 +87,30 @@ func toJobDTO(j *store.Job) jobDTO {
 		MaxRetries:     j.MaxRetries,
 		RetryCount:     j.RetryCount,
 		CreatedAt:      j.CreatedAt.Format(timeFmt),
+		LockedBy:       j.LockedBy,
 	}
 	if j.StartedAt != nil {
 		v := j.StartedAt.Format(timeFmt)
 		dto.StartedAt = &v
+
+		var end time.Time
+		if j.CompletedAt != nil {
+			end = *j.CompletedAt
+		} else if j.State == "running" {
+			end = time.Now()
+		}
+		if !end.IsZero() {
+			dur := end.Sub(*j.StartedAt)
+			secs := int(math.Round(dur.Seconds()))
+			d := fmt.Sprintf("%ds", secs)
+			if secs >= 60 {
+				d = fmt.Sprintf("%dm%ds", secs/60, secs%60)
+			}
+			if secs >= 3600 {
+				d = fmt.Sprintf("%dh%dm%ds", secs/3600, (secs%3600)/60, secs%60)
+			}
+			dto.Duration = &d
+		}
 	}
 	if j.CompletedAt != nil {
 		v := j.CompletedAt.Format(timeFmt)
@@ -163,7 +196,14 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	if h.canceller != nil {
+		h.canceller.CancelJob(id)
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"id":    id.String(),
+		"state": "cancelled",
+	})
 }
 
 func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
@@ -207,23 +247,25 @@ func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.jobs.SetRetryPending(r.Context(), j.ID); err != nil {
-		h.logger.Error().Err(err).Msg("set retry pending")
+	newJob, err := h.jobs.CreateRetryJob(r.Context(), j, nil)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create retry job")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
 
 	_ = h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, jobtypes.JobMessage{
-		JobID:    j.ID,
-		TenantID: j.TenantID,
-		Type:     j.Type,
+		JobID:    newJob.ID,
+		TenantID: newJob.TenantID,
+		Type:     newJob.Type,
 	})
 
-	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
+	apierr.WriteJSON(w, http.StatusCreated, apierr.SuccessResponse{
 		Status: "success",
-		Data: map[string]string{
-			"job_id": j.ID.String(),
-			"status": "retry_pending",
+		Data: map[string]interface{}{
+			"new_job_id":  newJob.ID.String(),
+			"retry_count": newJob.RetryCount,
+			"state":       "queued",
 		},
 	})
 }

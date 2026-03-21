@@ -400,3 +400,89 @@ func (s *JobStore) GetErrorReport(ctx context.Context, id uuid.UUID) (json.RawMe
 	}
 	return report, nil
 }
+
+func (s *JobStore) FindTimedOutJobs(ctx context.Context, timeout time.Duration) ([]Job, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, type, state, priority, payload,
+			total_items, processed_items, failed_items, progress_pct,
+			error_report, result, max_retries, retry_count, retry_backoff_sec,
+			scheduled_at, started_at, completed_at, created_at, created_by,
+			locked_by, locked_at
+		FROM jobs
+		WHERE state = 'running' AND locked_at < NOW() - $1::interval
+	`, fmt.Sprintf("%d minutes", int(timeout.Minutes())))
+	if err != nil {
+		return nil, fmt.Errorf("find timed out jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []Job
+	for rows.Next() {
+		var job Job
+		if err := rows.Scan(
+			&job.ID, &job.TenantID, &job.Type, &job.State, &job.Priority, &job.Payload,
+			&job.TotalItems, &job.ProcessedItems, &job.FailedItems, &job.ProgressPct,
+			&job.ErrorReport, &job.Result, &job.MaxRetries, &job.RetryCount, &job.RetryBackoffSec,
+			&job.ScheduledAt, &job.StartedAt, &job.CompletedAt, &job.CreatedAt, &job.CreatedBy,
+			&job.LockedBy, &job.LockedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan timed out job: %w", err)
+		}
+		results = append(results, job)
+	}
+
+	return results, nil
+}
+
+func (s *JobStore) CreateRetryJob(ctx context.Context, original *Job, failedPayload json.RawMessage) (*Job, error) {
+	payload := failedPayload
+	if payload == nil {
+		payload = original.Payload
+	}
+
+	var job Job
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO jobs (tenant_id, type, state, priority, payload, total_items, created_by, retry_count, result)
+		VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8)
+		RETURNING id, tenant_id, type, state, priority, payload,
+			total_items, processed_items, failed_items, progress_pct,
+			error_report, result, max_retries, retry_count, retry_backoff_sec,
+			scheduled_at, started_at, completed_at, created_at, created_by,
+			locked_by, locked_at
+	`, original.TenantID, original.Type, original.Priority, payload,
+		original.FailedItems, original.CreatedBy, original.RetryCount+1,
+		json.RawMessage(fmt.Sprintf(`{"retry_of":"%s"}`, original.ID.String())),
+	).Scan(
+		&job.ID, &job.TenantID, &job.Type, &job.State, &job.Priority, &job.Payload,
+		&job.TotalItems, &job.ProcessedItems, &job.FailedItems, &job.ProgressPct,
+		&job.ErrorReport, &job.Result, &job.MaxRetries, &job.RetryCount, &job.RetryBackoffSec,
+		&job.ScheduledAt, &job.StartedAt, &job.CompletedAt, &job.CreatedAt, &job.CreatedBy,
+		&job.LockedBy, &job.LockedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create retry job: %w", err)
+	}
+	return &job, nil
+}
+
+func (s *JobStore) CountActiveByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM jobs WHERE tenant_id = $1 AND state = 'running'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active jobs: %w", err)
+	}
+	return count, nil
+}
+
+func (s *JobStore) TouchLock(ctx context.Context, jobID uuid.UUID, lockedBy string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE jobs SET locked_at = NOW()
+		WHERE id = $1 AND locked_by = $2 AND state = 'running'
+	`, jobID, lockedBy)
+	if err != nil {
+		return fmt.Errorf("touch lock: %w", err)
+	}
+	return nil
+}

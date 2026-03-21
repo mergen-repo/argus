@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	JobTypeBulkImport   = "bulk_sim_import"
-	progressInterval    = 100
-	maxCSVColumns       = 5
+	progressInterval = 100
+	maxCSVColumns    = 5
 )
 
 var requiredHeaders = []string{"iccid", "imsi", "msisdn", "operator_code", "apn_name"}

@@ -91,6 +91,16 @@ type Config struct {
 	DefaultAuditRetentionDays  int `envconfig:"DEFAULT_AUDIT_RETENTION_DAYS" default:"365"`
 	DefaultCDRRetentionDays    int `envconfig:"DEFAULT_CDR_RETENTION_DAYS" default:"180"`
 
+	JobMaxConcurrentPerTenant int           `envconfig:"JOB_MAX_CONCURRENT_PER_TENANT" default:"5"`
+	JobTimeoutMinutes         int           `envconfig:"JOB_TIMEOUT_MINUTES" default:"30"`
+	JobTimeoutCheckInterval   time.Duration `envconfig:"JOB_TIMEOUT_CHECK_INTERVAL" default:"5m"`
+	JobLockTTL                time.Duration `envconfig:"JOB_LOCK_TTL" default:"60s"`
+	JobLockRenewInterval      time.Duration `envconfig:"JOB_LOCK_RENEW_INTERVAL" default:"30s"`
+	CronPurgeSweep            string        `envconfig:"CRON_PURGE_SWEEP" default:"@daily"`
+	CronIPReclaim             string        `envconfig:"CRON_IP_RECLAIM" default:"@hourly"`
+	CronSLAReport             string        `envconfig:"CRON_SLA_REPORT" default:"@daily"`
+	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
+
 	DevSeedData      bool `envconfig:"DEV_SEED_DATA" default:"true"`
 	DevMockOperator  bool `envconfig:"DEV_MOCK_OPERATOR" default:"true"`
 	DevCORSAllowAll  bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`

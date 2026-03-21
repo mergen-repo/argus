@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-21
-> Current phase: DEVELOPMENT — Phase 4: Policy & Orchestration
-> Overall progress: 49%
+> Current phase: DEVELOPMENT — Phase 5: eSIM & Advanced Ops
+> Overall progress: 51%
 
 ---
 
@@ -26,7 +26,7 @@
 ## Development Phase [IN PROGRESS]
 
 > Stories completed: 27/55 (49%)
-> Current story: STORY-028
+> Current story: —
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -65,7 +65,7 @@
 | STORY-020 | 5G SBA HTTP/2 Proxy (AUSF/UDM) | L | [x] DONE | — | STORY-015, STORY-016 | 2026-03-20 |
 | STORY-021 | Operator Failover & Circuit Breaker | L | [x] DONE | — | STORY-018 | 2026-03-20 |
 
-### Phase 4: Policy & Orchestration [PENDING]
+### Phase 4: Policy & Orchestration [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -80,7 +80,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-031 | Background Job Runner & Dashboard | L | [ ] PENDING | — | STORY-006, STORY-013 | — |
+| STORY-031 | Background Job Runner & Dashboard | L | [x] DONE | Gate PASS | STORY-006, STORY-013 | 2026-03-21 |
 | STORY-028 | eSIM Profile Management & SM-DP+ | L | [ ] PENDING | — | STORY-011 | — |
 | STORY-029 | OTA SIM Management (APDU) | M | [ ] PENDING | — | STORY-011, STORY-031 | — |
 | STORY-030 | Bulk State Change / Policy / Operator Switch | L | [ ] PENDING | — | STORY-012, STORY-028, STORY-031 | — |
@@ -157,6 +157,9 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-21 | GATE | Phase 4 Gate PASS — Deploy OK, smoke OK, 672/672 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 1 runtime bug fixed: SQL ambiguous column in JOIN queries (GetVersionWithTenant, GetRolloutByIDWithTenant, GetActiveRolloutForPolicy). Report: docs/reports/phase-4-gate.md | Phase 5 ready |
+| 2026-03-21 | PHASE | Phase 4 (Policy & Orchestration) completed — 6 stories (STORY-022 to STORY-027). Policy DSL parser/evaluator, CRUD with versioning, dry-run simulation, staged rollout with CoA, Steering of Roaming engine, RAT-type awareness across all layers. All policy and orchestration features operational. | Phase 5 (eSIM & Advanced Ops) ready to start |
+| 2026-03-21 | DONE | STORY-027 completed — RAT-Type Awareness (All Layers). Canonical `rattype` package (internal/aaa/rattype/) with enum + mapping functions for RADIUS/Diameter/5G SBA. DSL parser extended with 14 RAT aliases. SoR engine aligned to canonical constants. Session -> SIM last_rat_type update via functional options (WithSIMStore). 14 files modified, 672 tests passing. | F-026 (RAT-type awareness) fully delivered. Phase 4 complete. |
 | 2026-03-21 | REVIEW | STORY-026 review completed. SoR cache row added to ARCHITECTURE.md caching table. TBL-06 schema updated with sor_priority, cost_per_mb, supported_rat_types columns. TBL-17 schema updated with sor_decision JSONB. 5 glossary terms added (SoR Decision, SoR Priority, Operator Lock, IMSI Prefix Routing, Cost-Based Selection). Post-STORY-026 note added to STORY-027 for RAT enum alignment. | ARCHITECTURE.md, GLOSSARY.md, db/operator.md, db/aaa-analytics.md, STORY-027 |
 | 2026-03-21 | DONE | STORY-025 completed — Policy Staged Rollout (Canary). Rollout service (internal/policy/rollout/) with StartRollout, ExecuteStage, AdvanceRollout, RollbackRollout, GetProgress. 4 API endpoints (API-096 to API-099) under policy_editor role. Store: TBL-15 (policy_assignments), TBL-16 (policy_rollouts) with 15 store methods. CoA dispatch per active session in batches of 1000. NATS policy.rollout_progress events, WebSocket push. Async processor for stages >100K SIMs. SessionProvider/CoADispatcher interfaces for cross-service DI. Gate fixes: tenantID resolution (critical), policy_id response, errors field. 25 new tests, 1008 total passing. | STORY-046 (frontend policy editor) unblocked for rollout UI |
 | 2026-03-21 | DONE | STORY-024 completed — Policy Dry-Run Simulation. DryRun service (internal/policy/dryrun/) with Execute(), CountMatchingSIMs(), buildFiltersFromMatch(), DetectBehavioralChanges(). Async job processor for >100K SIMs (internal/job/dryrun.go). Handler: POST /api/v1/policy-versions/:id/dry-run (API-094) with sync 200 / async 202 split. SIMFleetFilters + aggregation queries in store/sim.go (reusable by STORY-025). Redis cache 5min TTL. 26 new tests, 623 total passing. | STORY-025 (staged rollout) unblocked — can use dry-run data + fleet query infrastructure |
@@ -164,6 +167,7 @@
 | 2026-03-21 | DONE | STORY-022 completed — Policy DSL Parser & Evaluator. Full lexer, parser (recursive descent), AST, compiler (AST → JSON with unit normalization), evaluator (MATCH filtering, WHEN evaluation with last-match-wins, CHARGING with RAT multiplier). 7 source files + 4 test files in `internal/policy/dsl/`. 47 tests, all pass. Gate fixed time_of_day range evaluation with midnight wrapping. Pure computation library — no DB/Redis/NATS I/O. | STORY-023/024/025/027 unblocked, STORY-046 (frontend policy editor) partially unblocked |
 | 2026-03-20 | PHASE | Phase 3 (AAA Engine) completed — 7 stories (STORY-015 to STORY-021). RADIUS server, EAP-SIM/AKA/AKA', session management, pluggable operator adapter, Diameter Gx/Gy server, 5G SBA proxy, operator failover with circuit breaker, NATS event publishing, notification service (SVC-08), WebSocket hub, SLA tracking. All AAA protocols operational. | Phase 4 (Policy & Orchestration) ready to start |
 | 2026-03-20 | DONE | STORY-021 completed — Operator Failover & Circuit Breaker (remaining scope). NATS event publishing on health state transitions (operator.health_changed, alert.triggered), notification service (SVC-08) with multi-channel dispatch (email/telegram/in-app), WebSocket hub with NATS relay and tenant broadcast, SLA tracking with Redis sorted set latency and violation detection. 64 tests, all pass. | STORY-026 (SoR engine) unblocked, STORY-038/040 scope reduced |
+| 2026-03-21 | DONE | STORY-031 completed — Background Job System. Distributed Redis locking (SETNX + Lua atomic release/renew), cron-like scheduler with Redis dedup, timeout detection (30min auto-fail), per-tenant concurrency control (default 5), graceful cancel via context propagation, enhanced cancel/retry API responses, 11 job type constants with 7 stub processors, 9 new config fields. 40 job tests, 696 total, 0 failures. | STORY-029, STORY-030 unblocked (partial) |
 | 2026-03-20 | DONE | STORY-020 completed — 5G SBA HTTP/2 Proxy (AUSF/UDM). HTTP/2 server on :8443 with TLS/mTLS, AUSF 5G-AKA authentication (initiate + confirm), UDM security-information + auth-events + UECM registration, SUPI/SUCI resolution, S-NSSAI slice authentication, EAP-AKA' SBA proxy, NRF registration placeholder (register/deregister/heartbeat/discover/notify), session tracking with protocol_type='5g_sba' + slice_info JSONB, SBA health checker integrated into /api/health. Migration adds protocol_type + slice_info columns with partial index. 22 tests, all pass. | STORY-021 (next in Phase 3), STORY-027 (RAT awareness — 5G SBA already sets rat_type='nr_5g'), STORY-032 (CDR — should consume 5G SBA session events) |
 | 2026-03-20 | DONE | STORY-019 completed — Diameter Protocol Server (Gx/Gy). Full RFC 6733 base protocol, TCP :3868 listener, CER/CEA capabilities exchange, DWR/DWA watchdog + failover, DPR/DPA graceful disconnect, Gx (PCRF) CCR-I/U/T with PCC rules, Gy (OCS) CCR-I/U/T/E with credit control, RAR/RAA mid-session re-auth, AVP encode/decode (standard + 3GPP vendor-specific), session state machine (idle/open/pending/closed), multi-peer support, health check integration. 53 tests, all pass with -race. | STORY-020 (5G SBA), STORY-032 (CDR) unblocked |
 | 2026-03-20 | DONE | STORY-017 completed — Session Management & Concurrent Control. 4 session API endpoints (list, stats, disconnect, bulk disconnect), concurrent session control with oldest eviction, idle/hard timeout sweeper, Redis session cache, NATS session events, bulk disconnect as background job. 25 tests across 5 files. | STORY-025, STORY-033, STORY-036, STORY-052 unblocked (partial) |

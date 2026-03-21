@@ -156,15 +156,65 @@ func main() {
 	bulkHandler := simapi.NewBulkHandler(jobStore, eventBus, log.Logger)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
 
+	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
 	rolloutStageProc := job.NewRolloutStageProcessor(rolloutSvc, policyStore, jobStore, eventBus, log.Logger)
-	jobRunner := job.NewRunner(jobStore, eventBus, log.Logger)
+	jobRunner := job.NewRunner(jobStore, eventBus, distLock, job.RunnerConfig{
+		MaxConcurrentPerTenant: cfg.JobMaxConcurrentPerTenant,
+		LockRenewInterval:     cfg.JobLockRenewInterval,
+	}, log.Logger)
 	jobRunner.Register(importProcessor)
 	jobRunner.Register(dryRunProcessor)
 	jobRunner.Register(rolloutStageProc)
+
+	purgeSweepStub := job.NewStubProcessor(job.JobTypePurgeSweep, jobStore, eventBus, log.Logger)
+	ipReclaimStub := job.NewStubProcessor(job.JobTypeIPReclaim, jobStore, eventBus, log.Logger)
+	slaReportStub := job.NewStubProcessor(job.JobTypeSLAReport, jobStore, eventBus, log.Logger)
+	bulkStateChangeStub := job.NewStubProcessor(job.JobTypeBulkStateChange, jobStore, eventBus, log.Logger)
+	bulkPolicyAssignStub := job.NewStubProcessor(job.JobTypeBulkPolicyAssign, jobStore, eventBus, log.Logger)
+	otaCommandStub := job.NewStubProcessor(job.JobTypeOTACommand, jobStore, eventBus, log.Logger)
+	bulkEsimSwitchStub := job.NewStubProcessor(job.JobTypeBulkEsimSwitch, jobStore, eventBus, log.Logger)
+	jobRunner.Register(purgeSweepStub)
+	jobRunner.Register(ipReclaimStub)
+	jobRunner.Register(slaReportStub)
+	jobRunner.Register(bulkStateChangeStub)
+	jobRunner.Register(bulkPolicyAssignStub)
+	jobRunner.Register(otaCommandStub)
+	jobRunner.Register(bulkEsimSwitchStub)
+
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
+	}
+
+	jobHandler.SetCanceller(jobRunner)
+
+	timeoutDetector := job.NewTimeoutDetector(jobStore, eventBus,
+		time.Duration(cfg.JobTimeoutMinutes)*time.Minute,
+		cfg.JobTimeoutCheckInterval,
+		log.Logger,
+	)
+	timeoutDetector.Start()
+
+	var cronScheduler *job.Scheduler
+	if cfg.CronEnabled {
+		cronScheduler = job.NewScheduler(jobStore, eventBus, rdb.Client, log.Logger)
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "purge_sweep",
+			Schedule: cfg.CronPurgeSweep,
+			JobType:  job.JobTypePurgeSweep,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "ip_reclaim",
+			Schedule: cfg.CronIPReclaim,
+			JobType:  job.JobTypeIPReclaim,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "sla_report",
+			Schedule: cfg.CronSLAReport,
+			JobType:  job.JobTypeSLAReport,
+		})
+		cronScheduler.Start()
 	}
 
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
@@ -196,6 +246,8 @@ func main() {
 		bus.SubjectOperatorHealthChanged,
 		bus.SubjectAlertTriggered,
 		bus.SubjectPolicyRolloutProgress,
+		bus.SubjectJobProgress,
+		bus.SubjectJobCompleted,
 	}); err != nil {
 		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
 	}
@@ -387,6 +439,14 @@ func main() {
 		log.Info().Msg("stopping session sweeper")
 		sessionSweeper.Stop()
 	}
+
+	if cronScheduler != nil {
+		log.Info().Msg("stopping cron scheduler")
+		cronScheduler.Stop()
+	}
+
+	log.Info().Msg("stopping timeout detector")
+	timeoutDetector.Stop()
 
 	log.Info().Msg("stopping job runner")
 	jobRunner.Stop()

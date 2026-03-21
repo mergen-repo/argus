@@ -37,7 +37,7 @@ func NewRolloutStageProcessor(
 }
 
 func (p *RolloutStageProcessor) Type() string {
-	return "policy_rollout_stage"
+	return JobTypeRolloutStage
 }
 
 type rolloutStagePayload struct {

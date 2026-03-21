@@ -34,7 +34,7 @@ func NewDryRunProcessor(
 }
 
 func (p *DryRunProcessor) Type() string {
-	return "policy_dry_run"
+	return JobTypePolicyDryRun
 }
 
 type dryRunPayload struct {
@@ -85,7 +85,7 @@ func (p *DryRunProcessor) Process(ctx context.Context, job *store.Job) error {
 	_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
 		"job_id":    job.ID.String(),
 		"tenant_id": job.TenantID.String(),
-		"type":      "policy_dry_run",
+		"type":      JobTypePolicyDryRun,
 		"state":     "completed",
 	})
 

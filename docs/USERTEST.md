@@ -695,3 +695,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 1. Unit testler: `go test ./internal/aaa/rattype/... -v` -- 9 test gecmeli
 2. Full suite: `go test ./... -count=1` -- 672+ test gecmeli, regresyon yok
 3. Build: `go build ./...` -- Hatasiz derlenmeli
+
+---
+
+## STORY-031: Background Job System
+
+Onkosul: `make up` ile Docker ortami calisir durumda olmali.
+
+1. Job listele: GET /api/v1/jobs -- 200 + bos veya mevcut job listesi
+2. Job detay: GET /api/v1/jobs/{id} -- 200 + progress, duration, locked_by
+3. Job iptal: POST /api/v1/jobs/{id}/cancel -- 200 + state=cancelled (veya 422 zaten tamamlanmis)
+4. Job tekrar: POST /api/v1/jobs/{id}/retry -- 201 + new_job_id (veya 422 hala calisiyor)
+5. Unit testler: `go test ./internal/job/... ./internal/api/job/... -v` -- 40+ test gecmeli
+6. Full suite: `go test ./... -count=1` -- 696+ test gecmeli
