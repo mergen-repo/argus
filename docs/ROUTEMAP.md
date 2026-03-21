@@ -1,7 +1,7 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-22
-> Current phase: DEVELOPMENT — Phase 5: eSIM & Advanced Ops [DONE, Gate Pending]
+> Current phase: DEVELOPMENT — Phase 6: Analytics & BI
 > Overall progress: 55%
 
 ---
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | GATE | Phase 5 Gate PASS — Deploy OK, smoke OK, 797/797 tests passed, 14 API endpoints verified, 2 DB migrations confirmed. 3 runtime bugs fixed: OTA security_mode default empty string (DB check constraint), job runner tenant context missing (segment queries failed), OTA FK on partitioned sims table (removed like esim_profiles pattern). Report: docs/reports/phase-5-gate.md | Phase 6 ready |
+| 2026-03-22 | PHASE | Phase 5 (eSIM & Advanced Ops) completed — 4 stories (STORY-028, STORY-029, STORY-030, STORY-031). eSIM profile management with SM-DP+ adapter, OTA SIM management via APDU/SMS-PP/BIP, bulk operations (state change/policy assign/operator switch), background job system with distributed locking. All eSIM and advanced ops features operational. | Phase 6 (Analytics & BI) ready to start |
 | 2026-03-22 | REVIEW | STORY-030 review completed. 3 glossary terms added (Bulk Operation, Undo Record, Partial Success). Job Runner glossary term updated with real vs. stub processor list. USERTEST error report endpoint path fixed (/error-report -> /errors). 1 STORY-036 post-note added (bulk event burst filtering). Phase 5 complete -- Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, USERTEST.md, STORY-036 |
 | 2026-03-22 | DONE | STORY-030 completed -- Bulk Operations (State Change, Policy Assign, Operator Switch). 3 bulk API endpoints (API-064..066), 3 real job processors replacing stubs, forward+undo mode with per-SIM previous_state tracking, per-SIM distributed locking (30s TTL), partial success with error_report JSONB, CSV error report export, eSIM switch uses ESimProfileStore.Switch() and skips physical SIMs, batch size 100, NATS progress publishing. SegmentStore extended with ListMatchingSIMIDs and ListMatchingSIMIDsWithDetails. 13 new tests, 797 total passing. | Phase 5 complete, Phase Gate ready |
 | 2026-03-22 | REVIEW | STORY-029 review completed. 7 glossary terms added (SMS-PP, BIP, KIC, KID, GSM 03.48, TAR + APDU enriched). Decision IDs renumbered to DEV-090..094 (collision with STORY-028 DEV-085..088 fixed). TBL-26 (ota_commands) added to DB schema index. USERTEST.md endpoint paths corrected (4 wrong URLs fixed). OTA Redis key namespace `ota:ratelimit:` added to CONFIG.md. | GLOSSARY.md, decisions.md, db/_index.md, CONFIG.md, ARCHITECTURE.md, USERTEST.md, ROUTEMAP.md |
