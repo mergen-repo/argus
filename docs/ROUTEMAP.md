@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 32/55 (58%)
+> Stories completed: 33/55 (60%)
 > Current story: —
 > Current step: —
 
@@ -91,7 +91,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-032 | CDR Processing & Rating Engine | L | [x] DONE | — | STORY-015, STORY-019 | 2026-03-22 |
 | STORY-033 | Real-Time Metrics & Observability | M | [x] DONE | — | STORY-006, STORY-015 | 2026-03-22 |
-| STORY-034 | Usage Analytics Dashboard | M | [~] IN PROGRESS | Commit | STORY-032 | — |
+| STORY-034 | Usage Analytics Dashboard | M | [x] DONE | — | STORY-032 | 2026-03-22 |
 | STORY-035 | Cost Analytics & Optimization | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-036 | Anomaly Detection Engine | L | [ ] PENDING | — | STORY-032, STORY-017 | — |
 | STORY-037 | Connectivity Diagnostics | M | [ ] PENDING | — | STORY-015, STORY-011 | — |
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-034 review completed. 3 new glossary terms added (Usage Analytics, Period Resolution, Real-Time Aggregation). cdrs_monthly continuous aggregate documented in aaa-analytics.md. API-052 (per-SIM usage) noted as unimplemented -- not in STORY-034 scope. 0 blocking changes for downstream stories. | ROUTEMAP.md, GLOSSARY.md, db/aaa-analytics.md |
+| 2026-03-22 | DONE | STORY-034 completed -- Usage Analytics Dashboards. GET /api/v1/analytics/usage (API-111) with period resolution (1h/24h/7d/30d/custom), group-by (operator/apn/rat_type), breakdowns, top 20 consumers, comparison mode with delta percentages. TimescaleDB cdrs_monthly aggregate created, real-time aggregation enabled on all 3 views. SQL injection prevention via dimension allowlist. 39 new tests. | STORY-035 next |
 | 2026-03-22 | REVIEW | STORY-033 review completed. 4 new glossary terms added (Metrics Collector, MetricsRecorder Interface, Metrics Pusher, System Health Status). ARCHITECTURE.md caching table updated with auth rate counters and latency window rows. WEBSOCKET_EVENTS.md metrics.realtime schema updated to match actual RealtimePayload implementation (simplified from original spec). | ROUTEMAP.md, GLOSSARY.md, ARCHITECTURE.md, WEBSOCKET_EVENTS.md |
 | 2026-03-22 | DONE | STORY-033 completed -- Built-In Observability & Real-Time Metrics. Redis-based auth rate counters (INCR with 5s TTL), latency percentiles (p50/p95/p99) via sorted set with 60s sliding window, per-operator metrics breakdown, system health status (healthy/degraded/critical). GET /api/v1/system/metrics (super_admin), GET /metrics (Prometheus/OpenMetrics), WS metrics.realtime push every 1s. RADIUS server instrumented via MetricsRecorder interface. 13 new tests, 41 packages passing. | STORY-043 (frontend dashboard) partially unblocked |
 | 2026-03-22 | REVIEW | STORY-032 review completed. 4 new glossary terms added (Rating Engine, Cost Aggregation, CDR Consumer, CDR Export). CDR term expanded. Job Runner term updated with cdr_export processor. ALGORITHMS.md Section 5 package path corrected. idx_cdrs_dedup added to TBL-18 index docs. STORY-034, STORY-035 fully unblocked. | ROUTEMAP.md, GLOSSARY.md, ALGORITHMS.md, db/aaa-analytics.md |

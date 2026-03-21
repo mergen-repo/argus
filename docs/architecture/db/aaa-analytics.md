@@ -116,4 +116,26 @@ SELECT
     SUM(carrier_cost) AS total_carrier_cost
 FROM cdrs
 GROUP BY bucket, tenant_id, operator_id;
+
+-- Monthly usage per tenant/operator (STORY-034)
+CREATE MATERIALIZED VIEW cdrs_monthly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 month', timestamp) AS bucket,
+    tenant_id,
+    operator_id,
+    apn_id,
+    rat_type,
+    COUNT(*) AS record_count,
+    COUNT(DISTINCT sim_id) AS unique_sims,
+    SUM(bytes_in + bytes_out) AS total_bytes,
+    SUM(bytes_in) AS total_bytes_in,
+    SUM(bytes_out) AS total_bytes_out,
+    SUM(usage_cost) AS total_usage_cost,
+    SUM(carrier_cost) AS total_carrier_cost
+FROM cdrs
+GROUP BY bucket, tenant_id, operator_id, apn_id, rat_type;
+-- Refresh: every 6h, 3-month offset, real-time aggregation enabled
 ```
+
+All three continuous aggregates have `materialized_only = false` (real-time aggregation) enabled, ensuring queries return current data by combining materialized results with recent un-aggregated rows.
