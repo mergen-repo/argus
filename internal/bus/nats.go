@@ -25,6 +25,9 @@ const (
 	SubjectJobProgress           = "argus.jobs.progress"
 	SubjectCacheInvalidate       = "argus.cache.invalidate"
 	SubjectAuditCreate           = "argus.events.audit.create"
+	SubjectPolicyRolloutProgress = "argus.events.policy.rollout_progress"
+	SubjectAnomalyDetected       = "argus.events.anomaly.detected"
+	SubjectAuthAttempt           = "argus.events.auth.attempt"
 
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"

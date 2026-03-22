@@ -13,6 +13,7 @@ const (
 	JobTypePolicyDryRun     = "policy_dry_run"
 	JobTypeRolloutStage     = "policy_rollout_stage"
 	JobTypeCDRExport        = "cdr_export"
+	JobTypeAnomalyBatch     = "anomaly_batch_detection"
 )
 
 var AllJobTypes = []string{
@@ -28,4 +29,5 @@ var AllJobTypes = []string{
 	JobTypePolicyDryRun,
 	JobTypeRolloutStage,
 	JobTypeCDRExport,
+	JobTypeAnomalyBatch,
 }

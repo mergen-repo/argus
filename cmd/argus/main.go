@@ -13,6 +13,7 @@ import (
 	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
 	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
+	anomalysvc "github.com/btopcu/argus/internal/analytics/anomaly"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
@@ -21,6 +22,7 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
+	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -185,6 +187,37 @@ func main() {
 	}
 	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, log.Logger)
 
+	anomalyStore := store.NewAnomalyStore(pg.Pool)
+	anomalyThresholds := anomalysvc.DefaultThresholds()
+	realtimeDetector := anomalysvc.NewRealtimeDetector(rdb.Client, anomalyThresholds, log.Logger)
+	anomalyEngine := anomalysvc.NewEngine(
+		realtimeDetector,
+		anomalyStore,
+		&simSuspenderAdapter{simStore},
+		eventBus,
+		anomalysvc.EngineConfig{
+			Thresholds:     anomalyThresholds,
+			AlertSubject:   bus.SubjectAlertTriggered,
+			AnomalySubject: bus.SubjectAnomalyDetected,
+		},
+		log.Logger,
+	)
+	if err := anomalyEngine.Start(&eventBusAnomalySubscriber{eventBus}); err != nil {
+		log.Warn().Err(err).Msg("failed to start anomaly engine")
+	}
+	anomalyHandler := anomalyapi.NewHandler(anomalyStore, log.Logger)
+
+	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
+	batchDetector := anomalysvc.NewBatchDetector(
+		anomalyStoreAdapter,
+		eventBus,
+		&simSuspenderAdapter{simStore},
+		anomalyThresholds,
+		bus.SubjectAlertTriggered,
+		bus.SubjectAnomalyDetected,
+		log.Logger,
+	)
+
 	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
@@ -214,6 +247,9 @@ func main() {
 
 	cdrExportProc := job.NewCDRExportProcessor(jobStore, cdrStore, eventBus, log.Logger)
 	jobRunner.Register(cdrExportProc)
+
+	anomalyBatchProc := job.NewAnomalyBatchProcessor(batchDetector, jobStore, eventBus, log.Logger)
+	jobRunner.Register(anomalyBatchProc)
 
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
@@ -245,6 +281,11 @@ func main() {
 			Name:     "sla_report",
 			Schedule: cfg.CronSLAReport,
 			JobType:  job.JobTypeSLAReport,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "anomaly_batch_detection",
+			Schedule: "@hourly",
+			JobType:  job.JobTypeAnomalyBatch,
 		})
 		cronScheduler.Start()
 	}
@@ -434,6 +475,7 @@ func main() {
 		OTAHandler:         otaHandler,
 		CDRHandler:         cdrHandler,
 		AnalyticsHandler:   analyticsHandler,
+		AnomalyHandler:     anomalyHandler,
 		MetricsHandler:     metricsHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
@@ -522,6 +564,9 @@ func main() {
 
 	log.Info().Msg("stopping health checker")
 	healthChecker.Stop()
+
+	log.Info().Msg("stopping anomaly engine")
+	anomalyEngine.Stop()
 
 	log.Info().Msg("stopping cdr consumer")
 	cdrConsumer.Stop()
@@ -744,4 +789,25 @@ func (a *rolloutCoAAdapter) SendCoA(ctx context.Context, req rollout.CoARequest)
 		Status:  result.Status,
 		Message: result.Message,
 	}, nil
+}
+
+type eventBusAnomalySubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusAnomalySubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (anomalysvc.Subscription, error) {
+	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
+	if err != nil {
+		return nil, err
+	}
+	return &natsSubWrapper{sub: sub}, nil
+}
+
+type simSuspenderAdapter struct {
+	s *store.SIMStore
+}
+
+func (a *simSuspenderAdapter) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID, reason *string) error {
+	_, err := a.s.Suspend(ctx, tenantID, simID, userID, reason)
+	return err
 }
