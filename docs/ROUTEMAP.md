@@ -113,7 +113,7 @@
 | STORY-043 | Frontend: Main Dashboard | L | [x] DONE | — | STORY-042, STORY-040 | 2026-03-22 |
 | STORY-044 | Frontend: SIM List + Detail | XL | [x] DONE | — | STORY-043, STORY-011 | 2026-03-22 |
 | STORY-045 | Frontend: APN + Operator Pages | M | [x] DONE | — | STORY-043, STORY-009 | 2026-03-22 |
-| STORY-046 | Frontend: Policy DSL Editor | XL | [~] IN PROGRESS | Commit | STORY-043, STORY-022 | — |
+| STORY-046 | Frontend: Policy DSL Editor | XL | [~] IN PROGRESS | Review | STORY-043, STORY-022 | — |
 | STORY-047 | Frontend: Sessions + Jobs + Audit | L | [ ] PENDING | — | STORY-043, STORY-040 | — |
 | STORY-048 | Frontend: Analytics Pages | L | [ ] PENDING | — | STORY-043, STORY-032 | — |
 | STORY-049 | Frontend: Settings Pages | M | [ ] PENDING | — | STORY-043, STORY-005 | — |
