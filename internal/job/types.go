@@ -14,6 +14,9 @@ const (
 	JobTypeRolloutStage     = "policy_rollout_stage"
 	JobTypeCDRExport        = "cdr_export"
 	JobTypeAnomalyBatch     = "anomaly_batch_detection"
+	JobTypeS3Archival       = "s3_archival"
+	JobTypeDataRetention    = "data_retention"
+	JobTypeStorageMonitor   = "storage_monitor"
 )
 
 var AllJobTypes = []string{
@@ -30,4 +33,7 @@ var AllJobTypes = []string{
 	JobTypeRolloutStage,
 	JobTypeCDRExport,
 	JobTypeAnomalyBatch,
+	JobTypeS3Archival,
+	JobTypeDataRetention,
+	JobTypeStorageMonitor,
 }

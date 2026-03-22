@@ -99,7 +99,12 @@ type Config struct {
 	CronPurgeSweep            string        `envconfig:"CRON_PURGE_SWEEP" default:"@daily"`
 	CronIPReclaim             string        `envconfig:"CRON_IP_RECLAIM" default:"@hourly"`
 	CronSLAReport             string        `envconfig:"CRON_SLA_REPORT" default:"@daily"`
+	CronS3Archival            string        `envconfig:"CRON_S3_ARCHIVAL" default:"0 3 * * 0"`
+	CronDataRetention         string        `envconfig:"CRON_DATA_RETENTION" default:"@daily"`
+	CronStorageMonitor        string        `envconfig:"CRON_STORAGE_MONITOR" default:"@hourly"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
+
+	StorageAlertPct           float64       `envconfig:"STORAGE_ALERT_PCT" default:"80"`
 
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`

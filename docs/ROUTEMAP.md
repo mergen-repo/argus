@@ -125,7 +125,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-051 | E2E Auth → SIM → Policy Flow Test | L | [x] DONE | — | Phase 8 | 2026-03-23 |
 | STORY-052 | AAA Performance Tuning & Benchmarks | L | [x] DONE | — | STORY-015, STORY-017 | 2026-03-23 |
-| STORY-053 | Data Volume Optimization & Archival | M | [ ] PENDING | — | STORY-032 | — |
+| STORY-053 | Data Volume Optimization & Archival | M | [x] DONE | — | STORY-032 | 2026-03-23 |
 | STORY-054 | Security Hardening (TLS, CSP, Audit) | M | [ ] PENDING | — | Phase 8 | — |
 | STORY-055 | Tenant Onboarding E2E Wizard | M | [ ] PENDING | — | STORY-050 | — |
 

@@ -115,6 +115,17 @@ func main() {
 	defer pg.Close()
 	log.Info().Msg("postgres connected")
 
+	var pgReadReplica *store.Postgres
+	if cfg.DatabaseReadReplicaURL != "" {
+		pgReadReplica, err = store.NewPostgres(ctx, cfg.DatabaseReadReplicaURL, cfg.DatabaseMaxConns/2, cfg.DatabaseMaxIdleConns/2, cfg.DatabaseConnMaxLife)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to connect read replica — analytics will use primary")
+		} else {
+			defer pgReadReplica.Close()
+			log.Info().Msg("read replica connected")
+		}
+	}
+
 	rdb, err := cache.NewRedis(ctx, cfg.RedisURL, cfg.RedisMaxConns, cfg.RedisReadTimeout, cfg.RedisWriteTimeout)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect redis")
@@ -203,8 +214,13 @@ func main() {
 	diagHandler := diagapi.NewHandler(diagService, rdb.Client, log.Logger)
 
 	cdrStore := store.NewCDRStore(pg.Pool)
-	usageAnalyticsStore := store.NewUsageAnalyticsStore(pg.Pool)
-	costAnalyticsStore := store.NewCostAnalyticsStore(pg.Pool)
+	analyticsPool := pg.Pool
+	if pgReadReplica != nil {
+		analyticsPool = pgReadReplica.Pool
+		log.Info().Msg("analytics queries routed to read replica")
+	}
+	usageAnalyticsStore := store.NewUsageAnalyticsStore(analyticsPool)
+	costAnalyticsStore := store.NewCostAnalyticsStore(analyticsPool)
 	costService := costsvc.NewService(costAnalyticsStore, log.Logger)
 	analyticsHandler := analyticsapi.NewHandler(usageAnalyticsStore, log.Logger)
 	analyticsHandler.SetCostService(costService)
@@ -280,6 +296,19 @@ func main() {
 	anomalyBatchProc := job.NewAnomalyBatchProcessor(batchDetector, jobStore, eventBus, log.Logger)
 	jobRunner.Register(anomalyBatchProc)
 
+	storageMonitorStore := store.NewStorageMonitorStore(pg.Pool)
+	dataLifecycleStore := store.NewDataLifecycleStore(pg.Pool)
+
+	storageMonitorProc := job.NewStorageMonitorProcessor(jobStore, storageMonitorStore, eventBus, cfg.StorageAlertPct, log.Logger)
+	jobRunner.Register(storageMonitorProc)
+
+	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
+	jobRunner.Register(dataRetentionProc)
+
+	var s3Uploader job.S3Uploader
+	s3ArchivalProc := job.NewS3ArchivalProcessor(jobStore, dataLifecycleStore, storageMonitorStore, cdrStore, s3Uploader, eventBus, cfg.S3Bucket, log.Logger)
+	jobRunner.Register(s3ArchivalProc)
+
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
 	}
@@ -315,6 +344,21 @@ func main() {
 			Name:     "anomaly_batch_detection",
 			Schedule: "@hourly",
 			JobType:  job.JobTypeAnomalyBatch,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "storage_monitor",
+			Schedule: cfg.CronStorageMonitor,
+			JobType:  job.JobTypeStorageMonitor,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "data_retention",
+			Schedule: cfg.CronDataRetention,
+			JobType:  job.JobTypeDataRetention,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "s3_archival",
+			Schedule: cfg.CronS3Archival,
+			JobType:  job.JobTypeS3Archival,
 		})
 		cronScheduler.Start()
 	}

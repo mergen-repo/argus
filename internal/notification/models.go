@@ -34,6 +34,7 @@ const (
 	EventQuotaWarning        EventType = "quota.warning"
 	EventQuotaExceeded       EventType = "quota.exceeded"
 	EventAnomalyDetected     EventType = "anomaly.detected"
+	EventStorageAlert        EventType = "storage.alert"
 )
 
 type Notification struct {
