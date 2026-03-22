@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS anomalies (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID NOT NULL REFERENCES tenants(id),
-    sim_id          UUID REFERENCES sims(id),
+    sim_id          UUID,
     type            TEXT NOT NULL CHECK (type IN ('sim_cloning', 'data_spike', 'auth_flood', 'nas_flood')),
     severity        TEXT NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low')),
     state           TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'acknowledged', 'resolved', 'false_positive')),
