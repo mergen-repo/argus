@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-23
-> Current phase: DEVELOPMENT — Phase 8: Frontend Portal
-> Overall progress: 85%
+> Current phase: DEVELOPMENT — Phase 9: Integration & Polish
+> Overall progress: 91%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 47/55 (85%)
+> Stories completed: 50/55 (91%)
 > Current story: —
 > Current step: —
 
@@ -104,7 +104,7 @@
 | STORY-039 | Compliance Reporting & Auto-Purge | M | [x] DONE | — | STORY-007, STORY-011 | 2026-03-22 |
 | STORY-040 | WebSocket Event Server | L | [x] DONE | — | STORY-006 | 2026-03-22 |
 
-### Phase 8: Frontend Portal [PENDING]
+### Phase 8: Frontend Portal [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-23 | GATE | Phase 8 Gate PASS — Deploy OK, 990 Go tests, frontend build clean, Playwright visual verification. 3 bugs fixed: sessions API sor_decision column, users page state/status normalization, health page services synthesis. 27 pages, 26 components, 13 hooks, 3 stores verified. Report: docs/reports/phase-8-gate.md | Phase 9 ready |
+| 2026-03-23 | PHASE | Phase 8 (Frontend Portal) completed — 10 stories (STORY-041 to STORY-050). React 19 + Vite 6 scaffold, auth flow (JWT in memory, 2FA), main dashboard with live metrics, SIM list/detail (5 tabs), APN/Operator pages, policy DSL editor (CodeMirror 6), monitoring pages (sessions/jobs/eSIM/audit), analytics (usage/cost/anomalies), settings (users/API keys/IP pools/notifications/health/tenants), onboarding wizard, notification center. All frontend features operational. | Phase 9 (Integration & Polish) ready to start |
 | 2026-03-23 | REVIEW | STORY-047 review completed. 18/18 ACs passed. No new glossary terms needed. Skeleton now duplicated in 11 files (was 7). Bundle 425KB gzipped (was 292KB) -- code splitting urgent. ErrorBoundary still missing (7th consecutive story). Jobs table shows created_at instead of created_by (minor). eSIM operator filter and Audit user filter plumbed in hooks but no UI. Unused imports in 3 of 4 pages. WS cache updates ignore filtered views. ROUTEMAP updated: STORY-046/047 marked DONE, counter 47/55 (85%). | ROUTEMAP.md |
 | 2026-03-23 | DONE | STORY-047 completed -- Frontend Monitoring Pages (Sessions, Jobs, eSIM, Audit). Live Sessions (real-time WS session.started/ended, stats bar, force disconnect, live duration timer, highlight/fade animations). Jobs (progress bars, type/state filters, detail Sheet with error report, retry/cancel, WS job.progress/completed). eSIM Profiles (enable/disable/switch actions with confirmation dialogs, state filter). Audit Log (searchable, action/entity type/date range filters, expandable rows with JSON diff, hash chain verification with ShieldCheck/ShieldAlert banner). 12 new files (4 types, 4 hooks, 4 pages). 18/18 ACs. | STORY-048 ready |
 | 2026-03-22 | REVIEW | STORY-045 review completed. 15/15 ACs passed. No new glossary terms needed. Growing shared utility duplication flagged (RAT_DISPLAY in 6 files, Skeleton in 7 files, InfoRow in 3 files). useOperator(id) fetches full list instead of single resource. Client-side-only APN search (q param not sent to API). ErrorBoundary still missing (5th consecutive story). ROUTEMAP updated: STORY-043/044/045 marked DONE, counter 45/55 (82%). | ROUTEMAP.md |
