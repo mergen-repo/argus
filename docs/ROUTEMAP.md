@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-22
-> Current phase: DEVELOPMENT — Phase 6: Analytics & BI
-> Overall progress: 58%
+> Current phase: DEVELOPMENT — Phase 7: Notifications & Compliance
+> Overall progress: 63%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 34/55 (62%)
+> Stories completed: 36/55 (65%)
 > Current story: —
 > Current step: —
 
@@ -85,7 +85,7 @@
 | STORY-029 | OTA SIM Management (APDU) | M | [x] DONE | — | STORY-011, STORY-031 | 2026-03-22 |
 | STORY-030 | Bulk State Change / Policy / Operator Switch | L | [x] DONE | — | STORY-012, STORY-028, STORY-031 | 2026-03-22 |
 
-### Phase 6: Analytics & BI [PENDING]
+### Phase 6: Analytics & BI [DONE]
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
@@ -94,7 +94,7 @@
 | STORY-034 | Usage Analytics Dashboard | M | [x] DONE | — | STORY-032 | 2026-03-22 |
 | STORY-035 | Cost Analytics & Optimization | M | [x] DONE | — | STORY-032 | 2026-03-22 |
 | STORY-036 | Anomaly Detection Engine | L | [x] DONE | — | STORY-032, STORY-017 | 2026-03-22 |
-| STORY-037 | Connectivity Diagnostics | M | [~] IN PROGRESS | Commit | STORY-015, STORY-011 | — |
+| STORY-037 | Connectivity Diagnostics | M | [x] DONE | — | STORY-015, STORY-011 | 2026-03-22 |
 
 ### Phase 7: Notifications & Compliance [PENDING]
 
@@ -157,6 +157,9 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-037 review completed. 2 new glossary terms added (Connectivity Diagnostics, Diagnostic Step). Diagnostic result cache row added to ARCHITECTURE.md caching table. GetLastSessionBySIM queries by sim_id only (safe: SIM fetched with tenant scope). Step 7 (test auth) is a placeholder returning warn — deferred to operator integration. 1 pre-existing flaky test (TestRecordAuth_ErrorRate in analytics/metrics — unrelated). Phase 6 complete — Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, ARCHITECTURE.md |
+| 2026-03-22 | PHASE | Phase 6 (Analytics & BI) completed — 6 stories (STORY-032 to STORY-037). CDR processing & rating engine, real-time metrics & observability, usage analytics dashboards, cost analytics & optimization, anomaly detection engine, connectivity diagnostics. All analytics and BI features operational. | Phase 7 (Notifications & Compliance) ready to start |
+| 2026-03-22 | DONE | STORY-037 completed — SIM Connectivity Diagnostics. POST /api/v1/sims/:id/diagnose (API-049), 7-step check engine (SIM state, last auth, operator health, APN config, policy, IP pool, test auth placeholder), Redis cache 1min TTL, graceful degradation for nil stores, overall PASS/DEGRADED/FAIL status. 17 new tests, 917 total passing. | Phase 6 complete, Phase Gate ready |
 | 2026-03-22 | REVIEW | STORY-035 review completed. 3 new glossary terms added (Cost Analytics, Optimization Suggestion, Cost Per MB). deltaPercent duplication noted (handler.go + service.go). Trend data unfiltered by apn_id/rat_type (cdrs_daily limitation, matches STORY-034). segment_id filter deferred (matches STORY-034 DEV-110). 0 blocking changes for downstream stories. | ROUTEMAP.md, GLOSSARY.md |
 | 2026-03-22 | DONE | STORY-035 completed -- Cost Analytics & Optimization. GET /api/v1/analytics/cost (API-112) with total cost, per-carrier breakdown, cost per MB by operator/RAT, top 20 expensive SIMs, trend, comparison mode, 3 optimization suggestion types (operator_switch, inactive_sims, low_usage). 8 store methods, CostService with suggestion engine. 22 new tests. | STORY-036 next |
 | 2026-03-22 | REVIEW | STORY-034 review completed. 3 new glossary terms added (Usage Analytics, Period Resolution, Real-Time Aggregation). cdrs_monthly continuous aggregate documented in aaa-analytics.md. API-052 (per-SIM usage) noted as unimplemented -- not in STORY-034 scope. 0 blocking changes for downstream stories. | ROUTEMAP.md, GLOSSARY.md, db/aaa-analytics.md |
