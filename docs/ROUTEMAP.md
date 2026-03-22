@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-22
 > Current phase: DEVELOPMENT — Phase 8: Frontend Portal
-> Overall progress: 73%
+> Overall progress: 76%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 40/55 (73%)
+> Stories completed: 42/55 (76%)
 > Current story: —
 > Current step: —
 
@@ -108,8 +108,8 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-041 | React Scaffold & Routing | L | [~] IN PROGRESS | Review | STORY-001 | — |
-| STORY-042 | Frontend: Auth (Login + 2FA) | M | [~] IN PROGRESS | Commit | STORY-041, STORY-003 | — |
+| STORY-041 | React Scaffold & Routing | L | [x] DONE | — | STORY-001 | 2026-03-22 |
+| STORY-042 | Frontend: Auth (Login + 2FA) | M | [x] DONE | — | STORY-041, STORY-003 | 2026-03-22 |
 | STORY-043 | Frontend: Main Dashboard | L | [ ] PENDING | — | STORY-042, STORY-040 | — |
 | STORY-044 | Frontend: SIM List + Detail | XL | [ ] PENDING | — | STORY-043, STORY-011 | — |
 | STORY-045 | Frontend: APN + Operator Pages | M | [ ] PENDING | — | STORY-043, STORY-009 | — |
