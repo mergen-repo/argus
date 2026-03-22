@@ -65,6 +65,11 @@ type RouterDeps struct {
 	RateLimitPerHour   int
 	JWTSecret     string
 	Logger        zerolog.Logger
+
+	CORSConfig           *CORSConfig
+	SecurityHeadersCfg   *SecurityHeadersConfig
+	BruteForceCfg        *BruteForceConfig
+	EnableInputSanitizer bool
 }
 
 func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecret string) *chi.Mux {
@@ -82,7 +87,20 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 	r.Use(RecoveryWithZerolog(deps.Logger))
 	r.Use(CorrelationID())
 	r.Use(chimiddleware.RealIP)
+
+	if deps.SecurityHeadersCfg != nil {
+		r.Use(SecurityHeaders(*deps.SecurityHeadersCfg))
+	}
+
+	if deps.CORSConfig != nil {
+		r.Use(CORS(*deps.CORSConfig, deps.Logger))
+	}
+
 	r.Use(ZerologRequestLogger(deps.Logger))
+
+	if deps.EnableInputSanitizer {
+		r.Use(InputSanitizer(deps.Logger))
+	}
 
 	if deps.RedisClient != nil {
 		perMin := deps.RateLimitPerMinute
@@ -94,6 +112,10 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			perHour = 30000
 		}
 		r.Use(RateLimiter(deps.RedisClient, perMin, perHour, deps.Logger))
+
+		if deps.BruteForceCfg != nil {
+			r.Use(BruteForceProtection(deps.RedisClient, *deps.BruteForceCfg, deps.Logger))
+		}
 	}
 
 	r.Get("/api/health", deps.Health.Check)

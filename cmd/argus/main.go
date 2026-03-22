@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -474,6 +475,20 @@ func main() {
 
 		rolloutSvc.SetSessionProvider(&rolloutSessionAdapter{mgr: sessionMgr})
 		rolloutSvc.SetCoADispatcher(&rolloutCoAAdapter{sender: coaSender})
+
+		if cfg.RadSecCertPath != "" && cfg.RadSecKeyPath != "" {
+			radSecServer := aaaradius.NewRadSecServer(aaaradius.RadSecConfig{
+				Addr:     fmt.Sprintf(":%d", cfg.RadSecPort),
+				CertPath: cfg.RadSecCertPath,
+				KeyPath:  cfg.RadSecKeyPath,
+				CAPath:   cfg.RadSecCAPath,
+			}, radiusServer, log.Logger)
+			if err := radSecServer.Start(); err != nil {
+				log.Warn().Err(err).Msg("failed to start RadSec server")
+			} else {
+				log.Info().Int("port", cfg.RadSecPort).Msg("RadSec (RADIUS/TLS) server started")
+			}
+		}
 	}
 
 	var diameterServer *aaadiameter.Server
@@ -497,8 +512,19 @@ func main() {
 			Logger:      log.Logger,
 		})
 
-		if err := diameterServer.Start(); err != nil {
-			log.Fatal().Err(err).Msg("failed to start Diameter server")
+		if cfg.DiameterTLSEnabled && cfg.DiameterTLSCert != "" {
+			if err := diameterServer.StartWithTLS(aaadiameter.TLSConfig{
+				Enabled:  true,
+				CertPath: cfg.DiameterTLSCert,
+				KeyPath:  cfg.DiameterTLSKey,
+				CAPath:   cfg.DiameterTLSCA,
+			}); err != nil {
+				log.Fatal().Err(err).Msg("failed to start Diameter server with TLS")
+			}
+		} else {
+			if err := diameterServer.Start(); err != nil {
+				log.Fatal().Err(err).Msg("failed to start Diameter server")
+			}
 		}
 	}
 
@@ -566,6 +592,26 @@ func main() {
 	if sbaServer != nil {
 		health.SetSBAChecker(sbaServer)
 	}
+	secHeadersCfg := gateway.DefaultSecurityHeadersConfig()
+	if cfg.CSPDirectives != "" {
+		secHeadersCfg.CSPDirectives = cfg.CSPDirectives
+	}
+
+	corsCfg := gateway.DefaultCORSConfig()
+	if cfg.DevCORSAllowAll && cfg.IsDev() {
+		corsCfg.AllowAllOrigins = true
+	} else if cfg.CORSAllowedOrigins != "" {
+		corsCfg.AllowedOrigins = strings.Split(cfg.CORSAllowedOrigins, ",")
+	}
+
+	bfCfg := gateway.DefaultBruteForceConfig()
+	if cfg.BruteForceMaxAttempts > 0 {
+		bfCfg.MaxAttempts = cfg.BruteForceMaxAttempts
+	}
+	if cfg.BruteForceWindowSeconds > 0 {
+		bfCfg.WindowSeconds = cfg.BruteForceWindowSeconds
+	}
+
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
 		AuthHandler:        authHandler,
@@ -599,6 +645,10 @@ func main() {
 		RateLimitPerHour:   cfg.RateLimitPerHour,
 		JWTSecret:          cfg.JWTSecret,
 		Logger:             log.Logger,
+		SecurityHeadersCfg:   &secHeadersCfg,
+		CORSConfig:           &corsCfg,
+		BruteForceCfg:        &bfCfg,
+		EnableInputSanitizer: true,
 	})
 
 	srv := &http.Server{

@@ -112,6 +112,19 @@ type Config struct {
 
 	WSMaxConnsPerTenant int `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
 
+	RadSecPort         int    `envconfig:"RADSEC_PORT" default:"2083"`
+	DiameterTLSEnabled bool   `envconfig:"DIAMETER_TLS_ENABLED" default:"false"`
+	DiameterTLSCert    string `envconfig:"DIAMETER_TLS_CERT_PATH"`
+	DiameterTLSKey     string `envconfig:"DIAMETER_TLS_KEY_PATH"`
+	DiameterTLSCA      string `envconfig:"DIAMETER_TLS_CA_PATH"`
+
+	CORSAllowedOrigins string `envconfig:"CORS_ALLOWED_ORIGINS" default:""`
+	CSPDirectives      string `envconfig:"CSP_DIRECTIVES" default:""`
+	SecurityHeaders    bool   `envconfig:"SECURITY_HEADERS_ENABLED" default:"true"`
+
+	BruteForceMaxAttempts   int `envconfig:"BRUTE_FORCE_MAX_ATTEMPTS" default:"10"`
+	BruteForceWindowSeconds int `envconfig:"BRUTE_FORCE_WINDOW_SECONDS" default:"900"`
+
 	DevSeedData      bool `envconfig:"DEV_SEED_DATA" default:"true"`
 	DevMockOperator  bool `envconfig:"DEV_MOCK_OPERATOR" default:"true"`
 	DevCORSAllowAll  bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`
