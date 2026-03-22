@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-03-22
+> Last updated: 2026-03-23
 > Current phase: DEVELOPMENT — Phase 8: Frontend Portal
-> Overall progress: 82%
+> Overall progress: 85%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 45/55 (82%)
+> Stories completed: 47/55 (85%)
 > Current story: —
 > Current step: —
 
@@ -113,8 +113,8 @@
 | STORY-043 | Frontend: Main Dashboard | L | [x] DONE | — | STORY-042, STORY-040 | 2026-03-22 |
 | STORY-044 | Frontend: SIM List + Detail | XL | [x] DONE | — | STORY-043, STORY-011 | 2026-03-22 |
 | STORY-045 | Frontend: APN + Operator Pages | M | [x] DONE | — | STORY-043, STORY-009 | 2026-03-22 |
-| STORY-046 | Frontend: Policy DSL Editor | XL | [~] IN PROGRESS | Review | STORY-043, STORY-022 | — |
-| STORY-047 | Frontend: Sessions + Jobs + Audit | L | [~] IN PROGRESS | Commit | STORY-043, STORY-040 | — |
+| STORY-046 | Frontend: Policy DSL Editor | XL | [x] DONE | — | STORY-043, STORY-022 | 2026-03-23 |
+| STORY-047 | Frontend: Sessions + Jobs + Audit | L | [x] DONE | — | STORY-043, STORY-040 | 2026-03-23 |
 | STORY-048 | Frontend: Analytics Pages | L | [ ] PENDING | — | STORY-043, STORY-032 | — |
 | STORY-049 | Frontend: Settings Pages | M | [ ] PENDING | — | STORY-043, STORY-005 | — |
 | STORY-050 | Frontend: Onboarding + Notifications | M | [ ] PENDING | — | STORY-043, STORY-038 | — |
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-23 | REVIEW | STORY-047 review completed. 18/18 ACs passed. No new glossary terms needed. Skeleton now duplicated in 11 files (was 7). Bundle 425KB gzipped (was 292KB) -- code splitting urgent. ErrorBoundary still missing (7th consecutive story). Jobs table shows created_at instead of created_by (minor). eSIM operator filter and Audit user filter plumbed in hooks but no UI. Unused imports in 3 of 4 pages. WS cache updates ignore filtered views. ROUTEMAP updated: STORY-046/047 marked DONE, counter 47/55 (85%). | ROUTEMAP.md |
+| 2026-03-23 | DONE | STORY-047 completed -- Frontend Monitoring Pages (Sessions, Jobs, eSIM, Audit). Live Sessions (real-time WS session.started/ended, stats bar, force disconnect, live duration timer, highlight/fade animations). Jobs (progress bars, type/state filters, detail Sheet with error report, retry/cancel, WS job.progress/completed). eSIM Profiles (enable/disable/switch actions with confirmation dialogs, state filter). Audit Log (searchable, action/entity type/date range filters, expandable rows with JSON diff, hash chain verification with ShieldCheck/ShieldAlert banner). 12 new files (4 types, 4 hooks, 4 pages). 18/18 ACs. | STORY-048 ready |
 | 2026-03-22 | REVIEW | STORY-045 review completed. 15/15 ACs passed. No new glossary terms needed. Growing shared utility duplication flagged (RAT_DISPLAY in 6 files, Skeleton in 7 files, InfoRow in 3 files). useOperator(id) fetches full list instead of single resource. Client-side-only APN search (q param not sent to API). ErrorBoundary still missing (5th consecutive story). ROUTEMAP updated: STORY-043/044/045 marked DONE, counter 45/55 (82%). | ROUTEMAP.md |
 | 2026-03-22 | DONE | STORY-045 completed -- Frontend APN & Operator Pages. APN list (card grid, operator filter, search, IP pool utilization bars), APN detail (4 tabs: config, IP pools, connected SIMs, traffic chart). Operator list (card grid, health dots with pulse animation, protocol type), Operator detail (4 tabs: overview with test connection, health timeline, circuit breaker visual, traffic charts). WebSocket operator.health_changed real-time updates. 8 new files (2 types, 2 hooks, 4 pages). 15/15 ACs. | STORY-046 ready |
 | 2026-03-22 | GATE | Phase 7 Gate PASS — Deploy OK, smoke OK, 990/990 tests passed, 12 API endpoints verified, 5 DB migrations confirmed. 1 pending migration applied (notification_delivery). Report: docs/reports/phase-7-gate.md | Phase 8 ready |
