@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
 import { useLogout } from '@/hooks/use-logout'
+import { useAuthStore } from '@/stores/auth'
 
 interface NavItem {
   label: string
@@ -36,7 +37,10 @@ interface NavItem {
 interface NavGroup {
   title: string
   items: NavItem[]
+  minRole?: 'tenant_admin' | 'super_admin'
 }
+
+const ADMIN_ROLES = ['tenant_admin', 'super_admin']
 
 const navGroups: NavGroup[] = [
   {
@@ -67,6 +71,7 @@ const navGroups: NavGroup[] = [
   },
   {
     title: 'SETTINGS',
+    minRole: 'tenant_admin',
     items: [
       { label: 'Users & Roles', icon: Users, path: '/settings/users' },
       { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
@@ -76,6 +81,7 @@ const navGroups: NavGroup[] = [
   },
   {
     title: 'SYSTEM',
+    minRole: 'super_admin',
     items: [
       { label: 'Health', icon: HeartPulse, path: '/system/health' },
       { label: 'Tenants', icon: Building, path: '/system/tenants' },
@@ -83,15 +89,26 @@ const navGroups: NavGroup[] = [
   },
 ]
 
+function hasMinRole(userRole: string | undefined, minRole: 'tenant_admin' | 'super_admin'): boolean {
+  if (!userRole) return false
+  if (minRole === 'super_admin') return userRole === 'super_admin'
+  return ADMIN_ROLES.includes(userRole)
+}
+
 export function Sidebar() {
   const location = useLocation()
   const { sidebarCollapsed, toggleSidebar, darkMode, toggleDarkMode } = useUIStore()
   const handleLogout = useLogout()
+  const userRole = useAuthStore((s) => s.user?.role)
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
     return location.pathname.startsWith(path)
   }
+
+  const visibleGroups = navGroups.filter(
+    (group) => !group.minRole || hasMinRole(userRole, group.minRole),
+  )
 
   return (
     <aside
@@ -112,7 +129,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.title} className="mb-6">
             {!sidebarCollapsed && (
               <div className="mb-2 px-2 text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary">
