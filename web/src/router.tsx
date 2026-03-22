@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { AuthLayout } from '@/components/layout/auth-layout'
+import { ProtectedRoute } from '@/components/auth/protected-route'
 
 import LoginPage from '@/pages/auth/login'
 import TwoFactorPage from '@/pages/auth/two-factor'
@@ -49,31 +50,36 @@ export const router = createBrowserRouter([
     ],
   },
   {
-    element: <DashboardLayout />,
+    element: <ProtectedRoute />,
     children: [
-      { path: '/', element: <DashboardPage /> },
-      { path: '/analytics', element: <AnalyticsPage /> },
-      { path: '/analytics/cost', element: <AnalyticsCostPage /> },
-      { path: '/analytics/anomalies', element: <AnalyticsAnomaliesPage /> },
-      { path: '/sims', element: <SimListPage /> },
-      { path: '/sims/:id', element: <SimDetailPage /> },
-      { path: '/apns', element: <ApnListPage /> },
-      { path: '/apns/:id', element: <ApnDetailPage /> },
-      { path: '/operators', element: <OperatorListPage /> },
-      { path: '/operators/:id', element: <OperatorDetailPage /> },
-      { path: '/sessions', element: <SessionListPage /> },
-      { path: '/policies', element: <PolicyListPage /> },
-      { path: '/policies/:id', element: <PolicyEditorPage /> },
-      { path: '/esim', element: <EsimListPage /> },
-      { path: '/jobs', element: <JobListPage /> },
-      { path: '/audit', element: <AuditLogPage /> },
-      { path: '/notifications', element: <NotificationsPage /> },
-      { path: '/settings/users', element: <UsersPage /> },
-      { path: '/settings/api-keys', element: <ApiKeysPage /> },
-      { path: '/settings/ip-pools', element: <IpPoolsPage /> },
-      { path: '/settings/notifications', element: <NotificationConfigPage /> },
-      { path: '/system/health', element: <SystemHealthPage /> },
-      { path: '/system/tenants', element: <TenantManagementPage /> },
+      {
+        element: <DashboardLayout />,
+        children: [
+          { path: '/', element: <DashboardPage /> },
+          { path: '/analytics', element: <AnalyticsPage /> },
+          { path: '/analytics/cost', element: <AnalyticsCostPage /> },
+          { path: '/analytics/anomalies', element: <AnalyticsAnomaliesPage /> },
+          { path: '/sims', element: <SimListPage /> },
+          { path: '/sims/:id', element: <SimDetailPage /> },
+          { path: '/apns', element: <ApnListPage /> },
+          { path: '/apns/:id', element: <ApnDetailPage /> },
+          { path: '/operators', element: <OperatorListPage /> },
+          { path: '/operators/:id', element: <OperatorDetailPage /> },
+          { path: '/sessions', element: <SessionListPage /> },
+          { path: '/policies', element: <PolicyListPage /> },
+          { path: '/policies/:id', element: <PolicyEditorPage /> },
+          { path: '/esim', element: <EsimListPage /> },
+          { path: '/jobs', element: <JobListPage /> },
+          { path: '/audit', element: <AuditLogPage /> },
+          { path: '/notifications', element: <NotificationsPage /> },
+          { path: '/settings/users', element: <UsersPage /> },
+          { path: '/settings/api-keys', element: <ApiKeysPage /> },
+          { path: '/settings/ip-pools', element: <IpPoolsPage /> },
+          { path: '/settings/notifications', element: <NotificationConfigPage /> },
+          { path: '/system/health', element: <SystemHealthPage /> },
+          { path: '/system/tenants', element: <TenantManagementPage /> },
+        ],
+      },
     ],
   },
 ])

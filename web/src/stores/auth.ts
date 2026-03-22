@@ -1,67 +1,67 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
 export interface User {
   id: string
   email: string
   name: string
   role: string
-  tenant_id: string
 }
 
 interface AuthState {
   user: User | null
   token: string | null
-  refreshToken: string | null
   permissions: string[]
   isAuthenticated: boolean
+  partialToken: string | null
+  requires2FA: boolean
 
-  setUser: (user: User) => void
-  setTokens: (token: string, refreshToken: string) => void
-  setPermissions: (permissions: string[]) => void
-  login: (user: User, token: string, refreshToken: string, permissions: string[]) => void
+  setAuth: (user: User, token: string, permissions?: string[]) => void
+  setToken: (token: string) => void
+  setPartial2FA: (token: string, user: User) => void
+  clear2FA: () => void
   logout: () => void
   hasPermission: (permission: string) => boolean
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  token: null,
+  permissions: [],
+  isAuthenticated: false,
+  partialToken: null,
+  requires2FA: false,
+
+  setAuth: (user, token, permissions = []) =>
+    set({
+      user,
+      token,
+      permissions,
+      isAuthenticated: true,
+      partialToken: null,
+      requires2FA: false,
+    }),
+
+  setToken: (token) => set({ token }),
+
+  setPartial2FA: (token, user) =>
+    set({
+      partialToken: token,
+      user,
+      requires2FA: true,
+      isAuthenticated: false,
+    }),
+
+  clear2FA: () => set({ partialToken: null, requires2FA: false }),
+
+  logout: () =>
+    set({
       user: null,
       token: null,
-      refreshToken: null,
       permissions: [],
       isAuthenticated: false,
-
-      setUser: (user) => set({ user }),
-
-      setTokens: (token, refreshToken) => set({ token, refreshToken }),
-
-      setPermissions: (permissions) => set({ permissions }),
-
-      login: (user, token, refreshToken, permissions) =>
-        set({ user, token, refreshToken, permissions, isAuthenticated: true }),
-
-      logout: () =>
-        set({
-          user: null,
-          token: null,
-          refreshToken: null,
-          permissions: [],
-          isAuthenticated: false,
-        }),
-
-      hasPermission: (permission) => get().permissions.includes(permission),
+      partialToken: null,
+      requires2FA: false,
     }),
-    {
-      name: 'argus-auth',
-      partialize: (state) => ({
-        user: state.user,
-        token: state.token,
-        refreshToken: state.refreshToken,
-        permissions: state.permissions,
-        isAuthenticated: state.isAuthenticated,
-      }),
-    },
-  ),
-)
+
+  hasPermission: (permission) => get().permissions.includes(permission),
+}))

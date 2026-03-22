@@ -895,3 +895,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 6. Command palette: Ctrl+K ile arama paleti acilmali
 7. Tum rotalar: /sims, /analytics, /policies vb. tum rotalarda placeholder sayfa gorunmeli
 8. Build: `cd web && npm run build` -- hatasiz build, dist/ klasoru olusturulmali
+
+---
+
+## STORY-042: Frontend Auth (Login + 2FA)
+
+1. Login sayfasi: https://localhost/login adresine gidin -- email/password formu gorunmeli
+2. Gecersiz giris: yanlis sifre ile giris deneyin -- "Invalid credentials" hatasi gorunmeli
+3. Basarili giris: admin@argus.io / admin ile giris -- dashboard'a yonlendirilmeli
+4. 2FA akisi: 2FA aktif kullanici ile giris -- /login/2fa sayfasina yonlendirilmeli
+5. 2FA kodu: 6 haneli kodu girin -- auto-focus bir sonraki input'a gecmeli, tamamlaninca submit olmali
+6. Protected route: /sims adresine auth olmadan gidin -- /login'e yonlendirilmeli
+7. Logout: sidebar'daki logout butonuna tiklayin -- auth temizlenmeli, /login'e donulmeli
+8. Remember me: "Beni hatirla" secenegini tiklayin -- uzun sureli oturum

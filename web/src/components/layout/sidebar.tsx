@@ -21,9 +21,11 @@ import {
   ChevronRight,
   Moon,
   Sun,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
+import { useLogout } from '@/hooks/use-logout'
 
 interface NavItem {
   label: string
@@ -84,6 +86,7 @@ const navGroups: NavGroup[] = [
 export function Sidebar() {
   const location = useLocation()
   const { sidebarCollapsed, toggleSidebar, darkMode, toggleDarkMode } = useUIStore()
+  const handleLogout = useLogout()
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
@@ -151,6 +154,14 @@ export function Sidebar() {
         >
           {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           {!sidebarCollapsed && <span>{darkMode ? 'Light mode' : 'Dark mode'}</span>}
+        </button>
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-danger transition-colors"
+          title="Sign out"
+        >
+          <LogOut className="h-4 w-4" />
+          {!sidebarCollapsed && <span>Sign out</span>}
         </button>
         <button
           onClick={toggleSidebar}
