@@ -31,6 +31,7 @@ All variables are read once at startup. Changing a variable requires restart (ex
 | `WS_PORT` | int | `8081` | No | WebSocket server listen port. |
 | `LOG_LEVEL` | string | `info` | No | Zerolog level: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`. In development, defaults to `debug`. |
 | `DEPLOYMENT_MODE` | string | `single` | No | `single` (one instance) or `cluster` (multiple instances, enables distributed locking and NATS-based coordination). |
+| `WS_MAX_CONNS_PER_TENANT` | int | `100` | No | Maximum concurrent WebSocket connections per tenant. Enforced after JWT auth with close code 4002. |
 
 ---
 
