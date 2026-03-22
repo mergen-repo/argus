@@ -1,0 +1,131 @@
+export interface TimeSeriesPoint {
+  ts: string
+  total_bytes: number
+  sessions: number
+  auths: number
+  unique_sims: number
+  group_key?: string
+}
+
+export interface UsageTotals {
+  total_bytes: number
+  total_sessions: number
+  total_auths: number
+  unique_sims: number
+}
+
+export interface UsageBreakdown {
+  key: string
+  total_bytes: number
+  sessions: number
+  auths: number
+  percentage: number
+}
+
+export interface TopConsumer {
+  sim_id: string
+  total_bytes: number
+  sessions: number
+}
+
+export interface UsageComparison {
+  previous_totals: UsageTotals
+  bytes_delta_pct: number
+  sessions_delta_pct: number
+  auths_delta_pct: number
+  sims_delta_pct: number
+}
+
+export interface UsageResponse {
+  period: string
+  from: string
+  to: string
+  bucket_size: string
+  time_series: TimeSeriesPoint[]
+  totals: UsageTotals
+  breakdowns: Record<string, UsageBreakdown[]>
+  top_consumers: TopConsumer[]
+  comparison?: UsageComparison
+}
+
+export interface OperatorCost {
+  operator_id: string
+  total_usage_cost: number
+  total_carrier_cost: number
+  total_bytes: number
+  cdr_count: number
+  percentage: number
+}
+
+export interface CostPerMB {
+  operator_id: string
+  rat_type: string
+  avg_cost_per_mb: number
+  total_cost: number
+  total_mb: number
+}
+
+export interface TopExpensiveSIM {
+  sim_id: string
+  total_usage_cost: number
+  total_bytes: number
+  cdr_count: number
+  operator_id: string
+}
+
+export interface CostTrendPoint {
+  ts: string
+  total_usage_cost: number
+  total_carrier_cost: number
+  total_bytes: number
+  active_sims: number
+}
+
+export interface CostComparison {
+  previous_total_cost: number
+  cost_delta_pct: number
+  previous_bytes: number
+  bytes_delta_pct: number
+  previous_sims: number
+  sims_delta_pct: number
+}
+
+export interface CostSuggestion {
+  type: string
+  description: string
+  affected_sim_count: number
+  potential_savings: number
+  action: string
+}
+
+export interface CostResponse {
+  total_cost: number
+  currency: string
+  by_operator: OperatorCost[]
+  cost_per_mb: CostPerMB[]
+  top_expensive_sims: TopExpensiveSIM[]
+  trend: CostTrendPoint[]
+  comparison?: CostComparison
+  suggestions: CostSuggestion[]
+}
+
+export interface Anomaly {
+  id: string
+  tenant_id: string
+  sim_id?: string
+  sim_iccid?: string
+  type: string
+  severity: 'critical' | 'warning' | 'info'
+  state: 'open' | 'acknowledged' | 'resolved' | 'false_positive'
+  details: Record<string, unknown>
+  source?: string
+  detected_at: string
+  acknowledged_at?: string
+  resolved_at?: string
+}
+
+export type UsagePeriod = '1h' | '24h' | '7d' | '30d' | 'custom'
+export type UsageGroupBy = '' | 'operator' | 'apn' | 'rat_type'
+export type UsageMetric = 'total_bytes' | 'sessions' | 'auths'
+export type AnomalyState = '' | 'open' | 'acknowledged' | 'resolved' | 'false_positive'
+export type AnomalySeverity = '' | 'critical' | 'warning' | 'info'
