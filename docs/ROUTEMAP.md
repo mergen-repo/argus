@@ -1,7 +1,7 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-22
-> Current phase: DEVELOPMENT — Phase 7 complete, Phase Gate pending
+> Current phase: DEVELOPMENT — Phase 8: Frontend Portal
 > Overall progress: 73%
 
 ---
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | GATE | Phase 7 Gate PASS — Deploy OK, smoke OK, 990/990 tests passed, 12 API endpoints verified, 5 DB migrations confirmed. 1 pending migration applied (notification_delivery). Report: docs/reports/phase-7-gate.md | Phase 8 ready |
+| 2026-03-22 | PHASE | Phase 7 (Notifications & Compliance) completed — 3 stories (STORY-038, STORY-039, STORY-040). Multi-channel notification engine (email/Telegram/webhook/SMS/in-app), compliance reporting with auto-purge and KVKK/GDPR support, WebSocket real-time event server. All notifications and compliance features operational. | Phase 8 (Frontend Portal) ready to start |
 | 2026-03-22 | REVIEW | STORY-040 review completed. 3 new glossary terms added (WS Server, WS Hub, WS Close Code). WS_MAX_CONNS_PER_TENANT added to CONFIG.md. relayNATSEvent uses BroadcastAll (no tenant extraction from payload -- tenant isolation depends on upstream event publishing). Backpressure drops newest (not oldest per spec -- pragmatic, non-blocking). Phase 7 complete -- Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, CONFIG.md |
 | 2026-03-22 | DONE | STORY-040 completed -- WebSocket Server & Real-Time Event Push. gorilla/websocket upgrade on :8081/ws/v1/events, JWT auth (query param + first-message), 10 event types from NATS, tenant isolation, ping/pong heartbeat, backpressure (256 buffer), max 100 conns/tenant, client subscribe filtering, graceful shutdown. 28 new tests, 39 total WS tests, 991 total passing. | Phase 7 complete, Phase Gate ready |
 | 2026-03-22 | GATE | Phase 6 Gate PASS — Deploy OK, smoke OK, 1407/1407 tests passed, 8 API endpoints verified, 3 DB migrations confirmed. 1 runtime bug fixed: anomalies table FK on partitioned sims table removed (same pattern as esim_profiles, ota_commands). Report: docs/reports/phase-6-gate.md | Phase 7 ready |
