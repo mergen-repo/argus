@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-22
 > Current phase: DEVELOPMENT — Phase 8: Frontend Portal
-> Overall progress: 76%
+> Overall progress: 82%
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 42/55 (76%)
+> Stories completed: 45/55 (82%)
 > Current story: —
 > Current step: —
 
@@ -110,9 +110,9 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-041 | React Scaffold & Routing | L | [x] DONE | — | STORY-001 | 2026-03-22 |
 | STORY-042 | Frontend: Auth (Login + 2FA) | M | [x] DONE | — | STORY-041, STORY-003 | 2026-03-22 |
-| STORY-043 | Frontend: Main Dashboard | L | [~] IN PROGRESS | Review | STORY-042, STORY-040 | — |
-| STORY-044 | Frontend: SIM List + Detail | XL | [~] IN PROGRESS | Review | STORY-043, STORY-011 | — |
-| STORY-045 | Frontend: APN + Operator Pages | M | [~] IN PROGRESS | Commit | STORY-043, STORY-009 | — |
+| STORY-043 | Frontend: Main Dashboard | L | [x] DONE | — | STORY-042, STORY-040 | 2026-03-22 |
+| STORY-044 | Frontend: SIM List + Detail | XL | [x] DONE | — | STORY-043, STORY-011 | 2026-03-22 |
+| STORY-045 | Frontend: APN + Operator Pages | M | [x] DONE | — | STORY-043, STORY-009 | 2026-03-22 |
 | STORY-046 | Frontend: Policy DSL Editor | XL | [ ] PENDING | — | STORY-043, STORY-022 | — |
 | STORY-047 | Frontend: Sessions + Jobs + Audit | L | [ ] PENDING | — | STORY-043, STORY-040 | — |
 | STORY-048 | Frontend: Analytics Pages | L | [ ] PENDING | — | STORY-043, STORY-032 | — |
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-22 | REVIEW | STORY-045 review completed. 15/15 ACs passed. No new glossary terms needed. Growing shared utility duplication flagged (RAT_DISPLAY in 6 files, Skeleton in 7 files, InfoRow in 3 files). useOperator(id) fetches full list instead of single resource. Client-side-only APN search (q param not sent to API). ErrorBoundary still missing (5th consecutive story). ROUTEMAP updated: STORY-043/044/045 marked DONE, counter 45/55 (82%). | ROUTEMAP.md |
+| 2026-03-22 | DONE | STORY-045 completed -- Frontend APN & Operator Pages. APN list (card grid, operator filter, search, IP pool utilization bars), APN detail (4 tabs: config, IP pools, connected SIMs, traffic chart). Operator list (card grid, health dots with pulse animation, protocol type), Operator detail (4 tabs: overview with test connection, health timeline, circuit breaker visual, traffic charts). WebSocket operator.health_changed real-time updates. 8 new files (2 types, 2 hooks, 4 pages). 15/15 ACs. | STORY-046 ready |
 | 2026-03-22 | GATE | Phase 7 Gate PASS — Deploy OK, smoke OK, 990/990 tests passed, 12 API endpoints verified, 5 DB migrations confirmed. 1 pending migration applied (notification_delivery). Report: docs/reports/phase-7-gate.md | Phase 8 ready |
 | 2026-03-22 | PHASE | Phase 7 (Notifications & Compliance) completed — 3 stories (STORY-038, STORY-039, STORY-040). Multi-channel notification engine (email/Telegram/webhook/SMS/in-app), compliance reporting with auto-purge and KVKK/GDPR support, WebSocket real-time event server. All notifications and compliance features operational. | Phase 8 (Frontend Portal) ready to start |
 | 2026-03-22 | REVIEW | STORY-040 review completed. 3 new glossary terms added (WS Server, WS Hub, WS Close Code). WS_MAX_CONNS_PER_TENANT added to CONFIG.md. relayNATSEvent uses BroadcastAll (no tenant extraction from payload -- tenant isolation depends on upstream event publishing). Backpressure drops newest (not oldest per spec -- pragmatic, non-blocking). Phase 7 complete -- Phase Gate ready. | ROUTEMAP.md, GLOSSARY.md, CONFIG.md |
