@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-03-23
-> Current phase: DEVELOPMENT — Phase 9: Integration & Polish [DONE]
-> Overall progress: 100%
+> Current phase: E2E & Polish Phase
+> Overall progress: 100% (Development), E2E & Polish starting
 
 ---
 
@@ -157,6 +157,8 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-03-23 | GATE | Phase 9 Gate PASS — Deploy OK, 1058/1058 tests passed, 0 fixes needed. All 55 stories verified. PgBouncer healthy, pprof accessible, security headers present, E2E tests compile. FINAL DEVELOPMENT GATE. Report: docs/reports/phase-9-gate.md | E2E & Polish Phase ready |
+| 2026-03-23 | PHASE | Phase 9 (Integration & Polish) completed — 5 stories (STORY-051 to STORY-055). E2E auth flow test, AAA performance tuning (policy cache, benchmarks, pprof), data volume optimization (compression, S3 archival, PgBouncer), security hardening (TLS, CSP, RadSec, sanitization), tenant onboarding E2E test. All integration and polish features operational. | ALL 55 STORIES COMPLETE — Development Phase 100% |
 | 2026-03-23 | GATE | Phase 8 Gate PASS — Deploy OK, 990 Go tests, frontend build clean, Playwright visual verification. 3 bugs fixed: sessions API sor_decision column, users page state/status normalization, health page services synthesis. 27 pages, 26 components, 13 hooks, 3 stores verified. Report: docs/reports/phase-8-gate.md | Phase 9 ready |
 | 2026-03-23 | PHASE | Phase 8 (Frontend Portal) completed — 10 stories (STORY-041 to STORY-050). React 19 + Vite 6 scaffold, auth flow (JWT in memory, 2FA), main dashboard with live metrics, SIM list/detail (5 tabs), APN/Operator pages, policy DSL editor (CodeMirror 6), monitoring pages (sessions/jobs/eSIM/audit), analytics (usage/cost/anomalies), settings (users/API keys/IP pools/notifications/health/tenants), onboarding wizard, notification center. All frontend features operational. | Phase 9 (Integration & Polish) ready to start |
 | 2026-03-23 | REVIEW | STORY-047 review completed. 18/18 ACs passed. No new glossary terms needed. Skeleton now duplicated in 11 files (was 7). Bundle 425KB gzipped (was 292KB) -- code splitting urgent. ErrorBoundary still missing (7th consecutive story). Jobs table shows created_at instead of created_by (minor). eSIM operator filter and Audit user filter plumbed in hooks but no UI. Unused imports in 3 of 4 pages. WS cache updates ignore filtered views. ROUTEMAP updated: STORY-046/047 marked DONE, counter 47/55 (85%). | ROUTEMAP.md |
