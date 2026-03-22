@@ -962,3 +962,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 7. Rollout: "Rollout" tab'inda staged rollout baslatma (1%->10%->100%)
 8. Kaydet: Ctrl+S ile draft kaydedin
 9. Activate: "Activate" butonuyla versiyon aktif edin (onay dialog'u)
+
+---
+
+## STORY-047: Frontend Sessions + Jobs + eSIM + Audit
+
+1. Live sessions: /sessions -- canli oturum tablosu, WS ile yeni oturum animasyonlu eklenmeli
+2. Sessions stats: Toplam aktif, operator bazli sayilar gorunmeli
+3. Force disconnect: Bir oturumda "Disconnect" butonu -- onay dialog'u ile sonlandirma
+4. Jobs: /jobs -- progress bar'li is tablosu, filtre (type/state)
+5. Job detay: Bir is'e tiklayin -- detay paneli, hata raporu, retry/cancel butonlari
+6. eSIM: /esim -- profil tablosu, enable/disable/switch butonlari
+7. Audit: /audit -- aranabilir log tablosu, filtreleme, satirlari genisletme (JSON diff)
+8. Hash chain: "Verify Integrity" butonu -- dogrulama sonucu

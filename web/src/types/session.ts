@@ -1,0 +1,60 @@
+export interface Session {
+  id: string
+  sim_id: string
+  tenant_id: string
+  operator_id: string
+  apn_id?: string
+  imsi: string
+  msisdn?: string
+  acct_session_id: string
+  nas_ip: string
+  framed_ip?: string
+  rat_type?: string
+  state: string
+  bytes_in: number
+  bytes_out: number
+  duration_sec: number
+  ip_address?: string
+  started_at: string
+}
+
+export interface SessionStats {
+  total_active: number
+  by_operator: Record<string, number>
+  by_apn: Record<string, number>
+  by_rat_type: Record<string, number>
+  avg_duration_sec: number
+  avg_bytes: number
+}
+
+export interface SessionStartedEvent {
+  session_id: string
+  sim_id: string
+  iccid: string
+  imsi: string
+  msisdn?: string
+  operator_id: string
+  operator_name: string
+  apn_id?: string
+  apn_name: string
+  rat_type?: string
+  ip_address?: string
+  nas_ip: string
+  started_at: string
+}
+
+export interface SessionEndedEvent {
+  session_id: string
+  sim_id: string
+  iccid: string
+  imsi: string
+  operator_name: string
+  apn_name: string
+  duration_sec: number
+  bytes_in: number
+  bytes_out: number
+  terminate_cause: string
+  ip_address?: string
+  started_at: string
+  ended_at: string
+}
