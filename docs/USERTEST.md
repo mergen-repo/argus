@@ -975,3 +975,11 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 6. eSIM: /esim -- profil tablosu, enable/disable/switch butonlari
 7. Audit: /audit -- aranabilir log tablosu, filtreleme, satirlari genisletme (JSON diff)
 8. Hash chain: "Verify Integrity" butonu -- dogrulama sonucu
+
+---
+
+## STORY-048: Frontend Analytics Pages
+
+1. Usage: /analytics -- zaman serisi grafik, period seçici (1h/24h/7d/30d), group-by toggle
+2. Cost: /analytics/cost -- maliyet kartı, operator karşılaştırma bar chart, optimizasyon önerileri
+3. Anomalies: /analytics/anomalies -- severity badge'li tablo, satır genişletme, acknowledge/resolve
