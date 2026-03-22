@@ -882,3 +882,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. Metrics: Her 1 saniyede metrics.realtime event'i gelmeli
 5. Max connection: Ayni tenant ile 101. baglanti denemesi -- 4002 close code
 6. Unit testler: `go test ./internal/ws/... -v`
+
+---
+
+## STORY-041: React Scaffold & Routing
+
+1. Dev server: `cd web && npm run dev` -- tarayicida http://localhost:5173 acilmali
+2. Login sayfasi: /login rotasinda AuthLayout gorunmeli (ortalanmis kart, Argus logosu)
+3. Dashboard layout: / rotasinda sidebar + topbar gorunmeli
+4. Sidebar collapse: sidebar kucultme butonu calismali
+5. Dark mode: varsayilan dark, sag ust menuden light'a gecis yapilabilmeli
+6. Command palette: Ctrl+K ile arama paleti acilmali
+7. Tum rotalar: /sims, /analytics, /policies vb. tum rotalarda placeholder sayfa gorunmeli
+8. Build: `cd web && npm run build` -- hatasiz build, dist/ klasoru olusturulmali

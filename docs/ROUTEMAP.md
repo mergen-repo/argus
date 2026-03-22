@@ -108,7 +108,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-041 | React Scaffold & Routing | L | [ ] PENDING | — | STORY-001 | — |
+| STORY-041 | React Scaffold & Routing | L | [~] IN PROGRESS | Commit | STORY-001 | — |
 | STORY-042 | Frontend: Auth (Login + 2FA) | M | [ ] PENDING | — | STORY-041, STORY-003 | — |
 | STORY-043 | Frontend: Main Dashboard | L | [ ] PENDING | — | STORY-042, STORY-040 | — |
 | STORY-044 | Frontend: SIM List + Detail | XL | [ ] PENDING | — | STORY-043, STORY-011 | — |
