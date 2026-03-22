@@ -937,3 +937,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 8. Tabs: Overview, Sessions, Usage, Diagnostics, History tab'lari gorunmeli
 9. Diagnostics: "Run Diagnostics" butonuna tiklayin -- adim adim sonuclar gorunmeli
 10. History: State gecis timeline'i gorunmeli (renkli dot'lar, tarih, neden)
+
+---
+
+## STORY-045: Frontend APN + Operator Pages
+
+1. APN listesi: /apns -- kart grid, her kartta SIM sayisi, trafik, IP kullanim cubugu
+2. APN detay: Bir APN kartina tiklayin -- config, IP pool istatistikleri, bagli SIM'ler, trafik grafigi
+3. Operator listesi: /operators -- saglik noktali kart grid (yesil/sari/kirmizi)
+4. Operator detay: Bir operator kartina tiklayin -- saglik timeline, circuit breaker durumu
+5. Test baglanti: "Test Connection" butonu -- basarili/basarisiz mesaji
+6. Canli guncelleme: Operator saglik degisikligi WS ile otomatik guncellenmeli

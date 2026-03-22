@@ -112,7 +112,7 @@
 | STORY-042 | Frontend: Auth (Login + 2FA) | M | [x] DONE | — | STORY-041, STORY-003 | 2026-03-22 |
 | STORY-043 | Frontend: Main Dashboard | L | [~] IN PROGRESS | Review | STORY-042, STORY-040 | — |
 | STORY-044 | Frontend: SIM List + Detail | XL | [~] IN PROGRESS | Review | STORY-043, STORY-011 | — |
-| STORY-045 | Frontend: APN + Operator Pages | M | [ ] PENDING | — | STORY-043, STORY-009 | — |
+| STORY-045 | Frontend: APN + Operator Pages | M | [~] IN PROGRESS | Commit | STORY-043, STORY-009 | — |
 | STORY-046 | Frontend: Policy DSL Editor | XL | [ ] PENDING | — | STORY-043, STORY-022 | — |
 | STORY-047 | Frontend: Sessions + Jobs + Audit | L | [ ] PENDING | — | STORY-043, STORY-040 | — |
 | STORY-048 | Frontend: Analytics Pages | L | [ ] PENDING | — | STORY-043, STORY-032 | — |
