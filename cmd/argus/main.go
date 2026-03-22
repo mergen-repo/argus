@@ -24,6 +24,7 @@ import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
+	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
@@ -43,6 +44,7 @@ import (
 	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
+	diagnosticspkg "github.com/btopcu/argus/internal/diagnostics"
 	esimpkg "github.com/btopcu/argus/internal/esim"
 	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/gateway"
@@ -174,6 +176,10 @@ func main() {
 	otaStore := store.NewOTAStore(pg.Pool)
 	otaRateLimiter := ota.NewRateLimiter(rdb.Client, ota.DefaultMaxOTAPerSimPerHour)
 	otaHandler := otaapi.NewHandler(otaStore, simStore, jobStore, eventBus, otaRateLimiter, auditSvc, log.Logger)
+
+	diagSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	diagService := diagnosticspkg.NewService(simStore, diagSessionStore, operatorStore, apnStore, policyStore, ippoolStore, log.Logger)
+	diagHandler := diagapi.NewHandler(diagService, rdb.Client, log.Logger)
 
 	cdrStore := store.NewCDRStore(pg.Pool)
 	usageAnalyticsStore := store.NewUsageAnalyticsStore(pg.Pool)
@@ -473,6 +479,7 @@ func main() {
 		SessionHandler:     sessionHandler,
 		PolicyHandler:      policyHandler,
 		OTAHandler:         otaHandler,
+		DiagnosticsHandler: diagHandler,
 		CDRHandler:         cdrHandler,
 		AnalyticsHandler:   analyticsHandler,
 		AnomalyHandler:     anomalyHandler,

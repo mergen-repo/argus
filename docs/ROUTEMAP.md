@@ -93,8 +93,8 @@
 | STORY-033 | Real-Time Metrics & Observability | M | [x] DONE | — | STORY-006, STORY-015 | 2026-03-22 |
 | STORY-034 | Usage Analytics Dashboard | M | [x] DONE | — | STORY-032 | 2026-03-22 |
 | STORY-035 | Cost Analytics & Optimization | M | [x] DONE | — | STORY-032 | 2026-03-22 |
-| STORY-036 | Anomaly Detection Engine | L | [~] IN PROGRESS | Review | STORY-032, STORY-017 | — |
-| STORY-037 | Connectivity Diagnostics | M | [ ] PENDING | — | STORY-015, STORY-011 | — |
+| STORY-036 | Anomaly Detection Engine | L | [x] DONE | — | STORY-032, STORY-017 | 2026-03-22 |
+| STORY-037 | Connectivity Diagnostics | M | [~] IN PROGRESS | Commit | STORY-015, STORY-011 | — |
 
 ### Phase 7: Notifications & Compliance [PENDING]
 

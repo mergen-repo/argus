@@ -8,6 +8,7 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
+	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
@@ -50,6 +51,7 @@ type RouterDeps struct {
 	CDRHandler       *cdrapi.Handler
 	AnalyticsHandler *analyticsapi.Handler
 	AnomalyHandler   *anomalyapi.Handler
+	DiagnosticsHandler *diagapi.Handler
 	MetricsHandler   *metricsapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
@@ -244,6 +246,14 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
+		})
+	}
+
+	if deps.DiagnosticsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("sim_manager"))
+			r.Post("/api/v1/sims/{id}/diagnose", deps.DiagnosticsHandler.Diagnose)
 		})
 	}
 

@@ -422,3 +422,18 @@ func (s *RadiusSessionStore) GetOldestActiveForSIM(ctx context.Context, simID uu
 	}
 	return sess, nil
 }
+
+func (s *RadiusSessionStore) GetLastSessionBySIM(ctx context.Context, simID uuid.UUID) (*RadiusSession, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 ORDER BY started_at DESC LIMIT 1`,
+		simID,
+	)
+	sess, err := scanRadiusSession(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get last session by sim: %w", err)
+	}
+	return sess, nil
+}

@@ -830,3 +830,15 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. Durumu guncelle: `curl -k -X PATCH "https://localhost/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"acknowledged"}'` -- 200
 5. False positive: `curl -k -X PATCH "https://localhost/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"false_positive"}'` -- 200
 6. Unit testler: `go test ./internal/analytics/anomaly/... ./internal/store/ ./internal/api/anomaly/... -v`
+
+---
+
+## STORY-037: SIM Connectivity Diagnostics
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. SIM teshis: `curl -k -X POST "https://localhost/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'` -- 200 + steps[], overall_status
+2. Test auth ile: `curl -k -X POST "https://localhost/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"include_test_auth":true}'` -- 200 + 7 adim
+3. Cache testi: Ayni istek 1 dakika icinde tekrar -- cached sonuc donmeli
+4. Gecersiz SIM: `curl -k -X POST "https://localhost/api/v1/sims/00000000-0000-0000-0000-000000000000/diagnose" -H "Authorization: Bearer $TOKEN"` -- 404
+5. Unit testler: `go test ./internal/diagnostics/... ./internal/api/diagnostics/... -v`
