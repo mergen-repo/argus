@@ -908,3 +908,17 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 6. Protected route: /sims adresine auth olmadan gidin -- /login'e yonlendirilmeli
 7. Logout: sidebar'daki logout butonuna tiklayin -- auth temizlenmeli, /login'e donulmeli
 8. Remember me: "Beni hatirla" secenegini tiklayin -- uzun sureli oturum
+
+---
+
+## STORY-043: Frontend Main Dashboard
+
+1. Dashboard: https://localhost/ adresine gidin -- 4 metrik karti gorunmeli (Total SIMs, Active Sessions, Auth/s, Monthly Cost)
+2. Auth/s canli: Auth/s kartinda LIVE etiketi, deger her saniye guncellenmeli
+3. SIM dagitimi: Pasta grafik SIM durumlarini gostermeli (active, suspended, vb.)
+4. Operator sagligi: Her operator icin renkli saglik cubugu gorunmeli (yesil/sari/kirmizi)
+5. APN trafigi: Top 5 APN cubuk grafigi gorunmeli
+6. Alert feed: Son 10 alert listesi, severity ikonu, zaman damgasi
+7. Canli alert: Yeni alert geldiginde listenin basina eklenmeli
+8. Skeleton: Sayfa yuklenirken iskelet animasyonu gorunmeli
+9. Hata durumu: API hatasi olursa retry butonu gorunmeli

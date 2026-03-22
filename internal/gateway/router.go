@@ -3,6 +3,7 @@ package gateway
 import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
+	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -57,6 +58,7 @@ type RouterDeps struct {
 	DiagnosticsHandler   *diagapi.Handler
 	MetricsHandler     *metricsapi.Handler
 	ComplianceHandler  *complianceapi.Handler
+	DashboardHandler   *dashboardapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -445,6 +447,14 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 		})
 
 		r.Get("/metrics", deps.MetricsHandler.Prometheus)
+	}
+
+	if deps.DashboardHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("api_user"))
+			r.Get("/api/v1/dashboard", deps.DashboardHandler.GetDashboard)
+		})
 	}
 
 	if deps.ComplianceHandler != nil {

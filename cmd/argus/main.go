@@ -24,6 +24,7 @@ import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
+	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	complianceapi "github.com/btopcu/argus/internal/api/compliance"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
@@ -491,6 +492,9 @@ func main() {
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
 	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, log.Logger)
 
+	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger)
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
 		health.SetAAAChecker(radiusServer)
@@ -527,6 +531,7 @@ func main() {
 		NotificationHandler: notifHandler,
 		MetricsHandler:      metricsHandler,
 		ComplianceHandler:   complianceHandler,
+		DashboardHandler:    dashboardHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

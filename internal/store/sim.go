@@ -948,3 +948,33 @@ func (s *SIMStore) UpdateLastRATType(ctx context.Context, simID uuid.UUID, opera
 	}
 	return nil
 }
+
+type SIMStateCount struct {
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT state, COUNT(*) FROM sims
+		WHERE tenant_id = $1
+		GROUP BY state
+		ORDER BY COUNT(*) DESC
+	`, tenantID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("store: count sims by state: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SIMStateCount
+	total := 0
+	for rows.Next() {
+		var sc SIMStateCount
+		if err := rows.Scan(&sc.State, &sc.Count); err != nil {
+			return 0, nil, fmt.Errorf("store: scan state count: %w", err)
+		}
+		total += sc.Count
+		results = append(results, sc)
+	}
+	return total, results, nil
+}
