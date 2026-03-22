@@ -101,6 +101,8 @@ type Config struct {
 	CronSLAReport             string        `envconfig:"CRON_SLA_REPORT" default:"@daily"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
 
+	WSMaxConnsPerTenant int `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
+
 	DevSeedData      bool `envconfig:"DEV_SEED_DATA" default:"true"`
 	DevMockOperator  bool `envconfig:"DEV_MOCK_OPERATOR" default:"true"`
 	DevCORSAllowAll  bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`

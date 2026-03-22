@@ -102,7 +102,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-038 | Notification Engine (Multi-Channel) | L | [x] DONE | — | STORY-006, STORY-005 | 2026-03-22 |
 | STORY-039 | Compliance Reporting & Auto-Purge | M | [x] DONE | — | STORY-007, STORY-011 | 2026-03-22 |
-| STORY-040 | WebSocket Event Server | L | [ ] PENDING | — | STORY-006 | — |
+| STORY-040 | WebSocket Event Server | L | [~] IN PROGRESS | Commit | STORY-006 | — |
 
 ### Phase 8: Frontend Portal [PENDING]
 

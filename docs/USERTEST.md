@@ -869,3 +869,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 5. DSAR: `curl -k "https://localhost/api/v1/compliance/dsar/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + SIM data JSON
 6. Erasure: `curl -k -X POST "https://localhost/api/v1/compliance/erasure/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
 7. Unit testler: `go test ./internal/compliance/... ./internal/store/ ./internal/job/ ./internal/api/compliance/... -v`
+
+---
+
+## STORY-040: WebSocket Event Server
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. WS baglantisi: `wscat -c "ws://localhost:8081/ws/v1/events?token=$TOKEN"` -- auth.ok mesaji gelmeli
+2. Event dinle: Baglanti sonrasi session/alert/job event'leri gelmeli
+3. Subscribe: `{"type":"subscribe","events":["session.started","alert.new"]}` gonderin -- sadece subscribe edilen event'ler gelmeli
+4. Metrics: Her 1 saniyede metrics.realtime event'i gelmeli
+5. Max connection: Ayni tenant ile 101. baglanti denemesi -- 4002 close code
+6. Unit testler: `go test ./internal/ws/... -v`

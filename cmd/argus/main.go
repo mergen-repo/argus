@@ -347,6 +347,9 @@ func main() {
 
 	wsHub := ws.NewHub(log.Logger)
 	if err := wsHub.SubscribeToNATS(&eventBusWSSubscriber{eventBus}, []string{
+		bus.SubjectSessionStarted,
+		bus.SubjectSessionEnded,
+		bus.SubjectSIMUpdated,
 		bus.SubjectOperatorHealthChanged,
 		bus.SubjectAlertTriggered,
 		bus.SubjectPolicyRolloutProgress,
@@ -355,6 +358,15 @@ func main() {
 		bus.SubjectNotification,
 	}); err != nil {
 		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
+	}
+
+	wsServer := ws.NewServer(wsHub, ws.ServerConfig{
+		Addr:              fmt.Sprintf(":%d", cfg.WSPort),
+		JWTSecret:         cfg.JWTSecret,
+		MaxConnsPerTenant: cfg.WSMaxConnsPerTenant,
+	}, log.Logger)
+	if err := wsServer.Start(); err != nil {
+		log.Fatal().Err(err).Msg("failed to start ws server")
 	}
 
 	var radiusServer *aaaradius.Server
@@ -593,6 +605,11 @@ func main() {
 
 	log.Info().Msg("stopping metrics pusher")
 	metricsPusher.Stop()
+
+	log.Info().Msg("stopping ws server")
+	if err := wsServer.Stop(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("ws server shutdown error")
+	}
 
 	log.Info().Msg("stopping ws hub")
 	wsHub.Stop()

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 )
 
@@ -17,11 +18,13 @@ type EventEnvelope struct {
 }
 
 type Connection struct {
-	TenantID    uuid.UUID
-	UserID      uuid.UUID
-	SendCh      chan []byte
-	Filters     []string
-	mu          sync.Mutex
+	TenantID uuid.UUID
+	UserID   uuid.UUID
+	SendCh   chan []byte
+	Filters  []string
+	ws       *websocket.Conn
+	done     chan struct{}
+	mu       sync.Mutex
 }
 
 func (c *Connection) MatchesFilter(eventType string) bool {
@@ -203,8 +206,9 @@ func natsSubjectToWSType(subject string) string {
 		"argus.events.session.ended":         "session.ended",
 		"argus.events.sim.updated":           "sim.state_changed",
 		"argus.events.notification.dispatch": "notification.new",
-		"argus.jobs.progress":                "job.progress",
-		"argus.jobs.completed":               "job.completed",
+		"argus.jobs.progress":                       "job.progress",
+		"argus.jobs.completed":                      "job.completed",
+		"argus.events.policy.rollout_progress":      "policy.rollout_progress",
 	}
 	if t, ok := mapping[subject]; ok {
 		return t
@@ -220,6 +224,12 @@ func (h *Hub) ConnectionCount() int {
 		count += len(conns)
 	}
 	return count
+}
+
+func (h *Hub) TenantConnectionCount(tenantID uuid.UUID) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.conns[tenantID])
 }
 
 func (h *Hub) Stop() {
