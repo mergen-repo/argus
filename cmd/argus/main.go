@@ -24,6 +24,7 @@ import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
+	complianceapi "github.com/btopcu/argus/internal/api/compliance"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -42,6 +43,7 @@ import (
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/compliance"
 	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
@@ -237,14 +239,16 @@ func main() {
 	jobRunner.Register(dryRunProcessor)
 	jobRunner.Register(rolloutStageProc)
 
-	purgeSweepStub := job.NewStubProcessor(job.JobTypePurgeSweep, jobStore, eventBus, log.Logger)
+	complianceStore := store.NewComplianceStore(pg.Pool)
+	complianceSvc := compliance.NewService(complianceStore, auditStore, auditSvc, log.Logger)
+	purgeSweepProc := job.NewPurgeSweepProcessor(jobStore, complianceSvc, eventBus, log.Logger)
 	ipReclaimStub := job.NewStubProcessor(job.JobTypeIPReclaim, jobStore, eventBus, log.Logger)
 	slaReportStub := job.NewStubProcessor(job.JobTypeSLAReport, jobStore, eventBus, log.Logger)
 	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
 	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, distLock, eventBus, log.Logger)
-	jobRunner.Register(purgeSweepStub)
+	jobRunner.Register(purgeSweepProc)
 	jobRunner.Register(ipReclaimStub)
 	jobRunner.Register(slaReportStub)
 	jobRunner.Register(bulkStateChangeProc)
@@ -473,6 +477,7 @@ func main() {
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
+	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, log.Logger)
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
@@ -509,6 +514,7 @@ func main() {
 		AnomalyHandler:      anomalyHandler,
 		NotificationHandler: notifHandler,
 		MetricsHandler:      metricsHandler,
+		ComplianceHandler:   complianceHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,

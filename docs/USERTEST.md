@@ -855,3 +855,17 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. Tercihler: `curl -k "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN"` -- 200 + channels, events, thresholds
 5. Tercih guncelle: `curl -k -X PUT "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"channels":{"email":true,"telegram":false},"events":{"operator.down":true}}'` -- 200
 6. Unit testler: `go test ./internal/notification/... ./internal/store/ ./internal/api/notification/... -v`
+
+---
+
+## STORY-039: Compliance Reporting & Auto-Purge
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Dashboard: `curl -k "https://localhost/api/v1/compliance/dashboard" -H "Authorization: Bearer $TOKEN"` -- 200 + state counts, pending purges, compliance %
+2. BTK rapor: `curl -k "https://localhost/api/v1/compliance/btk-report" -H "Authorization: Bearer $TOKEN"` -- 200 + operator breakdown
+3. BTK CSV: `curl -k "https://localhost/api/v1/compliance/btk-report?format=csv" -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
+4. Retention guncelle: `curl -k -X PUT "https://localhost/api/v1/compliance/retention" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"retention_days":180}'` -- 200
+5. DSAR: `curl -k "https://localhost/api/v1/compliance/dsar/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + SIM data JSON
+6. Erasure: `curl -k -X POST "https://localhost/api/v1/compliance/erasure/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
+7. Unit testler: `go test ./internal/compliance/... ./internal/store/ ./internal/job/ ./internal/api/compliance/... -v`

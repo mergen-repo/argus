@@ -100,8 +100,8 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-038 | Notification Engine (Multi-Channel) | L | [~] IN PROGRESS | Review | STORY-006, STORY-005 | — |
-| STORY-039 | Compliance Reporting & Auto-Purge | M | [ ] PENDING | — | STORY-007, STORY-011 | — |
+| STORY-038 | Notification Engine (Multi-Channel) | L | [x] DONE | — | STORY-006, STORY-005 | 2026-03-22 |
+| STORY-039 | Compliance Reporting & Auto-Purge | M | [~] IN PROGRESS | Commit | STORY-007, STORY-011 | — |
 | STORY-040 | WebSocket Event Server | L | [ ] PENDING | — | STORY-006 | — |
 
 ### Phase 8: Frontend Portal [PENDING]

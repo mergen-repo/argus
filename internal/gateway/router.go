@@ -8,6 +8,7 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
+	complianceapi "github.com/btopcu/argus/internal/api/compliance"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -54,7 +55,8 @@ type RouterDeps struct {
 	AnomalyHandler       *anomalyapi.Handler
 	NotificationHandler  *notifapi.Handler
 	DiagnosticsHandler   *diagapi.Handler
-	MetricsHandler   *metricsapi.Handler
+	MetricsHandler     *metricsapi.Handler
+	ComplianceHandler  *complianceapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -443,6 +445,18 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 		})
 
 		r.Get("/metrics", deps.MetricsHandler.Prometheus)
+	}
+
+	if deps.ComplianceHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/compliance/dashboard", deps.ComplianceHandler.Dashboard)
+			r.Get("/api/v1/compliance/btk-report", deps.ComplianceHandler.BTKReport)
+			r.Put("/api/v1/compliance/retention", deps.ComplianceHandler.UpdateRetention)
+			r.Get("/api/v1/compliance/dsar/{simId}", deps.ComplianceHandler.DataSubjectAccess)
+			r.Post("/api/v1/compliance/erasure/{simId}", deps.ComplianceHandler.RightToErasure)
+		})
 	}
 
 	return r
