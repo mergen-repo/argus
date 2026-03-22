@@ -101,6 +101,10 @@ type Config struct {
 	CronSLAReport             string        `envconfig:"CRON_SLA_REPORT" default:"@daily"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
 
+	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
+	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
+	GOGC         int    `envconfig:"GOGC" default:"100"`
+
 	WSMaxConnsPerTenant int `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
 
 	DevSeedData      bool `envconfig:"DEV_SEED_DATA" default:"true"`

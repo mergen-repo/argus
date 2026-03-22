@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -84,6 +86,21 @@ func main() {
 	} else {
 		log.Logger = zerolog.New(os.Stdout).
 			With().Timestamp().Str("service", "argus").Logger()
+	}
+
+	if cfg.GOGC != 100 {
+		debug.SetGCPercent(cfg.GOGC)
+		log.Info().Int("gogc", cfg.GOGC).Msg("GOGC tuned")
+	}
+
+	if cfg.PprofEnabled || cfg.IsDev() {
+		go func() {
+			pprofAddr := cfg.PprofAddr
+			log.Info().Str("addr", pprofAddr).Msg("pprof server starting (endpoints: /debug/pprof/)")
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Error().Err(err).Msg("pprof server error")
+			}
+		}()
 	}
 
 	log.Info().Str("env", cfg.AppEnv).Int("port", cfg.AppPort).Msg("starting argus")
