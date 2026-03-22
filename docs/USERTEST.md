@@ -922,3 +922,18 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 7. Canli alert: Yeni alert geldiginde listenin basina eklenmeli
 8. Skeleton: Sayfa yuklenirken iskelet animasyonu gorunmeli
 9. Hata durumu: API hatasi olursa retry butonu gorunmeli
+
+---
+
+## STORY-044: Frontend SIM List + Detail
+
+1. SIM listesi: /sims adresine gidin -- data table gorunmeli (ICCID, IMSI, State, vb.)
+2. Segment filtre: segment dropdown'dan bir segment secin -- liste filtrelenmeli
+3. Arama: ICCID ile arama yapin -- eslesen SIM'ler gorunmeli
+4. Filtre: State=active filtresi secin -- sadece aktif SIM'ler
+5. Scroll: Asagi scroll edin -- sonraki sayfa otomatik yuklenmeli
+6. Bulk islem: 3 SIM secin -- bulk action toolbar cikmalı (suspend/resume/terminate)
+7. SIM detay: Bir SIM satirina tiklayin -- /sims/:id detay sayfasi acilmali
+8. Tabs: Overview, Sessions, Usage, Diagnostics, History tab'lari gorunmeli
+9. Diagnostics: "Run Diagnostics" butonuna tiklayin -- adim adim sonuclar gorunmeli
+10. History: State gecis timeline'i gorunmeli (renkli dot'lar, tarih, neden)
