@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { CommandPalette } from '@/components/command-palette/command-palette'
+import { NotificationDrawer } from '@/components/notification/notification-drawer'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +14,7 @@ export function DashboardLayout() {
       <Sidebar />
       <Topbar />
       <CommandPalette />
+      <NotificationDrawer />
       <main
         className={cn(
           'pt-14 transition-all duration-200',

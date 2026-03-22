@@ -1,5 +1,5 @@
-import { PlaceholderPage } from '../placeholder'
+import { OnboardingWizard } from '@/components/onboarding/wizard'
 
 export default function OnboardingPage() {
-  return <PlaceholderPage title="Onboarding Wizard" screenId="SCR-003" />
+  return <OnboardingWizard />
 }

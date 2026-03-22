@@ -92,6 +92,7 @@ export interface AuthLoginResponse {
     email: string
     name: string
     role: string
+    onboarding_completed?: boolean
   }
   token: string
   requires_2fa: boolean

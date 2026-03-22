@@ -116,8 +116,8 @@
 | STORY-046 | Frontend: Policy DSL Editor | XL | [x] DONE | — | STORY-043, STORY-022 | 2026-03-23 |
 | STORY-047 | Frontend: Sessions + Jobs + Audit | L | [x] DONE | — | STORY-043, STORY-040 | 2026-03-23 |
 | STORY-048 | Frontend: Analytics Pages | L | [x] DONE | — | STORY-043, STORY-032 | 2026-03-23 |
-| STORY-049 | Frontend: Settings Pages | M | [~] IN PROGRESS | Gate | STORY-043, STORY-005 | — |
-| STORY-050 | Frontend: Onboarding + Notifications | M | [ ] PENDING | — | STORY-043, STORY-038 | — |
+| STORY-049 | Frontend: Settings Pages | M | [x] DONE | — | STORY-043, STORY-005 | 2026-03-23 |
+| STORY-050 | Frontend: Onboarding + Notifications | M | [x] DONE | — | STORY-043, STORY-038 | 2026-03-23 |
 
 ### Phase 9: Integration & Polish [PENDING]
 

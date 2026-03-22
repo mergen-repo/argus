@@ -5,6 +5,7 @@ export interface User {
   email: string
   name: string
   role: string
+  onboarding_completed?: boolean
 }
 
 interface AuthState {
@@ -21,6 +22,7 @@ interface AuthState {
   clear2FA: () => void
   logout: () => void
   hasPermission: (permission: string) => boolean
+  setOnboardingCompleted: (completed: boolean) => void
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
@@ -64,4 +66,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }),
 
   hasPermission: (permission) => get().permissions.includes(permission),
+
+  setOnboardingCompleted: (completed) =>
+    set((s) => ({
+      user: s.user ? { ...s.user, onboarding_completed: completed } : null,
+    })),
 }))

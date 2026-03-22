@@ -67,7 +67,11 @@ export default function LoginPage() {
         navigate('/login/2fa')
       } else {
         setAuth(data.user, data.token)
-        navigate('/')
+        if (data.user.onboarding_completed === false) {
+          navigate('/setup')
+        } else {
+          navigate('/')
+        }
       }
     } catch (err: unknown) {
       const axiosError = err as { response?: { status?: number; data?: { error?: { message?: string; details?: Array<Record<string, unknown>> } } } }
