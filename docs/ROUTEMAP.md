@@ -123,7 +123,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-051 | E2E Auth → SIM → Policy Flow Test | L | [ ] PENDING | — | Phase 8 | — |
+| STORY-051 | E2E Auth → SIM → Policy Flow Test | L | [x] DONE | — | Phase 8 | 2026-03-23 |
 | STORY-052 | AAA Performance Tuning & Benchmarks | L | [ ] PENDING | — | STORY-015, STORY-017 | — |
 | STORY-053 | Data Volume Optimization & Archival | M | [ ] PENDING | — | STORY-032 | — |
 | STORY-054 | Security Hardening (TLS, CSP, Audit) | M | [ ] PENDING | — | Phase 8 | — |
