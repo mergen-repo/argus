@@ -948,3 +948,17 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. Operator detay: Bir operator kartina tiklayin -- saglik timeline, circuit breaker durumu
 5. Test baglanti: "Test Connection" butonu -- basarili/basarisiz mesaji
 6. Canli guncelleme: Operator saglik degisikligi WS ile otomatik guncellenmeli
+
+---
+
+## STORY-046: Frontend Policy DSL Editor
+
+1. Policy listesi: /policies -- tablo gorunmeli (isim, versiyon, SIM sayisi, durum)
+2. Yeni policy: "Create Policy" butonu -- dialog ile yeni policy olusturma
+3. Policy editor: Bir policy'ye tiklayin -- split-pane editor acilmali
+4. Syntax highlighting: POLICY, MATCH, WHEN gibi anahtar kelimeler renkli gorunmeli
+5. Dry-run preview: Sag panelde "Preview" tab'inda etkilenen SIM sayisi gorunmeli
+6. Versiyon yonetimi: "Versions" tab'inda surumleri gorun, diff karsilastirma yapin
+7. Rollout: "Rollout" tab'inda staged rollout baslatma (1%->10%->100%)
+8. Kaydet: Ctrl+S ile draft kaydedin
+9. Activate: "Activate" butonuyla versiyon aktif edin (onay dialog'u)
