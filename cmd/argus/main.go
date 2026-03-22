@@ -27,6 +27,7 @@ import (
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
+	notifapi "github.com/btopcu/argus/internal/api/notification"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -308,14 +309,34 @@ func main() {
 	}
 	startCancel()
 
+	notifStore := store.NewNotificationStore(pg.Pool)
+	notifConfigStore := store.NewNotificationConfigStore(pg.Pool)
+
 	notifChannels := []notification.Channel{notification.ChannelInApp}
+	var emailSender notification.EmailSender
 	if cfg.SMTPHost != "" {
 		notifChannels = append(notifChannels, notification.ChannelEmail)
+		emailSender = notification.NewSMTPEmailSender(notification.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+			User: cfg.SMTPUser, Password: cfg.SMTPPassword,
+			From: cfg.SMTPFrom, TLS: cfg.SMTPTLS,
+		})
 	}
+	var telegramSender notification.TelegramSender
 	if cfg.TelegramBotToken != "" {
 		notifChannels = append(notifChannels, notification.ChannelTelegram)
+		telegramSender = notification.NewTelegramBotSender(notification.TelegramConfig{
+			BotToken:      cfg.TelegramBotToken,
+			DefaultChatID: cfg.TelegramDefaultChat,
+		})
 	}
-	notifSvc := notification.NewService(nil, nil, nil, notifChannels, log.Logger)
+	notifSvc := notification.NewService(emailSender, telegramSender, nil, notifChannels, log.Logger)
+	notifSvc.SetNotifStore(&notifStoreAdapter{notifStore})
+	notifSvc.SetEventPublisher(eventBus, bus.SubjectNotification)
+
+	notifDelivery := notification.NewDeliveryTracker(nil, log.Logger)
+	notifSvc.SetDeliveryTracker(notifDelivery)
+
 	if err := notifSvc.Start(&eventBusNotifSubscriber{eventBus}, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered); err != nil {
 		log.Warn().Err(err).Msg("failed to start notification service")
 	}
@@ -327,6 +348,7 @@ func main() {
 		bus.SubjectPolicyRolloutProgress,
 		bus.SubjectJobProgress,
 		bus.SubjectJobCompleted,
+		bus.SubjectNotification,
 	}); err != nil {
 		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
 	}
@@ -450,6 +472,8 @@ func main() {
 
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
+	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
 		health.SetAAAChecker(radiusServer)
@@ -482,8 +506,9 @@ func main() {
 		DiagnosticsHandler: diagHandler,
 		CDRHandler:         cdrHandler,
 		AnalyticsHandler:   analyticsHandler,
-		AnomalyHandler:     anomalyHandler,
-		MetricsHandler:     metricsHandler,
+		AnomalyHandler:      anomalyHandler,
+		NotificationHandler: notifHandler,
+		MetricsHandler:      metricsHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -817,4 +842,34 @@ type simSuspenderAdapter struct {
 func (a *simSuspenderAdapter) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID, reason *string) error {
 	_, err := a.s.Suspend(ctx, tenantID, simID, userID, reason)
 	return err
+}
+
+type notifStoreAdapter struct {
+	s *store.NotificationStore
+}
+
+func (a *notifStoreAdapter) Create(ctx context.Context, p notification.NotifCreateParams) (*notification.NotifRow, error) {
+	row, err := a.s.Create(ctx, store.CreateNotificationParams{
+		TenantID:     p.TenantID,
+		UserID:       p.UserID,
+		EventType:    p.EventType,
+		ScopeType:    p.ScopeType,
+		ScopeRefID:   p.ScopeRefID,
+		Title:        p.Title,
+		Body:         p.Body,
+		Severity:     p.Severity,
+		ChannelsSent: p.ChannelsSent,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &notification.NotifRow{
+		ID:        row.ID,
+		TenantID:  row.TenantID,
+		CreatedAt: row.CreatedAt,
+	}, nil
+}
+
+func (a *notifStoreAdapter) UpdateDelivery(ctx context.Context, id uuid.UUID, sentAt, deliveredAt, failedAt *time.Time, retryCount int, channelsSent []string) error {
+	return a.s.UpdateDelivery(ctx, id, sentAt, deliveredAt, failedAt, retryCount, channelsSent)
 }

@@ -88,6 +88,86 @@ func (m *mockSubscriber) Publish(subject string, data []byte) {
 	}
 }
 
+type mockWebhookSender struct {
+	mu    sync.Mutex
+	calls []webhookCall
+}
+
+type webhookCall struct {
+	url     string
+	secret  string
+	payload string
+}
+
+func (m *mockWebhookSender) SendWebhook(_ context.Context, url, secret, payload string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, webhookCall{url, secret, payload})
+	return nil
+}
+
+type mockSMSSender struct {
+	mu    sync.Mutex
+	calls []smsCall
+}
+
+type smsCall struct {
+	phone   string
+	message string
+}
+
+func (m *mockSMSSender) SendSMS(_ context.Context, phone, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, smsCall{phone, message})
+	return nil
+}
+
+type mockNotifStore struct {
+	mu    sync.Mutex
+	items []NotifCreateParams
+}
+
+func (m *mockNotifStore) Create(_ context.Context, p NotifCreateParams) (*NotifRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.items = append(m.items, p)
+	return &NotifRow{
+		ID:        uuid.New(),
+		TenantID:  p.TenantID,
+		CreatedAt: time.Now(),
+	}, nil
+}
+
+func (m *mockNotifStore) UpdateDelivery(_ context.Context, _ uuid.UUID, _, _, _ *time.Time, _ int, _ []string) error {
+	return nil
+}
+
+type mockEventPublisher struct {
+	mu       sync.Mutex
+	events   []publishedEvent
+}
+
+type publishedEvent struct {
+	subject string
+	payload interface{}
+}
+
+func (m *mockEventPublisher) Publish(_ context.Context, subject string, payload interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, publishedEvent{subject, payload})
+	return nil
+}
+
+type mockRateLimiter struct {
+	allowed bool
+}
+
+func (m *mockRateLimiter) Allow(_ context.Context, _ string, _ int, _ time.Duration) (bool, error) {
+	return m.allowed, nil
+}
+
 func TestService_OperatorDown_DispatchesToAllChannels(t *testing.T) {
 	email := &mockEmailSender{}
 	telegram := &mockTelegramSender{}
@@ -285,4 +365,176 @@ func TestService_NilChannels_NoDispatch(t *testing.T) {
 	sub.Publish("health", data)
 
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestService_Webhook_Dispatches(t *testing.T) {
+	webhook := &mockWebhookSender{}
+
+	svc := NewService(nil, nil, nil, []Channel{ChannelWebhook}, zerolog.Nop())
+	svc.SetWebhook(webhook)
+
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "health", "alert"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Stop()
+
+	payload := HealthChangedPayload{
+		OperatorID:     uuid.New(),
+		OperatorName:   "turkcell",
+		PreviousStatus: "healthy",
+		CurrentStatus:  "down",
+		CircuitState:   "open",
+		Timestamp:      time.Now(),
+	}
+
+	data, _ := json.Marshal(payload)
+	sub.Publish("health", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	webhook.mu.Lock()
+	if len(webhook.calls) != 1 {
+		t.Errorf("webhook calls = %d, want 1", len(webhook.calls))
+	}
+	webhook.mu.Unlock()
+}
+
+func TestService_SMS_Dispatches(t *testing.T) {
+	sms := &mockSMSSender{}
+
+	svc := NewService(nil, nil, nil, []Channel{ChannelSMS}, zerolog.Nop())
+	svc.SetSMS(sms)
+
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "health", "alert"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Stop()
+
+	payload := HealthChangedPayload{
+		OperatorID:     uuid.New(),
+		OperatorName:   "vodafone",
+		PreviousStatus: "healthy",
+		CurrentStatus:  "down",
+		CircuitState:   "open",
+		Timestamp:      time.Now(),
+	}
+
+	data, _ := json.Marshal(payload)
+	sub.Publish("health", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	sms.mu.Lock()
+	if len(sms.calls) != 1 {
+		t.Errorf("sms calls = %d, want 1", len(sms.calls))
+	}
+	sms.mu.Unlock()
+}
+
+func TestService_Notify_PersistsToStore(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	publisher := &mockEventPublisher{}
+
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+	svc.SetEventPublisher(publisher, "argus.events.notification.dispatch")
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+	userID := uuid.New()
+
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  tenantID,
+		UserID:    &userID,
+		EventType: EventOperatorDown,
+		ScopeType: ScopeOperator,
+		Title:     "Test notification",
+		Body:      "Test body",
+		Severity:  "critical",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	notifStore.mu.Lock()
+	if len(notifStore.items) != 1 {
+		t.Errorf("store items = %d, want 1", len(notifStore.items))
+	} else {
+		item := notifStore.items[0]
+		if item.TenantID != tenantID {
+			t.Errorf("tenant_id = %s, want %s", item.TenantID, tenantID)
+		}
+		if item.EventType != string(EventOperatorDown) {
+			t.Errorf("event_type = %s, want %s", item.EventType, EventOperatorDown)
+		}
+	}
+	notifStore.mu.Unlock()
+
+	publisher.mu.Lock()
+	if len(publisher.events) != 1 {
+		t.Errorf("published events = %d, want 1", len(publisher.events))
+	}
+	publisher.mu.Unlock()
+}
+
+func TestService_Notify_RateLimited(t *testing.T) {
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+
+	limiter := &mockRateLimiter{allowed: false}
+	dt := NewDeliveryTracker(limiter, zerolog.Nop())
+	defer dt.Stop()
+	svc.SetDeliveryTracker(dt)
+
+	ctx := context.Background()
+	userID := uuid.New()
+
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		UserID:    &userID,
+		EventType: EventOperatorDown,
+		ScopeType: ScopeSystem,
+		Title:     "Should be rate limited",
+		Body:      "test",
+		Severity:  "info",
+	})
+
+	if err == nil {
+		t.Error("expected rate limit error, got nil")
+	}
+}
+
+func TestService_Notify_RateLimitAllowed(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+
+	limiter := &mockRateLimiter{allowed: true}
+	dt := NewDeliveryTracker(limiter, zerolog.Nop())
+	defer dt.Stop()
+	svc.SetDeliveryTracker(dt)
+
+	ctx := context.Background()
+	userID := uuid.New()
+
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		UserID:    &userID,
+		EventType: EventAlertNew,
+		ScopeType: ScopeSystem,
+		Title:     "Allowed notification",
+		Body:      "test",
+		Severity:  "info",
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	notifStore.mu.Lock()
+	if len(notifStore.items) != 1 {
+		t.Errorf("store items = %d, want 1", len(notifStore.items))
+	}
+	notifStore.mu.Unlock()
 }

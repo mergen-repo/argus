@@ -55,15 +55,15 @@ type InAppStore interface {
 }
 
 type InAppNotification struct {
-	ID          uuid.UUID `json:"id"`
-	AlertType   string    `json:"alert_type"`
-	Severity    string    `json:"severity"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	EntityType  string    `json:"entity_type"`
-	EntityID    uuid.UUID `json:"entity_id"`
-	ChannelsSent []string `json:"channels_sent"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           uuid.UUID `json:"id"`
+	AlertType    string    `json:"alert_type"`
+	Severity     string    `json:"severity"`
+	Title        string    `json:"title"`
+	Body         string    `json:"body"`
+	EntityType   string    `json:"entity_type"`
+	EntityID     uuid.UUID `json:"entity_id"`
+	ChannelsSent []string  `json:"channels_sent"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Subscriber interface {
@@ -74,18 +74,60 @@ type Subscription interface {
 	Unsubscribe() error
 }
 
+type EventPublisher interface {
+	Publish(ctx context.Context, subject string, payload interface{}) error
+}
+
+type NotifStore interface {
+	Create(ctx context.Context, p NotifCreateParams) (*NotifRow, error)
+	UpdateDelivery(ctx context.Context, id uuid.UUID, sentAt, deliveredAt, failedAt *time.Time, retryCount int, channelsSent []string) error
+}
+
+type NotifCreateParams struct {
+	TenantID     uuid.UUID
+	UserID       *uuid.UUID
+	EventType    string
+	ScopeType    string
+	ScopeRefID   *uuid.UUID
+	Title        string
+	Body         string
+	Severity     string
+	ChannelsSent []string
+}
+
+type NotifRow struct {
+	ID        uuid.UUID `json:"id"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WebhookDispatcher interface {
+	SendWebhook(ctx context.Context, url, secret, payload string) error
+}
+
+type SMSDispatcher interface {
+	SendSMS(ctx context.Context, phoneNumber, message string) error
+}
+
 type Config struct {
-	Channels       []Channel
-	HealthSubject  string
-	AlertSubject   string
+	Channels      []Channel
+	HealthSubject string
+	AlertSubject  string
 }
 
 type Service struct {
 	email    EmailSender
 	telegram TelegramSender
 	inApp    InAppStore
+	webhook  WebhookDispatcher
+	sms      SMSDispatcher
 	channels []Channel
 	logger   zerolog.Logger
+
+	notifStore     NotifStore
+	eventPublisher EventPublisher
+	delivery       *DeliveryTracker
+	notifSubject   string
 
 	mu   sync.Mutex
 	subs []Subscription
@@ -99,6 +141,27 @@ func NewService(email EmailSender, telegram TelegramSender, inApp InAppStore, ch
 		channels: channels,
 		logger:   logger.With().Str("component", "notification").Logger(),
 	}
+}
+
+func (s *Service) SetWebhook(w WebhookDispatcher) {
+	s.webhook = w
+}
+
+func (s *Service) SetSMS(sms SMSDispatcher) {
+	s.sms = sms
+}
+
+func (s *Service) SetNotifStore(ns NotifStore) {
+	s.notifStore = ns
+}
+
+func (s *Service) SetEventPublisher(ep EventPublisher, notifSubject string) {
+	s.eventPublisher = ep
+	s.notifSubject = notifSubject
+}
+
+func (s *Service) SetDeliveryTracker(dt *DeliveryTracker) {
+	s.delivery = dt
 }
 
 func (s *Service) Start(subscriber Subscriber, healthSubject, alertSubject string) error {
@@ -137,7 +200,71 @@ func (s *Service) Stop() {
 		sub.Unsubscribe()
 	}
 	s.subs = nil
+
+	if s.delivery != nil {
+		s.delivery.Stop()
+	}
+
 	s.logger.Info().Msg("notification service stopped")
+}
+
+func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
+	if s.delivery != nil && req.UserID != nil {
+		allowed, err := s.delivery.CheckRateLimit(ctx, req.UserID.String())
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("rate limit check failed, allowing")
+		} else if !allowed {
+			s.logger.Warn().
+				Str("user_id", req.UserID.String()).
+				Str("event_type", string(req.EventType)).
+				Msg("notification rate limited")
+			return fmt.Errorf("notification: rate limited for user %s", req.UserID)
+		}
+	}
+
+	channelsSent := s.dispatchToChannels(ctx, req.Severity, req.Title, req.Body)
+
+	if s.notifStore != nil {
+		created, err := s.notifStore.Create(ctx, NotifCreateParams{
+			TenantID:     req.TenantID,
+			UserID:       req.UserID,
+			EventType:    string(req.EventType),
+			ScopeType:    string(req.ScopeType),
+			ScopeRefID:   req.ScopeRefID,
+			Title:        req.Title,
+			Body:         req.Body,
+			Severity:     req.Severity,
+			ChannelsSent: channelsSent,
+		})
+		if err != nil {
+			s.logger.Error().Err(err).Msg("persist notification to store")
+		} else {
+			now := time.Now()
+			_ = s.notifStore.UpdateDelivery(ctx, created.ID, &now, nil, nil, 0, channelsSent)
+
+			if s.eventPublisher != nil && s.notifSubject != "" {
+				wsPayload := map[string]interface{}{
+					"id":         created.ID.String(),
+					"tenant_id":  created.TenantID.String(),
+					"event_type": string(req.EventType),
+					"title":      req.Title,
+					"severity":   req.Severity,
+					"created_at": created.CreatedAt.Format(time.RFC3339),
+				}
+				if pubErr := s.eventPublisher.Publish(ctx, s.notifSubject, wsPayload); pubErr != nil {
+					s.logger.Warn().Err(pubErr).Msg("publish notification.new event")
+				}
+			}
+		}
+	}
+
+	s.logger.Info().
+		Str("event_type", string(req.EventType)).
+		Str("severity", req.Severity).
+		Strs("channels", channelsSent).
+		Msg("notification dispatched")
+
+	return nil
 }
 
 func (s *Service) handleHealthChanged(data []byte) {
@@ -224,6 +351,11 @@ func (s *Service) dispatchToChannels(ctx context.Context, severity, title, body 
 			if s.email != nil {
 				if err := s.email.SendAlert(ctx, title, body); err != nil {
 					s.logger.Error().Err(err).Msg("send email notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.email.SendAlert(retryCtx, title, body)
+					})
 				} else {
 					sent = append(sent, string(ChannelEmail))
 				}
@@ -233,6 +365,11 @@ func (s *Service) dispatchToChannels(ctx context.Context, severity, title, body 
 				msg := fmt.Sprintf("*%s*\n\n%s", title, body)
 				if err := s.telegram.SendMessage(ctx, msg); err != nil {
 					s.logger.Error().Err(err).Msg("send telegram notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.telegram.SendMessage(retryCtx, msg)
+					})
 				} else {
 					sent = append(sent, string(ChannelTelegram))
 				}
@@ -254,7 +391,45 @@ func (s *Service) dispatchToChannels(ctx context.Context, severity, title, body 
 					sent = append(sent, string(ChannelInApp))
 				}
 			}
+		case ChannelWebhook:
+			if s.webhook != nil {
+				payload, _ := json.Marshal(map[string]string{
+					"title":    title,
+					"body":     body,
+					"severity": severity,
+				})
+				if err := s.webhook.SendWebhook(ctx, "", "", string(payload)); err != nil {
+					s.logger.Error().Err(err).Msg("send webhook notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.webhook.SendWebhook(retryCtx, "", "", string(payload))
+					})
+				} else {
+					sent = append(sent, string(ChannelWebhook))
+				}
+			}
+		case ChannelSMS:
+			if s.sms != nil {
+				if err := s.sms.SendSMS(ctx, "", fmt.Sprintf("%s: %s", title, body)); err != nil {
+					s.logger.Error().Err(err).Msg("send sms notification")
+				} else {
+					sent = append(sent, string(ChannelSMS))
+				}
+			}
 		}
 	}
 	return sent
+}
+
+func (s *Service) scheduleRetry(fn func() error) {
+	if s.delivery != nil {
+		s.delivery.ScheduleRetry(fn, func(success bool, err error, attempt int) {
+			if success {
+				s.logger.Info().Int("attempt", attempt).Msg("retry delivery succeeded")
+			} else {
+				s.logger.Error().Err(err).Int("attempt", attempt).Msg("retry delivery exhausted")
+			}
+		})
+	}
 }

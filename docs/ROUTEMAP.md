@@ -100,7 +100,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-038 | Notification Engine (Multi-Channel) | L | [ ] PENDING | — | STORY-006, STORY-005 | — |
+| STORY-038 | Notification Engine (Multi-Channel) | L | [~] IN PROGRESS | Commit | STORY-006, STORY-005 | — |
 | STORY-039 | Compliance Reporting & Auto-Purge | M | [ ] PENDING | — | STORY-007, STORY-011 | — |
 | STORY-040 | WebSocket Event Server | L | [ ] PENDING | — | STORY-006 | — |
 

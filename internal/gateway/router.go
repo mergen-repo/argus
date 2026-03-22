@@ -11,6 +11,7 @@ import (
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
+	notifapi "github.com/btopcu/argus/internal/api/notification"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -50,8 +51,9 @@ type RouterDeps struct {
 	OTAHandler       *otaapi.Handler
 	CDRHandler       *cdrapi.Handler
 	AnalyticsHandler *analyticsapi.Handler
-	AnomalyHandler   *anomalyapi.Handler
-	DiagnosticsHandler *diagapi.Handler
+	AnomalyHandler       *anomalyapi.Handler
+	NotificationHandler  *notifapi.Handler
+	DiagnosticsHandler   *diagapi.Handler
 	MetricsHandler   *metricsapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
@@ -418,6 +420,18 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sessions/bulk/disconnect", deps.SessionHandler.BulkDisconnect)
+		})
+	}
+
+	if deps.NotificationHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("api_user"))
+			r.Get("/api/v1/notifications", deps.NotificationHandler.List)
+			r.Patch("/api/v1/notifications/{id}/read", deps.NotificationHandler.MarkRead)
+			r.Post("/api/v1/notifications/read-all", deps.NotificationHandler.MarkAllRead)
+			r.Get("/api/v1/notification-configs", deps.NotificationHandler.GetConfigs)
+			r.Put("/api/v1/notification-configs", deps.NotificationHandler.UpdateConfigs)
 		})
 	}
 

@@ -842,3 +842,16 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 3. Cache testi: Ayni istek 1 dakika icinde tekrar -- cached sonuc donmeli
 4. Gecersiz SIM: `curl -k -X POST "https://localhost/api/v1/sims/00000000-0000-0000-0000-000000000000/diagnose" -H "Authorization: Bearer $TOKEN"` -- 404
 5. Unit testler: `go test ./internal/diagnostics/... ./internal/api/diagnostics/... -v`
+
+---
+
+## STORY-038: Notification Engine (Multi-Channel)
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. Bildirim listele: `curl -k "https://localhost/api/v1/notifications" -H "Authorization: Bearer $TOKEN"` -- 200 + paginated list (unread first)
+2. Okundu isaretle: `curl -k -X PATCH "https://localhost/api/v1/notifications/<ID>/read" -H "Authorization: Bearer $TOKEN"` -- 200
+3. Tumunu okundu: `curl -k -X POST "https://localhost/api/v1/notifications/read-all" -H "Authorization: Bearer $TOKEN"` -- 200 + updated_count
+4. Tercihler: `curl -k "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN"` -- 200 + channels, events, thresholds
+5. Tercih guncelle: `curl -k -X PUT "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"channels":{"email":true,"telegram":false},"events":{"operator.down":true}}'` -- 200
+6. Unit testler: `go test ./internal/notification/... ./internal/store/ ./internal/api/notification/... -v`
