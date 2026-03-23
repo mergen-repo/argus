@@ -113,7 +113,7 @@ export default function TenantManagementPage() {
       max_sims: tenant.max_sims,
       max_users: tenant.max_users,
       max_api_keys: tenant.max_api_keys,
-      plan: tenant.plan,
+      plan: tenant.plan ?? 'standard',
     })
   }
 
@@ -220,8 +220,8 @@ export default function TenantManagementPage() {
                     <span className="font-mono text-xs text-text-secondary">{tenant.slug}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={planVariant(tenant.plan)} className="text-[10px]">
-                      {tenant.plan.toUpperCase()}
+                    <Badge variant={planVariant(tenant.plan ?? 'standard')} className="text-[10px]">
+                      {tenant.plan?.toUpperCase() ?? 'STANDARD'}
                     </Badge>
                   </TableCell>
                   <TableCell>

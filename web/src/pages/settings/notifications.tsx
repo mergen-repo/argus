@@ -98,7 +98,8 @@ export default function NotificationConfigPage() {
 
   useEffect(() => {
     if (config) {
-      setLocalConfig(config)
+      const resolved = Array.isArray(config) ? DEFAULT_CONFIG : config
+      setLocalConfig(resolved)
       setIsDirty(false)
     }
   }, [config])

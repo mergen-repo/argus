@@ -37,9 +37,9 @@ export interface IpPool {
   tenant_id: string
   name: string
   cidr: string
-  total: number
-  used: number
-  available: number
+  total_addresses: number
+  used_addresses: number
+  available_addresses: number
   created_at: string
 }
 
@@ -92,20 +92,22 @@ export interface ServiceHealth {
 export interface SystemMetrics {
   auth_per_sec: number
   active_sessions: number
-  error_rate: number
+  error_rate?: number
+  auth_error_rate?: number
   latency: {
     p50: number
     p95: number
     p99: number
   }
-  services: ServiceHealth[]
+  services?: ServiceHealth[]
+  system_status?: string
 }
 
 export interface Tenant {
   id: string
   name: string
   slug: string
-  plan: string
+  plan?: string
   sim_count: number
   user_count: number
   retention_days: number

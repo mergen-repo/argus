@@ -68,7 +68,7 @@ function addressStateVariant(state: string): 'success' | 'warning' | 'secondary'
 }
 
 function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
-  const pct = pool.total > 0 ? (pool.used / pool.total) * 100 : 0
+  const pct = pool.total_addresses > 0 ? (pool.used_addresses / pool.total_addresses) * 100 : 0
   const statusColor = pct > 90 ? 'var(--color-danger)' : pct > 70 ? 'var(--color-warning)' : 'var(--color-accent)'
 
   return (
@@ -88,18 +88,18 @@ function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
             <span className="text-[10px] uppercase tracking-[1px] text-text-tertiary block">Total</span>
-            <span className="font-mono text-sm text-text-primary">{pool.total.toLocaleString()}</span>
+            <span className="font-mono text-sm text-text-primary">{pool.total_addresses.toLocaleString()}</span>
           </div>
           <div>
             <span className="text-[10px] uppercase tracking-[1px] text-text-tertiary block">Used</span>
-            <span className="font-mono text-sm text-text-primary">{pool.used.toLocaleString()}</span>
+            <span className="font-mono text-sm text-text-primary">{pool.used_addresses.toLocaleString()}</span>
           </div>
           <div>
             <span className="text-[10px] uppercase tracking-[1px] text-text-tertiary block">Free</span>
-            <span className="font-mono text-sm text-success">{pool.available.toLocaleString()}</span>
+            <span className="font-mono text-sm text-success">{pool.available_addresses.toLocaleString()}</span>
           </div>
         </div>
-        <UtilizationBar used={pool.used} total={pool.total} />
+        <UtilizationBar used={pool.used_addresses} total={pool.total_addresses} />
       </CardContent>
     </Card>
   )
@@ -196,7 +196,7 @@ export default function IpPoolsPage() {
         </div>
 
         <div className="max-w-sm">
-          <UtilizationBar used={selectedPool.used} total={selectedPool.total} />
+          <UtilizationBar used={selectedPool.used_addresses} total={selectedPool.total_addresses} />
         </div>
 
         <Card className="overflow-hidden">
