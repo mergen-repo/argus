@@ -24,23 +24,14 @@ import {
 import { useAPNList } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
 import type { APN, APNListFilters } from '@/types/apn'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
+import { RAT_DISPLAY } from '@/lib/constants'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private',
   operator_managed: 'Operator',
   customer_managed: 'Customer',
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function IPPoolBar({ used, total }: { used: number; total: number }) {

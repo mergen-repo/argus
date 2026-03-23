@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { AuthLayout } from '@/components/layout/auth-layout'
 import { ProtectedRoute } from '@/components/auth/protected-route'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 import LoginPage from '@/pages/auth/login'
 import TwoFactorPage from '@/pages/auth/two-factor'
@@ -11,6 +12,8 @@ import OnboardingPage from '@/pages/auth/onboarding'
 import DashboardPage from '@/pages/dashboard/index'
 
 import SimListPage from '@/pages/sims/index'
+
+import NotFoundPage from '@/pages/not-found'
 
 const AnalyticsPage = lazy(() => import('@/pages/dashboard/analytics'))
 const AnalyticsCostPage = lazy(() => import('@/pages/dashboard/analytics-cost'))
@@ -53,9 +56,11 @@ function LazyFallback() {
 
 function lazySuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
   return (
-    <Suspense fallback={<LazyFallback />}>
-      <Component />
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<LazyFallback />}>
+        <Component />
+      </Suspense>
+    </ErrorBoundary>
   )
 }
 
@@ -74,11 +79,25 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          { path: '/', element: <DashboardPage /> },
+          {
+            path: '/',
+            element: (
+              <ErrorBoundary>
+                <DashboardPage />
+              </ErrorBoundary>
+            ),
+          },
           { path: '/analytics', element: lazySuspense(AnalyticsPage) },
           { path: '/analytics/cost', element: lazySuspense(AnalyticsCostPage) },
           { path: '/analytics/anomalies', element: lazySuspense(AnalyticsAnomaliesPage) },
-          { path: '/sims', element: <SimListPage /> },
+          {
+            path: '/sims',
+            element: (
+              <ErrorBoundary>
+                <SimListPage />
+              </ErrorBoundary>
+            ),
+          },
           { path: '/sims/:id', element: lazySuspense(SimDetailPage) },
           { path: '/apns', element: lazySuspense(ApnListPage) },
           { path: '/apns/:id', element: lazySuspense(ApnDetailPage) },
@@ -97,6 +116,7 @@ export const router = createBrowserRouter([
           { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
+          { path: '*', element: <NotFoundPage /> },
         ],
       },
     ],

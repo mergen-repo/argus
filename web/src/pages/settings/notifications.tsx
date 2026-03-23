@@ -13,11 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useNotificationConfig, useUpdateNotificationConfig } from '@/hooks/use-settings'
 import type { NotificationConfig } from '@/types/settings'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
 
 const CHANNEL_META: Record<string, { icon: React.ElementType; label: string; description: string }> = {
   email: { icon: Mail, label: 'Email', description: 'Receive notifications via email' },

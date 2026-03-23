@@ -46,6 +46,7 @@ import {
   useSwitchProfile,
 } from '@/hooks/use-esim'
 import type { ESimProfile, ESimProfileState } from '@/types/esim'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const STATE_OPTIONS = [
@@ -64,10 +65,6 @@ function stateVariant(state: ESimProfileState): 'success' | 'warning' | 'danger'
     case 'deleted': return 'danger'
     default: return 'secondary'
   }
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 export default function EsimListPage() {

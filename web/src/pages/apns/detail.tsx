@@ -32,42 +32,17 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { useAPN, useAPNIPPools, useAPNSims } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { SIM, SIMState } from '@/types/sim'
 import { cn } from '@/lib/utils'
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
+import { RAT_DISPLAY } from '@/lib/constants'
+import { formatBytes } from '@/lib/format'
+import { stateVariant } from '@/lib/sim-utils'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
   operator_managed: 'Operator Managed',
   customer_managed: 'Customer Managed',
-}
-
-function stateVariant(state: SIMState): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
-  switch (state) {
-    case 'active': return 'success'
-    case 'suspended': return 'warning'
-    case 'terminated': return 'danger'
-    case 'stolen_lost': return 'danger'
-    case 'ordered': return 'default'
-    default: return 'secondary'
-  }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

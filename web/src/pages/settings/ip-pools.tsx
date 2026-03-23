@@ -30,12 +30,9 @@ import {
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { useIpPoolList, useIpPoolAddresses, useReserveIp } from '@/hooks/use-settings'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { IpPool } from '@/types/settings'
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
 
 function UtilizationBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? (used / total) * 100 : 0

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog'
 import { useUserList, useInviteUser, useUpdateUser } from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { TenantUser } from '@/types/settings'
 
 const ROLE_OPTIONS = [
@@ -54,10 +55,6 @@ function statusVariant(status: string): 'success' | 'warning' | 'secondary' {
 function roleLabel(role: string): string {
   const opt = ROLE_OPTIONS.find((o) => o.value === role)
   return opt?.label ?? role
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 export default function UsersPage() {

@@ -12,8 +12,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAnomalyList, useAnomalyStateUpdate, type AnomalyFilters } from '@/hooks/use-analytics'
 import type { Anomaly, AnomalyState, AnomalySeverity } from '@/types/analytics'
+import { timeAgo } from '@/lib/format'
 
 const SEVERITY_OPTIONS = [
   { value: '', label: 'All Severities' },
@@ -67,20 +69,6 @@ function stateVariant(state: string): 'default' | 'success' | 'secondary' | 'out
     case 'false_positive': return 'outline'
     default: return 'default'
   }
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function AnomalySkeleton() {

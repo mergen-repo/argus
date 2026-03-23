@@ -18,14 +18,11 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useSystemMetrics, useRealtimeMetrics } from '@/hooks/use-settings'
+import { useSystemMetrics, useHealthCheck, useRealtimeMetrics } from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef } from 'react'
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
   postgres: Database,
@@ -117,7 +114,25 @@ export default function SystemHealthPage() {
   const isSuperAdmin = user?.role === 'super_admin'
 
   const { data: metrics, isLoading, isError, refetch } = useSystemMetrics()
+  const { data: healthData } = useHealthCheck()
   useRealtimeMetrics()
+
+  const services = metrics?.services ?? (() => {
+    if (!healthData) return []
+    const h = healthData as Record<string, unknown>
+    const result: { name: string; status: string; latency_ms: number }[] = []
+    for (const [key, val] of Object.entries(h)) {
+      if (key === 'uptime' || key === 'services') continue
+      if (typeof val === 'string') {
+        result.push({ name: key, status: val === 'ok' ? 'healthy' : 'down', latency_ms: 0 })
+      } else if (typeof val === 'object' && val !== null) {
+        const obj = val as Record<string, unknown>
+        const allOk = Object.values(obj).every((v) => typeof v !== 'string' || v === 'ok')
+        result.push({ name: key, status: allOk ? 'healthy' : 'degraded', latency_ms: 0 })
+      }
+    }
+    return result
+  })()
 
   const [latencyHistory, setLatencyHistory] = useState<LatencyPoint[]>([])
   const historyRef = useRef(latencyHistory)
@@ -201,7 +216,7 @@ export default function SystemHealthPage() {
           Service Status
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {metrics.services.map((svc) => {
+          {services.map((svc) => {
             const Icon = serviceIcon(svc.name)
             return (
               <Card key={svc.name} className="relative overflow-hidden">
@@ -278,11 +293,11 @@ export default function SystemHealthPage() {
           <Card>
             <CardContent className="p-6 flex justify-center">
               <GaugeChart
-                value={parseFloat(metrics.error_rate.toFixed(2))}
+                value={parseFloat((metrics.error_rate ?? metrics.auth_error_rate ?? 0).toFixed(2))}
                 max={10}
                 label="Error Rate"
                 unit="%"
-                color={metrics.error_rate > 5 ? 'var(--color-danger)' : metrics.error_rate > 2 ? 'var(--color-warning)' : 'var(--color-success)'}
+                color={(metrics.error_rate ?? metrics.auth_error_rate ?? 0) > 5 ? 'var(--color-danger)' : (metrics.error_rate ?? metrics.auth_error_rate ?? 0) > 2 ? 'var(--color-warning)' : 'var(--color-success)'}
               />
             </CardContent>
           </Card>

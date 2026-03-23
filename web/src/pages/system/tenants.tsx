@@ -32,7 +32,9 @@ import {
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useTenantList, useCreateTenant, useUpdateTenant } from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { Tenant } from '@/types/settings'
+import { formatNumber } from '@/lib/format'
 
 const PLAN_OPTIONS = [
   { value: 'starter', label: 'Starter' },
@@ -47,16 +49,6 @@ function planVariant(plan: string): 'default' | 'success' | 'warning' {
     case 'starter': return 'warning'
     default: return 'default'
   }
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
 }
 
 export default function TenantManagementPage() {

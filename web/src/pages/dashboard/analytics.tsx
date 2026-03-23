@@ -50,18 +50,8 @@ const GROUP_COLORS = [
   'var(--color-orange)',
 ]
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
-}
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
-}
+import { Skeleton } from '@/components/ui/skeleton'
+import { formatBytes, formatNumber } from '@/lib/format'
 
 function formatTimestamp(ts: string, period: string): string {
   const d = new Date(ts)
@@ -80,10 +70,6 @@ function DeltaBadge({ delta }: { delta: number }) {
       {positive ? '+' : ''}{delta.toFixed(1)}%
     </span>
   )
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function UsageSkeleton() {

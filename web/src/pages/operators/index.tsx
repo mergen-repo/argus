@@ -10,14 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useOperatorList, useRealtimeOperatorHealth } from '@/hooks/use-operators'
 import type { Operator } from '@/types/operator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
+import { RAT_DISPLAY } from '@/lib/constants'
+import { timeAgo } from '@/lib/format'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -51,20 +47,6 @@ function healthVariant(status: string): 'success' | 'warning' | 'danger' | 'seco
     case 'down': return 'danger'
     default: return 'secondary'
   }
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () => void }) {

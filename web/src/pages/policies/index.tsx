@@ -45,6 +45,7 @@ import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { usePolicyList, useCreatePolicy, useDeletePolicy } from '@/hooks/use-policies'
 import type { PolicyListItem } from '@/types/policy'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const STATUS_OPTIONS = [
@@ -68,10 +69,6 @@ function stateVariant(state: string): 'success' | 'warning' | 'danger' | 'defaul
     case 'archived': return 'secondary'
     default: return 'default'
   }
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 const DEFAULT_DSL = `POLICY "new-policy" {

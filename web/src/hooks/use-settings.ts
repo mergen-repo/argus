@@ -25,8 +25,11 @@ export function useUserList() {
   return useQuery({
     queryKey: [...USERS_KEY, 'list'],
     queryFn: async () => {
-      const res = await api.get<ListResponse<TenantUser>>('/users?limit=200')
-      return res.data.data
+      const res = await api.get<ListResponse<TenantUser & { state?: string }>>('/users?limit=200')
+      return res.data.data.map((u) => ({
+        ...u,
+        status: (u.status ?? u.state ?? 'active') as TenantUser['status'],
+      }))
     },
     staleTime: 30_000,
   })

@@ -36,7 +36,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { useAuditList, useVerifyAuditChain } from '@/hooks/use-audit'
 import type { AuditFilters } from '@/hooks/use-audit'
 import type { AuditLog } from '@/types/audit'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { timeAgo } from '@/lib/format'
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All Actions' },
@@ -72,20 +74,6 @@ function actionVariant(action: string): 'success' | 'warning' | 'danger' | 'defa
   if (action.includes('suspend') || action.includes('disable')) return 'warning'
   if (action.includes('terminate') || action.includes('delete') || action.includes('disconnect')) return 'danger'
   return 'secondary'
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
 }
 
 function JsonDiffView({ data }: { data: unknown }) {

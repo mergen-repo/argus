@@ -49,6 +49,7 @@ import {
   useRealtimeJobProgress,
 } from '@/hooks/use-jobs'
 import type { Job, JobState } from '@/types/job'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const STATE_OPTIONS = [
@@ -84,10 +85,6 @@ function stateVariant(state: JobState): 'success' | 'warning' | 'danger' | 'defa
 function typeLabel(type: string): string {
   const opt = TYPE_OPTIONS.find((o) => o.value === type)
   return opt?.label ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function ProgressBar({ pct, state }: { pct: number; state: string }) {

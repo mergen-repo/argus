@@ -56,33 +56,12 @@ import {
   useSIMDiagnostics,
   useSIMStateAction,
 } from '@/hooks/use-sims'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { SIM, SIMState, DiagnosticResult } from '@/types/sim'
 import { cn } from '@/lib/utils'
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
-
-function stateVariant(state: SIMState): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
-  switch (state) {
-    case 'active': return 'success'
-    case 'suspended': return 'warning'
-    case 'terminated': return 'danger'
-    case 'stolen_lost': return 'danger'
-    case 'ordered': return 'default'
-    default: return 'secondary'
-  }
-}
-
-function stateLabel(state: string): string {
-  switch (state) {
-    case 'stolen_lost': return 'LOST/STOLEN'
-    default: return state.toUpperCase()
-  }
-}
+import { RAT_DISPLAY } from '@/lib/constants'
+import { formatBytes, formatDuration, timeAgo } from '@/lib/format'
+import { stateVariant, stateLabel } from '@/lib/sim-utils'
 
 function allowedActions(state: SIMState): Array<{ action: string; label: string; icon: React.ElementType; variant: 'default' | 'destructive' | 'outline' }> {
   switch (state) {
@@ -104,35 +83,6 @@ function allowedActions(state: SIMState): Array<{ action: string; label: string;
     default:
       return []
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return `${h}h ${m}m`
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function OverviewTab({ sim }: { sim: SIM }) {

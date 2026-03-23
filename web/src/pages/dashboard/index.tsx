@@ -5,24 +5,13 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts } from '@/hooks/use-dashboard'
 import type { DashboardAlert, OperatorHealth, TopAPN, SIMByState } from '@/types/dashboard'
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
-}
-
-function formatCurrency(n: number): string {
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
+import { formatNumber, formatCurrency, timeAgo } from '@/lib/format'
 
 function Sparkline({ color }: { color: string }) {
   const bars = Array.from({ length: 12 }, () => 20 + Math.random() * 80)
@@ -319,16 +308,6 @@ function severityVariant(severity: string): 'danger' | 'warning' | 'default' {
     case 'warning': return 'warning'
     default: return 'default'
   }
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
 }
 
 function AlertFeed({ alerts }: { alerts: DashboardAlert[] }) {

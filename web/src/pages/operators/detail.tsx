@@ -34,14 +34,9 @@ import {
   useTestConnection,
   useRealtimeOperatorHealth,
 } from '@/hooks/use-operators'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
+import { RAT_DISPLAY } from '@/lib/constants'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -54,10 +49,6 @@ const FAILOVER_DISPLAY: Record<string, string> = {
   reject: 'Reject',
   fallback_to_next: 'Fallback to Next',
   queue_with_timeout: 'Queue with Timeout',
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

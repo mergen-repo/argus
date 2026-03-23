@@ -1,6 +1,8 @@
 import { Loader2, AlertCircle, Users, Radio, Globe } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import type { DryRunResult, SampleSIM } from '@/types/policy'
+import { RAT_DISPLAY } from '@/lib/constants'
+import { formatDuration } from '@/lib/format'
 
 interface PreviewTabProps {
   result: DryRunResult | null | undefined
@@ -8,25 +10,11 @@ interface PreviewTabProps {
   error?: unknown
 }
 
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
-
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(1)} Gbps`
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
   if (bps >= 1_000) return `${(bps / 1_000).toFixed(0)} Kbps`
   return `${bps} bps`
-}
-
-function formatDuration(secs: number): string {
-  if (secs >= 86400) return `${(secs / 86400).toFixed(0)}d`
-  if (secs >= 3600) return `${(secs / 3600).toFixed(0)}h`
-  if (secs >= 60) return `${(secs / 60).toFixed(0)}min`
-  return `${secs}s`
 }
 
 function BreakdownBar({ label, data }: { label: string; data: Record<string, number> }) {

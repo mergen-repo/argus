@@ -38,6 +38,7 @@ import {
   useRotateApiKey,
   useRevokeApiKey,
 } from '@/hooks/use-settings'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const SCOPE_OPTIONS = [
@@ -50,10 +51,6 @@ const SCOPE_OPTIONS = [
   { value: 'analytics:read', label: 'Analytics Read' },
   { value: 'operators:read', label: 'Operators Read' },
 ]
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
-}
 
 export default function ApiKeysPage() {
   const { data: keys, isLoading, isError, refetch } = useApiKeyList()

@@ -45,9 +45,12 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useSIMList, useSegments, useBulkStateChange } from '@/hooks/use-sims'
 import type { SIM, SIMListFilters, SIMState } from '@/types/sim'
 import { cn } from '@/lib/utils'
+import { RAT_DISPLAY, RAT_OPTIONS } from '@/lib/constants'
+import { stateVariant, stateLabel } from '@/lib/sim-utils'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -58,56 +61,12 @@ const STATE_OPTIONS = [
   { value: 'stolen_lost', label: 'Lost/Stolen' },
 ]
 
-const RAT_OPTIONS = [
-  { value: '', label: 'All RAT' },
-  { value: 'nb_iot', label: 'NB-IoT' },
-  { value: 'lte_m', label: 'LTE-M' },
-  { value: 'lte', label: 'LTE' },
-  { value: 'nr_5g', label: '5G NR' },
-]
-
-const RAT_DISPLAY: Record<string, string> = {
-  nb_iot: 'NB-IoT',
-  lte_m: 'LTE-M',
-  lte: 'LTE',
-  nr_5g: '5G NR',
-}
-
-function stateVariant(state: SIMState): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
-  switch (state) {
-    case 'active': return 'success'
-    case 'suspended': return 'warning'
-    case 'terminated': return 'danger'
-    case 'stolen_lost': return 'danger'
-    case 'ordered': return 'default'
-    default: return 'secondary'
-  }
-}
-
-function stateLabel(state: string): string {
-  switch (state) {
-    case 'stolen_lost': return 'LOST'
-    default: return state.toUpperCase()
-  }
-}
-
 function detectSearchType(q: string): { field: string; label: string } | null {
   const cleaned = q.replace(/\s/g, '')
   if (/^\d{18,22}$/.test(cleaned)) return { field: 'iccid', label: 'ICCID' }
   if (/^\d{14,15}$/.test(cleaned)) return { field: 'imsi', label: 'IMSI' }
   if (/^\+?\d{10,15}$/.test(cleaned)) return { field: 'msisdn', label: 'MSISDN' }
   return null
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-[var(--radius-sm)] bg-bg-hover ${className ?? ''}`} />
 }
 
 export default function SimListPage() {
