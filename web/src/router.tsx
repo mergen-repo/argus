@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
 import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { AuthLayout } from '@/components/layout/auth-layout'
@@ -8,37 +9,55 @@ import TwoFactorPage from '@/pages/auth/two-factor'
 import OnboardingPage from '@/pages/auth/onboarding'
 
 import DashboardPage from '@/pages/dashboard/index'
-import AnalyticsPage from '@/pages/dashboard/analytics'
-import AnalyticsCostPage from '@/pages/dashboard/analytics-cost'
-import AnalyticsAnomaliesPage from '@/pages/dashboard/analytics-anomalies'
 
 import SimListPage from '@/pages/sims/index'
-import SimDetailPage from '@/pages/sims/detail'
 
-import ApnListPage from '@/pages/apns/index'
-import ApnDetailPage from '@/pages/apns/detail'
+const AnalyticsPage = lazy(() => import('@/pages/dashboard/analytics'))
+const AnalyticsCostPage = lazy(() => import('@/pages/dashboard/analytics-cost'))
+const AnalyticsAnomaliesPage = lazy(() => import('@/pages/dashboard/analytics-anomalies'))
 
-import OperatorListPage from '@/pages/operators/index'
-import OperatorDetailPage from '@/pages/operators/detail'
+const SimDetailPage = lazy(() => import('@/pages/sims/detail'))
 
-import SessionListPage from '@/pages/sessions/index'
+const ApnListPage = lazy(() => import('@/pages/apns/index'))
+const ApnDetailPage = lazy(() => import('@/pages/apns/detail'))
 
-import PolicyListPage from '@/pages/policies/index'
-import PolicyEditorPage from '@/pages/policies/editor'
+const OperatorListPage = lazy(() => import('@/pages/operators/index'))
+const OperatorDetailPage = lazy(() => import('@/pages/operators/detail'))
 
-import EsimListPage from '@/pages/esim/index'
+const SessionListPage = lazy(() => import('@/pages/sessions/index'))
 
-import JobListPage from '@/pages/jobs/index'
-import AuditLogPage from '@/pages/audit/index'
-import NotificationsPage from '@/pages/notifications/index'
+const PolicyListPage = lazy(() => import('@/pages/policies/index'))
+const PolicyEditorPage = lazy(() => import('@/pages/policies/editor'))
 
-import UsersPage from '@/pages/settings/users'
-import ApiKeysPage from '@/pages/settings/api-keys'
-import IpPoolsPage from '@/pages/settings/ip-pools'
-import NotificationConfigPage from '@/pages/settings/notifications'
+const EsimListPage = lazy(() => import('@/pages/esim/index'))
 
-import SystemHealthPage from '@/pages/system/health'
-import TenantManagementPage from '@/pages/system/tenants'
+const JobListPage = lazy(() => import('@/pages/jobs/index'))
+const AuditLogPage = lazy(() => import('@/pages/audit/index'))
+const NotificationsPage = lazy(() => import('@/pages/notifications/index'))
+
+const UsersPage = lazy(() => import('@/pages/settings/users'))
+const ApiKeysPage = lazy(() => import('@/pages/settings/api-keys'))
+const IpPoolsPage = lazy(() => import('@/pages/settings/ip-pools'))
+const NotificationConfigPage = lazy(() => import('@/pages/settings/notifications'))
+
+const SystemHealthPage = lazy(() => import('@/pages/system/health'))
+const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
+
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[200px]">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+    </div>
+  )
+}
+
+function lazySuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
+  return (
+    <Suspense fallback={<LazyFallback />}>
+      <Component />
+    </Suspense>
+  )
+}
 
 export const router = createBrowserRouter([
   {
@@ -56,28 +75,28 @@ export const router = createBrowserRouter([
         element: <DashboardLayout />,
         children: [
           { path: '/', element: <DashboardPage /> },
-          { path: '/analytics', element: <AnalyticsPage /> },
-          { path: '/analytics/cost', element: <AnalyticsCostPage /> },
-          { path: '/analytics/anomalies', element: <AnalyticsAnomaliesPage /> },
+          { path: '/analytics', element: lazySuspense(AnalyticsPage) },
+          { path: '/analytics/cost', element: lazySuspense(AnalyticsCostPage) },
+          { path: '/analytics/anomalies', element: lazySuspense(AnalyticsAnomaliesPage) },
           { path: '/sims', element: <SimListPage /> },
-          { path: '/sims/:id', element: <SimDetailPage /> },
-          { path: '/apns', element: <ApnListPage /> },
-          { path: '/apns/:id', element: <ApnDetailPage /> },
-          { path: '/operators', element: <OperatorListPage /> },
-          { path: '/operators/:id', element: <OperatorDetailPage /> },
-          { path: '/sessions', element: <SessionListPage /> },
-          { path: '/policies', element: <PolicyListPage /> },
-          { path: '/policies/:id', element: <PolicyEditorPage /> },
-          { path: '/esim', element: <EsimListPage /> },
-          { path: '/jobs', element: <JobListPage /> },
-          { path: '/audit', element: <AuditLogPage /> },
-          { path: '/notifications', element: <NotificationsPage /> },
-          { path: '/settings/users', element: <UsersPage /> },
-          { path: '/settings/api-keys', element: <ApiKeysPage /> },
-          { path: '/settings/ip-pools', element: <IpPoolsPage /> },
-          { path: '/settings/notifications', element: <NotificationConfigPage /> },
-          { path: '/system/health', element: <SystemHealthPage /> },
-          { path: '/system/tenants', element: <TenantManagementPage /> },
+          { path: '/sims/:id', element: lazySuspense(SimDetailPage) },
+          { path: '/apns', element: lazySuspense(ApnListPage) },
+          { path: '/apns/:id', element: lazySuspense(ApnDetailPage) },
+          { path: '/operators', element: lazySuspense(OperatorListPage) },
+          { path: '/operators/:id', element: lazySuspense(OperatorDetailPage) },
+          { path: '/sessions', element: lazySuspense(SessionListPage) },
+          { path: '/policies', element: lazySuspense(PolicyListPage) },
+          { path: '/policies/:id', element: lazySuspense(PolicyEditorPage) },
+          { path: '/esim', element: lazySuspense(EsimListPage) },
+          { path: '/jobs', element: lazySuspense(JobListPage) },
+          { path: '/audit', element: lazySuspense(AuditLogPage) },
+          { path: '/notifications', element: lazySuspense(NotificationsPage) },
+          { path: '/settings/users', element: lazySuspense(UsersPage) },
+          { path: '/settings/api-keys', element: lazySuspense(ApiKeysPage) },
+          { path: '/settings/ip-pools', element: lazySuspense(IpPoolsPage) },
+          { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
+          { path: '/system/health', element: lazySuspense(SystemHealthPage) },
+          { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
         ],
       },
     ],

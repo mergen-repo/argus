@@ -19,6 +19,8 @@ func NewRedis(ctx context.Context, url string, maxConns int, readTimeout, writeT
 	}
 
 	opts.PoolSize = maxConns
+	opts.MinIdleConns = maxConns / 4
+	opts.ConnMaxIdleTime = 5 * time.Minute
 	opts.ReadTimeout = readTimeout
 	opts.WriteTimeout = writeTimeout
 

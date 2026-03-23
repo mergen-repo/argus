@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -85,44 +86,62 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	resp := dashboardDTO{}
 
-	totalSIMs, simStates, err := h.simStore.CountByState(ctx, tenantID)
-	if err != nil {
-		h.logger.Error().Err(err).Msg("count sims by state")
-	} else {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		totalSIMs, simStates, err := h.simStore.CountByState(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("count sims by state")
+			return
+		}
+		mu.Lock()
 		resp.TotalSIMs = totalSIMs
 		resp.SIMByState = make([]simByStateDTO, len(simStates))
 		for i, sc := range simStates {
 			resp.SIMByState[i] = simByStateDTO{State: sc.State, Count: sc.Count}
 		}
-	}
+		mu.Unlock()
+	}()
 
-	if h.sessionStore != nil {
+	go func() {
+		defer wg.Done()
+		if h.sessionStore == nil {
+			return
+		}
 		stats, err := h.sessionStore.GetActiveStats(ctx, &tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("get active sessions")
-		} else {
-			resp.ActiveSessions = stats.TotalActive
-
-			topAPNs := make([]topAPNDTO, 0, 5)
-			for apnID, count := range stats.ByAPN {
-				topAPNs = append(topAPNs, topAPNDTO{
-					ID:    apnID,
-					Name:  apnID,
-					Count: count,
-				})
-			}
-			sortTopAPNs(topAPNs)
-			if len(topAPNs) > 5 {
-				topAPNs = topAPNs[:5]
-			}
-			resp.TopAPNs = topAPNs
+			return
 		}
-	}
+		topAPNs := make([]topAPNDTO, 0, 5)
+		for apnID, count := range stats.ByAPN {
+			topAPNs = append(topAPNs, topAPNDTO{
+				ID:    apnID,
+				Name:  apnID,
+				Count: count,
+			})
+		}
+		sortTopAPNs(topAPNs)
+		if len(topAPNs) > 5 {
+			topAPNs = topAPNs[:5]
+		}
+		mu.Lock()
+		resp.ActiveSessions = stats.TotalActive
+		resp.TopAPNs = topAPNs
+		mu.Unlock()
+	}()
 
-	grants, err := h.operatorStore.ListGrantsWithOperators(ctx, tenantID)
-	if err != nil {
-		h.logger.Error().Err(err).Msg("list operator grants")
-	} else {
+	go func() {
+		defer wg.Done()
+		grants, err := h.operatorStore.ListGrantsWithOperators(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("list operator grants")
+			return
+		}
 		health := make([]operatorHealthDTO, 0, len(grants))
 		for _, g := range grants {
 			pct := healthStatusToPct(g.HealthStatus)
@@ -133,15 +152,20 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 				HealthPct: pct,
 			})
 		}
+		mu.Lock()
 		resp.OperatorHealth = health
-	}
+		mu.Unlock()
+	}()
 
-	anomalies, _, err := h.anomalyStore.ListByTenant(ctx, tenantID, store.ListAnomalyParams{
-		Limit: 10,
-	})
-	if err != nil {
-		h.logger.Error().Err(err).Msg("list recent anomalies")
-	} else {
+	go func() {
+		defer wg.Done()
+		anomalies, _, err := h.anomalyStore.ListByTenant(ctx, tenantID, store.ListAnomalyParams{
+			Limit: 10,
+		})
+		if err != nil {
+			h.logger.Error().Err(err).Msg("list recent anomalies")
+			return
+		}
 		alerts := make([]alertDTO, 0, len(anomalies))
 		for _, a := range anomalies {
 			msg := a.Type
@@ -157,8 +181,12 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 				DetectedAt: a.DetectedAt.Format(time.RFC3339),
 			})
 		}
+		mu.Lock()
 		resp.RecentAlerts = alerts
-	}
+		mu.Unlock()
+	}()
+
+	wg.Wait()
 
 	if resp.SIMByState == nil {
 		resp.SIMByState = []simByStateDTO{}

@@ -21,6 +21,8 @@ func NewPostgres(ctx context.Context, dsn string, maxConns, maxIdleConns int32, 
 	cfg.MaxConns = maxConns
 	cfg.MinConns = maxIdleConns
 	cfg.MaxConnLifetime = connMaxLife
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.HealthCheckPeriod = 30 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

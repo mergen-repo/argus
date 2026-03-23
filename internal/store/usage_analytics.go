@@ -261,7 +261,8 @@ func (s *UsageAnalyticsStore) GetBreakdowns(ctx context.Context, p UsageQueryPar
 		COUNT(*) FILTER (WHERE record_type = 'start') AS auths
 		FROM cdrs WHERE %s
 		GROUP BY %s
-		ORDER BY total_bytes DESC`,
+		ORDER BY total_bytes DESC
+		LIMIT 50`,
 		col, strings.Join(conditions, " AND "), col)
 
 	rows, err := s.db.Query(ctx, query, args...)
