@@ -311,3 +311,42 @@ func TestValidTransitionsMapCompleteness(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateTransition_UnknownCurrentState(t *testing.T) {
+	err := validateTransition("nonexistent", "active")
+	if err != ErrInvalidStateTransition {
+		t.Errorf("expected ErrInvalidStateTransition for unknown current state, got %v", err)
+	}
+}
+
+func TestValidateTransition_SelfTransition(t *testing.T) {
+	states := []string{"ordered", "active", "suspended", "stolen_lost", "terminated", "purged"}
+	for _, state := range states {
+		t.Run(state+"->"+state, func(t *testing.T) {
+			err := validateTransition(state, state)
+			if err == nil {
+				t.Errorf("self-transition %s->%s should be invalid", state, state)
+			}
+		})
+	}
+}
+
+func TestValidateTransition_TerminalStatesHaveNoOutbound(t *testing.T) {
+	terminalStates := []string{"stolen_lost", "purged"}
+	for _, state := range terminalStates {
+		allowed := validTransitions[state]
+		if len(allowed) != 0 {
+			t.Errorf("terminal state %q should have no allowed transitions, got %v", state, allowed)
+		}
+	}
+}
+
+func TestValidateTransition_StolenLostIsAbsorbing(t *testing.T) {
+	targets := []string{"ordered", "active", "suspended", "terminated", "purged"}
+	for _, target := range targets {
+		err := validateTransition("stolen_lost", target)
+		if err == nil {
+			t.Errorf("stolen_lost->%s should be invalid (absorbing state)", target)
+		}
+	}
+}

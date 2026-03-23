@@ -43,17 +43,22 @@ func TestPusher_BroadcastsMetrics(t *testing.T) {
 	hub := &mockHub{}
 	p := NewPusher(c, hub, noopLogger())
 	p.Start()
+	defer p.Stop()
 
-	time.Sleep(2500 * time.Millisecond)
-	p.Stop()
-
-	count := hub.eventCount()
-	if count < 2 {
-		t.Errorf("expected at least 2 broadcasts, got %d", count)
-	}
-
-	evt := hub.lastEvent()
-	if evt != "metrics.realtime" {
-		t.Errorf("last event type = %q, want metrics.realtime", evt)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for 2 broadcasts, got %d", hub.eventCount())
+		default:
+			if hub.eventCount() >= 2 {
+				evt := hub.lastEvent()
+				if evt != "metrics.realtime" {
+					t.Errorf("last event type = %q, want metrics.realtime", evt)
+				}
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 }

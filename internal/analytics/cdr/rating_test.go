@@ -157,3 +157,56 @@ func TestRoundTo(t *testing.T) {
 	assert.Equal(t, 0.0001, roundTo(0.00014, 4))
 	assert.Equal(t, 3.141593, roundTo(3.14159265, 6))
 }
+
+func TestRatingConfig_Calculate_NegativeBytes(t *testing.T) {
+	rc := NewRatingConfig(0.01)
+	result := rc.Calculate(-100, 0, "lte", peakTime(), 0)
+
+	require.NotNil(t, result)
+	assert.True(t, result.TotalMB < 0, "negative bytes should produce negative MB")
+}
+
+func TestRatingConfig_Calculate_PeakBoundary(t *testing.T) {
+	rc := NewRatingConfig(0.01)
+
+	justBefore := time.Date(2026, 3, 22, 7, 59, 59, 0, time.UTC)
+	resultBefore := rc.Calculate(mb(100), 0, "lte", justBefore, 0)
+	assert.InDelta(t, 0.7, resultBefore.UsageCost, 0.001, "07:59 should be off-peak")
+
+	justAt := time.Date(2026, 3, 22, 8, 0, 0, 0, time.UTC)
+	resultAt := rc.Calculate(mb(100), 0, "lte", justAt, 0)
+	assert.InDelta(t, 1.0, resultAt.UsageCost, 0.001, "08:00 should be peak")
+
+	justBeforeEnd := time.Date(2026, 3, 22, 19, 59, 59, 0, time.UTC)
+	resultBeforeEnd := rc.Calculate(mb(100), 0, "lte", justBeforeEnd, 0)
+	assert.InDelta(t, 1.0, resultBeforeEnd.UsageCost, 0.001, "19:59 should be peak")
+
+	atEnd := time.Date(2026, 3, 22, 20, 0, 0, 0, time.UTC)
+	resultEnd := rc.Calculate(mb(100), 0, "lte", atEnd, 0)
+	assert.InDelta(t, 0.7, resultEnd.UsageCost, 0.001, "20:00 should be off-peak")
+}
+
+func TestRatingConfig_Calculate_VolumeTierBoundary(t *testing.T) {
+	rc := NewRatingConfig(0.01)
+
+	resultAt1GB := rc.Calculate(mb(100), 0, "lte", peakTime(), gb(1))
+	assert.InDelta(t, 1.0, resultAt1GB.UsageCost, 0.001, "at 1GB cumulative should be tier 1")
+
+	resultJustOver1GB := rc.Calculate(mb(100), 0, "lte", peakTime(), gb(1)+1)
+	assert.InDelta(t, 0.8, resultJustOver1GB.UsageCost, 0.001, "just over 1GB should be tier 2")
+
+	resultAt10GB := rc.Calculate(mb(100), 0, "lte", peakTime(), gb(10))
+	assert.InDelta(t, 0.8, resultAt10GB.UsageCost, 0.001, "at 10GB should still be tier 2")
+
+	resultOver10GB := rc.Calculate(mb(100), 0, "lte", peakTime(), gb(10)+1)
+	assert.InDelta(t, 0.5, resultOver10GB.UsageCost, 0.001, "over 10GB should be tier 3")
+}
+
+func TestRatingConfig_EmptyVolumeTiers(t *testing.T) {
+	rc := NewRatingConfig(0.01)
+	rc.VolumeTiers = nil
+	result := rc.Calculate(mb(100), 0, "lte", peakTime(), gb(5))
+
+	require.NotNil(t, result)
+	assert.InDelta(t, 1.0, result.UsageCost, 0.001, "empty tiers should default to multiplier 1.0")
+}

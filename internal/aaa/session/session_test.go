@@ -211,6 +211,128 @@ func TestManager_ListActive_Limit(t *testing.T) {
 	}
 }
 
+func TestManager_Create_And_Get_Redis(t *testing.T) {
+	rc := newTestRedisForSession(t)
+	logger := zerolog.Nop()
+	mgr := NewManager(nil, rc, logger)
+
+	sess := &Session{
+		ID:             "create-get-test",
+		SimID:          "sim-cg",
+		TenantID:       "tenant-001",
+		OperatorID:     "op-001",
+		IMSI:           "286010100000099",
+		AcctSessionID:  "acct-cg-001",
+		SessionState:   "active",
+		SessionTimeout: 3600,
+		StartedAt:      time.Now().UTC(),
+	}
+
+	err := mgr.Create(context.Background(), sess)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := mgr.Get(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got == nil {
+		t.Fatal("Get returned nil")
+	}
+	if got.IMSI != "286010100000099" {
+		t.Errorf("IMSI = %q, want 286010100000099", got.IMSI)
+	}
+	if got.SessionState != "active" {
+		t.Errorf("SessionState = %q, want active", got.SessionState)
+	}
+}
+
+func TestManager_UpdateCounters_Redis(t *testing.T) {
+	rc := newTestRedisForSession(t)
+	logger := zerolog.Nop()
+	mgr := NewManager(nil, rc, logger)
+
+	sess := &Session{
+		ID:             "counters-test",
+		SimID:          "sim-ct",
+		TenantID:       "tenant-001",
+		OperatorID:     "op-001",
+		IMSI:           "286010100000050",
+		SessionState:   "active",
+		SessionTimeout: 3600,
+		BytesIn:        1000,
+		BytesOut:       2000,
+		StartedAt:      time.Now().UTC(),
+	}
+
+	if err := mgr.Create(context.Background(), sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.UpdateCounters(context.Background(), sess.ID, 5000, 10000); err != nil {
+		t.Fatalf("UpdateCounters: %v", err)
+	}
+
+	got, err := mgr.Get(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.BytesIn != 5000 {
+		t.Errorf("BytesIn = %d, want 5000", got.BytesIn)
+	}
+	if got.BytesOut != 10000 {
+		t.Errorf("BytesOut = %d, want 10000", got.BytesOut)
+	}
+}
+
+func TestManager_Terminate_Redis(t *testing.T) {
+	rc := newTestRedisForSession(t)
+	logger := zerolog.Nop()
+	mgr := NewManager(nil, rc, logger)
+
+	sess := &Session{
+		ID:             "terminate-test",
+		SimID:          "sim-tt",
+		TenantID:       "tenant-001",
+		OperatorID:     "op-001",
+		IMSI:           "286010100000060",
+		AcctSessionID:  "acct-tt-001",
+		SessionState:   "active",
+		SessionTimeout: 3600,
+		StartedAt:      time.Now().UTC(),
+	}
+
+	if err := mgr.Create(context.Background(), sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.Terminate(context.Background(), sess.ID, "admin-disconnect"); err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+
+	got, err := mgr.Get(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil after terminate, session should be removed from Redis")
+	}
+}
+
+func TestManager_Get_NonExistent(t *testing.T) {
+	logger := zerolog.Nop()
+	mgr := NewManager(nil, nil, logger)
+
+	got, err := mgr.Get(context.Background(), "does-not-exist")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for non-existent session")
+	}
+}
+
 func TestManager_ListActive_FilterClosedSessions(t *testing.T) {
 	rc := newTestRedisForSession(t)
 	logger := zerolog.Nop()

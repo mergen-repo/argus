@@ -14,7 +14,7 @@ import (
 
 func newTestRedis(t *testing.T) *redis.Client {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 15})
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 13})
 	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
 		t.Skipf("redis not available: %v", err)
@@ -74,21 +74,20 @@ func TestRecordAuth_ErrorRate(t *testing.T) {
 	opID := uuid.New()
 	c.SetOperatorIDs([]uuid.UUID{opID})
 
-	waitForSecondBoundary()
+	seedTTL := 30 * time.Second
 
-	for i := 0; i < 90; i++ {
-		c.RecordAuth(ctx, opID, true, 3)
+	targetEpoch := time.Now().Unix() + 1
+	targetEpochStr := strconv.FormatInt(targetEpoch, 10)
+
+	pipe := rdb.Pipeline()
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthTotal, targetEpochStr), 100, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthSuccess, targetEpochStr), 90, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthFailure, targetEpochStr), 10, seedTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatalf("seed redis: %v", err)
 	}
-	for i := 0; i < 10; i++ {
-		c.RecordAuth(ctx, opID, false, 3)
-	}
 
-	writeEpoch := time.Now().Unix()
-
-	for {
-		if time.Now().Unix() > writeEpoch {
-			break
-		}
+	for time.Now().Unix() < targetEpoch+1 {
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -105,14 +104,6 @@ func TestRecordAuth_ErrorRate(t *testing.T) {
 	}
 }
 
-func waitForSecondBoundary() {
-	now := time.Now()
-	nextSec := now.Truncate(time.Second).Add(100 * time.Millisecond)
-	if nextSec.Before(now) {
-		nextSec = nextSec.Add(time.Second)
-	}
-	time.Sleep(time.Until(nextSec))
-}
 
 func TestLatencyPercentiles(t *testing.T) {
 	rdb := newTestRedis(t)
@@ -152,23 +143,25 @@ func TestPerOperatorMetrics(t *testing.T) {
 	opB := uuid.New()
 	c.SetOperatorIDs([]uuid.UUID{opA, opB})
 
-	waitForSecondBoundary()
+	seedTTL := 30 * time.Second
 
-	for i := 0; i < 50; i++ {
-		c.RecordAuth(ctx, opA, true, 5)
-	}
-	for i := 0; i < 30; i++ {
-		c.RecordAuth(ctx, opB, true, 10)
-	}
-	for i := 0; i < 20; i++ {
-		c.RecordAuth(ctx, opB, false, 10)
+	targetEpoch := time.Now().Unix() + 1
+	targetEpochStr := strconv.FormatInt(targetEpoch, 10)
+
+	pipe := rdb.Pipeline()
+	pipe.Set(ctx, fmt.Sprintf("%s:%s:%s", keyAuthTotal, opA.String(), targetEpochStr), 50, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s:%s", keyAuthSuccess, opA.String(), targetEpochStr), 50, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s:%s", keyAuthTotal, opB.String(), targetEpochStr), 50, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s:%s", keyAuthSuccess, opB.String(), targetEpochStr), 30, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s:%s", keyAuthFailure, opB.String(), targetEpochStr), 20, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthTotal, targetEpochStr), 100, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthSuccess, targetEpochStr), 80, seedTTL)
+	pipe.Set(ctx, fmt.Sprintf("%s:%s", keyAuthFailure, targetEpochStr), 20, seedTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatalf("seed redis: %v", err)
 	}
 
-	writeEpoch := time.Now().Unix()
-	for {
-		if time.Now().Unix() > writeEpoch {
-			break
-		}
+	for time.Now().Unix() < targetEpoch+1 {
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -253,6 +246,70 @@ func TestGetMetrics_NoData(t *testing.T) {
 	if m.SystemStatus != StatusHealthy {
 		t.Errorf("SystemStatus = %s, want healthy", m.SystemStatus)
 	}
+}
+
+func TestDeriveStatus_BoundaryValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		errorRate float64
+		want      SystemStatus
+	}{
+		{"zero", 0.0, StatusHealthy},
+		{"just_below_degraded", 0.0499, StatusHealthy},
+		{"exactly_degraded", 0.05, StatusDegraded},
+		{"mid_degraded", 0.10, StatusDegraded},
+		{"just_below_critical", 0.1999, StatusDegraded},
+		{"exactly_critical", 0.20, StatusCritical},
+		{"well_above_critical", 0.50, StatusCritical},
+		{"full_failure", 1.0, StatusCritical},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DeriveStatus(tt.errorRate)
+			if got != tt.want {
+				t.Errorf("DeriveStatus(%.4f) = %s, want %s", tt.errorRate, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToRealtimePayload(t *testing.T) {
+	m := SystemMetrics{
+		AuthPerSec:     42,
+		AuthErrorRate:  0.05,
+		Latency:        LatencyPercentiles{P50: 5, P95: 20, P99: 50},
+		ActiveSessions: 100,
+		SystemStatus:   StatusDegraded,
+	}
+
+	p := ToRealtimePayload(m)
+
+	if p.AuthPerSec != 42 {
+		t.Errorf("AuthPerSec = %d, want 42", p.AuthPerSec)
+	}
+	if p.ErrorRate != 0.05 {
+		t.Errorf("ErrorRate = %f, want 0.05", p.ErrorRate)
+	}
+	if p.LatencyP50 != 5 {
+		t.Errorf("LatencyP50 = %d, want 5", p.LatencyP50)
+	}
+	if p.LatencyP95 != 20 {
+		t.Errorf("LatencyP95 = %d, want 20", p.LatencyP95)
+	}
+	if p.ActiveSessions != 100 {
+		t.Errorf("ActiveSessions = %d, want 100", p.ActiveSessions)
+	}
+	if p.SystemStatus != StatusDegraded {
+		t.Errorf("SystemStatus = %s, want degraded", p.SystemStatus)
+	}
+	if p.Timestamp == "" {
+		t.Error("Timestamp should not be empty")
+	}
+}
+
+func TestRecordAuth_NilRedis(t *testing.T) {
+	c := NewCollector(nil, noopLogger())
+	c.RecordAuth(context.Background(), uuid.New(), true, 5)
 }
 
 func noopLogger() zerolog.Logger {

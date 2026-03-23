@@ -277,6 +277,75 @@ func TestNilRedis_NoError(t *testing.T) {
 	}
 }
 
+func TestCheckAuthFlood_ExactlyAtThreshold(t *testing.T) {
+	rdb := newTestRedis(t)
+
+	thresholds := DefaultThresholds()
+	thresholds.AuthFloodMax = 5
+	d := NewRealtimeDetector(rdb, thresholds, zerolog.Nop())
+	ctx := context.Background()
+
+	simID := uuid.New()
+	tenantID := uuid.New()
+
+	var floodDetected bool
+	for i := 0; i < 5; i++ {
+		results, err := d.CheckAuth(ctx, AuthEvent{
+			IMSI:      "001010000000040",
+			SimID:     simID,
+			TenantID:  tenantID,
+			NASIP:     "10.0.0.1",
+			Timestamp: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range results {
+			if r.Type == TypeAuthFlood {
+				floodDetected = true
+			}
+		}
+	}
+	if floodDetected {
+		t.Error("at exactly threshold (5), should NOT trigger flood detection")
+	}
+}
+
+func TestCheckSIMCloning_ThreeDistinctNAS(t *testing.T) {
+	rdb := newTestRedis(t)
+
+	d := NewRealtimeDetector(rdb, DefaultThresholds(), zerolog.Nop())
+	ctx := context.Background()
+
+	simID := uuid.New()
+	tenantID := uuid.New()
+	imsi := "001010000000050"
+
+	nasIPs := []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}
+	cloningCount := 0
+
+	for _, nasIP := range nasIPs {
+		results, err := d.CheckAuth(ctx, AuthEvent{
+			IMSI:      imsi,
+			SimID:     simID,
+			TenantID:  tenantID,
+			NASIP:     nasIP,
+			Timestamp: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range results {
+			if r.Type == TypeSIMCloning {
+				cloningCount++
+			}
+		}
+	}
+	if cloningCount == 0 {
+		t.Error("expected SIM cloning detection with 3 distinct NAS IPs")
+	}
+}
+
 func TestExtractIP(t *testing.T) {
 	tests := []struct {
 		input    string

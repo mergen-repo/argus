@@ -575,3 +575,146 @@ func TestEvaluator_SuspendAction(t *testing.T) {
 	}
 }
 
+func TestEvaluator_NilCompiledPolicy(t *testing.T) {
+	eval := NewEvaluator()
+	_, err := eval.Evaluate(SessionContext{APN: "iot.data"}, nil)
+	if err == nil {
+		t.Error("expected error for nil compiled policy")
+	}
+}
+
+func TestEvaluator_ORCondition(t *testing.T) {
+	src := `POLICY "test" {
+    MATCH { apn = "iot.data" }
+    RULES {
+        WHEN usage > 1GB OR session_count > 5 {
+            bandwidth_down = 64kbps
+        }
+    }
+}`
+	compiled := compileForEval(src)
+	eval := NewEvaluator()
+
+	resultUsageOnly, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 2 * 1073741824, SessionCount: 1}, compiled)
+	if resultUsageOnly.MatchedRules != 1 {
+		t.Error("expected match on usage > 1GB alone (OR)")
+	}
+
+	resultSessionOnly, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 100, SessionCount: 10}, compiled)
+	if resultSessionOnly.MatchedRules != 1 {
+		t.Error("expected match on session_count > 5 alone (OR)")
+	}
+
+	resultNeither, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 100, SessionCount: 1}, compiled)
+	if resultNeither.MatchedRules != 0 {
+		t.Error("expected no match when neither OR branch is true")
+	}
+}
+
+func TestEvaluator_NEQMatchCondition(t *testing.T) {
+	src := `POLICY "test" {
+    MATCH { apn = "iot.data" }
+    RULES {
+        WHEN rat_type != lte {
+            bandwidth_down = 32kbps
+        }
+    }
+}`
+	compiled := compileForEval(src)
+	eval := NewEvaluator()
+
+	resultNBIoT, _ := eval.Evaluate(SessionContext{APN: "iot.data", RATType: "nb_iot"}, compiled)
+	if resultNBIoT.MatchedRules != 1 {
+		t.Error("nb_iot != lte should match")
+	}
+
+	resultLTE, _ := eval.Evaluate(SessionContext{APN: "iot.data", RATType: "lte"}, compiled)
+	if resultLTE.MatchedRules != 0 {
+		t.Error("lte != lte should NOT match")
+	}
+}
+
+func TestEvaluator_MetadataMatch(t *testing.T) {
+	src := `POLICY "test" {
+    MATCH {
+        apn = "iot.data"
+        metadata.fleet_id = "fleet-001"
+    }
+    RULES {
+        bandwidth_down = 512kbps
+    }
+}`
+	compiled := compileForEval(src)
+	eval := NewEvaluator()
+
+	ctxMatch := SessionContext{
+		APN:      "iot.data",
+		Metadata: map[string]string{"fleet_id": "fleet-001"},
+	}
+	result, _ := eval.Evaluate(ctxMatch, compiled)
+	if result.QoSAttributes["bandwidth_down"] == nil {
+		t.Error("expected match when metadata.fleet_id = fleet-001")
+	}
+
+	ctxNoMatch := SessionContext{
+		APN:      "iot.data",
+		Metadata: map[string]string{"fleet_id": "fleet-002"},
+	}
+	result2, _ := eval.Evaluate(ctxNoMatch, compiled)
+	if len(result2.QoSAttributes) != 0 {
+		t.Error("expected no match when metadata.fleet_id != fleet-001")
+	}
+
+	ctxNilMeta := SessionContext{APN: "iot.data"}
+	result3, _ := eval.Evaluate(ctxNilMeta, compiled)
+	if len(result3.QoSAttributes) != 0 {
+		t.Error("expected no match when metadata is nil")
+	}
+}
+
+func TestEvaluator_LTECondition(t *testing.T) {
+	src := `POLICY "test" {
+    MATCH { apn = "iot.data" }
+    RULES {
+        WHEN usage <= 100MB {
+            bandwidth_down = 2mbps
+        }
+    }
+}`
+	compiled := compileForEval(src)
+	eval := NewEvaluator()
+
+	resultInside, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 50 * 1048576}, compiled)
+	if resultInside.MatchedRules != 1 {
+		t.Error("50MB <= 100MB should match")
+	}
+
+	resultExact, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 100 * 1048576}, compiled)
+	if resultExact.MatchedRules != 1 {
+		t.Error("100MB <= 100MB should match")
+	}
+
+	resultOver, _ := eval.Evaluate(SessionContext{APN: "iot.data", Usage: 200 * 1048576}, compiled)
+	if resultOver.MatchedRules != 0 {
+		t.Error("200MB <= 100MB should NOT match")
+	}
+}
+
+func TestEvaluator_DisconnectDeniesAccess(t *testing.T) {
+	src := `POLICY "test" {
+    MATCH { apn = "iot.data" }
+    RULES {
+        WHEN session_count > 10 {
+            ACTION disconnect()
+        }
+    }
+}`
+	compiled := compileForEval(src)
+	eval := NewEvaluator()
+
+	result, _ := eval.Evaluate(SessionContext{APN: "iot.data", SessionCount: 15}, compiled)
+	if result.Allow {
+		t.Error("expected allow=false when disconnect action triggered")
+	}
+}
+
