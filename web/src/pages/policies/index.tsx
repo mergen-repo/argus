@@ -34,6 +34,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -162,7 +163,7 @@ export default function PolicyListPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <Shield className="h-5 w-5 text-accent" />
@@ -227,7 +228,7 @@ export default function PolicyListPage() {
         )}
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -377,52 +378,46 @@ export default function PolicyListPage() {
         </div>
       </Card>
 
-      {/* Create Policy Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent onClose={() => setCreateDialogOpen(false)}>
-          <DialogHeader>
-            <DialogTitle>Create New Policy</DialogTitle>
-            <DialogDescription>Define a new policy with DSL rules for SIM management.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-xs font-medium text-text-secondary block mb-1.5">Name</label>
-              <Input
-                value={newPolicy.name}
-                onChange={(e) => setNewPolicy((p) => ({ ...p, name: e.target.value }))}
-                placeholder="e.g. iot-fleet-standard"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-text-secondary block mb-1.5">Description</label>
-              <Input
-                value={newPolicy.description}
-                onChange={(e) => setNewPolicy((p) => ({ ...p, description: e.target.value }))}
-                placeholder="Optional description..."
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-text-secondary block mb-1.5">Scope</label>
-              <Select
-                value={newPolicy.scope}
-                onChange={(e) => setNewPolicy((p) => ({ ...p, scope: e.target.value }))}
-                options={SCOPE_OPTIONS}
-              />
-            </div>
+      {/* Create Policy SlidePanel */}
+      <SlidePanel open={createDialogOpen} onOpenChange={setCreateDialogOpen} title="Create Policy" description="Define a new policy with DSL rules for SIM management." width="md">
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">Name</label>
+            <Input
+              value={newPolicy.name}
+              onChange={(e) => setNewPolicy((p) => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. iot-fleet-standard"
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!newPolicy.name.trim() || createMutation.isPending}
-              className="gap-2"
-            >
-              {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create Policy
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">Description</label>
+            <Input
+              value={newPolicy.description}
+              onChange={(e) => setNewPolicy((p) => ({ ...p, description: e.target.value }))}
+              placeholder="Optional description..."
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">Scope</label>
+            <Select
+              value={newPolicy.scope}
+              onChange={(e) => setNewPolicy((p) => ({ ...p, scope: e.target.value }))}
+              options={SCOPE_OPTIONS}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+          <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!newPolicy.name.trim() || createMutation.isPending}
+            className="gap-2"
+          >
+            {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create Policy
+          </Button>
+        </div>
+      </SlidePanel>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteDialogOpen} onOpenChange={() => setDeleteDialogOpen(null)}>

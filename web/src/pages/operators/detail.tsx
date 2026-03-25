@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   XOctagon,
   Clock,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -27,16 +29,31 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import {
   useOperator,
   useOperatorHealth,
   useTestConnection,
   useRealtimeOperatorHealth,
+  useUpdateOperator,
 } from '@/hooks/use-operators'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
+import { api } from '@/lib/api'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -546,16 +563,142 @@ function TrafficTab() {
   )
 }
 
+const ADAPTER_OPTIONS = [
+  { value: 'mock', label: 'Mock' },
+  { value: 'radius', label: 'RADIUS' },
+  { value: 'diameter', label: 'Diameter' },
+  { value: 'sba', label: '5G SBA' },
+]
+
+const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
+
+function EditOperatorDialog({
+  open,
+  onClose,
+  operator,
+  onSuccess,
+}: {
+  open: boolean
+  onClose: () => void
+  operator: NonNullable<ReturnType<typeof useOperator>['data']>
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    name: operator.name,
+    code: operator.code,
+    mcc: operator.mcc,
+    mnc: operator.mnc,
+    adapter_type: operator.adapter_type,
+    supported_rat_types: [...operator.supported_rat_types],
+  })
+  const [error, setError] = useState<string | null>(null)
+  const updateMutation = useUpdateOperator(operator.id)
+
+  const toggleRat = (rat: string) => {
+    setForm((f) => ({
+      ...f,
+      supported_rat_types: f.supported_rat_types.includes(rat)
+        ? f.supported_rat_types.filter((r) => r !== rat)
+        : [...f.supported_rat_types, rat],
+    }))
+  }
+
+  const handleSubmit = async () => {
+    setError(null)
+    if (!form.name.trim()) { setError('Operator name is required'); return }
+    try {
+      await updateMutation.mutateAsync({
+        name: form.name.trim(),
+        code: form.code.trim(),
+        mcc: form.mcc.trim(),
+        mnc: form.mnc.trim(),
+        adapter_type: form.adapter_type,
+        supported_rat_types: form.supported_rat_types,
+      })
+      onSuccess()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      setError(msg ?? 'Failed to update operator')
+    }
+  }
+
+  return (
+    <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Edit Operator" description="Update operator configuration." width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Name *</label>
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="h-8 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Code *</label>
+          <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} className="h-8 text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">MCC *</label>
+            <Input value={form.mcc} onChange={(e) => setForm((f) => ({ ...f, mcc: e.target.value }))} className="h-8 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">MNC *</label>
+            <Input value={form.mnc} onChange={(e) => setForm((f) => ({ ...f, mnc: e.target.value }))} className="h-8 text-sm" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
+          <Select value={form.adapter_type} onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))} className="h-8 text-sm" options={ADAPTER_OPTIONS} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
+          <div className="flex flex-wrap gap-2">
+            {RAT_TYPE_OPTIONS.map((rat) => (
+              <button
+                key={rat}
+                type="button"
+                onClick={() => toggleRat(rat)}
+                className={cn(
+                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  form.supported_rat_types.includes(rat)
+                    ? 'border-accent bg-accent-dim text-accent'
+                    : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+                )}
+              >
+                {RAT_DISPLAY[rat] ?? rat}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" size="sm" onClick={onClose} disabled={updateMutation.isPending}>Cancel</Button>
+        <Button size="sm" onClick={handleSubmit} disabled={updateMutation.isPending} className="gap-1.5">
+          {updateMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Save Changes
+        </Button>
+      </div>
+    </SlidePanel>
+  )
+}
+
 export default function OperatorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
   const [testResult, setTestResult] = useState<{ success: boolean; latency_ms: number; error?: string } | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const { data: operator, isLoading, isError, refetch } = useOperator(id ?? '')
   const { data: health } = useOperatorHealth(id ?? '')
   const testMutation = useTestConnection(id ?? '')
   useRealtimeOperatorHealth()
+  const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  useEffect(() => {
+    if (operator && id) {
+      addRecentItem({ type: 'operator', id, label: `Op: ${operator.name}`, path: `/operators/${id}` })
+    }
+  }, [operator, id, addRecentItem])
 
   const handleTest = async () => {
     setTestResult(null)
@@ -569,7 +712,7 @@ export default function OperatorDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -607,11 +750,16 @@ export default function OperatorDetailPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
+      <Breadcrumb
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Operators', href: '/operators' },
+          { label: operator.name },
+        ]}
+        className="mb-1"
+      />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/operators')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <span
@@ -643,6 +791,16 @@ export default function OperatorDetailPage() {
               </span>
             ))}
           </div>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5 border-danger/30 text-danger hover:bg-danger-dim" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </Button>
         </div>
       </div>
 
@@ -685,6 +843,33 @@ export default function OperatorDetailPage() {
           <TrafficTab />
         </TabsContent>
       </Tabs>
+
+      {operator && <EditOperatorDialog open={editOpen} onClose={() => setEditOpen(false)} operator={operator} onSuccess={() => { setEditOpen(false); refetch() }} />}
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent onClose={() => setDeleteOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>Delete Operator?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove operator "{operator?.name}". This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                try {
+                  await api.delete(`/operators/${id}`)
+                  navigate('/operators')
+                } catch {}
+              }}
+            >
+              Delete Operator
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

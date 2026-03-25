@@ -152,6 +152,18 @@ export function useReserveIp() {
   })
 }
 
+export function useReleaseIp() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ poolId, addressId }: { poolId: string; addressId: string }) => {
+      await api.post(`/ip-pools/${poolId}/addresses/${addressId}/release`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: IP_POOLS_KEY })
+    },
+  })
+}
+
 export function useNotificationConfig() {
   return useQuery({
     queryKey: [...NOTIF_CONFIG_KEY],

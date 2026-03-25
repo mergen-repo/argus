@@ -60,3 +60,11 @@ Bulk operations on SIM segments: bulk state change (e.g., suspend all SIMs in se
 ## Effort Estimate
 - Size: XL
 - Complexity: High
+
+## Post-STORY-028 Notes (from review)
+- `ESimProfileStore.Switch()` provides the per-SIM atomic switch primitive -- use it directly, do not re-implement
+- `Switch()` sets `sims.apn_id = NULL` -- the bulk processor must handle APN reassignment after switch (or leave it to the policy engine)
+- Use `GetEnabledProfileForSIM(simID)` to find the currently enabled profile before calling Switch
+- Handle mixed segments (physical + eSIM SIMs): physical SIMs skip profile switch, only update `operator_id` directly
+- Wrap each `Switch()` call with distributed lock `argus:lock:sim:{simID}` from STORY-031
+- `ErrInvalidProfileState` occurs if a SIM has no enabled profile -- log as skip (partial success), not job failure

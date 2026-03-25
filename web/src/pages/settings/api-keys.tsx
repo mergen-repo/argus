@@ -32,6 +32,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import {
   useApiKeyList,
   useCreateApiKey,
@@ -136,7 +137,7 @@ export default function ApiKeysPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">API Keys</h1>
         <Button size="sm" className="gap-2" onClick={() => setShowCreateDialog(true)}>
@@ -145,7 +146,7 @@ export default function ApiKeysPage() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -206,7 +207,7 @@ export default function ApiKeysPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs text-text-secondary">{key.rate_limit}/min</span>
+                    <span className="font-mono text-xs text-text-secondary">{key.rate_limit ? `${key.rate_limit}/min` : '-'}</span>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary">
@@ -257,137 +258,129 @@ export default function ApiKeysPage() {
         )}
       </Card>
 
-      {/* Create API Key Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={handleCloseCreate}>
-        <DialogContent onClose={handleCloseCreate} className="max-w-md">
-          {createdKey ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>API Key Created</DialogTitle>
-                <DialogDescription>
-                  Copy this key now. You will not be able to see it again.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div className="relative">
-                  <div className="flex items-center gap-2 p-3 rounded-[var(--radius-sm)] border border-accent/30 bg-accent-dim font-mono text-sm break-all">
-                    {showKey ? createdKey : createdKey.replace(/./g, '*')}
-                  </div>
-                  <div className="absolute right-2 top-2 flex items-center gap-1">
-                    <button
-                      onClick={() => setShowKey(!showKey)}
-                      className="text-text-tertiary hover:text-text-primary transition-colors p-1"
-                    >
-                      {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                    <button
-                      onClick={() => handleCopyKey(createdKey)}
-                      className="text-text-tertiary hover:text-text-primary transition-colors p-1"
-                    >
-                      {copiedKey ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
+      {/* Create API Key SlidePanel */}
+      <SlidePanel
+        open={showCreateDialog}
+        onOpenChange={handleCloseCreate}
+        title={createdKey ? 'API Key Created' : 'Create API Key'}
+        description={createdKey ? 'Copy this key now. You will not be able to see it again.' : 'Generate a new key for machine-to-machine access.'}
+        width={createdKey ? 'sm' : 'md'}
+      >
+        {createdKey ? (
+          <>
+            <div className="space-y-3">
+              <div className="relative">
+                <div className="flex items-center gap-2 p-3 rounded-[var(--radius-sm)] border border-accent/30 bg-accent-dim font-mono text-sm break-all">
+                  {showKey ? createdKey : createdKey.replace(/./g, '*')}
                 </div>
-                <p className="text-xs text-warning flex items-center gap-1.5">
-                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                  Store this key securely. It cannot be retrieved after closing this dialog.
-                </p>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleCloseCreate}>Done</Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle>Create API Key</DialogTitle>
-                <DialogDescription>
-                  Generate a new key for machine-to-machine access.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-text-secondary block mb-1.5">Name</label>
-                  <Input
-                    value={createForm.name}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. Production Integration"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-secondary block mb-1.5">Scopes</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {SCOPE_OPTIONS.map((scope) => (
-                      <label
-                        key={scope.value}
-                        className={cn(
-                          'flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] border text-xs cursor-pointer transition-colors',
-                          createForm.scopes.includes(scope.value)
-                            ? 'border-accent/30 bg-accent-dim text-accent'
-                            : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={createForm.scopes.includes(scope.value)}
-                          onChange={() => toggleScope(scope.value)}
-                          className="sr-only"
-                        />
-                        <div className={cn(
-                          'h-3.5 w-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0',
-                          createForm.scopes.includes(scope.value)
-                            ? 'border-accent bg-accent'
-                            : 'border-border',
-                        )}>
-                          {createForm.scopes.includes(scope.value) && <Check className="h-2.5 w-2.5 text-bg-primary" />}
-                        </div>
-                        {scope.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-text-secondary block mb-1.5">
-                    Rate Limit (requests/minute)
-                  </label>
-                  <Input
-                    type="number"
-                    value={createForm.rate_limit}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, rate_limit: parseInt(e.target.value) || 100 }))}
-                    min={1}
-                    max={10000}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-secondary block mb-1.5">
-                    Expiry (days)
-                  </label>
-                  <Input
-                    type="number"
-                    value={createForm.expires_in_days}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, expires_in_days: parseInt(e.target.value) || 365 }))}
-                    min={1}
-                    max={3650}
-                  />
+                <div className="absolute right-2 top-2 flex items-center gap-1">
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+                  >
+                    {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => handleCopyKey(createdKey)}
+                    className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+                  >
+                    {copiedKey ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={handleCloseCreate}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreate}
-                  disabled={!createForm.name || createForm.scopes.length === 0 || createMutation.isPending}
-                  className="gap-2"
-                >
-                  {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Create Key
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              <p className="text-xs text-warning flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                Store this key securely. It cannot be retrieved after closing this panel.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+              <Button onClick={handleCloseCreate}>Done</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">Name</label>
+                <Input
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Production Integration"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">Scopes</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SCOPE_OPTIONS.map((scope) => (
+                    <label
+                      key={scope.value}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] border text-xs cursor-pointer transition-colors',
+                        createForm.scopes.includes(scope.value)
+                          ? 'border-accent/30 bg-accent-dim text-accent'
+                          : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createForm.scopes.includes(scope.value)}
+                        onChange={() => toggleScope(scope.value)}
+                        className="sr-only"
+                      />
+                      <div className={cn(
+                        'h-3.5 w-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0',
+                        createForm.scopes.includes(scope.value)
+                          ? 'border-accent bg-accent'
+                          : 'border-border',
+                      )}>
+                        {createForm.scopes.includes(scope.value) && <Check className="h-2.5 w-2.5 text-bg-primary" />}
+                      </div>
+                      {scope.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">
+                  Rate Limit (requests/minute)
+                </label>
+                <Input
+                  type="number"
+                  value={createForm.rate_limit}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, rate_limit: parseInt(e.target.value) || 100 }))}
+                  min={1}
+                  max={10000}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">
+                  Expiry (days)
+                </label>
+                <Input
+                  type="number"
+                  value={createForm.expires_in_days}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, expires_in_days: parseInt(e.target.value) || 365 }))}
+                  min={1}
+                  max={3650}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+              <Button variant="outline" onClick={handleCloseCreate}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                disabled={!createForm.name || createForm.scopes.length === 0 || createMutation.isPending}
+                className="gap-2"
+              >
+                {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Create Key
+              </Button>
+            </div>
+          </>
+        )}
+      </SlidePanel>
 
       {/* Rotate/Revoke Confirmation Dialog */}
       <Dialog open={!!confirmAction && !rotatedKey} onOpenChange={() => { setConfirmAction(null); setRotatedKey(null) }}>

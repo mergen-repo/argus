@@ -73,7 +73,7 @@ function stateVariant(state: string): 'default' | 'success' | 'secondary' | 'out
 
 function AnomalySkeleton() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <Skeleton className="h-6 w-48" />
       <div className="flex gap-3">
         <Skeleton className="h-9 w-36" />
@@ -307,7 +307,7 @@ export default function AnalyticsAnomaliesPage() {
   const openCount = anomalies.filter((a) => a.state === 'open').length
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <h1 className="text-[16px] font-semibold text-text-primary">Analytics &mdash; Anomalies</h1>

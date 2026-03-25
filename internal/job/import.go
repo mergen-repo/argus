@@ -24,8 +24,9 @@ const (
 var requiredHeaders = []string{"iccid", "imsi", "msisdn", "operator_code", "apn_name"}
 
 type ImportPayload struct {
-	CSVData  string `json:"csv_data"`
-	FileName string `json:"file_name"`
+	CSVData         string `json:"csv_data"`
+	FileName        string `json:"file_name"`
+	ReserveStaticIP bool   `json:"reserve_static_ip,omitempty"`
 }
 
 type ImportRowError struct {
@@ -233,7 +234,7 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 		}
 		_ = ordered
 
-		p.allocateIPAndPolicy(tenantCtx, activatedSim, &apn.ID, apn.DefaultPolicyID)
+		p.allocateIPAndPolicy(tenantCtx, activatedSim, &apn.ID, apn.DefaultPolicyID, payload.ReserveStaticIP)
 
 		createdIDs = append(createdIDs, sim.ID.String())
 		processed++
@@ -310,7 +311,7 @@ func (p *BulkImportProcessor) resolveAPN(ctx context.Context, tenantID, operator
 	return apn, nil
 }
 
-func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *store.SIM, apnID *uuid.UUID, defaultPolicyID *uuid.UUID) {
+func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *store.SIM, apnID *uuid.UUID, defaultPolicyID *uuid.UUID, reserveStatic bool) {
 	if apnID == nil {
 		return
 	}
@@ -320,7 +321,12 @@ func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *stor
 		return
 	}
 
-	result, err := p.ipPools.AllocateIP(ctx, pools[0].ID, sim.ID)
+	var result *store.IPAddress
+	if reserveStatic {
+		result, err = p.ipPools.ReserveStaticIP(ctx, pools[0].ID, sim.ID, nil)
+	} else {
+		result, err = p.ipPools.AllocateIP(ctx, pools[0].ID, sim.ID)
+	}
 	if err != nil {
 		p.logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("ip allocation failed during import")
 		return

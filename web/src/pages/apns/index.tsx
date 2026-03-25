@@ -10,23 +10,153 @@ import {
   AlertCircle,
   Wifi,
   Plus,
+  Loader2,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
-import { useAPNList } from '@/hooks/use-apns'
+import { useAPNList, useCreateAPN } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
 import type { APN, APNListFilters } from '@/types/apn'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
+
+const APN_TYPE_OPTIONS = [
+  { value: 'private_managed', label: 'Private Managed' },
+  { value: 'operator_managed', label: 'Operator Managed' },
+  { value: 'customer_managed', label: 'Customer Managed' },
+]
+
+const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
+
+function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: '',
+    operator_id: '',
+    apn_type: 'private_managed',
+    display_name: '',
+    supported_rat_types: [] as string[],
+  })
+  const [error, setError] = useState<string | null>(null)
+  const { data: operators } = useOperatorList()
+  const createMutation = useCreateAPN()
+
+  const toggleRat = (rat: string) => {
+    setForm((f) => ({
+      ...f,
+      supported_rat_types: f.supported_rat_types.includes(rat)
+        ? f.supported_rat_types.filter((r) => r !== rat)
+        : [...f.supported_rat_types, rat],
+    }))
+  }
+
+  const handleSubmit = async () => {
+    setError(null)
+    if (!form.name.trim()) { setError('APN name is required'); return }
+    if (!form.operator_id) { setError('Operator is required'); return }
+    if (!form.apn_type) { setError('APN type is required'); return }
+    try {
+      await createMutation.mutateAsync({
+        name: form.name.trim(),
+        operator_id: form.operator_id,
+        apn_type: form.apn_type,
+        supported_rat_types: form.supported_rat_types,
+        display_name: form.display_name.trim() || undefined,
+      })
+      setForm({ name: '', operator_id: '', apn_type: 'private_managed', display_name: '', supported_rat_types: [] })
+      onClose()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      setError(msg ?? 'Failed to create APN')
+    }
+  }
+
+  return (
+    <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Create APN" description="Configure a new Access Point Name for your operators." width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">APN Name *</label>
+          <Input
+            placeholder="e.g. iot.company.com"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Display Name</label>
+          <Input
+            placeholder="Optional friendly name"
+            value={form.display_name}
+            onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Operator *</label>
+          <Select
+            value={form.operator_id}
+            onChange={(e) => setForm((f) => ({ ...f, operator_id: e.target.value }))}
+            className="h-8 text-sm"
+            placeholder="Select operator..."
+            options={(operators ?? []).map((op) => ({ value: op.id, label: op.name }))}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">APN Type *</label>
+          <Select
+            value={form.apn_type}
+            onChange={(e) => setForm((f) => ({ ...f, apn_type: e.target.value }))}
+            className="h-8 text-sm"
+            options={APN_TYPE_OPTIONS}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
+          <div className="flex flex-wrap gap-2">
+            {RAT_TYPE_OPTIONS.map((rat) => (
+              <button
+                key={rat}
+                type="button"
+                onClick={() => toggleRat(rat)}
+                className={cn(
+                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  form.supported_rat_types.includes(rat)
+                    ? 'border-accent bg-accent-dim text-accent'
+                    : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+                )}
+              >
+                {RAT_DISPLAY[rat] ?? rat}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && (
+          <p className="text-xs text-danger">{error}</p>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" size="sm" onClick={onClose} disabled={createMutation.isPending}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSubmit} disabled={createMutation.isPending} className="gap-1.5">
+          {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Create APN
+        </Button>
+      </div>
+    </SlidePanel>
+  )
+}
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private',
@@ -92,7 +222,7 @@ function APNCard({ apn, operatorName, onClick }: { apn: APN; operatorName: strin
       <IPPoolBar used={mockPoolUsed} total={mockPoolTotal} />
 
       <div className="flex items-center gap-1.5 flex-wrap">
-        <Badge variant="outline" className="text-[10px]">
+        <Badge variant={apn.apn_type === 'private_managed' ? 'default' : apn.apn_type === 'operator_managed' ? 'secondary' : 'warning'} className="text-[10px]">
           {APN_TYPE_DISPLAY[apn.apn_type] ?? apn.apn_type}
         </Badge>
         {apn.supported_rat_types.map((rat) => (
@@ -141,6 +271,7 @@ export default function ApnListPage() {
   const navigate = useNavigate()
   const [filters, setFilters] = useState<APNListFilters>({})
   const [searchInput, setSearchInput] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
 
   const { data: operators } = useOperatorList()
   const { data: apns, isLoading, isError, refetch } = useAPNList(filters)
@@ -179,10 +310,10 @@ export default function ApnListPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">APN Management</h1>
-        <Button className="gap-2" size="sm">
+        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
           Create APN
         </Button>
@@ -279,7 +410,7 @@ export default function ApnListPage() {
                 Clear Filters
               </Button>
             ) : (
-              <Button size="sm" className="gap-2">
+              <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-3.5 w-3.5" />
                 Create APN
               </Button>
@@ -307,6 +438,8 @@ export default function ApnListPage() {
           Showing {filteredApns.length} APN{filteredApns.length !== 1 ? 's' : ''}
         </p>
       )}
+
+      <CreateAPNDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   )
 }

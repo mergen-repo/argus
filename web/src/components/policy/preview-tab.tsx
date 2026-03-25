@@ -57,7 +57,12 @@ function SampleSimRow({ sim }: { sim: SampleSIM }) {
   return (
     <div className="border border-border-subtle rounded-[var(--radius-sm)] p-3 bg-bg-surface">
       <div className="flex items-center justify-between mb-2">
-        <span className="font-mono text-xs text-accent">{sim.iccid}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-xs text-accent">{sim.iccid}</span>
+          {sim.ip_address && (
+            <span className="font-mono text-[10px] text-text-tertiary">{sim.ip_address}</span>
+          )}
+        </div>
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary">
           {RAT_DISPLAY[sim.rat_type] || sim.rat_type}
         </span>
@@ -148,7 +153,7 @@ export function PreviewTab({ result, isLoading, error }: PreviewTabProps) {
         <BreakdownBar label="By RAT" data={result.by_rat} />
       </div>
 
-      {result.behavioral_changes.length > 0 && (
+      {result.behavioral_changes && result.behavioral_changes.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wider">Behavioral Changes</h4>
           {result.behavioral_changes.map((change, i) => (
@@ -165,7 +170,7 @@ export function PreviewTab({ result, isLoading, error }: PreviewTabProps) {
         </div>
       )}
 
-      {result.sample_sims.length > 0 && (
+      {result.sample_sims && result.sample_sims.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wider">
             Sample SIMs ({result.sample_sims.length})

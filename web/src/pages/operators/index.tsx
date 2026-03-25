@@ -1,25 +1,36 @@
-import { useMemo } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   RefreshCw,
   AlertCircle,
   Radio,
+  Plus,
+  Loader2,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useOperatorList, useRealtimeOperatorHealth } from '@/hooks/use-operators'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { SlidePanel } from '@/components/ui/slide-panel'
+import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator } from '@/hooks/use-operators'
 import type { Operator } from '@/types/operator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
-import { timeAgo } from '@/lib/format'
+import { formatBytes, timeAgo } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
   radius: 'RADIUS',
   diameter: 'Diameter',
   sba: '5G SBA',
+}
+
+const FAILOVER_DISPLAY: Record<string, string> = {
+  reject: 'reject',
+  fallback_to_next: 'fallback',
+  queue_with_timeout: 'queue',
 }
 
 function healthColor(status: string) {
@@ -49,20 +60,24 @@ function healthVariant(status: string): 'success' | 'warning' | 'danger' | 'seco
   }
 }
 
+function MetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex-1 rounded-md bg-bg-hover px-3 py-2 text-center min-w-0">
+      <div className="font-mono text-sm font-semibold text-text-primary truncate">{value}</div>
+      <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-0.5">{label}</div>
+    </div>
+  )
+}
+
 function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () => void }) {
-  const mockSimCount = useMemo(() => Math.floor(Math.random() * 100000) + 1000, [])
-  const mockLastCheck = useMemo(() => {
-    const d = new Date()
-    d.setMinutes(d.getMinutes() - Math.floor(Math.random() * 30))
-    return d.toISOString()
-  }, [])
+  const failoverLabel = FAILOVER_DISPLAY[operator.failover_policy] ?? operator.failover_policy
 
   return (
     <Card
-      className="card-hover cursor-pointer p-4 space-y-3 relative overflow-hidden"
+      className="card-hover cursor-pointer p-5 space-y-4 relative overflow-hidden"
       onClick={onClick}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <span
             className="h-3 w-3 rounded-full flex-shrink-0 pulse-dot"
@@ -73,7 +88,9 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
           />
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-text-primary truncate">{operator.name}</h3>
-            <p className="font-mono text-[11px] text-text-tertiary">{operator.code}</p>
+            <p className="font-mono text-[11px] text-text-tertiary">
+              {operator.code} · {operator.mcc}/{operator.mnc}
+            </p>
           </div>
         </div>
         <Badge variant={healthVariant(operator.health_status)} className="text-[10px] flex-shrink-0">
@@ -81,27 +98,27 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
         </Badge>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">SIM Count</span>
-          <div className="font-mono text-sm font-semibold text-text-primary">{mockSimCount.toLocaleString()}</div>
-        </div>
-        <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Protocol</span>
-          <div className="text-sm font-medium text-text-primary">
-            {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
-          </div>
-        </div>
+      <div className="flex gap-2">
+        <MetricBox
+          label="SIMs"
+          value={operator.sim_count > 0 ? operator.sim_count.toLocaleString() : '—'}
+        />
+        <MetricBox
+          label="Sessions"
+          value={operator.active_sessions > 0 ? operator.active_sessions.toString() : '0'}
+        />
+        <MetricBox
+          label="Traffic"
+          value={operator.total_traffic_bytes > 0 ? formatBytes(operator.total_traffic_bytes) : '—'}
+        />
       </div>
 
-      <div>
-        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">MCC/MNC</span>
-        <div className="font-mono text-xs text-text-secondary">{operator.mcc} / {operator.mnc}</div>
-      </div>
-
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 flex-wrap">
-          {operator.supported_rat_types.slice(0, 3).map((rat) => (
+          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-medium">
+            {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
+          </span>
+          {operator.supported_rat_types.slice(0, 4).map((rat) => (
             <span
               key={rat}
               className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium"
@@ -109,11 +126,21 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
               {RAT_DISPLAY[rat] ?? rat}
             </span>
           ))}
-          {operator.supported_rat_types.length > 3 && (
-            <span className="text-[10px] text-text-tertiary">+{operator.supported_rat_types.length - 3}</span>
+          {operator.supported_rat_types.length > 4 && (
+            <span className="text-[10px] text-text-tertiary">+{operator.supported_rat_types.length - 4}</span>
           )}
         </div>
-        <span className="text-[10px] text-text-tertiary">{timeAgo(mockLastCheck)}</span>
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] text-text-tertiary border-t border-border pt-2">
+        <span>
+          Failover: <span className="font-mono text-text-secondary">{failoverLabel}</span>
+        </span>
+        <span>
+          {operator.last_health_check
+            ? `Last: ${timeAgo(operator.last_health_check)}`
+            : 'No health check'}
+        </span>
       </div>
     </Card>
   )
@@ -121,35 +148,169 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
 
 function OperatorCardSkeleton() {
   return (
-    <Card className="p-4 space-y-3">
+    <Card className="p-5 space-y-4">
       <div className="flex justify-between">
         <div className="flex gap-3">
           <Skeleton className="h-3 w-3 rounded-full" />
           <div>
             <Skeleton className="h-4 w-28 mb-1" />
-            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-3 w-20" />
           </div>
         </div>
         <Skeleton className="h-5 w-16" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Skeleton className="h-2.5 w-16 mb-1" />
-          <Skeleton className="h-4 w-12" />
-        </div>
-        <div>
-          <Skeleton className="h-2.5 w-14 mb-1" />
-          <Skeleton className="h-4 w-16" />
-        </div>
+      <div className="flex gap-2">
+        <Skeleton className="flex-1 h-12 rounded-md" />
+        <Skeleton className="flex-1 h-12 rounded-md" />
+        <Skeleton className="flex-1 h-12 rounded-md" />
       </div>
-      <Skeleton className="h-3 w-20" />
       <Skeleton className="h-5 w-full" />
+      <Skeleton className="h-4 w-full" />
     </Card>
+  )
+}
+
+const ADAPTER_OPTIONS = [
+  { value: 'mock', label: 'Mock' },
+  { value: 'radius', label: 'RADIUS' },
+  { value: 'diameter', label: 'Diameter' },
+  { value: 'sba', label: '5G SBA' },
+]
+
+const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
+
+function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: '',
+    code: '',
+    mcc: '',
+    mnc: '',
+    adapter_type: 'mock',
+    supported_rat_types: [] as string[],
+  })
+  const [error, setError] = useState<string | null>(null)
+  const createMutation = useCreateOperator()
+
+  const toggleRat = (rat: string) => {
+    setForm((f) => ({
+      ...f,
+      supported_rat_types: f.supported_rat_types.includes(rat)
+        ? f.supported_rat_types.filter((r) => r !== rat)
+        : [...f.supported_rat_types, rat],
+    }))
+  }
+
+  const handleSubmit = async () => {
+    setError(null)
+    if (!form.name.trim()) { setError('Operator name is required'); return }
+    if (!form.code.trim()) { setError('Operator code is required'); return }
+    if (!form.mcc.trim()) { setError('MCC is required'); return }
+    if (!form.mnc.trim()) { setError('MNC is required'); return }
+    try {
+      await createMutation.mutateAsync({
+        name: form.name.trim(),
+        code: form.code.trim(),
+        mcc: form.mcc.trim(),
+        mnc: form.mnc.trim(),
+        adapter_type: form.adapter_type,
+        supported_rat_types: form.supported_rat_types,
+      })
+      setForm({ name: '', code: '', mcc: '', mnc: '', adapter_type: 'mock', supported_rat_types: [] })
+      onClose()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      setError(msg ?? 'Failed to create operator')
+    }
+  }
+
+  return (
+    <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Create Operator" description="Add a new mobile network operator." width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Name *</label>
+          <Input
+            placeholder="e.g. Turkcell"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Code *</label>
+          <Input
+            placeholder="e.g. TURKCELL"
+            value={form.code}
+            onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">MCC *</label>
+            <Input
+              placeholder="e.g. 286"
+              value={form.mcc}
+              onChange={(e) => setForm((f) => ({ ...f, mcc: e.target.value }))}
+              className="h-8 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">MNC *</label>
+            <Input
+              placeholder="e.g. 01"
+              value={form.mnc}
+              onChange={(e) => setForm((f) => ({ ...f, mnc: e.target.value }))}
+              className="h-8 text-sm"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
+          <Select
+            value={form.adapter_type}
+            onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))}
+            className="h-8 text-sm"
+            options={ADAPTER_OPTIONS}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
+          <div className="flex flex-wrap gap-2">
+            {RAT_TYPE_OPTIONS.map((rat) => (
+              <button
+                key={rat}
+                type="button"
+                onClick={() => toggleRat(rat)}
+                className={cn(
+                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  form.supported_rat_types.includes(rat)
+                    ? 'border-accent bg-accent-dim text-accent'
+                    : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+                )}
+              >
+                {RAT_DISPLAY[rat] ?? rat}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" size="sm" onClick={onClose} disabled={createMutation.isPending}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSubmit} disabled={createMutation.isPending} className="gap-1.5">
+          {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Create Operator
+        </Button>
+      </div>
+    </SlidePanel>
   )
 }
 
 export default function OperatorListPage() {
   const navigate = useNavigate()
+  const [createOpen, setCreateOpen] = useState(false)
   const { data: operators, isLoading, isError, refetch } = useOperatorList()
   useRealtimeOperatorHealth()
 
@@ -170,13 +331,17 @@ export default function OperatorListPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Operators</h1>
+        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4" />
+          Create Operator
+        </Button>
       </div>
 
       {isLoading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <OperatorCardSkeleton key={i} />
           ))}
@@ -188,13 +353,17 @@ export default function OperatorListPage() {
           <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
             <Radio className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
             <h3 className="text-sm font-semibold text-text-primary mb-1">No operators configured</h3>
-            <p className="text-xs text-text-secondary">Contact a super admin to create operators.</p>
+            <p className="text-xs text-text-secondary mb-4">Create your first operator to get started.</p>
+            <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create Operator
+            </Button>
           </div>
         </div>
       )}
 
       {!isLoading && operators && operators.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {operators.map((op, i) => (
             <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1">
               <OperatorCard
@@ -211,6 +380,8 @@ export default function OperatorListPage() {
           Showing {operators.length} operator{operators.length !== 1 ? 's' : ''}
         </p>
       )}
+
+      <CreateOperatorDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   )
 }

@@ -63,7 +63,7 @@ type CreateRadiusSessionParams struct {
 	SoRDecision      json.RawMessage
 }
 
-var radiusSessionColumns = `id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip,
+var radiusSessionColumns = `id, sim_id, tenant_id, operator_id, apn_id, nas_ip::text, framed_ip::text,
 	calling_station_id, called_station_id, rat_type, session_state, auth_method,
 	policy_version_id, acct_session_id, started_at, ended_at, terminate_cause,
 	bytes_in, bytes_out, packets_in, packets_out, last_interim_at,
@@ -394,6 +394,38 @@ func (s *RadiusSessionStore) GetActiveStats(ctx context.Context, tenantID *uuid.
 	}
 
 	return stats, nil
+}
+
+func (s *RadiusSessionStore) TrafficByOperator(ctx context.Context, tenantID *uuid.UUID) (map[uuid.UUID]int64, error) {
+	tenantFilter := ""
+	var args []interface{}
+	if tenantID != nil {
+		tenantFilter = " AND tenant_id = $1"
+		args = append(args, *tenantID)
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT operator_id, COALESCE(SUM(bytes_in + bytes_out), 0)
+		FROM sessions
+		WHERE session_state = 'active'`+tenantFilter+`
+		GROUP BY operator_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: traffic by operator: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int64)
+	for rows.Next() {
+		var opID uuid.UUID
+		var traffic int64
+		if err := rows.Scan(&opID, &traffic); err != nil {
+			return nil, fmt.Errorf("store: scan operator traffic: %w", err)
+		}
+		result[opID] = traffic
+	}
+	return result, nil
 }
 
 func (s *RadiusSessionStore) CountActiveForSIM(ctx context.Context, simID uuid.UUID) (int64, error) {

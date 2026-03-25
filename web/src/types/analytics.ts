@@ -24,6 +24,10 @@ export interface UsageBreakdown {
 
 export interface TopConsumer {
   sim_id: string
+  iccid?: string
+  operator_name?: string
+  apn_name?: string
+  ip_address?: string
   total_bytes: number
   sessions: number
 }

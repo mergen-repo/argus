@@ -41,10 +41,20 @@ const NotificationsPage = lazy(() => import('@/pages/notifications/index'))
 const UsersPage = lazy(() => import('@/pages/settings/users'))
 const ApiKeysPage = lazy(() => import('@/pages/settings/api-keys'))
 const IpPoolsPage = lazy(() => import('@/pages/settings/ip-pools'))
+const IpPoolDetailPage = lazy(() => import('@/pages/settings/ip-pool-detail'))
 const NotificationConfigPage = lazy(() => import('@/pages/settings/notifications'))
+const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
 const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
+
+const AlertsPage = lazy(() => import('@/pages/alerts/index'))
+const SLADashboardPage = lazy(() => import('@/pages/sla/index'))
+const TopologyPage = lazy(() => import('@/pages/topology/index'))
+const ReportsPage = lazy(() => import('@/pages/reports/index'))
+const CapacityPage = lazy(() => import('@/pages/capacity/index'))
+const SIMComparePage = lazy(() => import('@/pages/sims/compare'))
+const ViolationsPage = lazy(() => import('@/pages/violations/index'))
 
 function LazyFallback() {
   return (
@@ -98,6 +108,7 @@ export const router = createBrowserRouter([
               </ErrorBoundary>
             ),
           },
+          { path: '/sims/compare', element: lazySuspense(SIMComparePage) },
           { path: '/sims/:id', element: lazySuspense(SimDetailPage) },
           { path: '/apns', element: lazySuspense(ApnListPage) },
           { path: '/apns/:id', element: lazySuspense(ApnDetailPage) },
@@ -113,7 +124,15 @@ export const router = createBrowserRouter([
           { path: '/settings/users', element: lazySuspense(UsersPage) },
           { path: '/settings/api-keys', element: lazySuspense(ApiKeysPage) },
           { path: '/settings/ip-pools', element: lazySuspense(IpPoolsPage) },
+          { path: '/settings/ip-pools/:poolId', element: lazySuspense(IpPoolDetailPage) },
           { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
+          { path: '/settings/knowledgebase', element: lazySuspense(KnowledgeBasePage) },
+          { path: '/alerts', element: lazySuspense(AlertsPage) },
+          { path: '/sla', element: lazySuspense(SLADashboardPage) },
+          { path: '/topology', element: lazySuspense(TopologyPage) },
+          { path: '/reports', element: lazySuspense(ReportsPage) },
+          { path: '/capacity', element: lazySuspense(CapacityPage) },
+          { path: '/violations', element: lazySuspense(ViolationsPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
           { path: '*', element: <NotFoundPage /> },

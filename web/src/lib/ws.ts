@@ -12,7 +12,7 @@ class WebSocketClient {
 
   constructor() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    this.url = `${protocol}://${window.location.host}/ws`
+    this.url = `${protocol}://${window.location.host}/ws/v1/events`
   }
 
   connect() {

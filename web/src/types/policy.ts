@@ -60,6 +60,7 @@ export interface BehavioralChange {
 export interface SampleSIM {
   sim_id: string
   iccid: string
+  ip_address?: string
   operator: string
   apn: string
   rat_type: string

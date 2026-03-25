@@ -24,10 +24,10 @@ export function useNotificationList(filter?: 'unread' | 'all') {
   })
 
   useEffect(() => {
-    if (query.data && filter !== 'unread') {
+    if (query.data) {
       setNotifications(query.data)
     }
-  }, [query.data, filter, setNotifications])
+  }, [query.data, setNotifications])
 
   return query
 }

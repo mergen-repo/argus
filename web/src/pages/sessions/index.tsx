@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity,
   Clock,
@@ -6,13 +7,16 @@ import {
   Wifi,
   WifiOff,
   Search,
+  X,
   RefreshCw,
   AlertCircle,
   Loader2,
+  ExternalLink,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableHeader,
@@ -30,6 +34,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import {
   useSessionList,
   useSessionStats,
@@ -78,11 +83,15 @@ function SessionRow({
   isNew,
   isEnded,
   onDisconnect,
+  onRowClick,
+  onIMSIClick,
 }: {
   session: Session
   isNew: boolean
   isEnded: boolean
   onDisconnect: (session: Session) => void
+  onRowClick: (session: Session) => void
+  onIMSIClick: (simId: string) => void
 }) {
   const [elapsed, setElapsed] = useState(session.duration_sec)
 
@@ -98,19 +107,28 @@ function SessionRow({
   return (
     <TableRow
       className={cn(
-        'transition-all duration-500',
+        'transition-all duration-500 cursor-pointer',
         isNew && 'animate-in fade-in slide-in-from-top-1 bg-success-dim',
         isEnded && 'opacity-40',
       )}
+      onClick={() => onRowClick(session)}
     >
       <TableCell>
-        <span className="font-mono text-xs text-accent">{session.imsi}</span>
+        <span
+          className="font-mono text-xs text-accent hover:underline cursor-pointer"
+          onClick={(e) => { e.stopPropagation(); if (session.sim_id) onIMSIClick(session.sim_id) }}
+        >
+          {session.imsi}
+        </span>
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.operator_id.slice(0, 8)}</span>
+        <span className="font-mono text-xs text-text-tertiary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.apn_id?.slice(0, 8) ?? '-'}</span>
+        <span className="text-xs text-text-secondary">{session.operator_name || session.operator_id.slice(0, 8)}</span>
+      </TableCell>
+      <TableCell>
+        <span className="text-xs text-text-secondary">{session.apn_name || (session.apn_id?.slice(0, 8) ?? '-')}</span>
       </TableCell>
       <TableCell>
         <span className="font-mono text-xs text-text-tertiary">{session.nas_ip}</span>
@@ -123,9 +141,6 @@ function SessionRow({
       </TableCell>
       <TableCell>
         <span className="font-mono text-xs text-accent">{formatBytes(session.bytes_out)}</span>
-      </TableCell>
-      <TableCell>
-        <span className="font-mono text-xs text-text-tertiary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
       </TableCell>
       <TableCell>
         {session.rat_type ? (
@@ -156,7 +171,10 @@ function SessionRow({
 }
 
 export default function SessionListPage() {
+  const navigate = useNavigate()
   const [disconnectTarget, setDisconnectTarget] = useState<Session | null>(null)
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [filterText, setFilterText] = useState('')
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -195,6 +213,15 @@ export default function SessionListPage() {
     return data.pages.flatMap((page) => page.data)
   }, [data])
 
+  const filteredSessions = useMemo(() => {
+    if (!filterText.trim()) return allSessions
+    const q = filterText.trim().toLowerCase()
+    return allSessions.filter((s) => {
+      const ip = (s.ip_address ?? s.framed_ip ?? '').toLowerCase()
+      return s.imsi.toLowerCase().includes(q) || ip.includes(q)
+    })
+  }, [allSessions, filterText])
+
   const handleDisconnect = async () => {
     if (!disconnectTarget) return
     try {
@@ -229,7 +256,7 @@ export default function SessionListPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <h1 className="text-[16px] font-semibold text-text-primary">Live Sessions</h1>
@@ -239,6 +266,32 @@ export default function SessionListPage() {
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </Button>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-tertiary" />
+          <Input
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Filter by IMSI or IP..."
+            className="pl-9 h-8 text-sm"
+          />
+          {filterText && (
+            <button
+              onClick={() => setFilterText('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {filterText && (
+          <span className="text-xs text-text-tertiary">
+            {filteredSessions.length} of {allSessions.length} sessions
+          </span>
+        )}
       </div>
 
       {/* Stats Bar */}
@@ -283,19 +336,19 @@ export default function SessionListPage() {
       </div>
 
       {/* Session Table */}
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
                 <TableHead>IMSI</TableHead>
+                <TableHead>IP Address</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>APN</TableHead>
                 <TableHead>NAS IP</TableHead>
                 <TableHead>Duration</TableHead>
                 <TableHead>Bytes In</TableHead>
                 <TableHead>Bytes Out</TableHead>
-                <TableHead>IP Address</TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead className="w-24" />
               </TableRow>
@@ -310,7 +363,7 @@ export default function SessionListPage() {
                   </TableRow>
                 ))}
 
-              {!isLoading && allSessions.length === 0 && (
+              {!isLoading && filteredSessions.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10}>
                     <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -324,13 +377,15 @@ export default function SessionListPage() {
                 </TableRow>
               )}
 
-              {allSessions.map((session) => (
+              {filteredSessions.map((session) => (
                 <SessionRow
                   key={session.id}
                   session={session}
                   isNew={newSessionIds.current.has(session.id)}
                   isEnded={endedSessionIds.current.has(session.id)}
                   onDisconnect={setDisconnectTarget}
+                  onRowClick={(s) => setSelectedSession(s)}
+                  onIMSIClick={(simId) => navigate(`/sims/${simId}`)}
                 />
               ))}
             </TableBody>
@@ -350,9 +405,9 @@ export default function SessionListPage() {
             >
               Load more sessions
             </button>
-          ) : allSessions.length > 0 ? (
+          ) : filteredSessions.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
-              Showing all {allSessions.length} active sessions
+              Showing all {filteredSessions.length} active sessions
             </p>
           ) : null}
         </div>
@@ -385,6 +440,69 @@ export default function SessionListPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SlidePanel
+        open={!!selectedSession}
+        onOpenChange={(open) => { if (!open) setSelectedSession(null) }}
+        title={selectedSession ? `Session — ${selectedSession.imsi}` : 'Session Detail'}
+        description={selectedSession?.id}
+        width="lg"
+      >
+        {selectedSession && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IMSI</div>
+                <div className="font-mono text-xs text-text-primary">{selectedSession.imsi}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IP Address</div>
+                <div className="font-mono text-xs text-text-primary">{selectedSession.ip_address || selectedSession.framed_ip || '-'}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Operator</div>
+                <div className="text-xs text-text-primary">{selectedSession.operator_name || selectedSession.operator_id.slice(0, 12)}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">APN</div>
+                <div className="text-xs text-text-primary">{selectedSession.apn_name || selectedSession.apn_id || '-'}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">NAS IP</div>
+                <div className="font-mono text-xs text-text-primary">{selectedSession.nas_ip}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">RAT Type</div>
+                <div className="text-xs text-text-primary">{selectedSession.rat_type || '-'}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Bytes In</div>
+                <div className="font-mono text-xs text-success">{formatBytes(selectedSession.bytes_in)}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Bytes Out</div>
+                <div className="font-mono text-xs text-accent">{formatBytes(selectedSession.bytes_out)}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Duration</div>
+                <div className="font-mono text-xs text-text-primary">{formatDuration(selectedSession.duration_sec)}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Started At</div>
+                <div className="text-xs text-text-primary">{new Date(selectedSession.started_at).toLocaleString()}</div>
+              </div>
+            </div>
+            {selectedSession.sim_id && (
+              <div className="flex items-center justify-end pt-2">
+                <Button size="sm" className="gap-2" onClick={() => { setSelectedSession(null); navigate(`/sims/${selectedSession.sim_id}`) }}>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open SIM Detail
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </SlidePanel>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,9 +14,13 @@ import (
 )
 
 type Handler struct {
-	usageStore  *store.UsageAnalyticsStore
-	costService *cost.Service
-	logger      zerolog.Logger
+	usageStore    *store.UsageAnalyticsStore
+	simStore      *store.SIMStore
+	operatorStore *store.OperatorStore
+	apnStore      *store.APNStore
+	ippoolStore   *store.IPPoolStore
+	costService   *cost.Service
+	logger        zerolog.Logger
 }
 
 func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *Handler {
@@ -23,6 +28,14 @@ func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *H
 		usageStore: usageStore,
 		logger:     logger.With().Str("component", "analytics_handler").Logger(),
 	}
+}
+
+func (h *Handler) WithStores(simStore *store.SIMStore, operatorStore *store.OperatorStore, apnStore *store.APNStore, ippoolStore *store.IPPoolStore) *Handler {
+	h.simStore = simStore
+	h.operatorStore = operatorStore
+	h.apnStore = apnStore
+	h.ippoolStore = ippoolStore
+	return h
 }
 
 func (h *Handler) SetCostService(svc *cost.Service) {
@@ -54,9 +67,13 @@ type breakdownDTO struct {
 }
 
 type topConsumerDTO struct {
-	SimID      string `json:"sim_id"`
-	TotalBytes int64  `json:"total_bytes"`
-	Sessions   int64  `json:"sessions"`
+	SimID        string `json:"sim_id"`
+	ICCID        string `json:"iccid,omitempty"`
+	OperatorName string `json:"operator_name,omitempty"`
+	APNName      string `json:"apn_name,omitempty"`
+	IPAddress    string `json:"ip_address,omitempty"`
+	TotalBytes   int64  `json:"total_bytes"`
+	Sessions     int64  `json:"sessions"`
 }
 
 type comparisonDTO struct {
@@ -200,15 +217,39 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		if len(items) > 0 {
 			dtos := make([]breakdownDTO, len(items))
 			for i, item := range items {
+				key := item.Key
+				if dim == "operator_id" && h.operatorStore != nil {
+					if id, err := uuid.Parse(item.Key); err == nil {
+						if op, err := h.operatorStore.GetByID(ctx, id); err == nil {
+							key = op.Name
+						}
+					}
+				} else if dim == "apn_id" && h.apnStore != nil {
+					if id, err := uuid.Parse(item.Key); err == nil {
+						if apn, err := h.apnStore.GetByID(ctx, tenantID, id); err == nil {
+							if apn.DisplayName != nil && *apn.DisplayName != "" {
+								key = *apn.DisplayName
+							} else {
+								key = apn.Name
+							}
+						}
+					}
+				}
 				dtos[i] = breakdownDTO{
-					Key:        item.Key,
+					Key:        key,
 					TotalBytes: item.TotalBytes,
 					Sessions:   item.Sessions,
 					Auths:      item.Auths,
 					Percentage: item.Percentage,
 				}
 			}
-			breakdowns[dim] = dtos
+			outputDim := dim
+			if dim == "operator_id" {
+				outputDim = "operator"
+			} else if dim == "apn_id" {
+				outputDim = "apn"
+			}
+			breakdowns[outputDim] = dtos
 		}
 	}
 
@@ -252,23 +293,31 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 
 	tsDTO := make([]timeSeriesDTO, 0, len(timeSeries))
 	for _, tp := range timeSeries {
+		gk := tp.GroupKey
+		if gk != "" && groupBy != "rat_type" {
+			gk = h.resolveGroupKeyName(ctx, groupBy, gk, tenantID)
+		}
 		tsDTO = append(tsDTO, timeSeriesDTO{
 			Timestamp:  tp.Timestamp.Format(time.RFC3339),
 			TotalBytes: tp.TotalBytes,
 			Sessions:   tp.Sessions,
 			Auths:      tp.Auths,
 			UniqueSims: tp.UniqueSims,
-			GroupKey:   tp.GroupKey,
+			GroupKey:   gk,
 		})
 	}
 
 	tcDTO := make([]topConsumerDTO, 0, len(topConsumers))
 	for _, tc := range topConsumers {
-		tcDTO = append(tcDTO, topConsumerDTO{
+		dto := topConsumerDTO{
 			SimID:      tc.SimID.String(),
 			TotalBytes: tc.TotalBytes,
 			Sessions:   tc.Sessions,
-		})
+		}
+		if h.simStore != nil {
+			dto = h.enrichTopConsumer(ctx, tenantID, tc.SimID, dto)
+		}
+		tcDTO = append(tcDTO, dto)
 	}
 
 	resp := usageResponseDTO{
@@ -289,6 +338,67 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) enrichTopConsumer(ctx context.Context, tenantID, simID uuid.UUID, dto topConsumerDTO) topConsumerDTO {
+	sim, err := h.simStore.GetByID(ctx, tenantID, simID)
+	if err != nil {
+		return dto
+	}
+	dto.ICCID = sim.ICCID
+
+	if h.operatorStore != nil {
+		if op, err := h.operatorStore.GetByID(ctx, sim.OperatorID); err == nil {
+			dto.OperatorName = op.Name
+		}
+	}
+
+	if h.apnStore != nil && sim.APNID != nil {
+		if apn, err := h.apnStore.GetByID(ctx, tenantID, *sim.APNID); err == nil {
+			if apn.DisplayName != nil && *apn.DisplayName != "" {
+				dto.APNName = *apn.DisplayName
+			} else {
+				dto.APNName = apn.Name
+			}
+		}
+	}
+
+	if h.ippoolStore != nil && sim.IPAddressID != nil {
+		if addr, err := h.ippoolStore.GetIPAddressByID(ctx, *sim.IPAddressID); err == nil {
+			if addr.AddressV4 != nil {
+				dto.IPAddress = *addr.AddressV4
+			} else if addr.AddressV6 != nil {
+				dto.IPAddress = *addr.AddressV6
+			}
+		}
+	}
+
+	return dto
+}
+
+func (h *Handler) resolveGroupKeyName(ctx context.Context, groupBy, key string, tenantID uuid.UUID) string {
+	id, err := uuid.Parse(key)
+	if err != nil {
+		return key
+	}
+	switch groupBy {
+	case "operator":
+		if h.operatorStore != nil {
+			if op, err := h.operatorStore.GetByID(ctx, id); err == nil {
+				return op.Name
+			}
+		}
+	case "apn":
+		if h.apnStore != nil {
+			if apn, err := h.apnStore.GetByID(ctx, tenantID, id); err == nil {
+				if apn.DisplayName != nil && *apn.DisplayName != "" {
+					return *apn.DisplayName
+				}
+				return apn.Name
+			}
+		}
+	}
+	return key
 }
 
 func deltaPercent(current, previous int64) float64 {

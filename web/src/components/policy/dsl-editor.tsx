@@ -92,7 +92,7 @@ export function DSLEditor({ value, onChange, onSave, onDryRun, readOnly, classNa
       state,
       parent: containerRef.current,
     })
-  }, [])
+  }, [value, readOnly])
 
   useEffect(() => {
     createEditor()
@@ -100,7 +100,7 @@ export function DSLEditor({ value, onChange, onSave, onDryRun, readOnly, classNa
       viewRef.current?.destroy()
       viewRef.current = null
     }
-  }, [createEditor])
+  }, [readOnly])
 
   useEffect(() => {
     const view = viewRef.current

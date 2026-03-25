@@ -893,31 +893,56 @@ func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUI
 	}
 	defer tx.Rollback(ctx)
 
+	batchSize := 500
 	assigned := 0
-	for _, simID := range simIDs {
-		_, err := tx.Exec(ctx, `
+	for i := 0; i < len(simIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(simIDs) {
+			end = len(simIDs)
+		}
+		batch := simIDs[i:end]
+
+		valueStrings := make([]string, len(batch))
+		args := []interface{}{versionID, rolloutID}
+		for j, simID := range batch {
+			argIdx := j + 3
+			valueStrings[j] = fmt.Sprintf("($%d, $1, $2, NOW(), 'pending')", argIdx)
+			args = append(args, simID)
+		}
+
+		_, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status)
-			VALUES ($1, $2, $3, NOW(), 'pending')
+			VALUES %s
 			ON CONFLICT (sim_id) DO UPDATE SET
 				policy_version_id = EXCLUDED.policy_version_id,
 				rollout_id = EXCLUDED.rollout_id,
 				assigned_at = NOW(),
 				coa_status = 'pending'`,
-			simID, versionID, rolloutID,
+			strings.Join(valueStrings, ", ")),
+			args...,
 		)
 		if err != nil {
-			return assigned, fmt.Errorf("store: assign sim %s: %w", simID, err)
+			return assigned, fmt.Errorf("store: batch assign sims: %w", err)
 		}
 
-		_, err = tx.Exec(ctx, `
+		simPlaceholders := make([]string, len(batch))
+		updateArgs := []interface{}{versionID}
+		for j, simID := range batch {
+			argIdx := j + 2
+			simPlaceholders[j] = fmt.Sprintf("$%d", argIdx)
+			updateArgs = append(updateArgs, simID)
+		}
+
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE sims SET policy_version_id = $1
-			WHERE id = $2`,
-			versionID, simID,
+			WHERE id IN (%s)`,
+			strings.Join(simPlaceholders, ", ")),
+			updateArgs...,
 		)
 		if err != nil {
-			return assigned, fmt.Errorf("store: update sim policy version %s: %w", simID, err)
+			return assigned, fmt.Errorf("store: batch update sim policy versions: %w", err)
 		}
-		assigned++
+		assigned += int(tag.RowsAffected())
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -933,67 +958,52 @@ func (s *PolicyStore) RevertRolloutAssignments(ctx context.Context, rolloutID uu
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, `
-		SELECT sim_id FROM policy_assignments WHERE rollout_id = $1`,
-		rolloutID,
-	)
+	if previousVersionID != nil {
+		_, err = tx.Exec(ctx, `
+			UPDATE policy_assignments SET
+				policy_version_id = $1,
+				coa_status = 'pending'
+			WHERE rollout_id = $2`,
+			*previousVersionID, rolloutID,
+		)
+	} else {
+		_, err = tx.Exec(ctx, `
+			DELETE FROM policy_assignments
+			WHERE rollout_id = $1`,
+			rolloutID,
+		)
+	}
 	if err != nil {
-		return 0, fmt.Errorf("store: get assignments for revert: %w", err)
+		return 0, fmt.Errorf("store: revert assignments for rollout: %w", err)
 	}
 
-	var simIDs []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("store: scan sim id for revert: %w", err)
+	var reverted int64
+	if previousVersionID != nil {
+		revertTag, execErr := tx.Exec(ctx, `
+			UPDATE sims SET policy_version_id = $1
+			WHERE id IN (SELECT sim_id FROM policy_assignments WHERE rollout_id = $2)`,
+			*previousVersionID, rolloutID,
+		)
+		if execErr != nil {
+			return 0, fmt.Errorf("store: revert sim versions for rollout: %w", execErr)
 		}
-		simIDs = append(simIDs, id)
-	}
-	rows.Close()
-
-	for _, simID := range simIDs {
-		if previousVersionID != nil {
-			_, err = tx.Exec(ctx, `
-				UPDATE policy_assignments SET
-					policy_version_id = $1,
-					coa_status = 'pending'
-				WHERE sim_id = $2 AND rollout_id = $3`,
-				*previousVersionID, simID, rolloutID,
-			)
-		} else {
-			_, err = tx.Exec(ctx, `
-				DELETE FROM policy_assignments
-				WHERE sim_id = $1 AND rollout_id = $2`,
-				simID, rolloutID,
-			)
+		reverted = revertTag.RowsAffected()
+	} else {
+		revertTag, execErr := tx.Exec(ctx, `
+			UPDATE sims SET policy_version_id = NULL
+			WHERE id IN (SELECT sim_id FROM policy_assignments WHERE rollout_id = $1)`,
+			rolloutID,
+		)
+		if execErr != nil {
+			return 0, fmt.Errorf("store: revert sim versions for rollout: %w", execErr)
 		}
-		if err != nil {
-			return 0, fmt.Errorf("store: revert assignment %s: %w", simID, err)
-		}
-
-		if previousVersionID != nil {
-			_, err = tx.Exec(ctx, `
-				UPDATE sims SET policy_version_id = $1
-				WHERE id = $2`,
-				*previousVersionID, simID,
-			)
-		} else {
-			_, err = tx.Exec(ctx, `
-				UPDATE sims SET policy_version_id = NULL
-				WHERE id = $1`,
-				simID,
-			)
-		}
-		if err != nil {
-			return 0, fmt.Errorf("store: revert sim version %s: %w", simID, err)
-		}
+		reverted = revertTag.RowsAffected()
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("store: commit revert: %w", err)
 	}
-	return len(simIDs), nil
+	return int(reverted), nil
 }
 
 func (s *PolicyStore) UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.UUID, status string) error {

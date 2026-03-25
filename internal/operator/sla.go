@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,6 +74,15 @@ func (st *SLATracker) GetLatencyPercentiles(ctx context.Context, operatorID uuid
 		return 0, 0, 0
 	}
 
+	cacheKey := fmt.Sprintf("operator:latency:p:%s", operatorID.String())
+	vals, cErr := st.redis.HGetAll(ctx, cacheKey).Result()
+	if cErr == nil && len(vals) >= 3 {
+		v50, _ := strconv.Atoi(vals["p50"])
+		v95, _ := strconv.Atoi(vals["p95"])
+		v99, _ := strconv.Atoi(vals["p99"])
+		return v50, v95, v99
+	}
+
 	key := fmt.Sprintf("operator:latency:%s", operatorID.String())
 	oneHourAgo := float64(time.Now().Add(-1 * time.Hour).UnixMilli())
 	now := float64(time.Now().UnixMilli())
@@ -102,6 +112,12 @@ func (st *SLATracker) GetLatencyPercentiles(ctx context.Context, operatorID uuid
 	p50 = percentile(latencies, 50)
 	p95 = percentile(latencies, 95)
 	p99 = percentile(latencies, 99)
+
+	pipe := st.redis.Pipeline()
+	pipe.HSet(ctx, cacheKey, "p50", strconv.Itoa(p50), "p95", strconv.Itoa(p95), "p99", strconv.Itoa(p99))
+	pipe.Expire(ctx, cacheKey, 10*time.Second)
+	pipe.Exec(ctx)
+
 	return
 }
 

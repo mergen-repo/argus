@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -32,6 +34,7 @@ func NewHandler(tenantStore *store.TenantStore, auditSvc audit.Auditor, logger z
 type tenantResponse struct {
 	ID               string          `json:"id"`
 	Name             string          `json:"name"`
+	Slug             string          `json:"slug"`
 	Domain           *string         `json:"domain"`
 	ContactEmail     string          `json:"contact_email"`
 	ContactPhone     *string         `json:"contact_phone,omitempty"`
@@ -40,8 +43,8 @@ type tenantResponse struct {
 	MaxUsers         int             `json:"max_users"`
 	Settings         json.RawMessage `json:"settings,omitempty"`
 	State            string          `json:"state"`
-	SimCount         *int            `json:"sim_count,omitempty"`
-	UserCount        *int            `json:"user_count,omitempty"`
+	SimCount         int             `json:"sim_count"`
+	UserCount        int             `json:"user_count"`
 	APNCount         *int            `json:"apn_count,omitempty"`
 	CreatedAt        string          `json:"created_at"`
 	UpdatedAt        string          `json:"updated_at"`
@@ -76,10 +79,20 @@ type tenantStatsResponse struct {
 	StorageBytes   int `json:"storage_bytes"`
 }
 
+var slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slugify(name string) string {
+	s := strings.ToLower(name)
+	s = slugNonAlnum.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	return s
+}
+
 func toTenantResponse(t *store.Tenant) tenantResponse {
 	return tenantResponse{
 		ID:           t.ID.String(),
 		Name:         t.Name,
+		Slug:         slugify(t.Name),
 		Domain:       t.Domain,
 		ContactEmail: t.ContactEmail,
 		ContactPhone: t.ContactPhone,
@@ -88,6 +101,8 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		MaxUsers:     t.MaxUsers,
 		Settings:     t.Settings,
 		State:        t.State,
+		SimCount:     0,
+		UserCount:    0,
 		CreatedAt:    t.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:    t.UpdatedAt.Format(time.RFC3339Nano),
 	}
@@ -206,8 +221,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	resp := toTenantResponse(t)
 	if stats != nil {
-		resp.SimCount = &stats.SimCount
-		resp.UserCount = &stats.UserCount
+		resp.SimCount = stats.SimCount
+		resp.UserCount = stats.UserCount
 		resp.APNCount = &stats.APNCount
 	}
 

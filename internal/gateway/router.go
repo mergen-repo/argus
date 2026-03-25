@@ -21,6 +21,7 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
+	violationapi "github.com/btopcu/argus/internal/api/violation"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
@@ -58,6 +59,7 @@ type RouterDeps struct {
 	DiagnosticsHandler   *diagapi.Handler
 	MetricsHandler     *metricsapi.Handler
 	ComplianceHandler  *complianceapi.Handler
+	ViolationHandler   *violationapi.Handler
 	DashboardHandler   *dashboardapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
@@ -119,6 +121,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 	}
 
 	r.Get("/api/health", deps.Health.Check)
+	r.Get("/api/v1/health", deps.Health.Check)
 
 	r.Group(func(r chi.Router) {
 		r.Post("/api/v1/auth/login", deps.AuthHandler.Login)
@@ -176,6 +179,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
 			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
+			r.Get("/api/v1/audit", deps.AuditHandler.List)
 		})
 	}
 
@@ -428,6 +432,14 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 		})
 	}
 
+	if deps.ViolationHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Get("/api/v1/policy-violations", deps.ViolationHandler.List)
+			r.Get("/api/v1/policy-violations/counts", deps.ViolationHandler.CountByType)
+		})
+	}
+
 	if deps.SessionHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret))
@@ -454,6 +466,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/notifications", deps.NotificationHandler.List)
+			r.Get("/api/v1/notifications/unread-count", deps.NotificationHandler.UnreadCount)
 			r.Patch("/api/v1/notifications/{id}/read", deps.NotificationHandler.MarkRead)
 			r.Post("/api/v1/notifications/read-all", deps.NotificationHandler.MarkAllRead)
 			r.Get("/api/v1/notification-configs", deps.NotificationHandler.GetConfigs)

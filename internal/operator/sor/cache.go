@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,7 +60,15 @@ func (c *SoRCache) Set(ctx context.Context, tenantID uuid.UUID, imsi string, dec
 		return fmt.Errorf("sor cache marshal: %w", err)
 	}
 
-	return c.client.Set(ctx, c.cacheKey(tenantID, imsi), data, ttl).Err()
+	if err := c.client.Set(ctx, c.cacheKey(tenantID, imsi), data, ttl).Err(); err != nil {
+		return err
+	}
+
+	indexKey := fmt.Sprintf("sor:index:%s:%s", tenantID.String(), decision.PrimaryOperatorID.String())
+	c.client.SAdd(ctx, indexKey, imsi)
+	c.client.Expire(ctx, indexKey, ttl)
+
+	return nil
 }
 
 func (c *SoRCache) Delete(ctx context.Context, tenantID uuid.UUID, imsi string) error {
@@ -71,37 +78,25 @@ func (c *SoRCache) Delete(ctx context.Context, tenantID uuid.UUID, imsi string) 
 	return c.client.Del(ctx, c.cacheKey(tenantID, imsi)).Err()
 }
 
-func (c *SoRCache) DeleteByOperator(ctx context.Context, tenantID uuid.UUID, operatorID uuid.UUID) error {
+func (c *SoRCache) DeleteByOperator(ctx context.Context, tenantID, operatorID uuid.UUID) error {
 	if c.client == nil {
 		return nil
 	}
 
-	pattern := fmt.Sprintf("sor:result:%s:*", tenantID.String())
-	var cursor uint64
-	opStr := operatorID.String()
-
-	for {
-		keys, nextCursor, err := c.client.Scan(ctx, cursor, pattern, 100).Result()
-		if err != nil {
-			return fmt.Errorf("sor cache scan: %w", err)
-		}
-
-		for _, key := range keys {
-			data, err := c.client.Get(ctx, key).Bytes()
-			if err != nil {
-				continue
-			}
-			if strings.Contains(string(data), opStr) {
-				c.client.Del(ctx, key)
-			}
-		}
-
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
+	indexKey := fmt.Sprintf("sor:index:%s:%s", tenantID.String(), operatorID.String())
+	members, err := c.client.SMembers(ctx, indexKey).Result()
+	if err != nil || len(members) == 0 {
+		return nil
 	}
-	return nil
+
+	pipe := c.client.Pipeline()
+	for _, imsi := range members {
+		key := fmt.Sprintf("sor:result:%s:%s", tenantID.String(), imsi)
+		pipe.Del(ctx, key)
+	}
+	pipe.Del(ctx, indexKey)
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func (c *SoRCache) DeleteAllForTenant(ctx context.Context, tenantID uuid.UUID) error {

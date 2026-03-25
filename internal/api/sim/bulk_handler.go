@@ -141,9 +141,12 @@ func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	reserveStaticIP := r.FormValue("reserve_static_ip") == "true"
+
 	payload, _ := json.Marshal(job.ImportPayload{
-		CSVData:  string(csvData),
-		FileName: header.Filename,
+		CSVData:         string(csvData),
+		FileName:        header.Filename,
+		ReserveStaticIP: reserveStaticIP,
 	})
 
 	userID := userIDFromRequest(r)

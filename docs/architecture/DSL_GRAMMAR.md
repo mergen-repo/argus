@@ -2,7 +2,7 @@
 
 > The Argus Policy DSL is a domain-specific language for defining QoS, FUP, and charging rules.
 > Parser implementation: `internal/policy/dsl/` (recursive descent parser in Go).
-> Public package: `pkg/dsl/` (for external tooling).
+> Public API: `dsl.Parse()`, `dsl.CompileSource()`, `dsl.EvaluateCompiled()`, `dsl.Validate()`, `dsl.DSLVersion()`.
 
 ## Formal EBNF Grammar
 

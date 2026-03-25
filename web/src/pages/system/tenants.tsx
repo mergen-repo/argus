@@ -21,14 +21,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useTenantList, useCreateTenant, useUpdateTenant } from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
@@ -152,7 +145,7 @@ export default function TenantManagementPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Tenant Management</h1>
         <Button size="sm" className="gap-2" onClick={() => setShowCreateDialog(true)}>
@@ -161,7 +154,7 @@ export default function TenantManagementPage() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -244,75 +237,67 @@ export default function TenantManagementPage() {
         )}
       </Card>
 
-      {/* Create Tenant Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent onClose={() => setShowCreateDialog(false)}>
-          <DialogHeader>
-            <DialogTitle>Create Tenant</DialogTitle>
-            <DialogDescription>
-              Add a new tenant organization to the platform.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
+      {/* Create Tenant Panel */}
+      <SlidePanel open={showCreateDialog} onOpenChange={setShowCreateDialog} title="Create Tenant" description="Add a new tenant organization to the platform." width="md">
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Name</label>
+            <Input
+              value={createForm.name}
+              onChange={(e) => handleSlugFromName(e.target.value)}
+              placeholder="Acme Corp"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Slug</label>
+            <Input
+              value={createForm.slug}
+              onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
+              placeholder="acme-corp"
+              className="font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Plan</label>
+            <Select
+              options={PLAN_OPTIONS}
+              value={createForm.plan}
+              onChange={(e) => setCreateForm((f) => ({ ...f, plan: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Name</label>
+              <label className="text-xs text-text-secondary block mb-1.5">Max SIMs</label>
               <Input
-                value={createForm.name}
-                onChange={(e) => handleSlugFromName(e.target.value)}
-                placeholder="Acme Corp"
+                type="number"
+                value={createForm.max_sims}
+                onChange={(e) => setCreateForm((f) => ({ ...f, max_sims: parseInt(e.target.value) || 0 }))}
               />
             </div>
             <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Slug</label>
+              <label className="text-xs text-text-secondary block mb-1.5">Max Users</label>
               <Input
-                value={createForm.slug}
-                onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
-                placeholder="acme-corp"
-                className="font-mono"
+                type="number"
+                value={createForm.max_users}
+                onChange={(e) => setCreateForm((f) => ({ ...f, max_users: parseInt(e.target.value) || 0 }))}
               />
-            </div>
-            <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Plan</label>
-              <Select
-                options={PLAN_OPTIONS}
-                value={createForm.plan}
-                onChange={(e) => setCreateForm((f) => ({ ...f, plan: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-text-secondary block mb-1.5">Max SIMs</label>
-                <Input
-                  type="number"
-                  value={createForm.max_sims}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, max_sims: parseInt(e.target.value) || 0 }))}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-text-secondary block mb-1.5">Max Users</label>
-                <Input
-                  type="number"
-                  value={createForm.max_users}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, max_users: parseInt(e.target.value) || 0 }))}
-                />
-              </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!createForm.name || !createForm.slug || createMutation.isPending}
-              className="gap-2"
-            >
-              {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create Tenant
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+          <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!createForm.name || !createForm.slug || createMutation.isPending}
+            className="gap-2"
+          >
+            {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create Tenant
+          </Button>
+        </div>
+      </SlidePanel>
 
       {/* Tenant Config Panel */}
       <Sheet open={!!selectedTenant} onOpenChange={() => { setSelectedTenant(null); setEditForm(null) }}>

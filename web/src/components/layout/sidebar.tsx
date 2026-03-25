@@ -19,13 +19,17 @@ import {
   Building,
   ChevronLeft,
   ChevronRight,
-  Moon,
-  Sun,
-  LogOut,
+  BookOpen,
+  AlertTriangle,
+  ShieldCheck,
+  GitBranch,
+  FileBarChart,
+  HardDrive,
+  Star,
+  Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
-import { useLogout } from '@/hooks/use-logout'
 import { useAuthStore } from '@/stores/auth'
 
 interface NavItem {
@@ -48,6 +52,8 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
       { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+      { label: 'Alerts', icon: AlertTriangle, path: '/alerts' },
+      { label: 'SLA', icon: ShieldCheck, path: '/sla' },
     ],
   },
   {
@@ -58,7 +64,9 @@ const navGroups: NavGroup[] = [
       { label: 'Operators', icon: Building2, path: '/operators' },
       { label: 'Sessions', icon: Radio, path: '/sessions' },
       { label: 'Policies', icon: Shield, path: '/policies' },
+      { label: 'Violations', icon: AlertTriangle, path: '/violations' },
       { label: 'eSIM', icon: Smartphone, path: '/esim' },
+      { label: 'Topology', icon: GitBranch, path: '/topology' },
     ],
   },
   {
@@ -67,6 +75,9 @@ const navGroups: NavGroup[] = [
       { label: 'Jobs', icon: ListTodo, path: '/jobs' },
       { label: 'Audit Log', icon: ScrollText, path: '/audit' },
       { label: 'Notifications', icon: Bell, path: '/notifications' },
+      { label: 'Reports', icon: FileBarChart, path: '/reports' },
+      { label: 'Capacity', icon: HardDrive, path: '/capacity' },
+      { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },
   {
@@ -97,8 +108,7 @@ function hasMinRole(userRole: string | undefined, minRole: 'tenant_admin' | 'sup
 
 export function Sidebar() {
   const location = useLocation()
-  const { sidebarCollapsed, toggleSidebar, darkMode, toggleDarkMode } = useUIStore()
-  const handleLogout = useLogout()
+  const { sidebarCollapsed, toggleSidebar, favorites, recentItems } = useUIStore()
   const userRole = useAuthStore((s) => s.user?.role)
 
   const isActive = (path: string) => {
@@ -127,6 +137,51 @@ export function Sidebar() {
           )}
         </Link>
       </div>
+
+      {!sidebarCollapsed && (favorites.length > 0 || recentItems.length > 0) && (
+        <div className="border-b border-border px-3 py-3">
+          {favorites.length > 0 && (
+            <div className="mb-3">
+              <div className="mb-1.5 px-2 text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary flex items-center gap-1.5">
+                <Star className="h-3 w-3" />
+                PINNED
+              </div>
+              <div className="space-y-0.5">
+                {favorites.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={item.path}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors truncate"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {recentItems.length > 0 && (
+            <div>
+              <div className="mb-1.5 px-2 text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary flex items-center gap-1.5">
+                <Clock className="h-3 w-3" />
+                RECENT
+              </div>
+              <div className="space-y-0.5">
+                {recentItems.slice(0, 5).map((item) => (
+                  <Link
+                    key={item.id}
+                    to={item.path}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors truncate"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-text-tertiary shrink-0" />
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {visibleGroups.map((group) => (
@@ -163,23 +218,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-border p-3 space-y-1">
-        <button
-          onClick={toggleDarkMode}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          {!sidebarCollapsed && <span>{darkMode ? 'Light mode' : 'Dark mode'}</span>}
-        </button>
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-danger transition-colors"
-          title="Sign out"
-        >
-          <LogOut className="h-4 w-4" />
-          {!sidebarCollapsed && <span>Sign out</span>}
-        </button>
+      <div className="border-t border-border p-3">
         <button
           onClick={toggleSidebar}
           className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"

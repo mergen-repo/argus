@@ -19,6 +19,7 @@ import {
   BellRing,
   HeartPulse,
   Building,
+  BookOpen,
 } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 
@@ -47,6 +48,7 @@ const commands: CommandItem[] = [
   { label: 'API Keys', icon: Key, path: '/settings/api-keys', group: 'Settings' },
   { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools', group: 'Settings' },
   { label: 'Notification Config', icon: BellRing, path: '/settings/notifications', group: 'Settings' },
+  { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase', group: 'Settings' },
   { label: 'System Health', icon: HeartPulse, path: '/system/health', group: 'System' },
   { label: 'Tenants', icon: Building, path: '/system/tenants', group: 'System' },
 ]

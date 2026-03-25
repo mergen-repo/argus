@@ -47,6 +47,10 @@ Staged rollout of policy versions: start at 1% of affected SIMs, advance to 10%,
 - Blocked by: STORY-023 (policy versioning), STORY-017 (session CoA), STORY-022 (DSL evaluator)
 - Blocks: STORY-046 (frontend policy editor rollout controls)
 
+> **Note (post-STORY-023):** STORY-023 already implemented `POST /api/v1/policy-versions/:id/activate` in `internal/api/policy/handler.go` (ActivateVersion method) with transactional supersede logic (SELECT FOR UPDATE). AC #1 of this story ("activate activates version immediately") is already done. This story should **extend** the existing handler (not recreate it) to add rollout-awareness — e.g., adding a `?strategy=staged` query param or routing to a separate `rollout` endpoint. The version state machine currently uses `draft/active/superseded/archived` — this story needs to add `rolling_out` and `rolled_back` states. The `PolicyStore` is in `internal/store/policy.go` and the handler in `internal/api/policy/handler.go`. Routes are registered in `internal/gateway/router.go` under `RequireRole("policy_editor")`. The `PolicyVersion` struct already has `RolledBackAt *time.Time` field ready for use.
+
+> **Note (post-STORY-024):** STORY-024 added reusable SIM fleet query infrastructure in `internal/store/sim.go`: `SIMFleetFilters` struct, `CountByFilters()`, `AggregateByOperator/APN/RATType()`, `FetchSample()`. The `buildFiltersFromMatch()` function in `internal/policy/dryrun/service.go` extracts MATCH block conditions into query filters. This story should reuse these for stage SIM selection instead of rebuilding query infrastructure. Additionally, `policy_versions.dry_run_result` (JSONB) and `affected_sim_count` (INT) are populated by dry-run — the rollout handler can read `affected_sim_count` to pre-calculate stage sizes (e.g., 1% of N) without re-running dry-run. The sync/async threshold pattern (>100K = background job) established in STORY-024 should be followed for large rollout stages.
+
 ## Test Scenarios
 - [ ] Start rollout → 1% of SIMs migrated to new version, TBL-15 updated
 - [ ] Advance to 10% → additional 9% SIMs migrated

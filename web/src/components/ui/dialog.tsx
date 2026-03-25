@@ -37,13 +37,14 @@ function Dialog({ open, onOpenChange, children }: DialogProps) {
 }
 
 const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { onClose?: () => void }>(
-  ({ className, children, onClose, ...props }, ref) => (
+  ({ className, children, onClose, style, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        'w-full max-w-lg rounded-[var(--radius-lg)] border border-border bg-bg-elevated p-6 shadow-2xl',
+        'w-full rounded-[var(--radius-lg)] border border-border bg-bg-elevated p-6 shadow-2xl max-h-[90vh] overflow-y-auto',
         className,
       )}
+      style={{ maxWidth: '36rem', ...style }}
       {...props}
     >
       {children}

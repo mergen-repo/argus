@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export interface User {
   id: string
@@ -25,7 +26,7 @@ interface AuthState {
   setOnboardingCompleted: (completed: boolean) => void
 }
 
-export const useAuthStore = create<AuthState>()((set, get) => ({
+export const useAuthStore = create<AuthState>()(persist((set, get) => ({
   user: null,
   token: null,
   permissions: [],
@@ -71,4 +72,12 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set((s) => ({
       user: s.user ? { ...s.user, onboarding_completed: completed } : null,
     })),
+}), {
+  name: 'argus-auth',
+  partialize: (state) => ({
+    user: state.user,
+    token: state.token,
+    permissions: state.permissions,
+    isAuthenticated: state.isAuthenticated,
+  }),
 }))

@@ -29,6 +29,7 @@ import (
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	complianceapi "github.com/btopcu/argus/internal/api/compliance"
+	violationapi "github.com/btopcu/argus/internal/api/violation"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -40,6 +41,7 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
+	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/policy/rollout"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
@@ -184,11 +186,14 @@ func main() {
 	apnStore := store.NewAPNStore(pg.Pool)
 	ippoolStore := store.NewIPPoolStore(pg.Pool)
 	adapterRegistry := adapter.NewRegistry()
-	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger)
+	simStore := store.NewSIMStore(pg.Pool)
+	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger,
+		operatorapi.WithSIMStore(simStore),
+		operatorapi.WithSessionStore(operatorMetricsSessionStore),
+	)
 	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger)
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
-	simStore := store.NewSIMStore(pg.Pool)
-	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger)
 	esimStore := store.NewESimProfileStore(pg.Pool)
 	smdpAdapter := esimpkg.NewMockSMDPAdapter(log.Logger)
 	esimHandler := esimapi.NewHandler(esimStore, simStore, smdpAdapter, auditSvc, log.Logger)
@@ -200,6 +205,8 @@ func main() {
 	jobStore := store.NewJobStore(pg.Pool)
 
 	policyStore := store.NewPolicyStore(pg.Pool)
+	nameCache := cache.NewNameCache(rdb.Client)
+	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache))
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
@@ -225,6 +232,7 @@ func main() {
 	costService := costsvc.NewService(costAnalyticsStore, log.Logger)
 	analyticsHandler := analyticsapi.NewHandler(usageAnalyticsStore, log.Logger)
 	analyticsHandler.SetCostService(costService)
+	analyticsHandler.WithStores(simStore, operatorStore, apnStore, ippoolStore)
 	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
@@ -465,7 +473,11 @@ func main() {
 		}
 		radiusStartCancel()
 
-		sessionHandler = sessionapi.NewHandler(sessionMgr, dmSender, eventBus, auditSvc, jobStore, log.Logger)
+		sessionHandler = sessionapi.NewHandler(sessionMgr, dmSender, eventBus, auditSvc, jobStore, log.Logger,
+			sessionapi.WithSIMStore(simStore),
+			sessionapi.WithOperatorStore(operatorStore),
+			sessionapi.WithAPNStore(apnStore),
+		)
 
 		sessionSweeper = aaasession.NewTimeoutSweeper(sessionMgr, dmSender, eventBus, rdb.Client, log.Logger)
 		sessionSweeper.Start()
@@ -558,8 +570,20 @@ func main() {
 	radiusSessionStore2 := store.NewRadiusSessionStore(pg.Pool)
 	metricsCollector.SetSessionCounter(radiusSessionStore2)
 
+	violationStore := store.NewPolicyViolationStore(pg.Pool, log.Logger)
+
+	policyEnforcer := policyenforcer.New(
+		nil,
+		policyStore,
+		violationStore,
+		eventBus,
+		rdb.Client,
+		log.Logger,
+	)
+
 	if radiusServer != nil {
 		radiusServer.SetMetricsRecorder(metricsCollector)
+		radiusServer.SetPolicyEnforcer(policyEnforcer)
 	}
 
 	activeOps, activeOpsErr := operatorStore.ListActive(context.Background())
@@ -578,9 +602,10 @@ func main() {
 
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
 	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, log.Logger)
+	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
-	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger)
+	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client))
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
@@ -638,6 +663,7 @@ func main() {
 		NotificationHandler: notifHandler,
 		MetricsHandler:      metricsHandler,
 		ComplianceHandler:   complianceHandler,
+		ViolationHandler:    violationHandler,
 		DashboardHandler:    dashboardHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,

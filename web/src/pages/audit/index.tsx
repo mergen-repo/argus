@@ -251,7 +251,7 @@ export default function AuditLogPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Audit Log</h1>
         <Button
@@ -404,7 +404,7 @@ export default function AuditLogPage() {
       </div>
 
       {/* Audit Table */}
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">

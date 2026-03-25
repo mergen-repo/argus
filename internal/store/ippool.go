@@ -367,6 +367,18 @@ func (s *IPPoolStore) Update(ctx context.Context, tenantID, id uuid.UUID, p Upda
 	return pool, nil
 }
 
+func (s *IPPoolStore) GetAddressByID(ctx context.Context, id uuid.UUID) (*IPAddress, error) {
+	var a IPAddress
+	err := s.db.QueryRow(ctx,
+		`SELECT id, pool_id, address_v4::text, address_v6::text, allocation_type, sim_id, state, allocated_at, reclaim_at
+		 FROM ip_addresses WHERE id = $1`, id).
+		Scan(&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6, &a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt)
+	if err != nil {
+		return nil, fmt.Errorf("store: get ip address: %w", err)
+	}
+	return &a, nil
+}
+
 func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, cursor string, limit int, stateFilter string) ([]IPAddress, string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50

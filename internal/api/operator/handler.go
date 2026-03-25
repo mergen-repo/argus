@@ -38,10 +38,22 @@ var validOperatorStates = map[string]bool{
 type Handler struct {
 	operatorStore   *store.OperatorStore
 	tenantStore     *store.TenantStore
+	simStore        *store.SIMStore
+	sessionStore    *store.RadiusSessionStore
 	auditSvc        audit.Auditor
 	encryptionKey   string
 	adapterRegistry *adapter.Registry
 	logger          zerolog.Logger
+}
+
+type HandlerOption func(*Handler)
+
+func WithSIMStore(s *store.SIMStore) HandlerOption {
+	return func(h *Handler) { h.simStore = s }
+}
+
+func WithSessionStore(s *store.RadiusSessionStore) HandlerOption {
+	return func(h *Handler) { h.sessionStore = s }
 }
 
 func NewHandler(
@@ -51,8 +63,9 @@ func NewHandler(
 	encryptionKey string,
 	adapterRegistry *adapter.Registry,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		operatorStore:   operatorStore,
 		tenantStore:     tenantStore,
 		auditSvc:        auditSvc,
@@ -60,6 +73,10 @@ func NewHandler(
 		adapterRegistry: adapterRegistry,
 		logger:          logger.With().Str("component", "operator_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 type operatorResponse struct {
@@ -80,6 +97,10 @@ type operatorResponse struct {
 	State                     string   `json:"state"`
 	CreatedAt                 string   `json:"created_at"`
 	UpdatedAt                 string   `json:"updated_at"`
+	SimCount                  int      `json:"sim_count"`
+	ActiveSessions            int64    `json:"active_sessions"`
+	TotalTrafficBytes         int64    `json:"total_traffic_bytes"`
+	LastHealthCheck           *string  `json:"last_health_check"`
 }
 
 type grantResponse struct {
@@ -204,9 +225,59 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+	tenantID, _ := ctx.Value(apierr.TenantIDKey).(uuid.UUID)
+
+	var simCounts map[uuid.UUID]int
+	if h.simStore != nil && tenantID != uuid.Nil {
+		simCounts, err = h.simStore.CountByOperator(ctx, tenantID)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("count sims by operator")
+		}
+	}
+
+	var sessionCounts map[string]int64
+	var trafficMap map[uuid.UUID]int64
+	if h.sessionStore != nil {
+		var tid *uuid.UUID
+		if tenantID != uuid.Nil {
+			tid = &tenantID
+		}
+		if stats, err2 := h.sessionStore.GetActiveStats(ctx, tid); err2 == nil {
+			sessionCounts = stats.ByOperator
+		} else {
+			h.logger.Warn().Err(err2).Msg("get session stats for operator list")
+		}
+		trafficMap, err = h.sessionStore.TrafficByOperator(ctx, tid)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("get traffic by operator")
+		}
+	}
+
+	healthTimes, err := h.operatorStore.LatestHealthByOperator(ctx)
+	if err != nil {
+		h.logger.Warn().Err(err).Msg("get latest health times by operator")
+	}
+
 	items := make([]operatorResponse, 0, len(operators))
 	for _, o := range operators {
-		items = append(items, toOperatorResponse(&o))
+		resp := toOperatorResponse(&o)
+		if simCounts != nil {
+			resp.SimCount = simCounts[o.ID]
+		}
+		if sessionCounts != nil {
+			resp.ActiveSessions = sessionCounts[o.ID.String()]
+		}
+		if trafficMap != nil {
+			resp.TotalTrafficBytes = trafficMap[o.ID]
+		}
+		if healthTimes != nil {
+			if t, ok := healthTimes[o.ID]; ok {
+				ts := t.Format(time.RFC3339Nano)
+				resp.LastHealthCheck = &ts
+			}
+		}
+		items = append(items, resp)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{

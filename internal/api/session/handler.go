@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -20,13 +21,24 @@ import (
 const timeFmt = "2006-01-02T15:04:05Z07:00"
 
 type Handler struct {
-	sessionMgr *session.Manager
-	dmSender   *session.DMSender
-	eventBus   *bus.EventBus
-	auditSvc   audit.Auditor
-	jobStore   *store.JobStore
-	logger     zerolog.Logger
+	sessionMgr    *session.Manager
+	dmSender      *session.DMSender
+	eventBus      *bus.EventBus
+	auditSvc      audit.Auditor
+	jobStore      *store.JobStore
+	simStore      *store.SIMStore
+	operatorStore *store.OperatorStore
+	apnStore      *store.APNStore
+	logger        zerolog.Logger
 }
+
+type HandlerOption func(*Handler)
+
+func WithSIMStore(s *store.SIMStore) HandlerOption      { return func(h *Handler) { h.simStore = s } }
+func WithOperatorStore(s *store.OperatorStore) HandlerOption {
+	return func(h *Handler) { h.operatorStore = s }
+}
+func WithAPNStore(s *store.APNStore) HandlerOption { return func(h *Handler) { h.apnStore = s } }
 
 func NewHandler(
 	sessionMgr *session.Manager,
@@ -35,8 +47,9 @@ func NewHandler(
 	auditSvc audit.Auditor,
 	jobStore *store.JobStore,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		sessionMgr: sessionMgr,
 		dmSender:   dmSender,
 		eventBus:   eventBus,
@@ -44,6 +57,10 @@ func NewHandler(
 		jobStore:   jobStore,
 		logger:     logger.With().Str("component", "session_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 type sessionDTO struct {
@@ -51,7 +68,9 @@ type sessionDTO struct {
 	SimID         string  `json:"sim_id"`
 	TenantID      string  `json:"tenant_id"`
 	OperatorID    string  `json:"operator_id"`
+	OperatorName  string  `json:"operator_name,omitempty"`
 	APNID         string  `json:"apn_id,omitempty"`
+	APNName       string  `json:"apn_name,omitempty"`
 	IMSI          string  `json:"imsi"`
 	MSISDN        string  `json:"msisdn,omitempty"`
 	AcctSessionID string  `json:"acct_session_id"`
@@ -122,6 +141,44 @@ func toSessionDTO(s *session.Session) sessionDTO {
 	}
 }
 
+func (h *Handler) enrichSessionDTO(ctx context.Context, tenantIDStr string, s *session.Session, dto *sessionDTO) {
+	tenantID, _ := uuid.Parse(tenantIDStr)
+
+	if dto.IMSI == "" && h.simStore != nil && s.SimID != "" {
+		simID, err := uuid.Parse(s.SimID)
+		if err == nil {
+			if sim, err := h.simStore.GetByID(ctx, tenantID, simID); err == nil {
+				dto.IMSI = sim.IMSI
+				if dto.MSISDN == "" && sim.MSISDN != nil {
+					dto.MSISDN = *sim.MSISDN
+				}
+			}
+		}
+	}
+
+	if h.operatorStore != nil && s.OperatorID != "" {
+		opID, err := uuid.Parse(s.OperatorID)
+		if err == nil {
+			if op, err := h.operatorStore.GetByID(ctx, opID); err == nil {
+				dto.OperatorName = op.Name
+			}
+		}
+	}
+
+	if h.apnStore != nil && s.APNID != "" {
+		apnID, err := uuid.Parse(s.APNID)
+		if err == nil {
+			if apn, err := h.apnStore.GetByID(ctx, tenantID, apnID); err == nil {
+				if apn.DisplayName != nil && *apn.DisplayName != "" {
+					dto.APNName = *apn.DisplayName
+				} else {
+					dto.APNName = apn.Name
+				}
+			}
+		}
+	}
+}
+
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	cursor := q.Get("cursor")
@@ -165,7 +222,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]sessionDTO, 0, len(sessions))
 	for _, s := range sessions {
-		items = append(items, toSessionDTO(s))
+		dto := toSessionDTO(s)
+		h.enrichSessionDTO(r.Context(), tenantIDStr, s, &dto)
+		items = append(items, dto)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{

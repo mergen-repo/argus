@@ -5,11 +5,9 @@ services:
     image: nginx:alpine
     container_name: argus-nginx
     ports:
-      - "8084:443"
-      - "8083:80"
+      - "8084:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
       - ../web/dist:/usr/share/nginx/html:ro
     depends_on:
       argus:

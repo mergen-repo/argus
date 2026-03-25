@@ -1,0 +1,9 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_sims_tenant_created;
+DROP INDEX CONCURRENTLY IF EXISTS idx_sims_tenant_iccid_trgm;
+DROP INDEX CONCURRENTLY IF EXISTS idx_sims_tenant_imsi_trgm;
+DROP INDEX CONCURRENTLY IF EXISTS idx_sessions_state;
+DROP INDEX CONCURRENTLY IF EXISTS idx_sessions_acct_active;
+DROP INDEX CONCURRENTLY IF EXISTS idx_anomalies_tenant_detected;
+DROP INDEX CONCURRENTLY IF EXISTS idx_anomalies_tenant_sim_type_active;
+DROP INDEX CONCURRENTLY IF EXISTS idx_audit_tenant_id_desc;
+DROP EXTENSION IF EXISTS pg_trgm;

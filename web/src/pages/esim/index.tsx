@@ -150,7 +150,7 @@ export default function EsimListPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">eSIM Profiles</h1>
       </div>
@@ -191,7 +191,7 @@ export default function EsimListPage() {
       </div>
 
       {/* Profiles Table */}
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">

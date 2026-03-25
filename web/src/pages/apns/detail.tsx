@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -8,6 +8,12 @@ import {
   Server,
   BarChart3,
   Settings,
+  Pencil,
+  Trash2,
+  Loader2,
+  Lock,
+  Activity,
+  Plus,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -29,12 +35,27 @@ import {
   TableCell,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { useAPN, useAPNIPPools, useAPNSims } from '@/hooks/use-apns'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
+import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
+import { useIpPoolAddresses } from '@/hooks/use-settings'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { SIM, SIMState } from '@/types/sim'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/ui'
+import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
@@ -109,7 +130,38 @@ function ConfigTab({ apn, operatorName }: { apn: NonNullable<ReturnType<typeof u
 }
 
 function IPPoolsTab({ apnId }: { apnId: string }) {
+  const navigate = useNavigate()
   const { data: pools, isLoading } = useAPNIPPools(apnId)
+  const createPool = useCreateIPPool()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [poolName, setPoolName] = useState('')
+  const [cidrV4, setCidrV4] = useState('')
+  const [cidrV6, setCidrV6] = useState('')
+  const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null)
+  const selectedPoolData = pools?.find((p) => p.id === selectedPoolId)
+  const { data: addrPages } = useIpPoolAddresses(selectedPoolId ?? '')
+  const reservedAddresses = useMemo(() => {
+    if (!addrPages?.pages) return []
+    return addrPages.pages.flatMap((p) => p.data).filter((a) => a.state === 'reserved' || a.state === 'assigned')
+  }, [addrPages])
+
+  const handleCreate = async () => {
+    if (!poolName || (!cidrV4 && !cidrV6)) return
+    try {
+      await createPool.mutateAsync({
+        apn_id: apnId,
+        name: poolName,
+        cidr_v4: cidrV4 || undefined,
+        cidr_v6: cidrV6 || undefined,
+      })
+      setCreateOpen(false)
+      setPoolName('')
+      setCidrV4('')
+      setCidrV6('')
+    } catch {
+      // handled by api interceptor
+    }
+  }
 
   if (isLoading) {
     return (
@@ -130,52 +182,66 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Total IPs</div>
-            <div className="font-mono text-xl font-bold text-accent">{totalAddresses.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Used</div>
-            <div className="font-mono text-xl font-bold text-warning">{usedAddresses.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Available</div>
-            <div className="font-mono text-xl font-bold text-success">{availableAddresses.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Utilization</div>
-            <div className="font-mono text-xl font-bold text-text-primary">{overallPct.toFixed(1)}%</div>
-            <div className="w-full h-2 bg-bg-hover rounded-full overflow-hidden mt-2">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all',
-                  overallPct >= 90 ? 'bg-danger' : overallPct >= 75 ? 'bg-warning' : 'bg-success',
-                )}
-                style={{ width: `${Math.min(overallPct, 100)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-between">
+        <div />
+        <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          Create IP Pool
+        </Button>
       </div>
+
+      {pools && pools.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Total IPs</div>
+              <div className="font-mono text-xl font-bold text-accent">{totalAddresses.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Used</div>
+              <div className="font-mono text-xl font-bold text-warning">{usedAddresses.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Available</div>
+              <div className="font-mono text-xl font-bold text-success">{availableAddresses.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Utilization</div>
+              <div className="font-mono text-xl font-bold text-text-primary">{overallPct.toFixed(1)}%</div>
+              <div className="w-full h-2 bg-bg-hover rounded-full overflow-hidden mt-2">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    overallPct >= 90 ? 'bg-danger' : overallPct >= 75 ? 'bg-warning' : 'bg-success',
+                  )}
+                  style={{ width: `${Math.min(overallPct, 100)}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {(!pools || pools.length === 0) ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Server className="h-8 w-8 text-text-tertiary mb-3" />
             <h3 className="text-sm font-semibold text-text-primary mb-1">No IP Pools</h3>
-            <p className="text-xs text-text-secondary">No IP pools configured for this APN.</p>
+            <p className="text-xs text-text-secondary mb-3">No IP pools configured for this APN.</p>
+            <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create First Pool
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden density-compact">
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
@@ -190,7 +256,7 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
             </TableHeader>
             <TableBody>
               {pools.map((pool) => (
-                <TableRow key={pool.id}>
+                <TableRow key={pool.id} className="cursor-pointer" onClick={() => setSelectedPoolId(pool.id)}>
                   <TableCell>
                     <span className="text-sm text-text-primary font-medium">{pool.name}</span>
                   </TableCell>
@@ -235,6 +301,111 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
           </Table>
         </Card>
       )}
+
+      <SlidePanel
+        open={!!selectedPoolId && !!selectedPoolData}
+        onOpenChange={(open) => { if (!open) setSelectedPoolId(null) }}
+        title={selectedPoolData?.name ?? 'Pool Detail'}
+        description={`CIDR: ${selectedPoolData?.cidr_v4 || selectedPoolData?.cidr_v6 || '-'}`}
+        width="lg"
+      >
+        {selectedPoolData && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-4 gap-3">
+              <div className="rounded-[var(--radius-sm)] border border-border p-3 text-center">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Total</div>
+                <div className="font-mono text-lg font-bold text-accent">{selectedPoolData.total_addresses}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3 text-center">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Used</div>
+                <div className="font-mono text-lg font-bold text-warning">{selectedPoolData.used_addresses}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3 text-center">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Available</div>
+                <div className="font-mono text-lg font-bold text-success">{selectedPoolData.available_addresses}</div>
+              </div>
+              <div className="rounded-[var(--radius-sm)] border border-border p-3 text-center">
+                <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Utilization</div>
+                <div className="font-mono text-lg font-bold text-text-primary">{selectedPoolData.utilization_pct.toFixed(1)}%</div>
+              </div>
+            </div>
+            {reservedAddresses.length > 0 && (
+              <div>
+                <div className="text-xs text-text-secondary mb-2">Assigned / Reserved ({reservedAddresses.length})</div>
+                <div className="rounded-[var(--radius-md)] border border-border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-bg-elevated">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">IP</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">State</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">SIM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reservedAddresses.map((addr) => (
+                        <tr key={addr.id} className="border-t border-border-subtle">
+                          <td className="px-3 py-1.5 font-mono text-text-primary">{addr.address_v4 || addr.address_v6}</td>
+                          <td className="px-3 py-1.5">
+                            <Badge variant={addr.state === 'assigned' ? 'warning' : 'secondary'} className="text-[9px]">
+                              {addr.state.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {addr.sim_iccid ? (
+                              <span className="font-mono text-accent">{addr.sim_iccid}</span>
+                            ) : addr.sim_id ? (
+                              <span className="font-mono text-text-tertiary">{addr.sim_id.slice(0, 12)}</span>
+                            ) : (
+                              <span className="text-text-tertiary">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {reservedAddresses.length === 0 && selectedPoolData.used_addresses === 0 && (
+              <div className="text-xs text-text-tertiary text-center py-4">No reservations in this pool</div>
+            )}
+            <div className="flex items-center justify-end">
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => { setSelectedPoolId(null); navigate(`/settings/ip-pools/${selectedPoolId}`) }}>
+                Open Full Detail
+              </Button>
+            </div>
+          </div>
+        )}
+      </SlidePanel>
+
+      <SlidePanel open={createOpen} onOpenChange={setCreateOpen} title="Create IP Pool" description="Add a new IP pool to this APN" width="md">
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">Pool Name *</label>
+            <Input value={poolName} onChange={(e) => setPoolName(e.target.value)} placeholder="e.g. Fleet IPv4 Pool" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">IPv4 CIDR</label>
+            <Input value={cidrV4} onChange={(e) => setCidrV4(e.target.value)} placeholder="e.g. 10.20.0.0/24" className="font-mono" />
+            <p className="text-[10px] text-text-tertiary mt-1">/24 = 254 IPs, /22 = 1022 IPs, /16 = 65534 IPs</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">IPv6 CIDR (optional)</label>
+            <Input value={cidrV6} onChange={(e) => setCidrV6(e.target.value)} placeholder="e.g. fd00:iot::/64" className="font-mono" />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+          <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!poolName || (!cidrV4 && !cidrV6) || createPool.isPending}
+            className="gap-2"
+          >
+            {createPool.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create Pool
+          </Button>
+        </div>
+      </SlidePanel>
     </div>
   )
 }
@@ -242,6 +413,7 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
 function SIMsTab({ apnId }: { apnId: string }) {
   const navigate = useNavigate()
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useAPNSims(apnId)
+  const [selectedSim, setSelectedSim] = useState<SIM | null>(null)
 
   const allSims = useMemo(() => {
     if (!data?.pages) return []
@@ -273,16 +445,17 @@ function SIMsTab({ apnId }: { apnId: string }) {
   }
 
   return (
-    <Card className="overflow-hidden">
+    <>
+    <Card className="overflow-hidden density-compact">
       <Table>
         <TableHeader className="bg-bg-elevated">
           <TableRow>
             <TableHead>ICCID</TableHead>
             <TableHead>IMSI</TableHead>
             <TableHead>MSISDN</TableHead>
+            <TableHead>IP Address</TableHead>
             <TableHead>State</TableHead>
             <TableHead>RAT</TableHead>
-            <TableHead>Created</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -290,16 +463,24 @@ function SIMsTab({ apnId }: { apnId: string }) {
             <TableRow
               key={sim.id}
               className="cursor-pointer"
-              onClick={() => navigate(`/sims/${sim.id}`)}
+              onClick={() => setSelectedSim(sim)}
             >
               <TableCell>
-                <span className="font-mono text-xs text-accent hover:underline">{sim.iccid}</span>
+                <span
+                  className="font-mono text-xs text-accent hover:underline"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/sims/${sim.id}`) }}
+                >
+                  {sim.iccid}
+                </span>
               </TableCell>
               <TableCell>
                 <span className="font-mono text-xs text-text-secondary">{sim.imsi}</span>
               </TableCell>
               <TableCell>
                 <span className="font-mono text-xs text-text-secondary">{sim.msisdn ?? '-'}</span>
+              </TableCell>
+              <TableCell>
+                <span className="font-mono text-xs text-text-secondary">{sim.ip_address || '-'}</span>
               </TableCell>
               <TableCell>
                 <Badge variant={stateVariant(sim.state)} className="text-[10px]">
@@ -315,9 +496,6 @@ function SIMsTab({ apnId }: { apnId: string }) {
                 ) : (
                   <span className="text-text-tertiary text-xs">-</span>
                 )}
-              </TableCell>
-              <TableCell>
-                <span className="text-xs text-text-secondary">{new Date(sim.created_at).toLocaleDateString()}</span>
               </TableCell>
             </TableRow>
           ))}
@@ -336,23 +514,114 @@ function SIMsTab({ apnId }: { apnId: string }) {
         </div>
       )}
     </Card>
+
+    <SlidePanel
+      open={!!selectedSim}
+      onOpenChange={(open) => { if (!open) setSelectedSim(null) }}
+      title={selectedSim ? `SIM ${selectedSim.iccid?.slice(-8)}` : 'SIM Detail'}
+      description={selectedSim?.iccid}
+      width="lg"
+    >
+      {selectedSim && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">ICCID</div>
+              <div className="font-mono text-xs text-text-primary">{selectedSim.iccid}</div>
+            </div>
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IMSI</div>
+              <div className="font-mono text-xs text-text-primary">{selectedSim.imsi}</div>
+            </div>
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">MSISDN</div>
+              <div className="font-mono text-xs text-text-primary">{selectedSim.msisdn ?? '-'}</div>
+            </div>
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IP Address</div>
+              <div className="font-mono text-xs text-text-primary">{selectedSim.ip_address || '-'}</div>
+            </div>
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">State</div>
+              <Badge variant={stateVariant(selectedSim.state)} className="text-[10px]">
+                {selectedSim.state.toUpperCase()}
+              </Badge>
+            </div>
+            <div className="rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">RAT Type</div>
+              <div className="text-xs text-text-primary">{selectedSim.rat_type ? (RAT_DISPLAY[selectedSim.rat_type] ?? selectedSim.rat_type) : '-'}</div>
+            </div>
+          </div>
+          {selectedSim.created_at && (
+            <div className="text-xs text-text-tertiary">
+              Created: {new Date(selectedSim.created_at).toLocaleString()}
+            </div>
+          )}
+          <div className="flex items-center justify-end pt-2">
+            <Button size="sm" className="gap-2" onClick={() => { setSelectedSim(null); navigate(`/sims/${selectedSim.id}`) }}>
+              Open Full Detail
+            </Button>
+          </div>
+        </div>
+      )}
+    </SlidePanel>
+    </>
   )
 }
 
+const TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
+  '15m': { count: 15, labelFn: (i) => `${i}m` },
+  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
+  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
+  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
+  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
+  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
+}
+
+function generateMockTraffic(timeframe: string) {
+  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
+  const scale = timeframe === '15m' ? 0.1 : timeframe === '1h' ? 0.3 : timeframe === '6h' ? 0.6 : timeframe === '7d' ? 3 : timeframe === '30d' ? 10 : 1
+  return Array.from({ length: cfg.count }, (_, i) => ({
+    label: cfg.labelFn(i),
+    bytes_in: Math.floor((Math.random() * 200_000_000 + 10_000_000) * scale),
+    bytes_out: Math.floor((Math.random() * 100_000_000 + 5_000_000) * scale),
+  }))
+}
+
+function generateMockFrequency(timeframe: string, base: number) {
+  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
+  const scale = timeframe === '15m' ? 0.2 : timeframe === '1h' ? 0.5 : timeframe === '6h' ? 0.8 : timeframe === '7d' ? 2 : timeframe === '30d' ? 5 : 1
+  return Array.from({ length: cfg.count }, (_, i) => ({
+    label: cfg.labelFn(i),
+    count: Math.floor((Math.random() * base + base * 0.2) * scale),
+  }))
+}
+
 function TrafficTab() {
-  const mockData = useMemo(() => {
-    return Array.from({ length: 24 }, (_, i) => ({
-      hour: `${String(i).padStart(2, '0')}:00`,
-      bytes_in: Math.floor(Math.random() * 200_000_000) + 10_000_000,
-      bytes_out: Math.floor(Math.random() * 100_000_000) + 5_000_000,
-    }))
-  }, [])
+  const [timeframe, setTimeframe] = useState('24h')
+
+  const mockData = useMemo(() => generateMockTraffic(timeframe), [timeframe])
+  const mockAuthData = useMemo(() => generateMockFrequency(timeframe, 400), [timeframe])
+  const mockAcctData = useMemo(() => generateMockFrequency(timeframe, 250), [timeframe])
+
+  const tooltipStyle = {
+    backgroundColor: 'var(--color-bg-elevated)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-sm)',
+    color: 'var(--color-text-primary)',
+    fontSize: '12px',
+  }
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-text-primary">Traffic & Request Metrics</span>
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>24h Traffic Trend</CardTitle>
+          <CardTitle>Traffic Trend</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[280px]">
@@ -368,46 +637,11 @@ function TrafficTab() {
                     <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatBytes(v)}
-                  width={65}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value) => [formatBytes(Number(value))]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_in"
-                  stroke="var(--color-accent)"
-                  fill="url(#apnGradIn)"
-                  strokeWidth={2}
-                  name="Bytes In"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_out"
-                  stroke="var(--color-purple)"
-                  fill="url(#apnGradOut)"
-                  strokeWidth={2}
-                  name="Bytes Out"
-                />
+                <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockData.length / 8) - 1)} />
+                <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={65} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatBytes(Number(value))]} />
+                <Area type="monotone" dataKey="bytes_in" stroke="var(--color-accent)" fill="url(#apnGradIn)" strokeWidth={2} name="Bytes In" />
+                <Area type="monotone" dataKey="bytes_out" stroke="var(--color-purple)" fill="url(#apnGradOut)" strokeWidth={2} name="Bytes Out" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -417,30 +651,191 @@ function TrafficTab() {
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">
-              {formatBytes(mockData.reduce((a, d) => a + d.bytes_in, 0))}
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In (24h)</div>
+            <div className="font-mono text-xl font-bold text-accent">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in, 0))}</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-purple">
-              {formatBytes(mockData.reduce((a, d) => a + d.bytes_out, 0))}
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out (24h)</div>
+            <div className="font-mono text-xl font-bold text-purple">{formatBytes(mockData.reduce((a, d) => a + d.bytes_out, 0))}</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-text-primary">
-              {formatBytes(mockData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Lock className="h-4 w-4 text-accent" />
+              <CardTitle>Access-Request Frequency</CardTitle>
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total (24h)</div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={mockAuthData}>
+                  <defs>
+                    <linearGradient id="apnGradAuth" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAuthData.length / 6) - 1)} />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Requests']} />
+                  <Area type="monotone" dataKey="count" stroke="var(--color-success)" fill="url(#apnGradAuth)" strokeWidth={2} name="Auth Requests" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-center mt-2">
+              <span className="font-mono text-sm font-semibold text-success">{Math.round(mockAuthData.reduce((a, d) => a + d.count, 0) / mockAuthData.length)}/interval avg</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-warning" />
+              <CardTitle>Accounting-Update Frequency</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={mockAcctData}>
+                  <defs>
+                    <linearGradient id="apnGradAcct" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-warning)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAcctData.length / 6) - 1)} />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Updates']} />
+                  <Area type="monotone" dataKey="count" stroke="var(--color-warning)" fill="url(#apnGradAcct)" strokeWidth={2} name="Acct Updates" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-center mt-2">
+              <span className="font-mono text-sm font-semibold text-warning">{Math.round(mockAcctData.reduce((a, d) => a + d.count, 0) / mockAcctData.length)}/interval avg</span>
+            </div>
           </CardContent>
         </Card>
       </div>
     </div>
+  )
+}
+
+const APN_TYPE_OPTIONS = [
+  { value: 'private_managed', label: 'Private Managed' },
+  { value: 'operator_managed', label: 'Operator Managed' },
+  { value: 'customer_managed', label: 'Customer Managed' },
+]
+
+const RAT_TYPE_OPTIONS_LIST = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
+
+function EditAPNDialog({
+  open,
+  onClose,
+  apn,
+  operators,
+  onSuccess,
+}: {
+  open: boolean
+  onClose: () => void
+  apn: NonNullable<ReturnType<typeof useAPN>['data']>
+  operators: { id: string; name: string }[]
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    name: apn.name,
+    display_name: apn.display_name ?? '',
+    operator_id: apn.operator_id,
+    apn_type: apn.apn_type,
+    supported_rat_types: [...apn.supported_rat_types],
+  })
+  const [error, setError] = useState<string | null>(null)
+  const updateMutation = useUpdateAPN(apn.id)
+
+  const toggleRat = (rat: string) => {
+    setForm((f) => ({
+      ...f,
+      supported_rat_types: f.supported_rat_types.includes(rat)
+        ? f.supported_rat_types.filter((r) => r !== rat)
+        : [...f.supported_rat_types, rat],
+    }))
+  }
+
+  const handleSubmit = async () => {
+    setError(null)
+    if (!form.name.trim()) { setError('APN name is required'); return }
+    try {
+      await updateMutation.mutateAsync({
+        name: form.name.trim(),
+        display_name: form.display_name.trim() || undefined,
+        operator_id: form.operator_id,
+        apn_type: form.apn_type,
+        supported_rat_types: form.supported_rat_types,
+      })
+      onSuccess()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      setError(msg ?? 'Failed to update APN')
+    }
+  }
+
+  return (
+    <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Edit APN" description="Update APN configuration" width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">APN Name *</label>
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="h-8 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Display Name</label>
+          <Input value={form.display_name} onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))} className="h-8 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Operator</label>
+          <Select value={form.operator_id} onChange={(e) => setForm((f) => ({ ...f, operator_id: e.target.value }))} className="h-8 text-sm" options={operators.map((op) => ({ value: op.id, label: op.name }))} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">APN Type</label>
+          <Select value={form.apn_type} onChange={(e) => setForm((f) => ({ ...f, apn_type: e.target.value }))} className="h-8 text-sm" options={APN_TYPE_OPTIONS} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">RAT Types</label>
+          <div className="flex flex-wrap gap-2">
+            {RAT_TYPE_OPTIONS_LIST.map((rat) => (
+              <button key={rat} type="button" onClick={() => toggleRat(rat)} className={cn(
+                'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                form.supported_rat_types.includes(rat)
+                  ? 'border-accent bg-accent-dim text-accent'
+                  : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+              )}>
+                {RAT_DISPLAY[rat] ?? rat}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" size="sm" onClick={onClose} disabled={updateMutation.isPending}>Cancel</Button>
+        <Button size="sm" onClick={handleSubmit} disabled={updateMutation.isPending} className="gap-1.5">
+          {updateMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Save Changes
+        </Button>
+      </div>
+    </SlidePanel>
   )
 }
 
@@ -449,8 +844,18 @@ export default function ApnDetailPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('config')
 
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const { data: apn, isLoading, isError, refetch } = useAPN(id ?? '')
   const { data: operators } = useOperatorList()
+  const deleteMutation = useDeleteAPN(id ?? '')
+  const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  useEffect(() => {
+    if (apn && id) {
+      addRecentItem({ type: 'apn', id, label: `APN: ${apn.name}`, path: `/apns/${id}` })
+    }
+  }, [apn, id, addRecentItem])
 
   const operatorName = useMemo(() => {
     if (!apn || !operators) return 'Unknown'
@@ -459,7 +864,7 @@ export default function ApnDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -497,11 +902,16 @@ export default function ApnDetailPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
+      <Breadcrumb
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'APNs', href: '/apns' },
+          { label: apn.name },
+        ]}
+        className="mb-1"
+      />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/apns')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
@@ -526,6 +936,16 @@ export default function ApnDetailPage() {
               </span>
             ))}
           </div>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5 border-danger/30 text-danger hover:bg-danger-dim" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </Button>
         </div>
       </div>
 
@@ -562,6 +982,44 @@ export default function ApnDetailPage() {
           <TrafficTab />
         </TabsContent>
       </Tabs>
+
+      {apn && operators && (
+        <EditAPNDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          apn={apn}
+          operators={(operators ?? []).map((o) => ({ id: o.id, name: o.name }))}
+          onSuccess={() => { setEditOpen(false); refetch() }}
+        />
+      )}
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent onClose={() => setDeleteOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>Delete APN?</DialogTitle>
+            <DialogDescription>
+              This will archive APN "{apn?.display_name || apn?.name}". Connected SIMs may be affected.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              className="gap-1.5"
+              onClick={async () => {
+                try {
+                  await deleteMutation.mutateAsync()
+                  navigate('/apns')
+                } catch {}
+              }}
+            >
+              {deleteMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Delete APN
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -27,6 +27,7 @@ function buildListParams(filters: SIMListFilters, cursor?: string) {
   if (filters.iccid) params.set('iccid', filters.iccid)
   if (filters.imsi) params.set('imsi', filters.imsi)
   if (filters.msisdn) params.set('msisdn', filters.msisdn)
+  if (filters.ip) params.set('ip', filters.ip)
   return params.toString()
 }
 
@@ -83,8 +84,9 @@ export function useSIMSessions(simId: string) {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '50')
+      params.set('sim_id', simId)
       const res = await api.get<ListResponse<SIMSession>>(
-        `/sims/${simId}/sessions?${params.toString()}`,
+        `/sessions?${params.toString()}`,
       )
       return res.data
     },
@@ -211,6 +213,25 @@ export function useBulkPolicyAssign() {
         policy_id: policyId,
       })
       return res.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SIMS_KEY })
+    },
+  })
+}
+
+export function useImportSIMs() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ file, reserveStaticIP }: { file: File; reserveStaticIP: boolean }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      if (reserveStaticIP) formData.append('reserve_static_ip', 'true')
+      const res = await api.post('/sims/bulk/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return res.data.data as { job_id: string; rows_parsed: number; errors: string[] }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })

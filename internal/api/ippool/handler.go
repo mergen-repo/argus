@@ -51,6 +51,7 @@ type poolResponse struct {
 	CIDRv6                  *string  `json:"cidr_v6"`
 	TotalAddresses          int      `json:"total_addresses"`
 	UsedAddresses           int      `json:"used_addresses"`
+	AvailableAddresses      int      `json:"available_addresses"`
 	UtilizationPct          float64  `json:"utilization_pct"`
 	AlertThresholdWarning   int      `json:"alert_threshold_warning"`
 	AlertThresholdCritical  int      `json:"alert_threshold_critical"`
@@ -96,6 +97,10 @@ type reserveIPRequest struct {
 
 func toPoolResponse(p *store.IPPool) poolResponse {
 	utilPct := 0.0
+	available := p.TotalAddresses - p.UsedAddresses
+	if available < 0 {
+		available = 0
+	}
 	if p.TotalAddresses > 0 {
 		utilPct = float64(p.UsedAddresses) / float64(p.TotalAddresses) * 100.0
 	}
@@ -108,6 +113,7 @@ func toPoolResponse(p *store.IPPool) poolResponse {
 		CIDRv6:                  p.CIDRv6,
 		TotalAddresses:          p.TotalAddresses,
 		UsedAddresses:           p.UsedAddresses,
+		AvailableAddresses:      available,
 		UtilizationPct:          utilPct,
 		AlertThresholdWarning:   p.AlertThresholdWarning,
 		AlertThresholdCritical:  p.AlertThresholdCritical,

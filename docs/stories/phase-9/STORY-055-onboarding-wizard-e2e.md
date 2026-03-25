@@ -18,21 +18,21 @@ End-to-end test of the tenant onboarding journey: super_admin creates tenant →
 - SCR-020: SIM List (verify imported SIMs)
 
 ## Acceptance Criteria
-- [ ] Test 1 — Create Tenant: super_admin creates tenant via API-011, receives tenant_id
-- [ ] Test 2 — Invite Admin: super_admin creates admin user for new tenant via API-007
-- [ ] Test 3 — Admin Login: new admin logs in via API-001, receives JWT with correct tenant_id
-- [ ] Test 4 — Operator Connect: admin grants operator access (API-026), tests connection (API-024) → success
-- [ ] Test 5 — Create APN: admin creates APN with IP pool (API-031) → APN active
-- [ ] Test 6 — Import SIMs: admin uploads CSV with 5 SIMs (API-063) → job completes, 5 SIMs active
-- [ ] Test 7 — Create Policy: admin creates policy with DSL (API-091) → draft version
-- [ ] Test 8 — Activate Policy: admin activates policy (API-095) → version active
-- [ ] Test 9 — Assign Policy: SIMs auto-assigned to APN's default policy
-- [ ] Test 10 — RADIUS Auth: send Access-Request for tenant's SIM → Access-Accept
-- [ ] Test 11 — Tenant Isolation: Tenant B admin cannot see Tenant A's SIMs (API-040 returns empty)
-- [ ] Test 12 — Dashboard: admin's dashboard shows correct SIM count, session data
-- [ ] Full flow completes in < 90 seconds
-- [ ] Test creates and tears down all resources (idempotent)
-- [ ] Test runs in CI pipeline
+- [x] Test 1 — Create Tenant: super_admin creates tenant via API-011, receives tenant_id
+- [x] Test 2 — Invite Admin: super_admin creates admin user for new tenant via API-007
+- [x] Test 3 — Admin Login: new admin logs in via API-001, receives JWT with correct tenant_id
+- [x] Test 4 — Operator Connect: admin grants operator access (API-026), tests connection (API-024) → success
+- [x] Test 5 — Create APN: admin creates APN with IP pool (API-031) → APN active
+- [x] Test 6 — Import SIMs: admin uploads CSV with 5 SIMs (API-063) → job completes, 5 SIMs active
+- [x] Test 7 — Create Policy: admin creates policy with DSL (API-091) → draft version
+- [x] Test 8 — Activate Policy: admin activates policy (API-095) → version active
+- [x] Test 9 — Assign Policy: SIMs auto-assigned to APN's default policy
+- [x] Test 10 — RADIUS Auth: send Access-Request for tenant's SIM → Access-Accept
+- [x] Test 11 — Tenant Isolation: Tenant B admin cannot see Tenant A's SIMs (API-040 returns empty)
+- [x] Test 12 — Dashboard: admin's dashboard shows correct SIM count, session data
+- [x] Full flow completes in < 90 seconds
+- [x] Test creates and tears down all resources (idempotent)
+- [x] Test runs in CI pipeline
 
 ## Dependencies
 - Blocked by: All Phase 1-8 stories (requires full stack including frontend)

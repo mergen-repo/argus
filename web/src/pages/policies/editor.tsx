@@ -10,6 +10,7 @@ import {
   Shield,
   Keyboard,
   CheckCircle2,
+  HelpCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -42,7 +43,7 @@ export default function PolicyEditorPage() {
 
   const { data: policy, isLoading, isError, refetch } = usePolicy(id!)
 
-  const [activeTab, setActiveTab] = useState('preview')
+  const [activeTab, setActiveTab] = useState('dsl-help')
   const [dslContent, setDslContent] = useState('')
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>()
   const [isDirty, setIsDirty] = useState(false)
@@ -50,6 +51,7 @@ export default function PolicyEditorPage() {
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null)
   const [dividerPosition, setDividerPosition] = useState(55)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+
 
   const dryRunTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -362,6 +364,10 @@ export default function PolicyEditorPage() {
                   Versions {policy.versions ? `(${policy.versions.length})` : ''}
                 </TabsTrigger>
                 <TabsTrigger value="rollout">Rollout</TabsTrigger>
+                <TabsTrigger value="dsl-help">
+                  <HelpCircle className="h-3 w-3 mr-1" />
+                  DSL Help
+                </TabsTrigger>
               </TabsList>
             </div>
 
@@ -389,6 +395,173 @@ export default function PolicyEditorPage() {
                   policyId={id!}
                   currentVersion={selectedVersion}
                 />
+              </TabsContent>
+
+              <TabsContent value="dsl-help" className="h-full mt-0 overflow-y-auto">
+                <div className="p-4 space-y-5 text-xs">
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">Basic Structure</h5>
+                    <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-3 font-mono text-[11px] text-text-secondary whitespace-pre overflow-x-auto">{`POLICY "name" {
+    MATCH { ... }       # Which SIMs does this apply to?
+    RULES { ... }       # What settings/actions to apply?
+    CHARGING { ... }    # Billing rules (optional)
+}
+# Comments start with #`}</pre>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">MATCH — Target SIM Selection</h5>
+                    <p className="text-text-tertiary mb-2">Determines which SIMs this policy applies to. All conditions must match (AND logic).</p>
+                    <div className="text-text-secondary space-y-1.5">
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">apn</code> — APN name <span className="text-text-tertiary">(=, !=, IN)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">operator</code> — Operator name <span className="text-text-tertiary">(=, !=, IN)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">rat_type</code> — Radio type <span className="text-text-tertiary">(=, IN) values: nb_iot, lte_m, lte, nr_5g</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">sim_type</code> — SIM type <span className="text-text-tertiary">(=, IN) values: physical, esim</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">roaming</code> — Roaming state <span className="text-text-tertiary">(=) values: true, false</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">metadata.*</code> — Custom fields <span className="text-text-tertiary">(=) e.g. metadata.fleet_id = "fleet-01"</span></div>
+                    </div>
+                    <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`MATCH {
+    apn IN ("iot.fleet", "m2m.demo")
+    rat_type IN (nb_iot, lte_m)
+    sim_type = "physical"
+}`}</pre>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">RULES — Default Settings</h5>
+                    <p className="text-text-tertiary mb-2">Set baseline values for matched SIMs.</p>
+                    <div className="text-text-secondary space-y-1.5">
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">bandwidth_down</code> / <code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">bandwidth_up</code> — <span className="text-text-tertiary">e.g. 1mbps, 256kbps, 10gbps</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">session_timeout</code> / <code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">idle_timeout</code> — <span className="text-text-tertiary">e.g. 24h, 30min, 7d</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">max_sessions</code> — <span className="text-text-tertiary">Max concurrent sessions (integer)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">qos_class</code> / <code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-success">priority</code> — <span className="text-text-tertiary">QoS priority level (integer)</span></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">WHEN — Conditional Rules</h5>
+                    <p className="text-text-tertiary mb-2">Override defaults based on runtime conditions. Supports AND, OR, NOT, parentheses.</p>
+                    <div className="text-text-secondary space-y-1.5">
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">usage</code> — Data consumed <span className="text-text-tertiary">(&gt;, &lt;, &gt;=, &lt;=, BETWEEN) e.g. 500MB, 1GB</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">time_of_day</code> — Time range <span className="text-text-tertiary">(IN) e.g. 00:00-06:00, 22:00-23:59</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_count</code> — Active sessions <span className="text-text-tertiary">(&gt;, &lt;, =) e.g. 3</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_duration</code> — Current session length <span className="text-text-tertiary">(&gt;, &lt;) e.g. 2h</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">bandwidth_used</code> — Current rate <span className="text-text-tertiary">(&gt;, &lt;) e.g. 5mbps</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">roaming</code> — Roaming status <span className="text-text-tertiary">(=) true/false</span></div>
+                    </div>
+                    <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`WHEN usage > 1GB AND time_of_day IN (08:00-18:00) {
+    bandwidth_down = 512kbps
+    ACTION notify(fup_applied, 100%)
+}
+WHEN usage BETWEEN 800MB 1GB {
+    ACTION notify(quota_warning, 80%)
+}
+WHEN NOT roaming = true {
+    bandwidth_down = 5mbps
+}`}</pre>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">ACTIONs</h5>
+                    <div className="text-text-secondary space-y-1.5">
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION notify(event_type, threshold%)</code> — <span className="text-text-tertiary">Send alert notification</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION throttle(rate)</code> — <span className="text-text-tertiary">Reduce bandwidth e.g. throttle(64kbps)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION disconnect()</code> — <span className="text-text-tertiary">Terminate session immediately</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION block()</code> — <span className="text-text-tertiary">Block new connections</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION log(message)</code> — <span className="text-text-tertiary">Write to audit log</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-warning">ACTION tag(key, value)</code> — <span className="text-text-tertiary">Tag SIM with metadata</span></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">CHARGING — Billing Rules</h5>
+                    <div className="text-text-secondary space-y-1.5">
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">model</code> — <span className="text-text-tertiary">"prepaid" or "postpaid"</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">rate_per_mb</code> — <span className="text-text-tertiary">Cost per MB (float)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">rate_per_session</code> — <span className="text-text-tertiary">Flat fee per session (float)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">billing_cycle</code> — <span className="text-text-tertiary">"monthly", "weekly", "daily"</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">quota</code> — <span className="text-text-tertiary">Data cap e.g. 5GB</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">overage_action</code> — <span className="text-text-tertiary">"throttle", "block", "charge"</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">overage_rate_per_mb</code> — <span className="text-text-tertiary">Cost when over quota (float)</span></div>
+                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-info">rat_multiplier [type] = [val]</code> — <span className="text-text-tertiary">Cost multiplier per RAT</span></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">Units Reference</h5>
+                    <div className="grid grid-cols-3 gap-2 text-text-secondary">
+                      <div>
+                        <span className="text-text-tertiary block mb-1">Data</span>
+                        <div>B, KB, MB, GB, TB</div>
+                      </div>
+                      <div>
+                        <span className="text-text-tertiary block mb-1">Rate</span>
+                        <div>bps, kbps, mbps, gbps</div>
+                      </div>
+                      <div>
+                        <span className="text-text-tertiary block mb-1">Time</span>
+                        <div>ms, s, min, h, d</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-medium text-text-primary mb-2 text-sm">Complete Example</h5>
+                    <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-3 font-mono text-[11px] text-text-secondary whitespace-pre overflow-x-auto">{`POLICY "iot-fleet-standard" {
+    MATCH {
+        apn IN ("iot.fleet", "m2m.meter")
+        rat_type IN (nb_iot, lte_m)
+        sim_type = "physical"
+    }
+
+    RULES {
+        # Default settings for all matched SIMs
+        bandwidth_down = 1mbps
+        bandwidth_up = 256kbps
+        session_timeout = 24h
+        idle_timeout = 1h
+        max_sessions = 1
+        qos_class = 5
+
+        # FUP: Throttle after 1GB usage
+        WHEN usage > 1GB {
+            ACTION throttle(64kbps)
+            ACTION notify(quota_exceeded, 100%)
+            ACTION log("FUP applied")
+        }
+
+        # Warning at 80% quota
+        WHEN usage BETWEEN 800MB 1GB {
+            ACTION notify(quota_warning, 80%)
+        }
+
+        # Night boost
+        WHEN time_of_day IN (00:00-06:00) {
+            bandwidth_down = 2mbps
+            bandwidth_up = 512kbps
+        }
+
+        # Block if too many sessions
+        WHEN session_count > 3 {
+            ACTION disconnect()
+            ACTION log("Max sessions exceeded")
+        }
+    }
+
+    CHARGING {
+        model = "prepaid"
+        rate_per_mb = 0.02
+        billing_cycle = "monthly"
+        quota = 5GB
+        overage_action = "throttle"
+        rat_multiplier nb_iot = 0.5
+        rat_multiplier lte_m = 0.8
+        rat_multiplier lte = 1.0
+        rat_multiplier nr_5g = 1.5
+    }
+}`}</pre>
+                  </div>
+                </div>
               </TabsContent>
             </div>
           </Tabs>

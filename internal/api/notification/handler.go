@@ -142,6 +142,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "User context required")
+		return
+	}
+
+	count, err := h.notifStore.UnreadCount(r.Context(), tenantID, userID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("get unread count")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"count": count,
+	})
+}
+
 func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {

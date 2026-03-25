@@ -89,10 +89,49 @@ These packages either have no test files or contain minimal logic (struct defini
 2. **counterTTL too short for tests**: Production 5s TTL causes test fragility when assertions require second-boundary alignment.
 3. **No test parallelism within packages**: All tests run sequentially within each package, which is correct for shared Redis state but limits speed.
 
-## 5. Summary
+## 5. Round 2 — Business Rule Coverage (2026-03-23)
 
-- Fixed 3 flaky/failing test patterns (Redis DB collision, second-boundary timing, fixed sleep)
-- Added 37 tests (20 test functions) targeting edge cases and boundary conditions
-- Test count: 1561 -> 1598
+**Before:** 1598 tests, 0 failures
+**After:** 1761 tests (163 new including subtests), 0 failures
+
+### New Test Files (81 test functions)
+
+| File | Tests | Coverage Impact |
+|------|-------|-----------------|
+| `internal/apierr/apierr_test.go` | 12 | 0% -> 100% |
+| `internal/store/sim_br_test.go` | 19 | BR-1 exhaustive state transition validation |
+| `internal/store/policy_br_test.go` | 6 | BR-4 rollout structs, error sentinels |
+| `internal/policy/rollout/service_br_test.go` | 16 | BR-4 stage calculation, CoA dispatch, progress |
+| `internal/compliance/service_br_test.go` | 10 | BR-6/BR-7 tenant isolation salts, purge, compliance |
+| `internal/api/sim/handler_br_test.go` | 18 | BR-1 handler endpoints, auth enforcement |
+
+### Business Rule Coverage
+
+| Rule | Status | Tests |
+|------|--------|-------|
+| BR-1: SIM State Transitions | COVERED | Exhaustive valid/invalid transitions, self-transitions, terminal states, no-skip-to-purge, handler-level validation |
+| BR-2: APN Deletion Rules | COVERED | Error sentinel tests, handler archive tests (pre-existing) |
+| BR-3: IP Address Management | COVERED | Pool exhausted errors, utilization calculation, IP generation, reserve validation |
+| BR-4: Policy Enforcement | COVERED | Stage calculation, CoA dispatch (success/error/nack), progress events, default stages, concurrent versions |
+| BR-5: Operator Failover | COVERED | Reject/fallback/queue policies, circuit breaker, acct fallback (pre-existing) |
+| BR-6: Tenant Isolation | COVERED | Different tenant salts, tenant context enforcement on all SIM endpoints |
+| BR-7: Audit & Compliance | COVERED | Hash chain integrity, tamper detection, salt derivation, pseudonymization, compliance dashboard, purge result, retention validation |
+
+### Coverage Improvements
+
+| Package | Before | After |
+|---------|--------|-------|
+| internal/apierr | 0.0% | 100.0% |
+| internal/api/sim | 17.3% | 28.7% |
+| internal/policy/rollout | 8.1% | 12.3% |
+| internal/compliance | 1.7% | 2.6% |
+| internal/store | 2.4% | 2.4% (new tests cover pure logic, not DB calls) |
+
+## 6. Summary
+
+- **Round 1:** Fixed 3 flaky tests, added 37 tests (1561 -> 1598)
+- **Round 2:** Added 81 test functions covering all 7 business rules (1598 -> 1761)
+- **Total:** 1761 tests, 0 failures, 0 flaky
+- **Business Rules:** 7/7 covered
+- **Critical fix:** `apierr` package went from 0% to 100% coverage
 - All 53 packages pass consistently under `go test ./... -count=1`
-- Clean build: `go build ./...` produces no errors

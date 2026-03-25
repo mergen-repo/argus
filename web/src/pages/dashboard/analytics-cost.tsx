@@ -10,20 +10,19 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Select } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
+import { AnimatedCounter } from '@/components/ui/animated-counter'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useCostAnalytics, type CostFilters } from '@/hooks/use-analytics'
 import type { UsagePeriod } from '@/types/analytics'
 
-const PERIOD_OPTIONS = [
-  { value: '1h', label: '1 Hour' },
-  { value: '24h', label: '24 Hours' },
-  { value: '7d', label: '7 Days' },
-  { value: '30d', label: '30 Days' },
-  { value: 'custom', label: 'Custom' },
+const COST_TIMEFRAME_OPTIONS = [
+  { value: '1h', label: '1h' },
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
 ]
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -46,7 +45,7 @@ function DeltaBadge({ delta }: { delta: number }) {
 
 function CostSkeleton() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <Skeleton className="h-6 w-48" />
       <div className="flex gap-3"><Skeleton className="h-9 w-32" /></div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -101,13 +100,9 @@ const SUGGESTION_ACTIONS: Record<string, { label: string; path: string }> = {
 export default function AnalyticsCostPage() {
   const navigate = useNavigate()
   const [period, setPeriod] = useState<UsagePeriod>('30d')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
 
   const filters: CostFilters = {
     period,
-    from: period === 'custom' ? customFrom : undefined,
-    to: period === 'custom' ? customTo : undefined,
   }
 
   const { data, isLoading, isError, refetch } = useCostAnalytics(filters)
@@ -124,38 +119,19 @@ export default function AnalyticsCostPage() {
   }))
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Analytics &mdash; Cost</h1>
-        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1">
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          options={PERIOD_OPTIONS}
-          value={period}
-          onChange={(e) => setPeriod(e.target.value as UsagePeriod)}
-          className="w-32"
-        />
-        {period === 'custom' && (
-          <>
-            <Input
-              type="datetime-local"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="w-48"
-            />
-            <Input
-              type="datetime-local"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="w-48"
-            />
-          </>
-        )}
+        <div className="flex items-center gap-2">
+          <TimeframeSelector
+            value={period}
+            onChange={(v) => setPeriod(v as UsagePeriod)}
+            options={COST_TIMEFRAME_OPTIONS}
+          />
+          <Button variant="outline" size="icon" onClick={() => refetch()} className="h-8 w-8">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {isEmpty ? (
@@ -175,7 +151,7 @@ export default function AnalyticsCostPage() {
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="font-mono text-[28px] font-bold text-text-primary leading-none mb-1">
-                  {formatCurrency(data!.total_cost)}
+                  <AnimatedCounter value={data!.total_cost} formatter={formatCurrency} />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-text-tertiary">{data!.currency}</span>

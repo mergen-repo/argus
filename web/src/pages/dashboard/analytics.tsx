@@ -4,27 +4,36 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import {
-  BarChart3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Layers,
-  Filter, ToggleLeft, ToggleRight,
+  BarChart3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Layers, Check,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Select } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
+import { AnimatedCounter } from '@/components/ui/animated-counter'
+import { cn } from '@/lib/utils'
 import { useUsageAnalytics, type UsageFilters } from '@/hooks/use-analytics'
+import { useOperatorList } from '@/hooks/use-operators'
+import { useAPNList } from '@/hooks/use-apns'
 import type { UsagePeriod, UsageGroupBy, UsageMetric, TimeSeriesPoint } from '@/types/analytics'
 
-const PERIOD_OPTIONS = [
-  { value: '1h', label: '1 Hour' },
-  { value: '24h', label: '24 Hours' },
-  { value: '7d', label: '7 Days' },
-  { value: '30d', label: '30 Days' },
-  { value: 'custom', label: 'Custom' },
-]
+const TIMEFRAME_TO_PERIOD: Record<string, UsagePeriod> = {
+  '15m': '1h',
+  '1h': '1h',
+  '6h': '24h',
+  '24h': '24h',
+  '7d': '7d',
+  '30d': '30d',
+}
 
 const GROUP_BY_OPTIONS = [
   { value: '', label: 'No Grouping' },
@@ -37,6 +46,14 @@ const METRIC_OPTIONS = [
   { value: 'total_bytes', label: 'Bytes' },
   { value: 'sessions', label: 'Sessions' },
   { value: 'auths', label: 'Auths' },
+]
+
+const RAT_TYPE_OPTIONS = [
+  { value: '', label: 'All RATs' },
+  { value: 'nb_iot', label: 'NB-IoT' },
+  { value: 'lte_m', label: 'LTE-M' },
+  { value: 'lte', label: 'LTE' },
+  { value: 'nr_5g', label: '5G NR' },
 ]
 
 const GROUP_COLORS = [
@@ -74,7 +91,7 @@ function DeltaBadge({ delta }: { delta: number }) {
 
 function UsageSkeleton() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 w-32" />
         <Skeleton className="h-9 w-32" />
@@ -124,28 +141,67 @@ const tooltipStyle = {
   fontSize: '12px',
 }
 
+function PillFilter({ label, value, displayValue, options, onChange }: {
+  label: string
+  value: string
+  displayValue: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  const active = !!value
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className={cn(
+        'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+        active
+          ? 'border-accent/30 bg-accent-dim text-accent'
+          : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+      )}>
+        <span>{label}{active ? `: ${displayValue}` : ''}</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {options.map((opt) => (
+          <DropdownMenuItem key={opt.value} onClick={() => onChange(opt.value)}>
+            <span className="flex-1">{opt.label}</span>
+            {value === opt.value && <Check className="h-3.5 w-3.5 text-accent" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export default function AnalyticsPage() {
   const navigate = useNavigate()
-  const [period, setPeriod] = useState<UsagePeriod>('24h')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [timeframe, setTimeframe] = useState('24h')
   const [groupBy, setGroupBy] = useState<UsageGroupBy>('')
   const [metric, setMetric] = useState<UsageMetric>('total_bytes')
-  const [compare, setCompare] = useState(false)
   const [operatorId, setOperatorId] = useState('')
   const [apnId, setApnId] = useState('')
   const [ratType, setRatType] = useState('')
-  const [showFilters, setShowFilters] = useState(false)
+
+  const period = TIMEFRAME_TO_PERIOD[timeframe] ?? '24h'
+
+  const { data: operators } = useOperatorList()
+  const { data: apns } = useAPNList({})
+
+  const operatorOptions = useMemo(() => [
+    { value: '', label: 'All Operators' },
+    ...(operators ?? []).map((o) => ({ value: o.id, label: o.name })),
+  ], [operators])
+
+  const apnOptions = useMemo(() => [
+    { value: '', label: 'All APNs' },
+    ...(apns ?? []).map((a) => ({ value: a.id, label: a.display_name ?? a.name })),
+  ], [apns])
 
   const filters: UsageFilters = {
     period,
-    from: period === 'custom' ? customFrom : undefined,
-    to: period === 'custom' ? customTo : undefined,
     group_by: groupBy || undefined,
     operator_id: operatorId || undefined,
     apn_id: apnId || undefined,
     rat_type: ratType || undefined,
-    compare,
+    compare: true,
   }
 
   const { data, isLoading, isError, refetch } = useUsageAnalytics(filters)
@@ -187,116 +243,54 @@ export default function AnalyticsPage() {
   const isEmpty = !data || data.time_series.length === 0
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Analytics &mdash; Usage</h1>
-        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1">
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          options={PERIOD_OPTIONS}
-          value={period}
-          onChange={(e) => setPeriod(e.target.value as UsagePeriod)}
-          className="w-32"
-        />
-        {period === 'custom' && (
-          <>
-            <Input
-              type="datetime-local"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="w-48"
-              placeholder="From"
-            />
-            <Input
-              type="datetime-local"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="w-48"
-              placeholder="To"
-            />
-          </>
-        )}
-        <Select
-          options={GROUP_BY_OPTIONS}
+      <div className="flex items-center gap-3 flex-wrap">
+        <PillFilter
+          label="Group"
           value={groupBy}
-          onChange={(e) => setGroupBy(e.target.value as UsageGroupBy)}
-          className="w-36"
+          displayValue={GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.label ?? 'No Grouping'}
+          options={GROUP_BY_OPTIONS}
+          onChange={(v) => setGroupBy(v as UsageGroupBy)}
         />
-        <Select
-          options={METRIC_OPTIONS}
+        <PillFilter
+          label="Metric"
           value={metric}
-          onChange={(e) => setMetric(e.target.value as UsageMetric)}
-          className="w-28"
+          displayValue={METRIC_OPTIONS.find((o) => o.value === metric)?.label ?? 'Bytes'}
+          options={METRIC_OPTIONS}
+          onChange={(v) => setMetric(v as UsageMetric)}
         />
-        <Button
-          variant={compare ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setCompare(!compare)}
-          className="gap-1"
-        >
-          {compare ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
-          Compare
-        </Button>
-        <Button
-          variant={showFilters ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setShowFilters(!showFilters)}
-          className="gap-1"
-        >
-          <Filter className="h-3.5 w-3.5" />
-          Filters
-        </Button>
+        <PillFilter
+          label="Operator"
+          value={operatorId}
+          displayValue={operatorId ? (operators?.find((o) => o.id === operatorId)?.name ?? '') : ''}
+          options={operatorOptions}
+          onChange={setOperatorId}
+        />
+        <PillFilter
+          label="APN"
+          value={apnId}
+          displayValue={apnId ? (apns?.find((a) => a.id === apnId)?.display_name ?? apns?.find((a) => a.id === apnId)?.name ?? '') : ''}
+          options={apnOptions}
+          onChange={setApnId}
+        />
+        <PillFilter
+          label="RAT"
+          value={ratType}
+          displayValue={ratType ? (RAT_TYPE_OPTIONS.find((o) => o.value === ratType)?.label ?? ratType) : ''}
+          options={RAT_TYPE_OPTIONS}
+          onChange={setRatType}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+          <Button variant="ghost" size="icon" onClick={() => refetch()} title="Refresh">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
-
-      {showFilters && (
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1 block">Operator ID</label>
-                <Input
-                  value={operatorId}
-                  onChange={(e) => setOperatorId(e.target.value)}
-                  placeholder="UUID"
-                  className="w-64"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1 block">APN ID</label>
-                <Input
-                  value={apnId}
-                  onChange={(e) => setApnId(e.target.value)}
-                  placeholder="UUID"
-                  className="w-64"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1 block">RAT Type</label>
-                <Select
-                  options={[
-                    { value: '', label: 'All' },
-                    { value: '4G', label: '4G LTE' },
-                    { value: '5G', label: '5G NR' },
-                    { value: '3G', label: '3G' },
-                    { value: '2G', label: '2G' },
-                  ]}
-                  value={ratType}
-                  onChange={(e) => setRatType(e.target.value)}
-                  className="w-28"
-                />
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => { setOperatorId(''); setApnId(''); setRatType('') }}>
-                Clear
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {data && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -306,7 +300,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="font-mono text-[22px] font-bold text-text-primary">
-                {formatBytes(data.totals.total_bytes)}
+                <AnimatedCounter value={data.totals.total_bytes} formatter={formatBytes} />
               </div>
               {data.comparison && <DeltaBadge delta={data.comparison.bytes_delta_pct} />}
             </CardContent>
@@ -317,7 +311,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="font-mono text-[22px] font-bold text-text-primary">
-                {formatNumber(data.totals.total_sessions)}
+                <AnimatedCounter value={data.totals.total_sessions} formatter={formatNumber} />
               </div>
               {data.comparison && <DeltaBadge delta={data.comparison.sessions_delta_pct} />}
             </CardContent>
@@ -328,7 +322,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="font-mono text-[22px] font-bold text-text-primary">
-                {formatNumber(data.totals.total_auths)}
+                <AnimatedCounter value={data.totals.total_auths} formatter={formatNumber} />
               </div>
               {data.comparison && <DeltaBadge delta={data.comparison.auths_delta_pct} />}
             </CardContent>
@@ -339,7 +333,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="font-mono text-[22px] font-bold text-text-primary">
-                {formatNumber(data.totals.unique_sims)}
+                <AnimatedCounter value={data.totals.unique_sims} formatter={formatNumber} />
               </div>
               {data.comparison && <DeltaBadge delta={data.comparison.sims_delta_pct} />}
             </CardContent>
@@ -380,10 +374,10 @@ export default function AnalyticsPage() {
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(value) => [
+                    formatter={((value: unknown, name: string) => [
                       metric === 'total_bytes' ? formatBytes(Number(value)) : formatNumber(Number(value)),
-                      metric === 'total_bytes' ? 'Bytes' : metric === 'sessions' ? 'Sessions' : 'Auths',
-                    ]}
+                      name,
+                    ]) as never}
                   />
                   {groupBy && groupKeys.length > 0 ? (
                     groupKeys.map((key, i) => (
@@ -440,7 +434,10 @@ export default function AnalyticsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
-                  <TableHead>SIM ID</TableHead>
+                  <TableHead>ICCID</TableHead>
+                  <TableHead>Operator</TableHead>
+                  <TableHead>APN</TableHead>
+                  <TableHead>IP</TableHead>
                   <TableHead className="text-right">Usage</TableHead>
                   <TableHead className="text-right">Sessions</TableHead>
                 </TableRow>
@@ -455,8 +452,17 @@ export default function AnalyticsPage() {
                     <TableCell className="font-mono text-text-tertiary w-8">{i + 1}</TableCell>
                     <TableCell>
                       <span className="font-mono text-xs text-accent hover:underline">
-                        {tc.sim_id.slice(0, 8)}...
+                        {tc.iccid ?? tc.sim_id.slice(0, 8) + '...'}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-text-secondary">
+                      {tc.operator_name ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-xs text-text-secondary">
+                      {tc.apn_name ?? '—'}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-text-secondary">
+                      {tc.ip_address ?? '—'}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {formatBytes(tc.total_bytes)}
@@ -477,16 +483,16 @@ export default function AnalyticsPage() {
           {Object.entries(data.breakdowns).map(([dim, items]) => (
             <Card key={dim}>
               <CardHeader>
-                <CardTitle className="capitalize">{dim.replace('_id', '')} Breakdown</CardTitle>
+                <CardTitle className="capitalize">{dim.replace(/_/g, ' ')} Breakdown</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-2">
                   {items.map((item) => (
                     <div key={item.key} className="flex items-center justify-between">
-                      <span className="text-xs text-text-secondary font-mono truncate max-w-[120px]">
-                        {item.key.slice(0, 8)}...
+                      <span className="text-xs text-text-secondary truncate" title={item.key}>
+                        {item.key}
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                         <div className="w-20 h-1.5 bg-bg-hover rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full bg-accent"

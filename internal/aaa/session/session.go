@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/btopcu/argus/internal/store"
@@ -23,6 +24,12 @@ const (
 	sessionAcctKeyPrefix = "session:acct:"
 	defaultIdleTimeout   = 1800
 	defaultHardTimeout   = 86400
+)
+
+const (
+	statsActiveKey   = "session:stats:active"
+	statsAvgDurKey   = "session:stats:avg_duration"
+	statsAvgBytesKey = "session:stats:avg_bytes"
 )
 
 type Session struct {
@@ -173,6 +180,20 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 					m.logger.Warn().Err(err).Str("acct_session_id", sess.AcctSessionID).Msg("failed to cache acct session index")
 				}
 			}
+		}
+
+		pipe := m.redisClient.Pipeline()
+		pipe.HIncrBy(ctx, statsActiveKey, "total", 1)
+		pipe.HIncrBy(ctx, statsActiveKey, "op:"+sess.OperatorID, 1)
+		if sess.APNID != "" {
+			pipe.HIncrBy(ctx, statsActiveKey, "apn:"+sess.APNID, 1)
+		}
+		if sess.RATType != "" {
+			pipe.HIncrBy(ctx, statsActiveKey, "rat:"+sess.RATType, 1)
+		}
+		pipe.Expire(ctx, statsActiveKey, 48*time.Hour)
+		if _, err := pipe.Exec(ctx); err != nil {
+			m.logger.Warn().Err(err).Msg("failed to update session stats counters")
 		}
 	}
 
@@ -366,64 +387,54 @@ func (m *Manager) Stats(ctx context.Context, tenantID string) (*SessionStats, er
 	}, nil
 }
 
+func (m *Manager) decrementSessionStats(ctx context.Context, sess *Session) {
+	if sess.OperatorID == "" {
+		return
+	}
+	pipe := m.redisClient.Pipeline()
+	pipe.HIncrBy(ctx, statsActiveKey, "total", -1)
+	pipe.HIncrBy(ctx, statsActiveKey, "op:"+sess.OperatorID, -1)
+	if sess.APNID != "" {
+		pipe.HIncrBy(ctx, statsActiveKey, "apn:"+sess.APNID, -1)
+	}
+	if sess.RATType != "" {
+		pipe.HIncrBy(ctx, statsActiveKey, "rat:"+sess.RATType, -1)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		m.logger.Warn().Err(err).Msg("failed to decrement session stats counters")
+	}
+}
+
 func (m *Manager) statsFromRedis(ctx context.Context) (*SessionStats, error) {
 	stats := &SessionStats{
 		ByOperator: make(map[string]int64),
 		ByAPN:      make(map[string]int64),
 		ByRATType:  make(map[string]int64),
 	}
-
 	if m.redisClient == nil {
 		return stats, nil
 	}
 
-	var redisCursor uint64
-	var totalDuration float64
-	var totalBytes float64
-
-	for {
-		keys, nextCursor, err := m.redisClient.Scan(ctx, redisCursor, sessionKeyPrefix+"*", 200).Result()
-		if err != nil {
-			return stats, nil
-		}
-
-		for _, key := range keys {
-			if !isSessionDataKey(key) {
-				continue
-			}
-			data, err := m.redisClient.Get(ctx, key).Bytes()
-			if err != nil {
-				continue
-			}
-			var sess Session
-			if err := json.Unmarshal(data, &sess); err != nil {
-				continue
-			}
-			if sess.SessionState != "active" {
-				continue
-			}
-
-			stats.TotalActive++
-			stats.ByOperator[sess.OperatorID]++
-			if sess.APNID != "" {
-				stats.ByAPN[sess.APNID]++
-			}
-			if sess.RATType != "" {
-				stats.ByRATType[sess.RATType]++
-			}
-			totalDuration += time.Since(sess.StartedAt).Seconds()
-			totalBytes += float64(sess.BytesIn + sess.BytesOut)
-		}
-
-		redisCursor = nextCursor
-		if redisCursor == 0 {
-			break
-		}
+	all, err := m.redisClient.HGetAll(ctx, statsActiveKey).Result()
+	if err != nil {
+		return stats, nil
 	}
 
-	if stats.TotalActive > 0 {
-		stats.AvgDurationSec = totalDuration / float64(stats.TotalActive)
-		stats.AvgBytes = totalBytes / float64(stats.TotalActive)
+	for k, v := range all {
+		count, _ := strconv.ParseInt(v, 10, 64)
+		if count < 0 {
+			count = 0
+		}
+		switch {
+		case k == "total":
+			stats.TotalActive = count
+		case len(k) > 3 && k[:3] == "op:":
+			stats.ByOperator[k[3:]] = count
+		case len(k) > 4 && k[:4] == "apn:":
+			stats.ByAPN[k[4:]] = count
+		case len(k) > 4 && k[:4] == "rat:":
+			stats.ByRATType[k[4:]] = count
+		}
 	}
 
 	return stats, nil
@@ -497,10 +508,10 @@ func (m *Manager) TerminateWithCounters(ctx context.Context, id string, cause st
 
 	if m.redisClient != nil {
 		var acctSessionID string
+		var sess Session
 		key := sessionKeyPrefix + id
 		data, err := m.redisClient.Get(ctx, key).Bytes()
 		if err == nil {
-			var sess Session
 			if err := json.Unmarshal(data, &sess); err == nil {
 				acctSessionID = sess.AcctSessionID
 			}
@@ -510,6 +521,8 @@ func (m *Manager) TerminateWithCounters(ctx context.Context, id string, cause st
 		if acctSessionID != "" {
 			m.redisClient.Del(ctx, sessionAcctKeyPrefix+acctSessionID)
 		}
+
+		m.decrementSessionStats(ctx, &sess)
 	}
 
 	return nil
@@ -529,10 +542,10 @@ func (m *Manager) Terminate(ctx context.Context, id string, cause string) error 
 
 	if m.redisClient != nil {
 		var acctSessionID string
+		var sess Session
 		key := sessionKeyPrefix + id
 		data, err := m.redisClient.Get(ctx, key).Bytes()
 		if err == nil {
-			var sess Session
 			if err := json.Unmarshal(data, &sess); err == nil {
 				acctSessionID = sess.AcctSessionID
 			}
@@ -542,6 +555,8 @@ func (m *Manager) Terminate(ctx context.Context, id string, cause string) error 
 		if acctSessionID != "" {
 			m.redisClient.Del(ctx, sessionAcctKeyPrefix+acctSessionID)
 		}
+
+		m.decrementSessionStats(ctx, &sess)
 	}
 
 	return nil

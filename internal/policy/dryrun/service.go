@@ -2,6 +2,8 @@ package dryrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -97,9 +99,23 @@ func (s *Service) cacheKey(versionID uuid.UUID, segmentID *uuid.UUID) string {
 	return cachePrefix + versionID.String() + ":" + seg
 }
 
+func (s *Service) dslCacheKey(versionID uuid.UUID, segmentID *uuid.UUID, dslContent string) string {
+	h := sha256.Sum256([]byte(dslContent))
+	seg := "all"
+	if segmentID != nil {
+		seg = segmentID.String()
+	}
+	return cachePrefix + versionID.String() + ":" + seg + ":" + hex.EncodeToString(h[:8])
+}
+
 func (s *Service) Execute(ctx context.Context, req DryRunRequest) (*DryRunResult, error) {
+	version, err := s.policyStore.GetVersionWithTenant(ctx, req.VersionID, req.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get version: %w", err)
+	}
+
 	if s.cache != nil {
-		key := s.cacheKey(req.VersionID, req.SegmentID)
+		key := s.dslCacheKey(req.VersionID, req.SegmentID, version.DSLContent)
 		cached, err := s.cache.Get(ctx, key).Bytes()
 		if err == nil && len(cached) > 0 {
 			var result DryRunResult
@@ -107,11 +123,6 @@ func (s *Service) Execute(ctx context.Context, req DryRunRequest) (*DryRunResult
 				return &result, nil
 			}
 		}
-	}
-
-	version, err := s.policyStore.GetVersionWithTenant(ctx, req.VersionID, req.TenantID)
-	if err != nil {
-		return nil, fmt.Errorf("get version: %w", err)
 	}
 
 	compiled, dslErrors, compileErr := dsl.CompileSource(version.DSLContent)
@@ -199,7 +210,7 @@ func (s *Service) Execute(ctx context.Context, req DryRunRequest) (*DryRunResult
 		_ = s.policyStore.UpdateDryRunResult(ctx, req.VersionID, resultJSON, totalAffected)
 
 		if s.cache != nil {
-			key := s.cacheKey(req.VersionID, req.SegmentID)
+			key := s.dslCacheKey(req.VersionID, req.SegmentID, version.DSLContent)
 			_ = s.cache.Set(ctx, key, resultJSON, cacheTTL).Err()
 		}
 	}

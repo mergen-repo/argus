@@ -29,6 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { useUserList, useInviteUser, useUpdateUser } from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -135,7 +136,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Users & Roles</h1>
         <Button size="sm" className="gap-2" onClick={() => setShowInviteDialog(true)}>
@@ -164,7 +165,7 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden density-compact">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -264,57 +265,49 @@ export default function UsersPage() {
         )}
       </Card>
 
-      {/* Invite User Dialog */}
-      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
-        <DialogContent onClose={() => setShowInviteDialog(false)}>
-          <DialogHeader>
-            <DialogTitle>Invite User</DialogTitle>
-            <DialogDescription>
-              Send an invitation email to add a new team member.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Name</label>
-              <Input
-                value={inviteForm.name}
-                onChange={(e) => setInviteForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Full name"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Email</label>
-              <Input
-                type="email"
-                value={inviteForm.email}
-                onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="user@example.com"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-secondary block mb-1.5">Role</label>
-              <Select
-                options={ROLE_OPTIONS}
-                value={inviteForm.role}
-                onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
-              />
-            </div>
+      {/* Invite User Panel */}
+      <SlidePanel open={showInviteDialog} onOpenChange={setShowInviteDialog} title="Invite User" description="Send an invitation email to add a new team member." width="md">
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Name</label>
+            <Input
+              value={inviteForm.name}
+              onChange={(e) => setInviteForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Full name"
+            />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInviteDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleInvite}
-              disabled={!inviteForm.email || !inviteForm.name || inviteMutation.isPending}
-              className="gap-2"
-            >
-              {inviteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Send Invite
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Email</label>
+            <Input
+              type="email"
+              value={inviteForm.email}
+              onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="user@example.com"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-secondary block mb-1.5">Role</label>
+            <Select
+              options={ROLE_OPTIONS}
+              value={inviteForm.role}
+              onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+          <Button variant="outline" onClick={() => setShowInviteDialog(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleInvite}
+            disabled={!inviteForm.email || !inviteForm.name || inviteMutation.isPending}
+            className="gap-2"
+          >
+            {inviteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Send Invite
+          </Button>
+        </div>
+      </SlidePanel>
 
       {/* Deactivate Confirmation Dialog */}
       <Dialog open={!!confirmDeactivate} onOpenChange={() => setConfirmDeactivate(null)}>

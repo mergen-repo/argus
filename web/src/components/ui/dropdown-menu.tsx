@@ -62,7 +62,7 @@ function DropdownMenuContent({ children, className, align = 'end' }: React.HTMLA
   return (
     <div
       className={cn(
-        'absolute z-50 mt-1 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg',
+        'absolute z-50 mt-1 min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg',
         align === 'end' ? 'right-0' : 'left-0',
         className,
       )}
@@ -78,7 +78,7 @@ function DropdownMenuItem({ className, ...props }: React.ButtonHTMLAttributes<HT
   return (
     <button
       className={cn(
-        'flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer',
+        'flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer whitespace-nowrap text-left',
         className,
       )}
       onClick={(e) => {

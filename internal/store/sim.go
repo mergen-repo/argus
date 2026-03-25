@@ -75,6 +75,7 @@ type ListSIMsParams struct {
 	ICCID      string
 	IMSI       string
 	MSISDN     string
+	IPAddress  string
 	OperatorID *uuid.UUID
 	APNID      *uuid.UUID
 	State      string
@@ -225,6 +226,15 @@ func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParam
 	if p.RATType != "" {
 		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
 		args = append(args, p.RATType)
+		argIdx++
+	}
+
+	if p.IPAddress != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"ip_address_id IN (SELECT id FROM ip_addresses WHERE address_v4::text LIKE $%d)",
+			argIdx,
+		))
+		args = append(args, "%"+p.IPAddress+"%")
 		argIdx++
 	}
 
@@ -952,6 +962,29 @@ func (s *SIMStore) UpdateLastRATType(ctx context.Context, simID uuid.UUID, opera
 type SIMStateCount struct {
 	State string `json:"state"`
 	Count int    `json:"count"`
+}
+
+func (s *SIMStore) CountByOperator(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]int, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT operator_id, COUNT(*) FROM sims
+		WHERE tenant_id = $1
+		GROUP BY operator_id
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: count sims by operator: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int)
+	for rows.Next() {
+		var opID uuid.UUID
+		var count int
+		if err := rows.Scan(&opID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan operator sim count: %w", err)
+		}
+		result[opID] = count
+	}
+	return result, nil
 }
 
 func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {

@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/cache"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -34,6 +36,8 @@ type Handler struct {
 	operatorStore *store.OperatorStore
 	ippoolStore   *store.IPPoolStore
 	tenantStore   *store.TenantStore
+	policyStore   *store.PolicyStore
+	nameCache     *cache.NameCache
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
@@ -46,8 +50,9 @@ func NewHandler(
 	tenantStore *store.TenantStore,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
+	opts ...func(*Handler),
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		simStore:      simStore,
 		apnStore:      apnStore,
 		operatorStore: operatorStore,
@@ -56,18 +61,39 @@ func NewHandler(
 		auditSvc:      auditSvc,
 		logger:        logger.With().Str("component", "sim_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+func WithPolicyStore(ps *store.PolicyStore) func(*Handler) {
+	return func(h *Handler) {
+		h.policyStore = ps
+	}
+}
+
+func WithNameCache(nc *cache.NameCache) func(*Handler) {
+	return func(h *Handler) {
+		h.nameCache = nc
+	}
 }
 
 type simResponse struct {
 	ID                    string          `json:"id"`
 	TenantID              string          `json:"tenant_id"`
 	OperatorID            string          `json:"operator_id"`
+	OperatorName          string          `json:"operator_name,omitempty"`
 	APNID                 *string         `json:"apn_id,omitempty"`
+	APNName               string          `json:"apn_name,omitempty"`
 	ICCID                 string          `json:"iccid"`
 	IMSI                  string          `json:"imsi"`
 	MSISDN                *string         `json:"msisdn,omitempty"`
 	IPAddressID           *string         `json:"ip_address_id,omitempty"`
+	IPAddress             string          `json:"ip_address,omitempty"`
+	IPPoolName            string          `json:"ip_pool_name,omitempty"`
 	PolicyVersionID       *string         `json:"policy_version_id,omitempty"`
+	PolicyName            string          `json:"policy_name,omitempty"`
 	ESimProfileID         *string         `json:"esim_profile_id,omitempty"`
 	SimType               string          `json:"sim_type"`
 	State                 string          `json:"state"`
@@ -320,7 +346,46 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	resp := toSIMResponse(sim)
+	h.enrichSIMResponse(r.Context(), tenantID, sim, &resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) enrichSIMResponse(ctx context.Context, tenantID uuid.UUID, sim *store.SIM, resp *simResponse) {
+	if op, err := h.operatorStore.GetByID(ctx, sim.OperatorID); err == nil {
+		resp.OperatorName = op.Name
+	}
+
+	if sim.APNID != nil {
+		if apn, err := h.apnStore.GetByID(ctx, tenantID, *sim.APNID); err == nil {
+			if apn.DisplayName != nil && *apn.DisplayName != "" {
+				resp.APNName = *apn.DisplayName
+			} else {
+				resp.APNName = apn.Name
+			}
+		}
+	}
+
+	if sim.IPAddressID != nil && h.ippoolStore != nil {
+		if addr, err := h.ippoolStore.GetAddressByID(ctx, *sim.IPAddressID); err == nil {
+			if addr.AddressV4 != nil {
+				resp.IPAddress = *addr.AddressV4
+			} else if addr.AddressV6 != nil {
+				resp.IPAddress = *addr.AddressV6
+			}
+			if pool, err := h.ippoolStore.GetByID(ctx, tenantID, addr.PoolID); err == nil {
+				resp.IPPoolName = pool.Name
+			}
+		}
+	}
+
+	if sim.PolicyVersionID != nil && h.policyStore != nil {
+		if pv, err := h.policyStore.GetVersionByID(ctx, *sim.PolicyVersionID); err == nil {
+			if p, err := h.policyStore.GetByID(ctx, tenantID, pv.PolicyID); err == nil {
+				resp.PolicyName = fmt.Sprintf("%s (v%d)", p.Name, pv.Version)
+			}
+		}
+	}
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -364,6 +429,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		ICCID:      q.Get("iccid"),
 		IMSI:       q.Get("imsi"),
 		MSISDN:     q.Get("msisdn"),
+		IPAddress:  q.Get("ip"),
 		OperatorID: operatorID,
 		APNID:      apnID,
 		State:      q.Get("state"),
@@ -378,9 +444,128 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ipIDs := make([]uuid.UUID, 0)
+	for _, s := range sims {
+		if s.IPAddressID != nil {
+			ipIDs = append(ipIDs, *s.IPAddressID)
+		}
+	}
+	ipMap := make(map[uuid.UUID]string)
+	ipPoolIDMap := make(map[uuid.UUID]uuid.UUID) // ip_address_id -> pool_id
+	if len(ipIDs) > 0 && h.ippoolStore != nil {
+		for _, ipID := range ipIDs {
+			if addr, err := h.ippoolStore.GetAddressByID(r.Context(), ipID); err == nil {
+				if addr.AddressV4 != nil {
+					ipMap[ipID] = *addr.AddressV4
+				} else if addr.AddressV6 != nil {
+					ipMap[ipID] = *addr.AddressV6
+				}
+				ipPoolIDMap[ipID] = addr.PoolID
+			}
+		}
+	}
+	poolNameMap := make(map[uuid.UUID]string)
+	if len(ipPoolIDMap) > 0 && h.ippoolStore != nil {
+		seen := make(map[uuid.UUID]bool)
+		for _, poolID := range ipPoolIDMap {
+			if seen[poolID] {
+				continue
+			}
+			seen[poolID] = true
+			if h.nameCache != nil {
+				if name, ok := h.nameCache.GetPoolName(r.Context(), poolID); ok {
+					poolNameMap[poolID] = name
+					continue
+				}
+			}
+			if pool, err := h.ippoolStore.GetByID(r.Context(), tenantID, poolID); err == nil {
+				poolNameMap[poolID] = pool.Name
+				if h.nameCache != nil {
+					h.nameCache.SetPoolName(r.Context(), poolID, pool.Name)
+				}
+			}
+		}
+	}
+
+	opIDs := make(map[uuid.UUID]bool)
+	apnIDs := make(map[uuid.UUID]bool)
+	for _, s := range sims {
+		opIDs[s.OperatorID] = true
+		if s.APNID != nil {
+			apnIDs[*s.APNID] = true
+		}
+	}
+	opNameMap := make(map[uuid.UUID]string)
+	for opID := range opIDs {
+		if h.nameCache != nil {
+			if name, ok := h.nameCache.GetOperatorName(r.Context(), opID); ok {
+				opNameMap[opID] = name
+				continue
+			}
+		}
+		if op, err := h.operatorStore.GetByID(r.Context(), opID); err == nil {
+			opNameMap[opID] = op.Name
+			if h.nameCache != nil {
+				h.nameCache.SetOperatorName(r.Context(), opID, op.Name)
+			}
+		}
+	}
+	apnNameMap := make(map[uuid.UUID]string)
+	apnPoolNameMap := make(map[uuid.UUID]string) // apn_id -> first pool name
+	for aID := range apnIDs {
+		cached := false
+		if h.nameCache != nil {
+			if name, ok := h.nameCache.GetAPNName(r.Context(), aID); ok {
+				apnNameMap[aID] = name
+				cached = true
+			}
+		}
+		if !cached {
+			if apn, err := h.apnStore.GetByID(r.Context(), tenantID, aID); err == nil {
+				if apn.DisplayName != nil && *apn.DisplayName != "" {
+					apnNameMap[aID] = *apn.DisplayName
+				} else {
+					apnNameMap[aID] = apn.Name
+				}
+				if h.nameCache != nil {
+					h.nameCache.SetAPNName(r.Context(), aID, apnNameMap[aID])
+				}
+			}
+		}
+		if h.ippoolStore != nil {
+			if pools, _, err := h.ippoolStore.List(r.Context(), tenantID, "", 1, &aID); err == nil && len(pools) > 0 {
+				apnPoolNameMap[aID] = pools[0].Name
+			}
+		}
+	}
+
 	items := make([]simResponse, 0, len(sims))
 	for _, s := range sims {
-		items = append(items, toSIMResponse(&s))
+		resp := toSIMResponse(&s)
+		if s.IPAddressID != nil {
+			if ip, ok := ipMap[*s.IPAddressID]; ok {
+				resp.IPAddress = ip
+			}
+			if poolID, ok := ipPoolIDMap[*s.IPAddressID]; ok {
+				if pname, ok := poolNameMap[poolID]; ok {
+					resp.IPPoolName = pname
+				}
+			}
+		}
+		if resp.IPPoolName == "" && s.APNID != nil {
+			if pname, ok := apnPoolNameMap[*s.APNID]; ok {
+				resp.IPPoolName = pname
+			}
+		}
+		if name, ok := opNameMap[s.OperatorID]; ok {
+			resp.OperatorName = name
+		}
+		if s.APNID != nil {
+			if name, ok := apnNameMap[*s.APNID]; ok {
+				resp.APNName = name
+			}
+		}
+		items = append(items, resp)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{

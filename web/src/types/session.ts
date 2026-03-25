@@ -3,7 +3,9 @@ export interface Session {
   sim_id: string
   tenant_id: string
   operator_id: string
+  operator_name?: string
   apn_id?: string
+  apn_name?: string
   imsi: string
   msisdn?: string
   acct_session_id: string

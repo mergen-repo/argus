@@ -719,37 +719,46 @@ func (h *Handler) DiffVersions(w http.ResponseWriter, r *http.Request) {
 }
 
 func computeDiff(text1, text2 string) []diffLine {
-	lines1 := strings.Split(text1, "\n")
-	lines2 := strings.Split(text2, "\n")
+	a := strings.Split(text1, "\n")
+	b := strings.Split(text2, "\n")
 
+	lcs := lcsTable(a, b)
 	var result []diffLine
-	max := len(lines1)
-	if len(lines2) > max {
-		max = len(lines2)
-	}
-
-	for i := 0; i < max; i++ {
-		var l1, l2 string
-		if i < len(lines1) {
-			l1 = lines1[i]
-		}
-		if i < len(lines2) {
-			l2 = lines2[i]
-		}
-
-		if i >= len(lines1) {
-			result = append(result, diffLine{Type: "added", Content: l2, LineNum: i + 1})
-		} else if i >= len(lines2) {
-			result = append(result, diffLine{Type: "removed", Content: l1, LineNum: i + 1})
-		} else if l1 != l2 {
-			result = append(result, diffLine{Type: "removed", Content: l1, LineNum: i + 1})
-			result = append(result, diffLine{Type: "added", Content: l2, LineNum: i + 1})
-		} else {
-			result = append(result, diffLine{Type: "unchanged", Content: l1, LineNum: i + 1})
-		}
-	}
-
+	buildDiff(a, b, lcs, len(a), len(b), &result)
 	return result
+}
+
+func lcsTable(a, b []string) [][]int {
+	m, n := len(a), len(b)
+	table := make([][]int, m+1)
+	for i := range table {
+		table[i] = make([]int, n+1)
+	}
+	for i := 1; i <= m; i++ {
+		for j := 1; j <= n; j++ {
+			if a[i-1] == b[j-1] {
+				table[i][j] = table[i-1][j-1] + 1
+			} else if table[i-1][j] >= table[i][j-1] {
+				table[i][j] = table[i-1][j]
+			} else {
+				table[i][j] = table[i][j-1]
+			}
+		}
+	}
+	return table
+}
+
+func buildDiff(a, b []string, lcs [][]int, i, j int, result *[]diffLine) {
+	if i > 0 && j > 0 && a[i-1] == b[j-1] {
+		buildDiff(a, b, lcs, i-1, j-1, result)
+		*result = append(*result, diffLine{Type: "unchanged", Content: a[i-1], LineNum: i})
+	} else if j > 0 && (i == 0 || lcs[i][j-1] >= lcs[i-1][j]) {
+		buildDiff(a, b, lcs, i, j-1, result)
+		*result = append(*result, diffLine{Type: "added", Content: b[j-1], LineNum: j})
+	} else if i > 0 && (j == 0 || lcs[i][j-1] < lcs[i-1][j]) {
+		buildDiff(a, b, lcs, i-1, j, result)
+		*result = append(*result, diffLine{Type: "removed", Content: a[i-1], LineNum: i})
+	}
 }
 
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}) {

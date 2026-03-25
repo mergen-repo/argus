@@ -13,6 +13,8 @@ import (
 	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/policy/dsl"
+	"github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -44,10 +46,11 @@ type Server struct {
 	eventBus      *bus.EventBus
 	coaSender     *session.CoASender
 	dmSender      *session.DMSender
-	eapMachine     *eap.StateMachine
-	eapAuthResults sync.Map
+	eapMachine      *eap.StateMachine
+	eapAuthResults  sync.Map
 	metricsRecorder MetricsRecorder
-	logger         zerolog.Logger
+	policyEnforcer  *enforcer.Enforcer
+	logger          zerolog.Logger
 
 	authServer *radius.PacketServer
 	acctServer *radius.PacketServer
@@ -186,6 +189,10 @@ func (s *Server) SetMetricsRecorder(mr MetricsRecorder) {
 	s.metricsRecorder = mr
 }
 
+func (s *Server) SetPolicyEnforcer(pe *enforcer.Enforcer) {
+	s.policyEnforcer = pe
+}
+
 func (s *Server) recordAuthMetric(ctx context.Context, operatorID uuid.UUID, success bool, startTime time.Time) {
 	if s.metricsRecorder == nil {
 		return
@@ -316,6 +323,10 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 	}
 
 	imsi, _ := rfc2865.UserName_LookupString(r.Packet)
+	sessionTimeout := 86400
+	idleTimeout := 3600
+	filterID := "default"
+
 	if imsi != "" {
 		sim, err := s.simCache.GetByIMSI(ctx, imsi)
 		if err == nil && sim != nil {
@@ -328,21 +339,52 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 				}
 			}
 
-			sessionTimeout := sim.SessionHardTimeoutSec
+			sessionTimeout = sim.SessionHardTimeoutSec
 			if sessionTimeout <= 0 {
 				sessionTimeout = 86400
 			}
-			rfc2865.SessionTimeout_Set(accept, rfc2865.SessionTimeout(sessionTimeout))
-
-			idleTimeout := sim.SessionIdleTimeoutSec
+			idleTimeout = sim.SessionIdleTimeoutSec
 			if idleTimeout <= 0 {
 				idleTimeout = 3600
 			}
-			rfc2865.IdleTimeout_Set(accept, rfc2865.IdleTimeout(idleTimeout))
+
+			if s.policyEnforcer != nil && sim.PolicyVersionID != nil {
+				ratTypeStr := extract3GPPRATType(r.Packet)
+				now := time.Now()
+				sessCtx := dsl.SessionContext{
+					SIMID:     sim.ID.String(),
+					TenantID:  sim.TenantID.String(),
+					RATType:   ratTypeStr,
+					SimType:   sim.SimType,
+					TimeOfDay: now.Format("15:04"),
+					DayOfWeek: now.Weekday().String(),
+				}
+				if sim.APNID != nil {
+					sessCtx.APN = sim.APNID.String()
+				}
+
+				policyResult, pErr := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
+				if pErr == nil && policyResult != nil {
+					if !policyResult.Allow {
+						logger.Info().Str("sim_id", sim.ID.String()).Msg("EAP policy denied, sending Reject")
+						s.sendEAPReject(w, r.Packet, 0)
+						go s.policyEnforcer.RecordViolations(ctx, sim, policyResult, nil)
+						return
+					}
+					sessionTimeout = policyResult.SessionTimeout
+					idleTimeout = policyResult.IdleTimeout
+					filterID = policyResult.FilterID
+					if len(policyResult.Violations) > 0 {
+						go s.policyEnforcer.RecordViolations(ctx, sim, policyResult, nil)
+					}
+				}
+			}
 		}
 	}
 
-	rfc2865.FilterID_SetString(accept, "default")
+	rfc2865.SessionTimeout_Set(accept, rfc2865.SessionTimeout(sessionTimeout))
+	rfc2865.IdleTimeout_Set(accept, rfc2865.IdleTimeout(idleTimeout))
+	rfc2865.FilterID_SetString(accept, filterID)
 
 	if err := w.Write(accept); err != nil {
 		logger.Error().Err(err).Msg("failed to send EAP Access-Accept")
@@ -425,6 +467,59 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		return
 	}
 
+	sessionTimeout := sim.SessionHardTimeoutSec
+	if sessionTimeout <= 0 {
+		sessionTimeout = 86400
+	}
+	idleTimeout := sim.SessionIdleTimeoutSec
+	if idleTimeout <= 0 {
+		idleTimeout = 3600
+	}
+	filterID := "default"
+	var bandwidthDown, bandwidthUp int64
+
+	if s.policyEnforcer != nil && sim.PolicyVersionID != nil {
+		ratTypeStr := extract3GPPRATType(r.Packet)
+		now := time.Now()
+		sessCtx := dsl.SessionContext{
+			SIMID:    sim.ID.String(),
+			TenantID: sim.TenantID.String(),
+			Operator: op.Code,
+			RATType:  ratTypeStr,
+			SimType:  sim.SimType,
+			TimeOfDay: now.Format("15:04"),
+			DayOfWeek: now.Weekday().String(),
+		}
+		if sim.APNID != nil {
+			sessCtx.APN = sim.APNID.String()
+		}
+
+		policyResult, err := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
+		if err != nil {
+			logger.Warn().Err(err).Msg("policy evaluation failed, proceeding with defaults")
+		} else {
+			if !policyResult.Allow {
+				logger.Info().
+					Str("sim_id", sim.ID.String()).
+					Str("policy_version", policyResult.VersionID.String()).
+					Msg("Access-Reject: policy denied")
+				s.sendReject(w, r.Packet, "POLICY_DENIED")
+				s.recordAuthMetric(ctx, op.ID, false, startTime)
+				go s.policyEnforcer.RecordViolations(ctx, sim, policyResult, nil)
+				return
+			}
+			sessionTimeout = policyResult.SessionTimeout
+			idleTimeout = policyResult.IdleTimeout
+			filterID = policyResult.FilterID
+			bandwidthDown = policyResult.BandwidthDown
+			bandwidthUp = policyResult.BandwidthUp
+
+			if len(policyResult.Violations) > 0 {
+				go s.policyEnforcer.RecordViolations(ctx, sim, policyResult, nil)
+			}
+		}
+	}
+
 	accept := r.Packet.Response(radius.CodeAccessAccept)
 
 	if sim.IPAddressID != nil {
@@ -436,19 +531,20 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		}
 	}
 
-	sessionTimeout := sim.SessionHardTimeoutSec
-	if sessionTimeout <= 0 {
-		sessionTimeout = 86400
-	}
 	rfc2865.SessionTimeout_Set(accept, rfc2865.SessionTimeout(sessionTimeout))
-
-	idleTimeout := sim.SessionIdleTimeoutSec
-	if idleTimeout <= 0 {
-		idleTimeout = 3600
-	}
 	rfc2865.IdleTimeout_Set(accept, rfc2865.IdleTimeout(idleTimeout))
+	rfc2865.FilterID_SetString(accept, filterID)
 
-	rfc2865.FilterID_SetString(accept, "default")
+	if bandwidthDown > 0 {
+		buf := make([]byte, 4)
+		binary.BigEndian.PutUint32(buf, uint32(bandwidthDown))
+		accept.Add(radius.Type(11), buf)
+	}
+	if bandwidthUp > 0 {
+		buf := make([]byte, 4)
+		binary.BigEndian.PutUint32(buf, uint32(bandwidthUp))
+		accept.Add(radius.Type(12), buf)
+	}
 
 	if err := w.Write(accept); err != nil {
 		logger.Error().Err(err).Msg("failed to send Access-Accept")
@@ -629,6 +725,47 @@ func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctS
 	if err := s.sessionMgr.UpdateCounters(ctx, sess.ID, bytesIn, bytesOut); err != nil {
 		logger.Error().Err(err).Msg("failed to update session counters")
 		return
+	}
+
+	if s.policyEnforcer != nil && sess.SimID != "" {
+		simID, parseErr := uuid.Parse(sess.SimID)
+		if parseErr == nil {
+			sim, simErr := s.simCache.GetByIMSI(ctx, sess.IMSI)
+			if simErr == nil && sim != nil && sim.PolicyVersionID != nil {
+				totalUsage := int64(bytesIn + bytesOut)
+				result, evalErr := s.policyEnforcer.RecordUsageCheck(ctx, sim, totalUsage)
+				if evalErr == nil && result != nil && !result.Allow {
+					logger.Info().
+						Str("sim_id", simID.String()).
+						Int64("usage_bytes", totalUsage).
+						Msg("policy quota exceeded, disconnecting session")
+
+					if s.dmSender != nil && sess.NASIP != "" && sess.AcctSessionID != "" {
+						_, _ = s.dmSender.SendDM(ctx, session.DMRequest{
+							NASIP:         sess.NASIP,
+							AcctSessionID: sess.AcctSessionID,
+							IMSI:          sess.IMSI,
+						})
+					}
+					_ = s.sessionMgr.Terminate(ctx, sess.ID, "policy_quota_exceeded")
+
+					sessUUID, _ := uuid.Parse(sess.ID)
+					go s.policyEnforcer.RecordViolations(ctx, sim, result, &sessUUID)
+
+					if s.eventBus != nil {
+						_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
+							"session_id":      sess.ID,
+							"sim_id":          sess.SimID,
+							"tenant_id":       sess.TenantID,
+							"operator_id":     sess.OperatorID,
+							"imsi":            sess.IMSI,
+							"terminate_cause": "policy_quota_exceeded",
+							"ended_at":        time.Now().UTC().Format(time.RFC3339),
+						})
+					}
+				}
+			}
+		}
 	}
 
 	logger.Debug().

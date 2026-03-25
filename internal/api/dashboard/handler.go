@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
@@ -17,7 +20,16 @@ type Handler struct {
 	operatorStore *store.OperatorStore
 	anomalyStore  *store.AnomalyStore
 	apnStore      *store.APNStore
+	redisClient   *redis.Client
 	logger        zerolog.Logger
+}
+
+type HandlerOption func(*Handler)
+
+func WithRedisClient(rc *redis.Client) HandlerOption {
+	return func(h *Handler) {
+		h.redisClient = rc
+	}
 }
 
 func NewHandler(
@@ -27,8 +39,9 @@ func NewHandler(
 	anomalyStore *store.AnomalyStore,
 	apnStore *store.APNStore,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		simStore:      simStore,
 		sessionStore:  sessionStore,
 		operatorStore: operatorStore,
@@ -36,6 +49,10 @@ func NewHandler(
 		apnStore:      apnStore,
 		logger:        logger.With().Str("component", "dashboard_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 type simByStateDTO struct {
@@ -83,6 +100,16 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheKey := fmt.Sprintf("dashboard:%s", tenantID.String())
+	if h.redisClient != nil {
+		if cached, err := h.redisClient.Get(r.Context(), cacheKey).Bytes(); err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(cached)
+			return
+		}
+	}
+
 	ctx := r.Context()
 	resp := dashboardDTO{}
 
@@ -119,9 +146,21 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		topAPNs := make([]topAPNDTO, 0, 5)
 		for apnID, count := range stats.ByAPN {
+			name := apnID
+			if apnID != "none" && h.apnStore != nil {
+				if parsed, parseErr := uuid.Parse(apnID); parseErr == nil {
+					if apn, apnErr := h.apnStore.GetByID(ctx, tenantID, parsed); apnErr == nil {
+						if apn.DisplayName != nil && *apn.DisplayName != "" {
+							name = *apn.DisplayName
+						} else {
+							name = apn.Name
+						}
+					}
+				}
+			}
 			topAPNs = append(topAPNs, topAPNDTO{
 				ID:    apnID,
-				Name:  apnID,
+				Name:  name,
 				Count: count,
 			})
 		}
@@ -199,6 +238,13 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.RecentAlerts == nil {
 		resp.RecentAlerts = []alertDTO{}
+	}
+
+	if h.redisClient != nil {
+		envelope := apierr.SuccessResponse{Status: "success", Data: resp}
+		if respBytes, err := json.Marshal(envelope); err == nil {
+			h.redisClient.Set(r.Context(), cacheKey, respBytes, 15*time.Second)
+		}
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, resp)

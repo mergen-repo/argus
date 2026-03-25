@@ -78,7 +78,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     >
       <span
         className={cn(
-          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow-sm',
+          'inline-block h-3.5 w-3.5 rounded-full bg-text-primary transition-transform shadow-sm',
           checked ? 'translate-x-[18px]' : 'translate-x-[3px]',
         )}
       />
@@ -158,7 +158,7 @@ export default function NotificationConfigPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-6 w-48" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -177,7 +177,7 @@ export default function NotificationConfigPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Notification Config</h1>
         {isDirty && (

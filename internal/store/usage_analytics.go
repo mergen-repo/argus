@@ -147,8 +147,9 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 	}
 
 	if p.GroupBy != "" {
-		selectCols += fmt.Sprintf(`, %s::text AS group_key`, p.GroupBy)
-		groupCols += fmt.Sprintf(`, %s`, p.GroupBy)
+		col := groupByColumn(p.GroupBy)
+		selectCols += fmt.Sprintf(`, %s::text AS group_key`, col)
+		groupCols += fmt.Sprintf(`, %s`, col)
 	}
 
 	args := []interface{}{p.TenantID, p.From, p.To}
@@ -352,6 +353,19 @@ func bucketOrTimestamp(view string) string {
 		return "timestamp"
 	}
 	return "bucket"
+}
+
+func groupByColumn(gb string) string {
+	switch gb {
+	case "operator":
+		return "operator_id"
+	case "apn":
+		return "apn_id"
+	case "rat_type":
+		return "rat_type"
+	default:
+		return gb
+	}
 }
 
 func sanitizeDimension(dim string) string {

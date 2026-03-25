@@ -34,9 +34,10 @@ function Sheet({ open, onOpenChange, children, side = 'right' }: SheetProps) {
       />
       <div
         className={cn(
-          'fixed top-0 h-full w-80 border bg-bg-elevated shadow-2xl transition-transform duration-300',
+          'fixed top-0 h-full border bg-bg-elevated shadow-2xl transition-transform duration-300',
           side === 'right' ? 'right-0 border-l border-border' : 'left-0 border-r border-border',
         )}
+        style={{ width: '42rem' }}
       >
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           <div />

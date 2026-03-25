@@ -2,12 +2,17 @@ export interface SIM {
   id: string
   tenant_id: string
   operator_id: string
+  operator_name?: string
   apn_id?: string
+  apn_name?: string
   iccid: string
   imsi: string
   msisdn?: string
   ip_address_id?: string
+  ip_address?: string
+  ip_pool_name?: string
   policy_version_id?: string
+  policy_name?: string
   esim_profile_id?: string
   sim_type: 'physical' | 'esim'
   state: SIMState
@@ -96,6 +101,7 @@ export interface SIMListFilters {
   iccid?: string
   imsi?: string
   msisdn?: string
+  ip?: string
 }
 
 export interface ListMeta {

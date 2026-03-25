@@ -254,25 +254,34 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 
 	sensitiveFields := []string{"imsi", "msisdn", "iccid"}
 
-	for rows.Next() {
-		var id int64
-		var createdAt time.Time
-		var beforeData, afterData, diff json.RawMessage
+	type pseudoRow struct {
+		id         int64
+		createdAt  time.Time
+		beforeData json.RawMessage
+		afterData  json.RawMessage
+		diff       json.RawMessage
+	}
 
-		if err := rows.Scan(&id, &createdAt, &beforeData, &afterData, &diff); err != nil {
+	var pending []pseudoRow
+	for rows.Next() {
+		var r pseudoRow
+		if err := rows.Scan(&r.id, &r.createdAt, &r.beforeData, &r.afterData, &r.diff); err != nil {
 			return fmt.Errorf("store: pseudonymize scan: %w", err)
 		}
+		r.beforeData = anonymizeJSON(r.beforeData, sensitiveFields)
+		r.afterData = anonymizeJSON(r.afterData, sensitiveFields)
+		r.diff = anonymizeJSON(r.diff, sensitiveFields)
+		pending = append(pending, r)
+	}
+	rows.Close()
 
-		beforeData = anonymizeJSON(beforeData, sensitiveFields)
-		afterData = anonymizeJSON(afterData, sensitiveFields)
-		diff = anonymizeJSON(diff, sensitiveFields)
-
+	for _, r := range pending {
 		_, err := s.db.Exec(ctx, `
 			UPDATE audit_logs SET before_data = $1, after_data = $2, diff = $3
 			WHERE id = $4 AND created_at = $5
-		`, beforeData, afterData, diff, id, createdAt)
+		`, r.beforeData, r.afterData, r.diff, r.id, r.createdAt)
 		if err != nil {
-			return fmt.Errorf("store: pseudonymize update id=%d: %w", id, err)
+			return fmt.Errorf("store: pseudonymize update id=%d: %w", r.id, err)
 		}
 	}
 

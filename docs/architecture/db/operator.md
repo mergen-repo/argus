@@ -42,10 +42,14 @@ Indexes:
 | enabled | BOOLEAN | NOT NULL, DEFAULT true | Grant active flag |
 | granted_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Grant time |
 | granted_by | UUID | FK → users.id | Granting user |
+| sor_priority | INTEGER | NOT NULL, DEFAULT 100 | SoR routing priority (lower = preferred) |
+| cost_per_mb | DECIMAL(10,6) | | Cost per MB for this operator-tenant grant |
+| supported_rat_types | TEXT[] | NOT NULL, DEFAULT '{}' | RAT types supported under this grant |
 
 Indexes:
 - `idx_operator_grants_tenant_op` UNIQUE on (tenant_id, operator_id)
 - `idx_operator_grants_tenant` on (tenant_id) WHERE enabled = true
+- `idx_operator_grants_sor` on (tenant_id, sor_priority) WHERE enabled = true
 
 ---
 

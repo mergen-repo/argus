@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -48,6 +48,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { Spinner } from '@/components/ui/spinner'
 import {
   useSIM,
@@ -57,8 +58,12 @@ import {
   useSIMStateAction,
 } from '@/hooks/use-sims'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import type { SIM, SIMState, DiagnosticResult } from '@/types/sim'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes, formatDuration, timeAgo } from '@/lib/format'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
@@ -86,6 +91,8 @@ function allowedActions(state: SIMState): Array<{ action: string; label: string;
 }
 
 function OverviewTab({ sim }: { sim: SIM }) {
+  const [reserveOpen, setReserveOpen] = useState(false)
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card>
@@ -105,10 +112,23 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Operator ID" value={sim.operator_id} mono />
-          <InfoRow label="APN ID" value={sim.apn_id ?? 'Not assigned'} mono={!!sim.apn_id} />
+          <InfoRow label="Operator" value={sim.operator_name || sim.operator_id} mono={!sim.operator_name} />
+          <InfoRow label="APN" value={sim.apn_name || sim.apn_id || 'Not assigned'} mono={!sim.apn_name && !!sim.apn_id} />
           <InfoRow label="RAT Type" value={sim.rat_type ? (RAT_DISPLAY[sim.rat_type] ?? sim.rat_type) : 'Not set'} />
-          <InfoRow label="IP Address ID" value={sim.ip_address_id ?? 'Not allocated'} mono={!!sim.ip_address_id} />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">IP Address</span>
+            <div className="flex items-center gap-2">
+              <span className={cn('text-sm text-text-primary', sim.ip_address && 'font-mono text-xs')}>{sim.ip_address || 'Not allocated'}</span>
+              {!sim.ip_address && sim.apn_id && sim.state === 'active' && (
+                <button
+                  onClick={() => setReserveOpen(true)}
+                  className="text-[10px] text-accent hover:underline"
+                >
+                  Reserve Static IP
+                </button>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -117,7 +137,7 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Policy & Session</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Policy Version" value={sim.policy_version_id ?? 'None'} mono={!!sim.policy_version_id} />
+          <InfoRow label="Policy" value={sim.policy_name || sim.policy_version_id || 'None'} mono={!sim.policy_name && !!sim.policy_version_id} />
           <InfoRow label="eSIM Profile" value={sim.esim_profile_id ?? 'N/A'} mono={!!sim.esim_profile_id} />
           <InfoRow label="Max Concurrent Sessions" value={String(sim.max_concurrent_sessions)} />
           <InfoRow label="Idle Timeout" value={formatDuration(sim.session_idle_timeout_sec)} />
@@ -146,6 +166,40 @@ function OverviewTab({ sim }: { sim: SIM }) {
           )}
         </CardContent>
       </Card>
+
+      <SlidePanel open={reserveOpen} onOpenChange={setReserveOpen} title="Reserve Static IP" description="Reserve a static IP address for this SIM" width="sm">
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-text-secondary">SIM</span>
+            <span className="font-mono text-xs text-accent">{sim.iccid}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-secondary">APN</span>
+            <span className="text-text-primary">{sim.apn_name || sim.apn_id || '-'}</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+          <Button variant="outline" onClick={() => setReserveOpen(false)}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              if (!sim.apn_id) return
+              try {
+                const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
+                const pool = poolsRes.data.data?.[0]
+                if (!pool) return
+                await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
+                setReserveOpen(false)
+                window.location.reload()
+              } catch {
+                // handled by api interceptor
+              }
+            }}
+            className="gap-2"
+          >
+            Reserve IP
+          </Button>
+        </div>
+      </SlidePanel>
     </div>
   )
 }
@@ -253,22 +307,36 @@ function SessionsTab({ simId }: { simId: string }) {
   )
 }
 
+const SIM_TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
+  '15m': { count: 15, labelFn: (i) => `${i}m` },
+  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
+  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
+  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
+  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
+  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
+}
+
 function UsageTab({ simId }: { simId: string }) {
+  const [timeframe, setTimeframe] = useState('30d')
+
   const mockUsageData = useMemo(() => {
-    return Array.from({ length: 30 }, (_, i) => ({
-      day: `Day ${i + 1}`,
-      bytes_in: Math.floor(Math.random() * 100_000_000),
-      bytes_out: Math.floor(Math.random() * 50_000_000),
+    const cfg = SIM_TIMEFRAME_POINTS[timeframe] ?? SIM_TIMEFRAME_POINTS['30d']
+    const scale = timeframe === '15m' ? 0.05 : timeframe === '1h' ? 0.1 : timeframe === '6h' ? 0.3 : timeframe === '24h' ? 0.5 : timeframe === '7d' ? 2 : 1
+    return Array.from({ length: cfg.count }, (_, i) => ({
+      label: cfg.labelFn(i),
+      bytes_in: Math.floor(Math.random() * 100_000_000 * scale),
+      bytes_out: Math.floor(Math.random() * 50_000_000 * scale),
     }))
-  }, [])
+  }, [timeframe])
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-text-primary">Usage Trend</span>
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+      </div>
       <Card>
-        <CardHeader>
-          <CardTitle>30-Day Usage Trend</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={mockUsageData}>
@@ -283,11 +351,11 @@ function UsageTab({ simId }: { simId: string }) {
                   </linearGradient>
                 </defs>
                 <XAxis
-                  dataKey="day"
+                  dataKey="label"
                   tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
                   tickLine={false}
                   axisLine={false}
-                  interval={4}
+                  interval={Math.max(0, Math.floor(mockUsageData.length / 8) - 1)}
                 />
                 <YAxis
                   tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
@@ -570,6 +638,13 @@ export default function SimDetailPage() {
 
   const { data: sim, isLoading, isError, refetch } = useSIM(id ?? '')
   const stateAction = useSIMStateAction()
+  const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  useEffect(() => {
+    if (sim && id) {
+      addRecentItem({ type: 'sim', id, label: `SIM ${sim.iccid?.slice(-8) ?? id.slice(0, 8)}`, path: `/sims/${id}` })
+    }
+  }, [sim, id, addRecentItem])
 
   const handleStateAction = async () => {
     if (!actionDialog || !id) return
@@ -589,7 +664,7 @@ export default function SimDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -629,12 +704,17 @@ export default function SimDetailPage() {
   const actions = allowedActions(sim.state)
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       {/* Header */}
+      <Breadcrumb
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'SIM Cards', href: '/sims' },
+          { label: sim.iccid?.slice(-8) ?? 'Detail' },
+        ]}
+        className="mb-1"
+      />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/sims')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-[16px] font-semibold text-text-primary truncate">

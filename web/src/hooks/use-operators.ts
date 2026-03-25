@@ -54,6 +54,47 @@ export function useTestConnection(id: string) {
   })
 }
 
+export interface CreateOperatorData {
+  name: string
+  code: string
+  mcc: string
+  mnc: string
+  adapter_type: string
+  supported_rat_types: string[]
+  health_check_interval_sec?: number
+  failover_policy?: string
+  failover_timeout_ms?: number
+  circuit_breaker_threshold?: number
+  circuit_breaker_recovery_sec?: number
+  sla_uptime_target?: number
+}
+
+export function useCreateOperator() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: CreateOperatorData) => {
+      const res = await api.post<ApiResponse<Operator>>('/operators', data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: OPERATORS_KEY })
+    },
+  })
+}
+
+export function useUpdateOperator(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: Partial<CreateOperatorData>) => {
+      const res = await api.patch<ApiResponse<Operator>>(`/operators/${id}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: OPERATORS_KEY })
+    },
+  })
+}
+
 export function useRealtimeOperatorHealth() {
   const queryClient = useQueryClient()
 

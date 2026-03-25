@@ -16,6 +16,10 @@ export interface Operator {
   state: string
   created_at: string
   updated_at: string
+  sim_count: number
+  active_sessions: number
+  total_traffic_bytes: number
+  last_health_check?: string
 }
 
 export interface OperatorHealthDetail {

@@ -1,4 +1,4 @@
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { APN, IPPool, APNListFilters } from '@/types/apn'
 import type { SIM, ListResponse, ApiResponse } from '@/types/sim'
@@ -50,6 +50,52 @@ export function useAPNIPPools(apnId: string) {
   })
 }
 
+export interface CreateAPNData {
+  name: string
+  operator_id: string
+  apn_type: string
+  supported_rat_types: string[]
+  display_name?: string
+}
+
+export function useCreateAPN() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: CreateAPNData) => {
+      const res = await api.post<ApiResponse<APN>>('/apns', data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: APNS_KEY })
+    },
+  })
+}
+
+export function useUpdateAPN(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: Partial<CreateAPNData>) => {
+      const res = await api.patch<ApiResponse<APN>>(`/apns/${id}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: APNS_KEY })
+    },
+  })
+}
+
+export function useDeleteAPN(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await api.delete(`/apns/${id}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: APNS_KEY })
+    },
+  })
+}
+
 export function useAPNSims(apnId: string) {
   return useInfiniteQuery({
     queryKey: [...APNS_KEY, 'sims', apnId],
@@ -57,12 +103,33 @@ export function useAPNSims(apnId: string) {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '20')
-      const res = await api.get<ListResponse<SIM>>(`/apns/${apnId}/sims?${params.toString()}`)
+      params.set('apn_id', apnId)
+      const res = await api.get<ListResponse<SIM>>(`/sims?${params.toString()}`)
       return res.data
     },
     initialPageParam: '' as string,
     getNextPageParam: (lastPage) =>
       lastPage.meta.has_more ? lastPage.meta.cursor : undefined,
     enabled: !!apnId,
+  })
+}
+
+export function useCreateIPPool() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      apn_id: string
+      name: string
+      cidr_v4?: string
+      cidr_v6?: string
+      alert_threshold_warning?: number
+      alert_threshold_critical?: number
+    }) => {
+      const res = await api.post<ApiResponse<IPPool>>('/ip-pools', data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: APNS_KEY })
+    },
   })
 }

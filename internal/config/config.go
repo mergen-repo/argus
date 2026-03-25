@@ -18,7 +18,7 @@ type Config struct {
 
 	DatabaseURL            string        `envconfig:"DATABASE_URL" required:"true"`
 	DatabaseMaxConns       int32         `envconfig:"DATABASE_MAX_CONNS" default:"50"`
-	DatabaseMaxIdleConns   int32         `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"10"`
+	DatabaseMaxIdleConns   int32         `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"25"`
 	DatabaseConnMaxLife    time.Duration `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"30m"`
 	DatabaseReadReplicaURL string        `envconfig:"DATABASE_READ_REPLICA_URL"`
 

@@ -561,6 +561,29 @@ func (s *OperatorStore) CountFailures24h(ctx context.Context, operatorID uuid.UU
 	return total, failures, nil
 }
 
+func (s *OperatorStore) LatestHealthByOperator(ctx context.Context) (map[uuid.UUID]time.Time, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT DISTINCT ON (operator_id) operator_id, checked_at
+		FROM operator_health_logs
+		ORDER BY operator_id, checked_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("store: latest health by operator: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]time.Time)
+	for rows.Next() {
+		var opID uuid.UUID
+		var checkedAt time.Time
+		if err := rows.Scan(&opID, &checkedAt); err != nil {
+			return nil, fmt.Errorf("store: scan latest health: %w", err)
+		}
+		result[opID] = checkedAt
+	}
+	return result, nil
+}
+
 func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uuid.UUID) ([]GrantWithOperator, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT g.id, g.tenant_id, g.operator_id, g.enabled, g.sor_priority, g.cost_per_mb, g.region,

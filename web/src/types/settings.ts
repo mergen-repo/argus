@@ -35,6 +35,7 @@ export interface ApiKeyCreateResult {
 export interface IpPool {
   id: string
   tenant_id: string
+  apn_id?: string
   name: string
   cidr: string
   total_addresses: number
@@ -46,11 +47,15 @@ export interface IpPool {
 export interface IpAddress {
   id: string
   pool_id: string
-  address: string
-  state: 'available' | 'assigned' | 'reserved'
+  address_v4?: string
+  address_v6?: string
+  allocation_type: string
+  state: string
   sim_id?: string
   sim_iccid?: string
-  assigned_at?: string
+  sim_imsi?: string
+  sim_msisdn?: string
+  allocated_at?: string
 }
 
 export interface NotificationConfig {
