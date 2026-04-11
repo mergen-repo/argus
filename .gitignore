@@ -45,6 +45,9 @@ backups/
 tmp/
 *.tmp
 
+# MCP browser automation artifacts
+.playwright-mcp/
+
 # Secrets
 *.pem
 *.key
