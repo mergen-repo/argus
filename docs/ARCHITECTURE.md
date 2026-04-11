@@ -308,6 +308,7 @@ RADIUS Request → UDP listener (goroutine pool)
 | Session state | Redis | Session duration | CoA/DM events |
 | Tenant config | Redis | 5min | NATS on tenant update |
 | EAP session state | Redis | 30s | Auto-expire (TTL) |
+| MSK stash (EAP session) | In-memory sync.Map | 10s (30s sweeper) | LoadAndDelete on consume (single-use) |
 | Auth vector pre-fetch | Redis list | 5min | Auto-expire (TTL) |
 | Rate limit counters | Redis | Sliding window | Auto-expire |
 | SoR decision (per-SIM) | Redis | 1hr (configurable) | NATS on operator health change |

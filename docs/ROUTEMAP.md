@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 4/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 5/22 stories
 
 ---
 
@@ -165,7 +165,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-059 | Security & Compliance Hardening | L | [x] DONE | — | STORY-056 | 2026-04-12 |
-| STORY-060 | AAA Protocol Correctness | XL | [~] IN PROGRESS | Commit | STORY-056, STORY-057 | — |
+| STORY-060 | AAA Protocol Correctness | XL | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
 | STORY-061 | eSIM Model Evolution | M | [ ] PENDING | — | STORY-057, STORY-060, STORY-063 | — |
 | STORY-063 | Backend Implementation Completeness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
 | STORY-064 | Database Hardening & Partition Automation | L | [ ] PENDING | — | STORY-056, STORY-063 | — |
@@ -219,6 +219,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-12 | REVIEW | STORY-060 review completed. 9 cross-doc findings — all fixed in-story (zero-deferral). GLOSSARY.md: WS Server pong 10s→90s+WS_PONG_TIMEOUT, WS Hub drops newest→drops oldest, WS Close Code added 4029. ARCHITECTURE.md: MSK in-memory sync.Map row added to Caching Strategy table. decisions.md: VAL-007 SUPERSEDED by DEV-149, DEV-045 SUPERSEDED by DEV-148, PAT-003 added (AT_MAC HMAC zeroing). api/_index.md: API-074 disconnected_sessions+force+409, API-065 CoA counters added. ROUTEMAP: STORY-060 marked DONE, counter 5/22. USERTEST entry present (14 backend scenarios). 0 tech debt items targeted this story. Report: docs/stories/phase-10/STORY-060-review.md | GLOSSARY.md, ARCHITECTURE.md, decisions.md, api/_index.md, ROUTEMAP.md |
 | 2026-04-12 | CLOSEOUT | STORY-059 zero-deferral close-out — D-004 and D-005 resolved in-story per Phase 10 policy. D-004: `internal/gateway/bruteforce.go` extractIP rewritten with `net.SplitHostPort`+`net.ParseIP`, 4 IPv6 test cases added to TestExtractIP. D-005: Added "Compliance & Data Governance (5 endpoints)" section to api/_index.md with API-175..179 (dashboard, BTK report JSON/CSV/PDF, retention, DSAR, right-to-erasure). Review report Issues table updated to reflect FIXED status on both. | ROUTEMAP.md, api/_index.md, bruteforce.go, bruteforce_test.go, STORY-059-review.md |
 | 2026-04-12 | REVIEW | STORY-059 review completed. CONFIG.md: 3 gaps fixed (NOTIFICATION_RATE_LIMIT_PER_MINUTE added to Rate Limiting section, notif:rl: added to Redis Key Namespaces, ENCRYPTION_KEY description updated to include totp_secret). Initially tech debt D-004 and D-005 logged and then immediately closed in same session per user's zero-deferral directive. ROUTEMAP: STORY-059 marked DONE, counter 4/22. All DEV-142..147 + PAT-001/PAT-002 decisions confirmed present. USERTEST entry present (16 scenarios). Report: docs/stories/phase-10/STORY-059-review.md | CONFIG.md, ROUTEMAP.md |
 | 2026-04-12 | REVIEW | STORY-058 review completed. 1 implicit decision captured (DEV-141: chunkSizeWarningLimit 500 vs nominal 250). 1 tech debt entry added (D-003: stale SCR IDs in story files, deferred to STORY-062). ROUTEMAP: STORY-058 marked DONE, counter 3/22. No USERTEST gaps. All 3 DEV-136.17/18/19 decisions verified superseded. No glossary or architecture changes. Report: docs/stories/phase-10/STORY-058-review.md | decisions.md, ROUTEMAP.md |
