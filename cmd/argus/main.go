@@ -162,8 +162,15 @@ func main() {
 			BcryptCost:          cfg.BcryptCost,
 			MaxLoginAttempts:    cfg.LoginMaxAttempts,
 			LockoutDuration:     cfg.LoginLockoutDur,
+			EncryptionKey:       cfg.EncryptionKey,
 		},
 	)
+
+	if migrated, err := userStore.MigrateTOTPSecretsToEncrypted(ctx, cfg.EncryptionKey); err != nil {
+		log.Warn().Err(err).Msg("totp secret encryption migration failed — continuing")
+	} else if migrated > 0 {
+		log.Info().Int("migrated", migrated).Msg("encrypted plaintext totp secrets at rest")
+	}
 
 	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
 
@@ -411,7 +418,8 @@ func main() {
 	notifSvc.SetNotifStore(&notifStoreAdapter{notifStore})
 	notifSvc.SetEventPublisher(eventBus, bus.SubjectNotification)
 
-	notifDelivery := notification.NewDeliveryTracker(nil, log.Logger)
+	notifRedisRL := notification.NewRedisRateLimiter(rdb.Client, cfg.NotificationRateLimitPerMin)
+	notifDelivery := notification.NewDeliveryTracker(notifRedisRL, log.Logger)
 	notifSvc.SetDeliveryTracker(notifDelivery)
 
 	if err := notifSvc.Start(&eventBusNotifSubscriber{eventBus}, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered); err != nil {

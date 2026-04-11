@@ -40,10 +40,13 @@ func TestBR1_AllValidTransitionsFromSuspended(t *testing.T) {
 	}
 }
 
-func TestBR1_StolenLostHasNoOutboundTransitions(t *testing.T) {
+func TestBR1_StolenLostCanOnlyTerminate(t *testing.T) {
 	allowed := validTransitions["stolen_lost"]
-	if len(allowed) != 0 {
-		t.Errorf("stolen_lost should have 0 transitions, got %d: %v", len(allowed), allowed)
+	if len(allowed) != 1 {
+		t.Fatalf("stolen_lost should have exactly 1 valid transition (per BR-1), got %d: %v", len(allowed), allowed)
+	}
+	if allowed[0] != "terminated" {
+		t.Errorf("stolen_lost should only transition to terminated, got %q", allowed[0])
 	}
 }
 
@@ -112,10 +115,10 @@ func TestBR1_SuspendedCannotGoToStolenLost(t *testing.T) {
 	}
 }
 
-func TestBR1_StolenLostCannotTerminate(t *testing.T) {
+func TestBR1_StolenLostCanTerminate(t *testing.T) {
 	err := validateTransition("stolen_lost", "terminated")
-	if err == nil {
-		t.Error("stolen_lost->terminated should be invalid (absorbing state)")
+	if err != nil {
+		t.Errorf("stolen_lost->terminated should be valid per BR-1 (manual terminate after investigation): %v", err)
 	}
 }
 

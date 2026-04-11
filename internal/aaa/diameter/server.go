@@ -499,6 +499,7 @@ func (s *Server) watchdogLoop(peer *Peer, done chan struct{}) {
 					s.eventBus.Publish(context.Background(), bus.SubjectOperatorHealthChanged, map[string]interface{}{
 						"peer_host":  peer.originHost,
 						"peer_realm": peer.originRealm,
+						"tenant_id":  nil,
 						"status":     "down",
 						"reason":     "watchdog_timeout",
 						"timestamp":  time.Now().UTC(),

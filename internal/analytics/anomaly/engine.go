@@ -199,6 +199,7 @@ func (e *Engine) publishEvents(ctx context.Context, record *store.Anomaly, iccid
 	if e.alertSubject != "" {
 		alert := map[string]interface{}{
 			"alert_id":    record.ID.String(),
+			"tenant_id":   record.TenantID.String(),
 			"alert_type":  "anomaly_" + record.Type,
 			"severity":    record.Severity,
 			"title":       anomalyTitle(record.Type, iccid),

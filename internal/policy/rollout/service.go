@@ -48,6 +48,7 @@ type CoADispatcher interface {
 
 type RolloutProgressEvent struct {
 	RolloutID    string               `json:"rollout_id"`
+	TenantID     string               `json:"tenant_id"`
 	PolicyID     string               `json:"policy_id,omitempty"`
 	VersionID    string               `json:"version_id"`
 	State        string               `json:"state"`
@@ -439,8 +440,10 @@ func (s *Service) publishProgressWithState(ctx context.Context, rollout *store.P
 		startedAt = rollout.StartedAt.Format(time.RFC3339)
 	}
 
+	tenantID := s.resolveTenantID(ctx, rollout)
 	event := RolloutProgressEvent{
 		RolloutID:    rollout.ID.String(),
+		TenantID:     tenantID.String(),
 		VersionID:    rollout.PolicyVersionID.String(),
 		State:        state,
 		CurrentStage: currentStage,

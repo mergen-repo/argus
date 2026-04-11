@@ -121,3 +121,33 @@ func TestValidate_AllValidEnvs(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_BcryptCostTooLowForProduction(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "production"
+	cfg.BcryptCost = 10
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for BCRYPT_COST < 12 in production")
+	}
+}
+
+func TestValidate_BcryptCostTooLowForStaging(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "staging"
+	cfg.BcryptCost = 11
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for BCRYPT_COST < 12 in staging")
+	}
+}
+
+func TestValidate_BcryptCostLowAllowedInDevelopment(t *testing.T) {
+	cfg := validConfig()
+	cfg.AppEnv = "development"
+	cfg.BcryptCost = 10
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("expected no error for BCRYPT_COST=10 in development, got: %v", err)
+	}
+}

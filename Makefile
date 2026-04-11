@@ -6,7 +6,8 @@ export
 .PHONY: help up down restart status logs build build-fresh deploy-dev deploy-prod \
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
         test test-watch test-coverage lint lint-fix \
-        clean docker-clean dev start stop backup web-dev web-build
+        clean docker-clean dev start stop backup web-dev web-build \
+        vuln-check web-audit
 
 help:
 	@echo ""
@@ -48,6 +49,8 @@ help:
 	@echo "    make test-coverage   Test coverage raporu"
 	@echo "    make lint            Go lint kontrolu"
 	@echo "    make lint-fix        Go lint otomatik duzeltme"
+	@echo "    make vuln-check      Go vulnerability scan (govulncheck)"
+	@echo "    make web-audit       npm audit (high/critical)"
 	@echo ""
 	@echo "  Temizlik:"
 	@echo "    make clean           Build artifact'larini temizle"
@@ -187,6 +190,16 @@ lint:
 
 lint-fix:
 	@golangci-lint run --fix ./...
+
+vuln-check:
+	@echo "Go vulnerability scan calistiriliyor..."
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	@echo "Vulnerability scan tamamlandi."
+
+web-audit:
+	@echo "npm audit calistiriliyor..."
+	@cd web && npm audit --audit-level=high
+	@echo "npm audit tamamlandi."
 
 # ── Temizlik ──
 

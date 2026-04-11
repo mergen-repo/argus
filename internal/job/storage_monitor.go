@@ -169,6 +169,7 @@ func (p *StorageMonitorProcessor) sendStorageAlert(ctx context.Context, alertTyp
 
 	_ = p.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
 		"alert_type":  "storage." + alertType,
+		"tenant_id":   nil,
 		"severity":    severity,
 		"title":       "Storage Alert: " + alertType,
 		"description": description,

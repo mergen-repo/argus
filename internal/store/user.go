@@ -2,15 +2,41 @@ package store
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/btopcu/argus/internal/crypto"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func encryptTOTPValue(plain, hexKey string) (string, error) {
+	key, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return "", fmt.Errorf("invalid hex key: %w", err)
+	}
+	encrypted, err := crypto.Encrypt([]byte(plain), key)
+	if err != nil {
+		return "", err
+	}
+	return string(encrypted), nil
+}
+
+func decryptTOTPProbe(value, hexKey string) (string, error) {
+	key, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return "", fmt.Errorf("invalid hex key: %w", err)
+	}
+	plaintext, err := crypto.Decrypt([]byte(value), key)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
 
 var (
 	ErrUserNotFound    = errors.New("store: user not found")
@@ -114,6 +140,60 @@ func (s *UserStore) SetTOTPSecret(ctx context.Context, id uuid.UUID, secret stri
 	_, err := s.db.Exec(ctx,
 		`UPDATE users SET totp_secret = $2 WHERE id = $1`, id, secret)
 	return err
+}
+
+type TOTPSecretRow struct {
+	ID     uuid.UUID
+	Secret string
+}
+
+func (s *UserStore) ListTOTPSecrets(ctx context.Context) ([]TOTPSecretRow, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT id, totp_secret FROM users WHERE totp_secret IS NOT NULL AND totp_enabled = true`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list totp secrets: %w", err)
+	}
+	defer rows.Close()
+
+	var results []TOTPSecretRow
+	for rows.Next() {
+		var r TOTPSecretRow
+		if err := rows.Scan(&r.ID, &r.Secret); err != nil {
+			return nil, fmt.Errorf("store: scan totp secret row: %w", err)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate totp secrets: %w", err)
+	}
+	return results, nil
+}
+
+func (s *UserStore) MigrateTOTPSecretsToEncrypted(ctx context.Context, hexKey string) (int, error) {
+	if hexKey == "" {
+		return 0, nil
+	}
+
+	rows, err := s.ListTOTPSecrets(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	migrated := 0
+	for _, row := range rows {
+		if _, err := decryptTOTPProbe(row.Secret, hexKey); err == nil {
+			continue
+		}
+		encrypted, err := encryptTOTPValue(row.Secret, hexKey)
+		if err != nil {
+			return migrated, fmt.Errorf("store: encrypt totp secret for user %s: %w", row.ID, err)
+		}
+		if err := s.SetTOTPSecret(ctx, row.ID, encrypted); err != nil {
+			return migrated, fmt.Errorf("store: persist encrypted totp secret for user %s: %w", row.ID, err)
+		}
+		migrated++
+	}
+	return migrated, nil
 }
 
 func (s *UserStore) EnableTOTP(ctx context.Context, id uuid.UUID) error {

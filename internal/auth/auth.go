@@ -119,6 +119,7 @@ type Config struct {
 	BcryptCost          int
 	MaxLoginAttempts    int
 	LockoutDuration     time.Duration
+	EncryptionKey       string
 }
 
 type Service struct {
@@ -296,7 +297,12 @@ func (s *Service) Setup2FA(ctx context.Context, userID uuid.UUID) (*Setup2FAResu
 		return nil, fmt.Errorf("auth: generate totp secret: %w", err)
 	}
 
-	if err := s.users.SetTOTPSecret(ctx, userID, secret); err != nil {
+	encrypted, err := EncryptTOTPSecret(secret, s.cfg.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("auth: encrypt totp secret: %w", err)
+	}
+
+	if err := s.users.SetTOTPSecret(ctx, userID, encrypted); err != nil {
 		return nil, fmt.Errorf("auth: store totp secret: %w", err)
 	}
 
@@ -316,7 +322,12 @@ func (s *Service) Verify2FA(ctx context.Context, userID uuid.UUID, code, ipAddr,
 		return nil, ErrInvalid2FACode
 	}
 
-	if !ValidateTOTPCodeWithWindow(*user.TOTPSecret, code) {
+	plainSecret, err := DecryptTOTPSecret(*user.TOTPSecret, s.cfg.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("auth: decrypt totp secret: %w", err)
+	}
+
+	if !ValidateTOTPCodeWithWindow(plainSecret, code) {
 		return nil, ErrInvalid2FACode
 	}
 

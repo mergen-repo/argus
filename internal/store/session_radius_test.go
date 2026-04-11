@@ -175,3 +175,59 @@ func TestRadiusSessionStore_ListActiveBySIM(t *testing.T) {
 		t.Error("expected at least 1 active session")
 	}
 }
+
+func TestGetLastSessionBySIM_TenantMismatch(t *testing.T) {
+	store := newTestRadiusSessionStore(t)
+	ctx := context.Background()
+
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	operatorID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	simID := uuid.New()
+
+	_, err := store.Create(ctx, CreateRadiusSessionParams{
+		SimID:      simID,
+		TenantID:   tenantID,
+		OperatorID: operatorID,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	differentTenantID := uuid.New()
+	sess, err := store.GetLastSessionBySIM(ctx, differentTenantID, simID)
+	if err != nil {
+		t.Fatalf("GetLastSessionBySIM: %v", err)
+	}
+	if sess != nil {
+		t.Error("expected nil session when tenant does not match")
+	}
+}
+
+func TestGetLastSessionBySIM_MatchingTenant(t *testing.T) {
+	store := newTestRadiusSessionStore(t)
+	ctx := context.Background()
+
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	operatorID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	simID := uuid.New()
+
+	created, err := store.Create(ctx, CreateRadiusSessionParams{
+		SimID:      simID,
+		TenantID:   tenantID,
+		OperatorID: operatorID,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	sess, err := store.GetLastSessionBySIM(ctx, tenantID, simID)
+	if err != nil {
+		t.Fatalf("GetLastSessionBySIM: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected session, got nil")
+	}
+	if sess.ID != created.ID {
+		t.Errorf("session ID = %s, want %s", sess.ID, created.ID)
+	}
+}

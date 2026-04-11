@@ -5,11 +5,13 @@ import (
 	"testing"
 )
 
+const testAuditSalt = "test-audit-salt"
+
 func TestAnonymizeJSON_ReplacesFields(t *testing.T) {
 	data := json.RawMessage(`{"imsi":"286010123456789","msisdn":"+905551234567","name":"Test SIM","iccid":"8990111234567890"}`)
 	fields := []string{"imsi", "msisdn", "iccid"}
 
-	result := anonymizeJSON(data, fields)
+	result := anonymizeJSONWithSalt(data, fields, testAuditSalt)
 	if result == nil {
 		t.Fatal("result should not be nil")
 	}
@@ -43,7 +45,7 @@ func TestAnonymizeJSON_NoSensitiveFields(t *testing.T) {
 	data := json.RawMessage(`{"name":"Test SIM","state":"active"}`)
 	fields := []string{"imsi", "msisdn", "iccid"}
 
-	result := anonymizeJSON(data, fields)
+	result := anonymizeJSONWithSalt(data, fields, testAuditSalt)
 
 	var original, anonymized map[string]interface{}
 	json.Unmarshal(data, &original)
@@ -58,12 +60,12 @@ func TestAnonymizeJSON_NoSensitiveFields(t *testing.T) {
 }
 
 func TestAnonymizeJSON_EmptyData(t *testing.T) {
-	result := anonymizeJSON(nil, []string{"imsi"})
+	result := anonymizeJSONWithSalt(nil, []string{"imsi"}, testAuditSalt)
 	if result != nil {
 		t.Fatal("should return nil for nil input")
 	}
 
-	result = anonymizeJSON(json.RawMessage{}, []string{"imsi"})
+	result = anonymizeJSONWithSalt(json.RawMessage{}, []string{"imsi"}, testAuditSalt)
 	if len(result) != 0 {
 		t.Fatal("should return empty for empty input")
 	}
@@ -71,7 +73,7 @@ func TestAnonymizeJSON_EmptyData(t *testing.T) {
 
 func TestAnonymizeJSON_InvalidJSON(t *testing.T) {
 	data := json.RawMessage(`not json`)
-	result := anonymizeJSON(data, []string{"imsi"})
+	result := anonymizeJSONWithSalt(data, []string{"imsi"}, testAuditSalt)
 
 	if string(result) != string(data) {
 		t.Fatal("should return original data for invalid JSON")
@@ -82,7 +84,7 @@ func TestAnonymizeJSON_EmptyStringValue(t *testing.T) {
 	data := json.RawMessage(`{"imsi":"","name":"test"}`)
 	fields := []string{"imsi"}
 
-	result := anonymizeJSON(data, fields)
+	result := anonymizeJSONWithSalt(data, fields, testAuditSalt)
 
 	var m map[string]interface{}
 	json.Unmarshal(result, &m)

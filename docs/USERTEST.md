@@ -1138,3 +1138,48 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 |---|---------|----------------|
 | 11 | npm run build | Chunk size uyarisi yok |
 | 12 | Lazy-loaded sayfaya git (Dashboard) | Skeleton fallback gorunur, sonra sayfa yukler |
+
+---
+
+## STORY-059: Security & Compliance Hardening
+
+**Ekran:** 2FA Setup (SCR-015)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | Profil > "2FA Etkinlestir" butonuna tikla | QR kod ve gizli kod (plaintext) kullaniciya gosterilir |
+| 2 | Authenticator app ile QR'i okut, kodu gir, dogrula | 2FA aktiflesir; DB'de `users.totp_secret` ciphertext (base64) olarak saklanir |
+| 3 | Tekrar login ol, 2FA kodunu gir | Dogrulama basarili — decrypt akisi sessiz calisir |
+
+**Ekran:** Compliance Reports (SCR-125)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 4 | BTK Monthly Report sec, format=JSON secili "Generate" | Rapor onizlemesi gelir |
+| 5 | Format=CSV sec ve indir | Tarayici CSV dosyasini `btk_report_YYYYMM.csv` olarak indirir |
+| 6 | Format=PDF sec ve indir | Tarayici PDF dosyasini `btk_report_YYYYMM.pdf` olarak indirir; icerikte operator tablosu + toplam var |
+
+**Ekran:** Notification Channels (SCR-110)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 7 | Webhook channel'i etkinlestir, bos URL ile kaydet | Inline hata: "HTTPS URL gerekli" — submit engellenir |
+| 8 | URL `http://example.com` yaz | Inline hata: "URL https:// ile baslamali" |
+| 9 | URL `https://hook.example.com/x` + bos secret | Inline hata: "Secret gerekli" — submit engellenir |
+| 10 | URL + secret dolu, kaydet | Basarili; webhook kanali aktif |
+
+**Ekran:** SIM Detail — State (SCR-030)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 11 | State=`stolen_lost` olan SIM'e git, Durum degistir > Terminate | Dogrulama dialog sonrasi state=`terminated`, history row olusur, IP grace period baslar |
+| 12 | State=`stolen_lost` badge'i goruntule | Tehlike (danger) renk tokeni ile gosterilir |
+
+**Altyapi:**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 13 | Tenant A WS baglantisi, tenant B bir policy event publish et | Tenant A event'i ALMAZ (tenant isolation) |
+| 14 | System event (tenant_id=nil) publish et | Tum tenant baglantilari event'i ALIR |
+| 15 | `make vuln-check` calistir | `govulncheck ./...` 0 high/critical bildirir |
+| 16 | `make web-audit` calistir | `npm audit --audit-level=high` 0 vulnerability bildirir |

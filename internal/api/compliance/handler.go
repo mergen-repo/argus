@@ -137,6 +137,21 @@ func (h *Handler) BTKReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if format == "pdf" {
+		pdfData, err := h.complianceSvc.ExportBTKReportPDF(r.Context(), tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("btk report pdf")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=btk_report_%s.pdf", time.Now().UTC().Format("200601")))
+		w.WriteHeader(http.StatusOK)
+		w.Write(pdfData)
+		return
+	}
+
 	report, err := h.complianceSvc.GenerateBTKReport(r.Context(), tenantID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("btk report json")

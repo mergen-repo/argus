@@ -372,6 +372,7 @@ func TestService_Webhook_Dispatches(t *testing.T) {
 
 	svc := NewService(nil, nil, nil, []Channel{ChannelWebhook}, zerolog.Nop())
 	svc.SetWebhook(webhook)
+	svc.SetWebhookConfig("https://example.com/hook", "test-secret")
 
 	sub := newMockSubscriber()
 	if err := svc.Start(sub, "health", "alert"); err != nil {
@@ -396,6 +397,115 @@ func TestService_Webhook_Dispatches(t *testing.T) {
 	webhook.mu.Lock()
 	if len(webhook.calls) != 1 {
 		t.Errorf("webhook calls = %d, want 1", len(webhook.calls))
+	} else {
+		call := webhook.calls[0]
+		if call.url != "https://example.com/hook" {
+			t.Errorf("webhook url = %q, want https://example.com/hook", call.url)
+		}
+		if call.secret != "test-secret" {
+			t.Errorf("webhook secret = %q, want test-secret", call.secret)
+		}
+	}
+	webhook.mu.Unlock()
+}
+
+func TestWebhookValidation_EmptyURLRejectedNoDispatch(t *testing.T) {
+	webhook := &mockWebhookSender{}
+
+	svc := NewService(nil, nil, nil, []Channel{ChannelWebhook}, zerolog.Nop())
+	svc.SetWebhook(webhook)
+
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "health", "alert"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Stop()
+
+	payload := HealthChangedPayload{
+		OperatorID:     uuid.New(),
+		OperatorName:   "turkcell",
+		PreviousStatus: "healthy",
+		CurrentStatus:  "down",
+		CircuitState:   "open",
+		Timestamp:      time.Now(),
+	}
+
+	data, _ := json.Marshal(payload)
+	sub.Publish("health", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	webhook.mu.Lock()
+	if len(webhook.calls) != 0 {
+		t.Errorf("webhook calls = %d, want 0 — empty config must not attempt partial delivery", len(webhook.calls))
+	}
+	webhook.mu.Unlock()
+}
+
+func TestWebhookValidation_HTTPURLRejectedNoDispatch(t *testing.T) {
+	webhook := &mockWebhookSender{}
+
+	svc := NewService(nil, nil, nil, []Channel{ChannelWebhook}, zerolog.Nop())
+	svc.SetWebhook(webhook)
+	svc.SetWebhookConfig("http://insecure.example.com/hook", "some-secret")
+
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "health", "alert"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Stop()
+
+	payload := HealthChangedPayload{
+		OperatorID:     uuid.New(),
+		OperatorName:   "vodafone",
+		PreviousStatus: "healthy",
+		CurrentStatus:  "down",
+		CircuitState:   "open",
+		Timestamp:      time.Now(),
+	}
+
+	data, _ := json.Marshal(payload)
+	sub.Publish("health", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	webhook.mu.Lock()
+	if len(webhook.calls) != 0 {
+		t.Errorf("webhook calls = %d, want 0 — http scheme must not attempt dispatch", len(webhook.calls))
+	}
+	webhook.mu.Unlock()
+}
+
+func TestWebhookValidation_EmptySecretRejectedNoDispatch(t *testing.T) {
+	webhook := &mockWebhookSender{}
+
+	svc := NewService(nil, nil, nil, []Channel{ChannelWebhook}, zerolog.Nop())
+	svc.SetWebhook(webhook)
+	svc.SetWebhookConfig("https://example.com/hook", "")
+
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "health", "alert"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Stop()
+
+	payload := HealthChangedPayload{
+		OperatorID:     uuid.New(),
+		OperatorName:   "turkcell",
+		PreviousStatus: "healthy",
+		CurrentStatus:  "down",
+		CircuitState:   "open",
+		Timestamp:      time.Now(),
+	}
+
+	data, _ := json.Marshal(payload)
+	sub.Publish("health", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	webhook.mu.Lock()
+	if len(webhook.calls) != 0 {
+		t.Errorf("webhook calls = %d, want 0 — empty secret must not attempt dispatch", len(webhook.calls))
 	}
 	webhook.mu.Unlock()
 }

@@ -1,16 +1,18 @@
 package compliance
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
 func TestBR7_DeriveTenantSalt_Length(t *testing.T) {
 	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	salt := deriveTenantSalt(tenantID)
+	salt := DeriveTenantSalt(tenantID)
 	if len(salt) != 32 {
 		t.Fatalf("salt length = %d, want 32", len(salt))
 	}
@@ -18,8 +20,8 @@ func TestBR7_DeriveTenantSalt_Length(t *testing.T) {
 
 func TestBR7_DeriveTenantSalt_Deterministic(t *testing.T) {
 	tid := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	salt1 := deriveTenantSalt(tid)
-	salt2 := deriveTenantSalt(tid)
+	salt1 := DeriveTenantSalt(tid)
+	salt2 := DeriveTenantSalt(tid)
 	if salt1 != salt2 {
 		t.Fatal("salt should be deterministic for same tenant")
 	}
@@ -30,9 +32,9 @@ func TestBR7_DeriveTenantSalt_DifferentPerTenant(t *testing.T) {
 	t2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	t3 := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 
-	s1 := deriveTenantSalt(t1)
-	s2 := deriveTenantSalt(t2)
-	s3 := deriveTenantSalt(t3)
+	s1 := DeriveTenantSalt(t1)
+	s2 := DeriveTenantSalt(t2)
+	s3 := DeriveTenantSalt(t3)
 
 	if s1 == s2 || s1 == s3 || s2 == s3 {
 		t.Error("different tenants must have different salts for pseudonymization isolation")
@@ -186,7 +188,7 @@ func TestBR6_TenantIsolation_DifferentTenantSalts(t *testing.T) {
 
 	salts := make(map[string]bool)
 	for _, tid := range tenants {
-		salt := deriveTenantSalt(tid)
+		salt := DeriveTenantSalt(tid)
 		if salts[salt] {
 			t.Errorf("tenant %s has duplicate salt — tenant isolation violation", tid)
 		}
@@ -217,4 +219,62 @@ func TestBR7_RetentionDaysValidation(t *testing.T) {
 			t.Errorf("days=%d: valid=%v but wantErr=%v", tt.days, valid, tt.wantErr)
 		}
 	}
+}
+
+func TestPDFExport_ReturnsValidBytes(t *testing.T) {
+	report := &BTKReport{
+		TenantID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ReportMonth: "2026-03",
+		GeneratedAt: "2026-04-01T09:00:00Z",
+		Operators: []store.BTKOperatorStats{
+			{OperatorName: "Turkcell", OperatorCode: "28601", ActiveCount: 5000, SuspendedCount: 100, TerminatedCount: 50, TotalCount: 5150},
+			{OperatorName: "Vodafone TR", OperatorCode: "28602", ActiveCount: 3000, SuspendedCount: 80, TerminatedCount: 20, TotalCount: 3100},
+		},
+		TotalActive: 8000,
+		TotalSIMs:   8250,
+	}
+
+	data, err := buildBTKReportPDF(report)
+	if err != nil {
+		t.Fatalf("buildBTKReportPDF() error = %v", err)
+	}
+
+	if len(data) == 0 {
+		t.Fatal("PDF export returned empty bytes")
+	}
+
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Errorf("PDF output does not start with %%PDF- magic bytes, got prefix: %q", string(data[:min(len(data), 8)]))
+	}
+}
+
+func TestPDFExport_EmptyOperators(t *testing.T) {
+	report := &BTKReport{
+		TenantID:    uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		ReportMonth: "2026-03",
+		GeneratedAt: "2026-04-01T09:00:00Z",
+		Operators:   []store.BTKOperatorStats{},
+		TotalActive: 0,
+		TotalSIMs:   0,
+	}
+
+	data, err := buildBTKReportPDF(report)
+	if err != nil {
+		t.Fatalf("buildBTKReportPDF() with empty operators error = %v", err)
+	}
+
+	if len(data) == 0 {
+		t.Fatal("PDF export returned empty bytes for empty operators")
+	}
+
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Errorf("PDF output does not start with %%PDF- magic bytes")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -82,6 +82,7 @@ func BruteForceProtection(rdb *redis.Client, cfg BruteForceConfig, logger zerolo
 
 func isAuthEndpoint(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/auth/login") ||
+		strings.HasPrefix(path, "/api/v1/auth/refresh") ||
 		strings.HasPrefix(path, "/api/v1/auth/2fa")
 }
 

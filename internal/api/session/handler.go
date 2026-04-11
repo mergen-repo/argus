@@ -426,8 +426,9 @@ func (h *Handler) createBulkDisconnectJob(r *http.Request, req bulkDisconnectReq
 
 	if h.eventBus != nil {
 		h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, map[string]interface{}{
-			"job_id": job.ID.String(),
-			"type":   "bulk_session_disconnect",
+			"job_id":    job.ID.String(),
+			"tenant_id": job.TenantID.String(),
+			"type":      "bulk_session_disconnect",
 		})
 	}
 

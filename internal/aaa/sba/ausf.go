@@ -183,6 +183,7 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 			h.eventBus.Publish(context.Background(), bus.SubjectSessionEnded, map[string]interface{}{
 				"auth_ctx_id": authCtxID,
 				"supi":        authCtx.SUPI,
+				"tenant_id":   nil,
 				"result":      "failure",
 				"reason":      "res_star_mismatch",
 				"protocol":    "5g_sba",
@@ -226,6 +227,7 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 		h.eventBus.Publish(context.Background(), bus.SubjectSessionStarted, map[string]interface{}{
 			"auth_ctx_id": authCtxID,
 			"supi":        authCtx.SUPI,
+			"tenant_id":   nil,
 			"result":      "success",
 			"protocol":    "5g_sba",
 			"auth_type":   string(authCtx.AuthType),

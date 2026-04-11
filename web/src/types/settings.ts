@@ -71,6 +71,8 @@ export interface NotificationConfig {
     webhook: boolean
     sms: boolean
   }
+  webhookUrl?: string
+  webhookSecret?: string
   subscriptions: EventSubscription[]
   thresholds: ThresholdConfig[]
 }

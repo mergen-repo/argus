@@ -170,6 +170,7 @@ func (d *BatchDetector) publishAlert(ctx context.Context, record *AnomalyRecord,
 	if d.alertSubject != "" {
 		alert := map[string]interface{}{
 			"alert_id":    record.ID.String(),
+			"tenant_id":   record.TenantID.String(),
 			"alert_type":  "anomaly_" + record.Type,
 			"severity":    record.Severity,
 			"title":       anomalyTitle(record.Type, iccid),

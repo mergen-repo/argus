@@ -41,7 +41,7 @@ func TestIsAuthEndpoint(t *testing.T) {
 		{"/api/v1/auth/2fa/verify", true},
 		{"/api/v1/sims", false},
 		{"/api/v1/auth/logout", false},
-		{"/api/v1/auth/refresh", false},
+		{"/api/v1/auth/refresh", true},
 		{"/api/health", false},
 	}
 

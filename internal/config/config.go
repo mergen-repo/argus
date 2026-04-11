@@ -53,11 +53,12 @@ type Config struct {
 	SBAEnabled           bool   `envconfig:"SBA_ENABLED" default:"false"`
 	SBAEnableMTLS        bool   `envconfig:"SBA_ENABLE_MTLS" default:"false"`
 
-	RateLimitPerMinute int    `envconfig:"RATE_LIMIT_DEFAULT_PER_MINUTE" default:"1000"`
-	RateLimitPerHour   int    `envconfig:"RATE_LIMIT_DEFAULT_PER_HOUR" default:"30000"`
-	RateLimitAlgorithm string `envconfig:"RATE_LIMIT_ALGORITHM" default:"sliding_window"`
-	RateLimitAuthPerMin int   `envconfig:"RATE_LIMIT_AUTH_PER_MINUTE" default:"10"`
-	RateLimitEnabled   bool   `envconfig:"RATE_LIMIT_ENABLED" default:"true"`
+	RateLimitPerMinute          int    `envconfig:"RATE_LIMIT_DEFAULT_PER_MINUTE" default:"1000"`
+	RateLimitPerHour            int    `envconfig:"RATE_LIMIT_DEFAULT_PER_HOUR" default:"30000"`
+	RateLimitAlgorithm          string `envconfig:"RATE_LIMIT_ALGORITHM" default:"sliding_window"`
+	RateLimitAuthPerMin         int    `envconfig:"RATE_LIMIT_AUTH_PER_MINUTE" default:"10"`
+	RateLimitEnabled            bool   `envconfig:"RATE_LIMIT_ENABLED" default:"true"`
+	NotificationRateLimitPerMin int    `envconfig:"NOTIFICATION_RATE_LIMIT_PER_MINUTE" default:"60"`
 
 	SMTPHost     string `envconfig:"SMTP_HOST"`
 	SMTPPort     int    `envconfig:"SMTP_PORT" default:"587"`
@@ -174,6 +175,10 @@ func (c *Config) Validate() error {
 
 	if c.BcryptCost < 10 || c.BcryptCost > 14 {
 		return fmt.Errorf("BCRYPT_COST must be between 10 and 14 (got %d)", c.BcryptCost)
+	}
+
+	if !c.IsDev() && c.BcryptCost < 12 {
+		return fmt.Errorf("BCRYPT_COST must be at least 12 in non-development environments (got %d)", c.BcryptCost)
 	}
 
 	if c.DatabaseMaxConns <= 0 {

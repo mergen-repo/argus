@@ -79,6 +79,8 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 	ds := h.stateMap.Create(sessionID, "", msg.ApplicationID, imsi)
 	_ = ds.Transition(SessionStateOpen)
 
+	var tenantID, simID, operatorID string
+
 	if h.sessionMgr != nil {
 		existing, _ := h.sessionMgr.GetByAcctSessionID(ctx, sessionID)
 		if existing == nil {
@@ -133,16 +135,27 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 			} else {
 				ds.InternalID = sess.ID
 			}
+
+			tenantID = sess.TenantID
+			simID = sess.SimID
+			operatorID = sess.OperatorID
+		} else {
+			tenantID = existing.TenantID
+			simID = existing.SimID
+			operatorID = existing.OperatorID
 		}
 	}
 
 	if h.eventBus != nil {
 		h.eventBus.Publish(ctx, bus.SubjectSessionStarted, map[string]interface{}{
-			"session_id": sessionID,
-			"imsi":       imsi,
-			"msisdn":     msisdn,
-			"protocol":   "diameter_gy",
-			"timestamp":  time.Now().UTC(),
+			"session_id":  sessionID,
+			"sim_id":      simID,
+			"tenant_id":   tenantID,
+			"operator_id": operatorID,
+			"imsi":        imsi,
+			"msisdn":      msisdn,
+			"protocol":    "diameter_gy",
+			"timestamp":   time.Now().UTC(),
 		})
 	}
 

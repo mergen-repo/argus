@@ -190,12 +190,38 @@ func (h *Hub) SubscribeToNATS(subscriber Subscriber, subjects []string) error {
 
 func (h *Hub) relayNATSEvent(subject string, data []byte) {
 	eventType := natsSubjectToWSType(subject)
-	var payload interface{}
+	var payload map[string]interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		h.logger.Error().Err(err).Str("subject", subject).Msg("unmarshal NATS event for WS relay")
 		return
 	}
-	h.BroadcastAll(eventType, payload)
+
+	tenantID, ok := extractTenantID(payload)
+	if !ok {
+		h.BroadcastAll(eventType, payload)
+		return
+	}
+	h.BroadcastToTenant(tenantID, eventType, payload)
+}
+
+func extractTenantID(payload map[string]interface{}) (uuid.UUID, bool) {
+	raw, present := payload["tenant_id"]
+	if !present || raw == nil {
+		return uuid.Nil, false
+	}
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return uuid.Nil, false
+		}
+		id, err := uuid.Parse(v)
+		if err != nil || id == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return id, true
+	default:
+		return uuid.Nil, false
+	}
 }
 
 func natsSubjectToWSType(subject string) string {

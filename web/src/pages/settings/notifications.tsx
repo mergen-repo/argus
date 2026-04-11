@@ -26,6 +26,8 @@ const CHANNEL_META: Record<string, { icon: React.ElementType; label: string; des
 
 const DEFAULT_CONFIG: NotificationConfig = {
   channels: { email: true, telegram: false, webhook: false, sms: false },
+  webhookUrl: '',
+  webhookSecret: '',
   subscriptions: [
     {
       category: 'SIM Events',
@@ -89,18 +91,31 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   )
 }
 
+function validateWebhookUrl(url: string): string {
+  if (!url) return 'Webhook URL is required'
+  if (!url.startsWith('https://')) return 'Webhook URL must start with https://'
+  return ''
+}
+
+function validateWebhookSecret(secret: string): string {
+  if (!secret) return 'Webhook secret is required'
+  return ''
+}
+
 export default function NotificationConfigPage() {
   const { data: config, isLoading, isError, refetch } = useNotificationConfig()
   const updateMutation = useUpdateNotificationConfig()
 
   const [localConfig, setLocalConfig] = useState<NotificationConfig>(DEFAULT_CONFIG)
   const [isDirty, setIsDirty] = useState(false)
+  const [webhookErrors, setWebhookErrors] = useState({ url: '', secret: '' })
 
   useEffect(() => {
     if (config) {
       const resolved = Array.isArray(config) ? DEFAULT_CONFIG : config
       setLocalConfig(resolved)
       setIsDirty(false)
+      setWebhookErrors({ url: '', secret: '' })
     }
   }, [config])
 
@@ -109,6 +124,18 @@ export default function NotificationConfigPage() {
       ...c,
       channels: { ...c.channels, [channel]: !c.channels[channel as keyof typeof c.channels] },
     }))
+    setIsDirty(true)
+  }
+
+  const updateWebhookUrl = (url: string) => {
+    setLocalConfig((c) => ({ ...c, webhookUrl: url }))
+    setWebhookErrors((e) => ({ ...e, url: validateWebhookUrl(url) }))
+    setIsDirty(true)
+  }
+
+  const updateWebhookSecret = (secret: string) => {
+    setLocalConfig((c) => ({ ...c, webhookSecret: secret }))
+    setWebhookErrors((e) => ({ ...e, secret: validateWebhookSecret(secret) }))
     setIsDirty(true)
   }
 
@@ -135,6 +162,14 @@ export default function NotificationConfigPage() {
   }
 
   const handleSave = async () => {
+    if (localConfig.channels.webhook) {
+      const urlErr = validateWebhookUrl(localConfig.webhookUrl ?? '')
+      const secretErr = validateWebhookSecret(localConfig.webhookSecret ?? '')
+      if (urlErr || secretErr) {
+        setWebhookErrors({ url: urlErr, secret: secretErr })
+        return
+      }
+    }
     try {
       await updateMutation.mutateAsync(localConfig)
       setIsDirty(false)
@@ -236,6 +271,45 @@ export default function NotificationConfigPage() {
           })}
         </div>
       </div>
+
+      {/* Webhook Config */}
+      {localConfig.channels.webhook && (
+        <div>
+          <h2 className="text-xs font-medium uppercase tracking-[1.5px] text-text-tertiary mb-3">
+            Webhook Configuration
+          </h2>
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[var(--text-secondary)]">Webhook URL</label>
+                <Input
+                  type="url"
+                  placeholder="https://your-server.com/webhook"
+                  value={localConfig.webhookUrl ?? ''}
+                  onChange={(e) => updateWebhookUrl(e.target.value)}
+                  className={cn(webhookErrors.url && 'border-[var(--danger)]')}
+                />
+                {webhookErrors.url && (
+                  <p className="text-xs text-[var(--danger)]">{webhookErrors.url}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[var(--text-secondary)]">Webhook Secret</label>
+                <Input
+                  type="password"
+                  placeholder="Signing secret for HMAC verification"
+                  value={localConfig.webhookSecret ?? ''}
+                  onChange={(e) => updateWebhookSecret(e.target.value)}
+                  className={cn(webhookErrors.secret && 'border-[var(--danger)]')}
+                />
+                {webhookErrors.secret && (
+                  <p className="text-xs text-[var(--danger)]">{webhookErrors.secret}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Event Subscriptions */}
       <div>

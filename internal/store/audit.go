@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -228,7 +226,7 @@ func (s *AuditStore) GetByDateRange(ctx context.Context, tenantID uuid.UUID, fro
 	return results, nil
 }
 
-func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entityIDs []string) error {
+func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entityIDs []string, tenantSalt string) error {
 	if len(entityIDs) == 0 {
 		return nil
 	}
@@ -268,9 +266,9 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 		if err := rows.Scan(&r.id, &r.createdAt, &r.beforeData, &r.afterData, &r.diff); err != nil {
 			return fmt.Errorf("store: pseudonymize scan: %w", err)
 		}
-		r.beforeData = anonymizeJSON(r.beforeData, sensitiveFields)
-		r.afterData = anonymizeJSON(r.afterData, sensitiveFields)
-		r.diff = anonymizeJSON(r.diff, sensitiveFields)
+		r.beforeData = anonymizeJSONWithSalt(r.beforeData, sensitiveFields, tenantSalt)
+		r.afterData = anonymizeJSONWithSalt(r.afterData, sensitiveFields, tenantSalt)
+		r.diff = anonymizeJSONWithSalt(r.diff, sensitiveFields, tenantSalt)
 		pending = append(pending, r)
 	}
 	rows.Close()
@@ -288,34 +286,3 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 	return nil
 }
 
-func anonymizeJSON(data json.RawMessage, fields []string) json.RawMessage {
-	if len(data) == 0 {
-		return data
-	}
-
-	var m map[string]interface{}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return data
-	}
-
-	changed := false
-	for _, field := range fields {
-		if val, ok := m[field]; ok {
-			if strVal, ok := val.(string); ok && strVal != "" {
-				h := sha256.Sum256([]byte(strVal))
-				m[field] = hex.EncodeToString(h[:])
-				changed = true
-			}
-		}
-	}
-
-	if !changed {
-		return data
-	}
-
-	result, err := json.Marshal(m)
-	if err != nil {
-		return data
-	}
-	return result
-}

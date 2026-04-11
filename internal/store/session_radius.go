@@ -534,10 +534,10 @@ func (s *RadiusSessionStore) ListBySIM(ctx context.Context, tenantID, simID uuid
 	return results, nextCursor, nil
 }
 
-func (s *RadiusSessionStore) GetLastSessionBySIM(ctx context.Context, simID uuid.UUID) (*RadiusSession, error) {
+func (s *RadiusSessionStore) GetLastSessionBySIM(ctx context.Context, tenantID, simID uuid.UUID) (*RadiusSession, error) {
 	row := s.db.QueryRow(ctx,
-		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 ORDER BY started_at DESC LIMIT 1`,
-		simID,
+		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 AND tenant_id = $2 ORDER BY started_at DESC LIMIT 1`,
+		simID, tenantID,
 	)
 	sess, err := scanRadiusSession(row)
 	if errors.Is(err, pgx.ErrNoRows) {

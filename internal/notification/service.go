@@ -124,6 +124,9 @@ type Service struct {
 	channels []Channel
 	logger   zerolog.Logger
 
+	webhookURL    string
+	webhookSecret string
+
 	notifStore     NotifStore
 	eventPublisher EventPublisher
 	delivery       *DeliveryTracker
@@ -145,6 +148,11 @@ func NewService(email EmailSender, telegram TelegramSender, inApp InAppStore, ch
 
 func (s *Service) SetWebhook(w WebhookDispatcher) {
 	s.webhook = w
+}
+
+func (s *Service) SetWebhookConfig(webhookURL, webhookSecret string) {
+	s.webhookURL = webhookURL
+	s.webhookSecret = webhookSecret
 }
 
 func (s *Service) SetSMS(sms SMSDispatcher) {
@@ -393,17 +401,26 @@ func (s *Service) dispatchToChannels(ctx context.Context, severity, title, body 
 			}
 		case ChannelWebhook:
 			if s.webhook != nil {
+				if err := ValidateWebhookConfig(s.webhookURL, s.webhookSecret); err != nil {
+					s.logger.Error().
+						Err(err).
+						Str("channel", string(ChannelWebhook)).
+						Msg("webhook config invalid, skipping dispatch")
+					continue
+				}
 				payload, _ := json.Marshal(map[string]string{
 					"title":    title,
 					"body":     body,
 					"severity": severity,
 				})
-				if err := s.webhook.SendWebhook(ctx, "", "", string(payload)); err != nil {
+				webhookURL := s.webhookURL
+				webhookSecret := s.webhookSecret
+				if err := s.webhook.SendWebhook(ctx, webhookURL, webhookSecret, string(payload)); err != nil {
 					s.logger.Error().Err(err).Msg("send webhook notification")
 					s.scheduleRetry(func() error {
 						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 						defer cancel()
-						return s.webhook.SendWebhook(retryCtx, "", "", string(payload))
+						return s.webhook.SendWebhook(retryCtx, webhookURL, webhookSecret, string(payload))
 					})
 				} else {
 					sent = append(sent, string(ChannelWebhook))

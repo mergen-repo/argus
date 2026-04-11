@@ -109,12 +109,13 @@ func (h *UDMHandler) HandleAuthEvents(w http.ResponseWriter, r *http.Request) {
 
 	if h.eventBus != nil {
 		h.eventBus.Publish(r.Context(), bus.SubjectSessionUpdated, map[string]interface{}{
-			"supi":           supi,
-			"auth_event_id":  authEventID,
-			"success":        event.Success,
-			"auth_type":      event.AuthType,
-			"protocol":       "5g_sba",
-			"timestamp":      time.Now().UTC(),
+			"supi":          supi,
+			"auth_event_id": authEventID,
+			"tenant_id":     nil,
+			"success":       event.Success,
+			"auth_type":     event.AuthType,
+			"protocol":      "5g_sba",
+			"timestamp":     time.Now().UTC(),
 		})
 	}
 

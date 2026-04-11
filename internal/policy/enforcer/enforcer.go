@@ -232,20 +232,22 @@ func (e *Enforcer) RecordViolations(ctx context.Context, sim *store.SIM, result 
 
 		if e.eventBus != nil && (v.Severity == "critical" || v.Severity == "warning") {
 			_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
-				"id":            violation.ID.String(),
-				"type":          "policy_violation",
-				"severity":      v.Severity,
-				"state":         "open",
-				"message":       fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID),
-				"sim_id":        sim.ID.String(),
-				"entity_type":   "sim",
-				"entity_id":     sim.ID.String(),
-				"detected_at":   time.Now().UTC().Format(time.RFC3339),
+				"id":          violation.ID.String(),
+				"tenant_id":   sim.TenantID.String(),
+				"type":        "policy_violation",
+				"severity":    v.Severity,
+				"state":       "open",
+				"message":     fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID),
+				"sim_id":      sim.ID.String(),
+				"entity_type": "sim",
+				"entity_id":   sim.ID.String(),
+				"detected_at": time.Now().UTC().Format(time.RFC3339),
 			})
 		}
 
 		if v.ActionTaken == "notify" && e.eventBus != nil {
 			_ = e.eventBus.Publish(ctx, bus.SubjectNotification, map[string]interface{}{
+				"tenant_id":     sim.TenantID.String(),
 				"type":          "policy_violation",
 				"category":      "policy",
 				"title":         fmt.Sprintf("Policy Violation: %s", v.ViolationType),

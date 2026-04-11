@@ -240,8 +240,9 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 
 	if h.eventBus != nil {
 		h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, map[string]interface{}{
-			"job_id": job.ID.String(),
-			"type":   "cdr_export",
+			"job_id":    job.ID.String(),
+			"tenant_id": tenantID.String(),
+			"type":      "cdr_export",
 		})
 	}
 

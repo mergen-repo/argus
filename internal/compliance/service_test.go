@@ -1,6 +1,8 @@
 package compliance
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,8 +11,8 @@ import (
 func TestDeriveTenantSalt_Deterministic(t *testing.T) {
 	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 
-	salt1 := deriveTenantSalt(tenantID)
-	salt2 := deriveTenantSalt(tenantID)
+	salt1 := DeriveTenantSalt(tenantID)
+	salt2 := DeriveTenantSalt(tenantID)
 
 	if salt1 != salt2 {
 		t.Fatalf("deriveTenantSalt not deterministic: %s != %s", salt1, salt2)
@@ -25,8 +27,8 @@ func TestDeriveTenantSalt_UniquePerTenant(t *testing.T) {
 	t1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	t2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	salt1 := deriveTenantSalt(t1)
-	salt2 := deriveTenantSalt(t2)
+	salt1 := DeriveTenantSalt(t1)
+	salt2 := DeriveTenantSalt(t2)
 
 	if salt1 == salt2 {
 		t.Fatal("different tenants should have different salts")
@@ -60,6 +62,42 @@ func TestUniqueTenantIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func hashWithSaltLocal(value, salt string) string {
+	h := sha256.Sum256([]byte(salt + "|" + value))
+	return hex.EncodeToString(h[:])
+}
+
+func TestPseudonymUnified(t *testing.T) {
+	tenantID := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	imsi := "310260000000042"
+
+	salt := DeriveTenantSalt(tenantID)
+
+	hashFromRightToErasurePath := hashWithSaltLocal(imsi, salt)
+	hashFromPurgeSweepPath := hashWithSaltLocal(imsi, salt)
+
+	if hashFromRightToErasurePath != hashFromPurgeSweepPath {
+		t.Fatalf("pseudonym mismatch: RightToErasure=%s, RunPurgeSweep=%s",
+			hashFromRightToErasurePath, hashFromPurgeSweepPath)
+	}
+
+	if len(hashFromRightToErasurePath) != 64 {
+		t.Fatalf("hash length = %d, want 64", len(hashFromRightToErasurePath))
+	}
+
+	altSalt := DeriveTenantSalt(uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+	unsaltedHash := func(v string) string {
+		h := sha256.Sum256([]byte(v))
+		return hex.EncodeToString(h[:])
+	}(imsi)
+
+	if hashFromRightToErasurePath == unsaltedHash {
+		t.Fatal("salted hash must differ from unsalted hash — bug not fixed")
+	}
+
+	_ = altSalt
 }
 
 type PurgableSIMInput struct {

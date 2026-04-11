@@ -95,9 +95,9 @@ const CATEGORY_META: Record<string, { label: string; color: string; border: stri
 }
 
 const FORMAT_OPTIONS = [
-  { value: 'pdf', label: 'PDF' },
+  { value: 'json', label: 'JSON' },
   { value: 'csv', label: 'CSV' },
-  { value: 'xlsx', label: 'Excel (XLSX)' },
+  { value: 'pdf', label: 'PDF' },
 ]
 
 function formatDate(iso: string | null): string {
@@ -256,22 +256,38 @@ function GenerateReportPanel({
     reportType: preselectedReport?.id || '',
     dateFrom: '',
     dateTo: '',
-    format: 'pdf',
+    format: 'json',
     recipients: '',
   })
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setGenerating(true)
-    setTimeout(() => {
-      setGenerating(false)
+    try {
+      if (form.reportType === 'btk-monthly' && (form.format === 'csv' || form.format === 'pdf')) {
+        const res = await fetch(`/api/v1/compliance/btk-report?format=${form.format}`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const now = new Date()
+        const month = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+        a.download = `btk_report_${month}.${form.format}`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
       setGenerated(true)
       setTimeout(() => {
         setGenerated(false)
         onClose()
       }, 1500)
-    }, 2000)
+    } catch {
+      setGenerated(false)
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const reportOptions = useMemo(

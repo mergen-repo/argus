@@ -305,6 +305,232 @@ func TestHub_SubscribeToNATS(t *testing.T) {
 	hub.Stop()
 }
 
+func TestRelayNATSEvent_TenantIsolation(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+
+	connA := &Connection{
+		TenantID: tenantA,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+	connB := &Connection{
+		TenantID: tenantB,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+
+	hub.Register(connA)
+	hub.Register(connB)
+
+	payload := map[string]interface{}{
+		"session_id": uuid.New().String(),
+		"tenant_id":  tenantB.String(),
+		"imsi":       "001010000000001",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	hub.relayNATSEvent("argus.events.session.started", data)
+
+	select {
+	case <-connA.SendCh:
+		t.Fatal("tenant A should NOT receive event scoped to tenant B")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case msg := <-connB.SendCh:
+		var env EventEnvelope
+		if err := json.Unmarshal(msg, &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if env.Type != "session.started" {
+			t.Errorf("type = %s, want session.started", env.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tenant B should receive its event")
+	}
+}
+
+func TestRelayNATSEvent_SystemEventBroadcast(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenant1 := uuid.New()
+	tenant2 := uuid.New()
+
+	conn1 := &Connection{
+		TenantID: tenant1,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+	conn2 := &Connection{
+		TenantID: tenant2,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+
+	hub.Register(conn1)
+	hub.Register(conn2)
+
+	payload := map[string]interface{}{
+		"operator_id": uuid.New().String(),
+		"tenant_id":   nil,
+		"status":      "down",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	hub.relayNATSEvent("argus.events.operator.health", data)
+
+	for i, ch := range []chan []byte{conn1.SendCh, conn2.SendCh} {
+		select {
+		case msg := <-ch:
+			var env EventEnvelope
+			if err := json.Unmarshal(msg, &env); err != nil {
+				t.Fatalf("conn%d unmarshal: %v", i+1, err)
+			}
+			if env.Type != "operator.health_changed" {
+				t.Errorf("conn%d type = %s, want operator.health_changed", i+1, env.Type)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("conn%d should receive system event", i+1)
+		}
+	}
+}
+
+func TestRelayNATSEvent_MissingTenantIDBroadcasts(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenant1 := uuid.New()
+	tenant2 := uuid.New()
+
+	conn1 := &Connection{
+		TenantID: tenant1,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+	conn2 := &Connection{
+		TenantID: tenant2,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+
+	hub.Register(conn1)
+	hub.Register(conn2)
+
+	payload := map[string]interface{}{
+		"alert_id": uuid.New().String(),
+		"severity": "critical",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	hub.relayNATSEvent("argus.events.alert.triggered", data)
+
+	for i, ch := range []chan []byte{conn1.SendCh, conn2.SendCh} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("conn%d should receive event without tenant_id (system fallback)", i+1)
+		}
+	}
+}
+
+func TestRelayNATSEvent_InvalidTenantIDBroadcasts(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenantID := uuid.New()
+	conn := &Connection{
+		TenantID: tenantID,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+	hub.Register(conn)
+
+	payload := map[string]interface{}{
+		"job_id":    uuid.New().String(),
+		"tenant_id": "not-a-uuid",
+	}
+	data, _ := json.Marshal(payload)
+
+	hub.relayNATSEvent("argus.jobs.completed", data)
+
+	select {
+	case <-conn.SendCh:
+	case <-time.After(time.Second):
+		t.Fatal("invalid tenant_id should fall back to broadcast-all")
+	}
+}
+
+func TestExtractTenantID(t *testing.T) {
+	id := uuid.New()
+
+	tests := []struct {
+		name      string
+		payload   map[string]interface{}
+		wantOk    bool
+		wantValue uuid.UUID
+	}{
+		{
+			name:      "string uuid",
+			payload:   map[string]interface{}{"tenant_id": id.String()},
+			wantOk:    true,
+			wantValue: id,
+		},
+		{
+			name:    "missing key",
+			payload: map[string]interface{}{"foo": "bar"},
+			wantOk:  false,
+		},
+		{
+			name:    "nil value",
+			payload: map[string]interface{}{"tenant_id": nil},
+			wantOk:  false,
+		},
+		{
+			name:    "empty string",
+			payload: map[string]interface{}{"tenant_id": ""},
+			wantOk:  false,
+		},
+		{
+			name:    "nil uuid string",
+			payload: map[string]interface{}{"tenant_id": uuid.Nil.String()},
+			wantOk:  false,
+		},
+		{
+			name:    "invalid string",
+			payload: map[string]interface{}{"tenant_id": "abc"},
+			wantOk:  false,
+		},
+		{
+			name:    "wrong type",
+			payload: map[string]interface{}{"tenant_id": 42},
+			wantOk:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := extractTenantID(tt.payload)
+			if ok != tt.wantOk {
+				t.Errorf("ok = %v, want %v", ok, tt.wantOk)
+			}
+			if tt.wantOk && got != tt.wantValue {
+				t.Errorf("value = %s, want %s", got, tt.wantValue)
+			}
+		})
+	}
+}
+
 func TestEventEnvelope_Serialization(t *testing.T) {
 	env := EventEnvelope{
 		Type:      "operator.health_changed",

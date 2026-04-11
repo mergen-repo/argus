@@ -87,7 +87,7 @@ var validTransitions = map[string][]string{
 	"ordered":     {"active"},
 	"active":      {"suspended", "stolen_lost", "terminated"},
 	"suspended":   {"active", "terminated"},
-	"stolen_lost": {},
+	"stolen_lost": {"terminated"},
 	"terminated":  {"purged"},
 	"purged":      {},
 }

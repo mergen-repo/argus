@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -59,6 +60,23 @@ func (w *HTTPWebhookSender) SendWebhook(ctx context.Context, url, secret, payloa
 		return fmt.Errorf("notification: webhook status %d", resp.StatusCode)
 	}
 
+	return nil
+}
+
+func ValidateWebhookConfig(rawURL, secret string) error {
+	if rawURL == "" {
+		return fmt.Errorf("notification: webhook url is empty")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("notification: webhook url invalid: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("notification: webhook url must use https scheme, got %q", parsed.Scheme)
+	}
+	if secret == "" {
+		return fmt.Errorf("notification: webhook secret is empty")
+	}
 	return nil
 }
 
