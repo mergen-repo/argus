@@ -18,6 +18,7 @@ import {
   XOctagon,
   Info,
   ChevronRight,
+  Smartphone,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -70,6 +71,7 @@ import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { ESimTab } from './esim-tab'
 
 function allowedActions(state: SIMState): Array<{ action: string; label: string; icon: React.ElementType; variant: 'default' | 'destructive' | 'outline' }> {
   switch (state) {
@@ -762,6 +764,12 @@ export default function SimDetailPage() {
             <Shield className="h-3.5 w-3.5" />
             Overview
           </TabsTrigger>
+          {sim.sim_type === 'esim' && (
+            <TabsTrigger value="esim" className="gap-1.5">
+              <Smartphone className="h-3.5 w-3.5" />
+              eSIM
+            </TabsTrigger>
+          )}
           <TabsTrigger value="sessions" className="gap-1.5">
             <Activity className="h-3.5 w-3.5" />
             Sessions
@@ -785,6 +793,14 @@ export default function SimDetailPage() {
             <OverviewTab sim={sim} />
           </ErrorBoundary>
         </TabsContent>
+
+        {sim.sim_type === 'esim' && (
+          <TabsContent value="esim">
+            <ErrorBoundary>
+              <ESimTab simId={sim.id} />
+            </ErrorBoundary>
+          </TabsContent>
+        )}
 
         <TabsContent value="sessions">
           <ErrorBoundary>

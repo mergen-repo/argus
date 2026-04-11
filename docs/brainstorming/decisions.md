@@ -376,6 +376,8 @@
 | DEV-161 | 2026-04-12 | **STORY-063 AC-9: `TestHandler_Disconnect_Success` unskip uses miniredis (not a real store).** DB durable persistence covered by the existing `sessionStore`-enabled production path and by integration tests. Supersedes DEV-052. | ACCEPTED |
 | DEV-162 | 2026-04-12 | **STORY-063 AC-11: 4 dead config flags removed (`DevSeedData`, `DevMockOperator`, `DevDisable2FA`, `DevLogSQL`).** `DevCORSAllowAll` retained — still referenced by main.go CORS setup; its hardening is STORY-074 AC-3 scope. | ACCEPTED |
 | DEV-163 | 2026-04-12 | **STORY-063 AC-8: NRF methods now take `context.Context`.** Signature change is source-breaking to `sba.Server` only — no external consumers. | ACCEPTED |
+| DEV-164 | 2026-04-12 | **STORY-061: On profile switch, old profile transitions to `available` (not `disabled`).** A switch is a swap between profiles, not an operator-deactivation. Setting the displaced profile to `available` enables immediate re-switch without a manual re-enable step. `disabled` is reserved for operator-deactivated profiles (e.g., suspended by carrier). | ACCEPTED |
+| DEV-165 | 2026-04-12 | **STORY-061: Max 8 profiles per SIM enforced in Create handler.** GSMA SGP.22 industry standard cap. Prevents unbounded row growth in `esim_profiles` and aligns with real-world eUICC capacity. Enforced at the application layer (not DB constraint) to return `PROFILE_LIMIT_EXCEEDED` (422) with a user-friendly message. | ACCEPTED |
 
 ---
 

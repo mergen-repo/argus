@@ -28,6 +28,15 @@ type dmDispatcher interface {
 	SendDM(ctx context.Context, req aaasession.DMRequest) (*aaasession.DMResult, error)
 }
 
+type ipPoolReleaser interface {
+	GetIPAddressByID(ctx context.Context, id uuid.UUID) (*store.IPAddress, error)
+	ReleaseIP(ctx context.Context, poolID, simID uuid.UUID) error
+}
+
+type eventPublisher interface {
+	Publish(ctx context.Context, subject string, payload interface{}) error
+}
+
 type Handler struct {
 	esimStore    *store.ESimProfileStore
 	simStore     *store.SIMStore
@@ -35,6 +44,8 @@ type Handler struct {
 	auditSvc     audit.Auditor
 	sessionStore activeSessionLister
 	dmSender     dmDispatcher
+	ipPoolStore  ipPoolReleaser
+	eventBus     eventPublisher
 	logger       zerolog.Logger
 }
 
@@ -62,11 +73,22 @@ func (h *Handler) SetSessionDeps(sessionStore activeSessionLister, dmSender dmDi
 	h.dmSender = dmSender
 }
 
+// SetIPPoolStore wires the IP pool store used by Switch to release IPs after a profile switch.
+func (h *Handler) SetIPPoolStore(s ipPoolReleaser) {
+	h.ipPoolStore = s
+}
+
+// SetEventBus wires the event bus used by Switch to emit profile-switched events.
+func (h *Handler) SetEventBus(b eventPublisher) {
+	h.eventBus = b
+}
+
 type profileResponse struct {
 	ID                string  `json:"id"`
 	SimID             string  `json:"sim_id"`
 	EID               string  `json:"eid"`
 	SMDPPlusID        *string `json:"sm_dp_plus_id,omitempty"`
+	ProfileID         *string `json:"profile_id,omitempty"`
 	OperatorID        string  `json:"operator_id"`
 	ProfileState      string  `json:"profile_state"`
 	ICCIDOnProfile    *string `json:"iccid_on_profile,omitempty"`
@@ -82,24 +104,35 @@ type switchResponse struct {
 	NewProfile           profileResponse          `json:"new_profile"`
 	NewOperatorID        string                   `json:"new_operator_id"`
 	DisconnectedSessions []map[string]interface{} `json:"disconnected_sessions,omitempty"`
+	IPReleased           bool                     `json:"ip_released"`
+	PolicyCleared        bool                     `json:"policy_cleared"`
 }
 
 type switchRequest struct {
 	TargetProfileID string `json:"target_profile_id"`
 }
 
+type createProfileRequest struct {
+	SimID          string  `json:"sim_id"`
+	EID            string  `json:"eid"`
+	OperatorID     string  `json:"operator_id"`
+	ICCIDOnProfile *string `json:"iccid_on_profile"`
+	ProfileID      *string `json:"profile_id"`
+}
+
 func toProfileResponse(p *store.ESimProfile) profileResponse {
 	resp := profileResponse{
-		ID:           p.ID.String(),
-		SimID:        p.SimID.String(),
-		EID:          p.EID,
-		SMDPPlusID:   p.SMDPPlusID,
-		OperatorID:   p.OperatorID.String(),
-		ProfileState: p.ProfileState,
+		ID:             p.ID.String(),
+		SimID:          p.SimID.String(),
+		EID:            p.EID,
+		SMDPPlusID:     p.SMDPPlusID,
+		ProfileID:      p.ProfileID,
+		OperatorID:     p.OperatorID.String(),
+		ProfileState:   p.ProfileState,
 		ICCIDOnProfile: p.ICCIDOnProfile,
-		LastError:    p.LastError,
-		CreatedAt:    p.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt:    p.UpdatedAt.Format(time.RFC3339Nano),
+		LastError:      p.LastError,
+		CreatedAt:      p.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:      p.UpdatedAt.Format(time.RFC3339Nano),
 	}
 	if p.LastProvisionedAt != nil {
 		v := p.LastProvisionedAt.Format(time.RFC3339Nano)
@@ -417,6 +450,8 @@ func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	oldIPAddressID := sim.IPAddressID
+
 	userID := userIDFromCtx(r)
 
 	result, err := h.esimStore.Switch(r.Context(), tenantID, sourceProfileID, targetProfileID, userID)
@@ -445,7 +480,34 @@ func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditAfter := map[string]interface{}{"switch_result": result}
+	ipReleased := false
+	if oldIPAddressID != nil && h.ipPoolStore != nil {
+		addr, addrErr := h.ipPoolStore.GetIPAddressByID(r.Context(), *oldIPAddressID)
+		if addrErr != nil {
+			h.logger.Warn().Err(addrErr).Str("ip_address_id", oldIPAddressID.String()).Msg("get ip address for release after switch (skipping)")
+		} else {
+			if releaseErr := h.ipPoolStore.ReleaseIP(r.Context(), addr.PoolID, result.SimID); releaseErr != nil {
+				h.logger.Warn().Err(releaseErr).Str("pool_id", addr.PoolID.String()).Str("sim_id", result.SimID.String()).Msg("release IP after esim switch failed (non-blocking)")
+			} else {
+				ipReleased = true
+			}
+		}
+	}
+
+	if h.eventBus != nil {
+		evtErr := h.eventBus.Publish(r.Context(), "esim.profile.switched", map[string]interface{}{
+			"sim_id":          result.SimID.String(),
+			"old_profile_id":  sourceProfileID.String(),
+			"new_profile_id":  targetProfileID.String(),
+			"new_operator_id": result.NewOperatorID.String(),
+			"timestamp":       time.Now().UTC(),
+		})
+		if evtErr != nil {
+			h.logger.Warn().Err(evtErr).Msg("publish esim.profile.switched event failed (non-blocking)")
+		}
+	}
+
+	auditAfter := map[string]interface{}{"switch_result": result, "ip_released": ipReleased}
 	if len(dmResults) > 0 {
 		auditAfter["disconnected_sessions"] = dmResults
 	}
@@ -459,9 +521,164 @@ func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 		NewProfile:           toProfileResponse(result.NewProfile),
 		NewOperatorID:        result.NewOperatorID.String(),
 		DisconnectedSessions: dmResults,
+		IPReleased:           ipReleased,
+		PolicyCleared:        true,
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	var req createProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	simID, err := uuid.Parse(req.SimID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid sim_id format")
+		return
+	}
+
+	if req.EID == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "eid is required")
+		return
+	}
+
+	operatorID, err := uuid.Parse(req.OperatorID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator_id format")
+		return
+	}
+
+	sim, err := h.simStore.GetByID(r.Context(), tenantID, simID)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", req.SimID).Msg("get sim for esim create")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if sim.SimType != "esim" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeNotESIM, "SIM is not an eSIM type")
+		return
+	}
+
+	count, err := h.esimStore.CountBySIM(r.Context(), simID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("sim_id", req.SimID).Msg("count esim profiles for sim")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if count >= 8 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeProfileLimitExceeded, "Maximum profile limit (8) reached for this SIM")
+		return
+	}
+
+	if h.smdpAdapter != nil {
+		iccid := ""
+		if req.ICCIDOnProfile != nil {
+			iccid = *req.ICCIDOnProfile
+		}
+		_, smdpErr := h.smdpAdapter.DownloadProfile(r.Context(), esimpkg.DownloadProfileRequest{
+			EID:        req.EID,
+			OperatorID: operatorID,
+			ICCID:      iccid,
+		})
+		if smdpErr != nil {
+			h.logger.Warn().Err(smdpErr).Str("sim_id", req.SimID).Msg("SM-DP+ download profile failed (continuing)")
+		}
+	}
+
+	params := store.CreateESimProfileParams{
+		SimID:          simID,
+		OperatorID:     operatorID,
+		EID:            req.EID,
+		ICCIDOnProfile: req.ICCIDOnProfile,
+		ProfileID:      req.ProfileID,
+	}
+
+	profile, err := h.esimStore.Create(r.Context(), params)
+	if err != nil {
+		if errors.Is(err, store.ErrDuplicateProfile) {
+			apierr.WriteError(w, http.StatusConflict, apierr.CodeDuplicateProfile, "A profile with this ICCID already exists for this SIM")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", req.SimID).Msg("create esim profile")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	userID := userIDFromCtx(r)
+	h.createAuditEntry(r, "esim_profile.create", profile.ID.String(), nil, profile, userID)
+
+	apierr.WriteSuccess(w, http.StatusCreated, toProfileResponse(profile))
+}
+
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	profileID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid eSIM profile ID format")
+		return
+	}
+
+	existing, err := h.esimStore.GetByID(r.Context(), tenantID, profileID)
+	if err != nil {
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("get esim profile for delete")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.smdpAdapter != nil {
+		smdpErr := h.smdpAdapter.DeleteProfile(r.Context(), esimpkg.DeleteProfileRequest{
+			EID:       existing.EID,
+			ProfileID: profileID,
+		})
+		if smdpErr != nil {
+			h.logger.Warn().Err(smdpErr).Str("profile_id", idStr).Msg("SM-DP+ delete profile failed (continuing)")
+		}
+	}
+
+	deleted, err := h.esimStore.SoftDelete(r.Context(), tenantID, profileID)
+	if err != nil {
+		if errors.Is(err, store.ErrCannotDeleteEnabled) {
+			apierr.WriteError(w, http.StatusConflict, apierr.CodeCannotDeleteEnabled, "Cannot delete an enabled profile; disable it first")
+			return
+		}
+		if errors.Is(err, store.ErrESimProfileNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("profile_id", idStr).Msg("soft delete esim profile")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	userID := userIDFromCtx(r)
+	h.createAuditEntry(r, "esim_profile.delete", profileID.String(), existing, deleted, userID)
+
+	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(deleted))
 }
 
 // disconnectActiveSessionsForSwitch sends DMs for every active session on the SIM

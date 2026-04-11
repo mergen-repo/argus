@@ -1226,6 +1226,39 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ---
 
+## STORY-061: eSIM Model Evolution
+
+**Ekran:** SIM Detail — eSIM Tab (SCR-021 eSIM sekmesi)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | eSIM tipli bir SIM detay sayfasini ac, eSIM sekmesine tikla | Profil kartlari listelenir; her kartta profil durumu badge'i (available=mavi, enabled=yesil, disabled=turuncu, deleted=gri) gorunur |
+| 2 | "Load Profile" butonuna tikla | Dialog acilir; EID, Operator, ICCID, Profile ID alanlari doldurulur ve kaydedilir |
+| 3 | Yeni yuklenen profil kartinda durumu kontrol et | `available` durumunda gorunur |
+| 4 | `available` durumdaki profil icin "Enable" butonuna tikla | Profil `enabled` olur; onceki `enabled` profil `available` durumuna gecer (DEV-164) |
+| 5 | `enabled` durumdaki profil icin "Switch" acilir menusunden hedef profil sec | Eski profil `available`, yeni profil `enabled` olur; IP serbest birakilir; policy temizlenir |
+| 6 | `available` ya da `disabled` durumundaki profil icin "Delete" butonuna tikla | Onay dialog'u cikip soft-delete yapilir |
+| 7 | `enabled` durumundaki profil icin silmeyi dene | 409 CANNOT_DELETE_ENABLED_PROFILE hatasi gorunur |
+| 8 | Ayni SIM'e 9 profil yuklemeyi dene | 422 PROFILE_LIMIT_EXCEEDED (max 8) hatasi gorunur |
+| 9 | Profil kartinda `profile_id` alani gorulur | profile_id varsa kartta gosterilir (bos ise gosterilmez) |
+| 10 | eSIM olmayan (physical) SIM detayinda eSIM sekmesi | Sekme gorunmez ya da profil listesi bos + CTA gorunur |
+
+**Ekran:** eSIM Profiles (SCR-070, /esim)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 11 | /esim sayfasini ac | Tum tenant eSIM profilleri listelenir; durum filtreleme calisir |
+| 12 | `available` ya da `disabled` durumdaki profil satirinda "Delete" butonuna tikla | Onay sonrasi soft-delete basarili |
+
+**Altyapi:**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 13 | `psql ... -c "SELECT profile_state, COUNT(*) FROM esim_profiles GROUP BY profile_state;"` | `available`, `enabled`, `disabled`, `deleted` satirlari gorunebilir |
+| 14 | `psql ... -c "INSERT INTO esim_profiles (sim_id,...,profile_state) VALUES (uuid,'enabled',...); INSERT ..." -- ayni sim_id ile ikinci 'enabled' deneme` | Partial unique constraint hatasi: "duplicate key value violates unique constraint idx_esim_profiles_sim_enabled" |
+
+---
+
 ## STORY-063: Backend Implementation Completeness
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:

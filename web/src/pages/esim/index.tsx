@@ -9,6 +9,7 @@ import {
   Power,
   PowerOff,
   ArrowRightLeft,
+  Trash2,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ import {
   useEnableProfile,
   useDisableProfile,
   useSwitchProfile,
+  useDeleteProfile,
 } from '@/hooks/use-esim'
 import { useOperatorList } from '@/hooks/use-operators'
 import type { ESimProfile, ESimProfileState } from '@/types/esim'
@@ -70,7 +72,7 @@ export default function EsimListPage() {
   const [filters, setFilters] = useState<{ operator_id?: string; state?: string }>({})
   const [actionDialog, setActionDialog] = useState<{
     profile: ESimProfile
-    action: 'enable' | 'disable' | 'switch'
+    action: 'enable' | 'disable' | 'switch' | 'delete'
   } | null>(null)
   const [switchTargetId, setSwitchTargetId] = useState('')
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -92,6 +94,7 @@ export default function EsimListPage() {
   const enableMutation = useEnableProfile()
   const disableMutation = useDisableProfile()
   const switchMutation = useSwitchProfile()
+  const deleteMutation = useDeleteProfile()
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -125,6 +128,8 @@ export default function EsimListPage() {
           profileId: actionDialog.profile.id,
           targetProfileId: switchTargetId,
         })
+      } else if (actionDialog.action === 'delete') {
+        await deleteMutation.mutateAsync(actionDialog.profile.id)
       }
       setActionDialog(null)
       setSwitchTargetId('')
@@ -133,7 +138,7 @@ export default function EsimListPage() {
     }
   }
 
-  const isPending = enableMutation.isPending || disableMutation.isPending || switchMutation.isPending
+  const isPending = enableMutation.isPending || disableMutation.isPending || switchMutation.isPending || deleteMutation.isPending
 
   if (isError) {
     return (
@@ -311,15 +316,26 @@ export default function EsimListPage() {
                   <TableCell>
                     <div className="flex gap-1">
                       {(profile.profile_state === 'disabled' || profile.profile_state === 'available') && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px] gap-1"
-                          onClick={() => setActionDialog({ profile, action: 'enable' })}
-                        >
-                          <Power className="h-3 w-3" />
-                          Enable
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] gap-1"
+                            onClick={() => setActionDialog({ profile, action: 'enable' })}
+                          >
+                            <Power className="h-3 w-3" />
+                            Enable
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] gap-1 border-danger/30 text-danger hover:bg-danger-dim"
+                            onClick={() => setActionDialog({ profile, action: 'delete' })}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </Button>
+                        </>
                       )}
                       {profile.profile_state === 'enabled' && (
                         <>
@@ -381,6 +397,7 @@ export default function EsimListPage() {
               {actionDialog?.action === 'enable' && 'Enable Profile?'}
               {actionDialog?.action === 'disable' && 'Disable Profile?'}
               {actionDialog?.action === 'switch' && 'Switch Profile'}
+              {actionDialog?.action === 'delete' && 'Delete Profile?'}
             </DialogTitle>
             <DialogDescription>
               {actionDialog?.action === 'enable' && (
@@ -391,6 +408,9 @@ export default function EsimListPage() {
               )}
               {actionDialog?.action === 'switch' && (
                 <>Switch from the current profile to a different profile on the same SIM. Enter the target profile ID below.</>
+              )}
+              {actionDialog?.action === 'delete' && (
+                <>Permanently delete eSIM profile for SIM <span className="font-mono text-accent">{actionDialog?.profile.sim_id.slice(0, 8)}</span>. This cannot be undone.</>
               )}
             </DialogDescription>
           </DialogHeader>
@@ -412,7 +432,7 @@ export default function EsimListPage() {
               Cancel
             </Button>
             <Button
-              variant={actionDialog?.action === 'disable' ? 'destructive' : 'default'}
+              variant={actionDialog?.action === 'disable' || actionDialog?.action === 'delete' ? 'destructive' : 'default'}
               onClick={handleAction}
               disabled={isPending || (actionDialog?.action === 'switch' && !switchTargetId)}
               className="gap-2"
@@ -421,6 +441,7 @@ export default function EsimListPage() {
               {actionDialog?.action === 'enable' && 'Enable'}
               {actionDialog?.action === 'disable' && 'Disable'}
               {actionDialog?.action === 'switch' && 'Switch'}
+              {actionDialog?.action === 'delete' && 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -159,14 +159,17 @@ CREATE TABLE sim_state_history (
 
 ## TBL-12: esim_profiles
 
+Multi-profile eSIM table. A single SIM may have up to 8 profiles (GSMA SGP.22 cap). Exactly one profile per SIM may be in `enabled` state, enforced by partial unique index.
+
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
 | id | UUID | PK, DEFAULT gen_random_uuid() | Profile identifier |
-| sim_id | UUID | FK → sims.id, NOT NULL, UNIQUE | Parent SIM |
+| sim_id | UUID | FK → sims.id, NOT NULL | Parent SIM (multi-profile: no plain UNIQUE) |
+| profile_id | VARCHAR(64) | | Operator/SM-DP+ profile identifier (for dedup) |
 | eid | VARCHAR(32) | NOT NULL | eUICC identifier |
 | sm_dp_plus_id | VARCHAR(255) | | SM-DP+ profile reference |
 | operator_id | UUID | FK → operators.id, NOT NULL | Profile operator |
-| profile_state | VARCHAR(20) | NOT NULL, DEFAULT 'disabled' | enabled, disabled, deleted |
+| profile_state | VARCHAR(20) | NOT NULL, DEFAULT 'available', CHECK (profile_state IN ('available','enabled','disabled','deleted')) | available (loaded, inactive), enabled (active), disabled (operator-deactivated), deleted (soft-deleted) |
 | iccid_on_profile | VARCHAR(22) | | Profile-specific ICCID |
 | last_provisioned_at | TIMESTAMPTZ | | Last SM-DP+ operation time |
 | last_error | TEXT | | Last provisioning error |
@@ -174,9 +177,13 @@ CREATE TABLE sim_state_history (
 | updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Last update |
 
 Indexes:
-- `idx_esim_profiles_sim` UNIQUE on (sim_id)
+- `idx_esim_profiles_sim_enabled` PARTIAL UNIQUE on (sim_id) WHERE profile_state = 'enabled' — enforces one active profile per SIM
+- `idx_esim_profiles_sim_profile` PARTIAL UNIQUE on (sim_id, profile_id) WHERE profile_id IS NOT NULL — prevents duplicate profile_id per SIM
+- `idx_esim_profiles_sim_state` on (sim_id, profile_state) — covers CountBySIM and filtered list queries
 - `idx_esim_profiles_eid` on (eid)
 - `idx_esim_profiles_operator` on (operator_id)
+
+Migration: `20260412000002_esim_multiprofile.up.sql` / `.down.sql`
 
 ---
 

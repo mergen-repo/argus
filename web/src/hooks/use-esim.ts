@@ -1,6 +1,6 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { ESimProfile, ESimSwitchResult } from '@/types/esim'
+import type { ESimProfile, ESimSwitchResult, ESimCreateRequest } from '@/types/esim'
 import type { ListResponse, ApiResponse } from '@/types/sim'
 
 const ESIM_KEY = ['esim-profiles'] as const
@@ -60,6 +60,46 @@ export function useSwitchProfile() {
       const res = await api.post<ApiResponse<ESimSwitchResult>>(`/esim-profiles/${profileId}/switch`, {
         target_profile_id: targetProfileId,
       })
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ESIM_KEY })
+    },
+  })
+}
+
+export function useESimListBySim(simId: string) {
+  return useQuery({
+    queryKey: [...ESIM_KEY, 'by-sim', simId],
+    queryFn: async () => {
+      const res = await api.get<ListResponse<ESimProfile>>(`/esim-profiles?sim_id=${simId}&limit=50`)
+      return res.data.data
+    },
+    enabled: !!simId,
+    staleTime: 15_000,
+  })
+}
+
+export function useCreateProfile() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (body: ESimCreateRequest) => {
+      const res = await api.post<ApiResponse<ESimProfile>>('/esim-profiles', body)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ESIM_KEY })
+    },
+  })
+}
+
+export function useDeleteProfile() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (profileId: string) => {
+      const res = await api.delete<ApiResponse<ESimProfile>>(`/esim-profiles/${profileId}`)
       return res.data.data
     },
     onSuccess: () => {

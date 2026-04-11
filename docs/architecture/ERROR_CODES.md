@@ -177,6 +177,11 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `PROFILE_ALREADY_ENABLED` | 422 | Attempting to enable a profile that is already enabled | `{"status":"error","error":{"code":"PROFILE_ALREADY_ENABLED","message":"eSIM profile is already in enabled state"}}` |
 | `SM_DP_PLUS_ERROR` | 502 | Error communicating with SM-DP+ server | `{"status":"error","error":{"code":"SM_DP_PLUS_ERROR","message":"SM-DP+ server returned an error","details":[{"sm_dp_error_code":"8.1","sm_dp_message":"Profile not available"}]}}` |
 | `SWITCH_FAILED` | 502 | eSIM operator switch failed during the multi-step process | `{"status":"error","error":{"code":"SWITCH_FAILED","message":"eSIM operator switch failed","details":[{"step":"disable_current","error":"Timeout communicating with Turkcell SM-DP+"}]}}` |
+| `PROFILE_LIMIT_EXCEEDED` | 422 | Max profiles per SIM reached (GSMA SGP.22 limit: 8 profiles per SIM) | `{"status":"error","error":{"code":"PROFILE_LIMIT_EXCEEDED","message":"Maximum number of profiles per SIM reached","details":[{"sim_id":"uuid","current_count":8,"limit":8}]}}` |
+| `CANNOT_DELETE_ENABLED_PROFILE` | 409 | Cannot delete a profile that is currently in enabled state | `{"status":"error","error":{"code":"CANNOT_DELETE_ENABLED_PROFILE","message":"Cannot delete a profile in enabled state. Disable it first."}}` |
+| `DUPLICATE_PROFILE` | 409 | Profile with same sim_id and profile_id combination already exists | `{"status":"error","error":{"code":"DUPLICATE_PROFILE","message":"A profile with this profile_id already exists for this SIM","details":[{"sim_id":"uuid","profile_id":"abc123"}]}}` |
+| `PROFILE_NOT_AVAILABLE` | 422 | Profile is not in available or disabled state and cannot be enabled | `{"status":"error","error":{"code":"PROFILE_NOT_AVAILABLE","message":"Profile must be in available or disabled state to enable","details":[{"profile_id":"uuid","current_state":"deleted"}]}}` |
+| `IP_RELEASE_FAILED` | — (warning, non-blocking) | IP release failed during profile switch; operation continues | `{"status":"error","error":{"code":"IP_RELEASE_FAILED","message":"IP address release failed during profile switch; switch proceeded"}}` |
 
 ---
 
@@ -312,6 +317,11 @@ const (
     CodeProfileAlreadyEnabled = "PROFILE_ALREADY_ENABLED"
     CodeSMDPPlusError        = "SM_DP_PLUS_ERROR"
     CodeSwitchFailed         = "SWITCH_FAILED"
+    CodeProfileLimitExceeded = "PROFILE_LIMIT_EXCEEDED"
+    CodeCannotDeleteEnabled  = "CANNOT_DELETE_ENABLED_PROFILE"
+    CodeDuplicateProfile     = "DUPLICATE_PROFILE"
+    CodeProfileNotAvailable  = "PROFILE_NOT_AVAILABLE"
+    CodeIPReleaseFailed      = "IP_RELEASE_FAILED"
 
     // Job
     CodeJobNotFound       = "JOB_NOT_FOUND"

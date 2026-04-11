@@ -88,15 +88,17 @@
 | API-065 | POST | /api/v1/sims/bulk/policy-assign | Bulk policy assign on segment. Job result includes CoA counters: `coa_sent_count`, `coa_acked_count`, `coa_failed_count` (omitted when 0). CoA dispatched outside distLock after release. | JWT (policy_editor+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); CoA dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md) |
 | API-066 | POST | /api/v1/sims/bulk/operator-switch | Bulk eSIM operator switch | JWT (tenant_admin) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
 
-## eSIM (5 endpoints)
+## eSIM (7 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-070 | GET | /api/v1/esim-profiles | List eSIM profiles | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
+| API-070 | GET | /api/v1/esim-profiles | List eSIM profiles (supports sim_id filter for multi-profile view) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
 | API-071 | GET | /api/v1/esim-profiles/:id | Get eSIM profile detail | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
-| API-072 | POST | /api/v1/esim-profiles/:id/enable | Enable eSIM profile | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
-| API-073 | POST | /api/v1/esim-profiles/:id/disable | Disable eSIM profile | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
-| API-074 | POST | /api/v1/esim-profiles/:id/switch | Switch to different operator profile. Dispatches DM (RFC 5176) for active sessions before switching. Response includes `disconnected_sessions` count. `force=true` bypasses DM on NAK. Returns 409 `SESSION_DISCONNECT_FAILED` on NAK without force. | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); DM dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md) |
+| API-072 | POST | /api/v1/esim-profiles/:id/enable | Enable eSIM profile (accepts `available` or `disabled` state) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); state machine: [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
+| API-073 | POST | /api/v1/esim-profiles/:id/disable | Disable eSIM profile (operator-deactivation → `disabled` state) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
+| API-074 | POST | /api/v1/esim-profiles/:id/switch | Switch to different operator profile. Dispatches DM (RFC 5176) for active sessions before switching. Old profile transitions to `available` (not `disabled`, per DEV-164). Releases IP for new APN; clears policy. Response includes `disconnected_sessions` count. `force=true` bypasses DM on NAK. Returns 409 `SESSION_DISCONNECT_FAILED` on NAK without force. | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); DM dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md); switch evolution: [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
+| API-075 | POST | /api/v1/esim-profiles | Load (create) a new eSIM profile on a SIM. SIM must be eSIM type. Max 8 profiles (PROFILE_LIMIT_EXCEEDED 422). Calls SM-DP+ DownloadProfile. Profile created in `available` state. | JWT (sim_manager+) | See [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
+| API-076 | DELETE | /api/v1/esim-profiles/:id | Soft-delete an eSIM profile. Returns 409 CANNOT_DELETE_ENABLED_PROFILE if profile is in `enabled` state. Calls SM-DP+ DeleteProfile before soft-delete. | JWT (sim_manager+) | See [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
 
 ## IP Pools (6 endpoints)
 
@@ -249,4 +251,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 111 REST endpoints + 10 WebSocket event types**
+**Total: 113 REST endpoints + 10 WebSocket event types**

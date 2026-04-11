@@ -56,6 +56,11 @@ const (
 	CodeSameProfile             = "SAME_PROFILE"
 	CodeDifferentSIM            = "DIFFERENT_SIM"
 	CodeSessionDisconnectFailed = "SESSION_DISCONNECT_FAILED"
+	CodeProfileLimitExceeded    = "PROFILE_LIMIT_EXCEEDED"
+	CodeCannotDeleteEnabled     = "CANNOT_DELETE_ENABLED_PROFILE"
+	CodeDuplicateProfile        = "DUPLICATE_PROFILE"
+	CodeProfileNotAvailable     = "PROFILE_NOT_AVAILABLE"
+	CodeIPReleaseFailed         = "IP_RELEASE_FAILED"
 )
 
 type SuccessResponse struct {

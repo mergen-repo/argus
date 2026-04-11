@@ -224,6 +224,8 @@ func main() {
 		smdpAdapter = httpAdapter
 	}
 	esimHandler := esimapi.NewHandler(esimStore, simStore, smdpAdapter, auditSvc, log.Logger)
+	esimHandler.SetIPPoolStore(ippoolStore)
+	esimHandler.SetEventBus(eventBus)
 	segmentStore := store.NewSegmentStore(pg.Pool)
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
 	msisdnStore := store.NewMSISDNStore(pg.Pool)
