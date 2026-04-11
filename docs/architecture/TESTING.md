@@ -367,16 +367,16 @@ E2E tests run against a full Docker Compose stack (`deploy/docker-compose.yml`) 
 // e2e/playwright.config.ts
 export default defineConfig({
   testDir: './e2e',
-  baseURL: 'https://localhost',
+  baseURL: 'http://localhost:8084',
   use: {
-    ignoreHTTPSErrors: true,
+    ignoreHTTPSErrors: false,
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: 'docker compose -f deploy/docker-compose.yml up -d',
-    url: 'https://localhost/api/health',
+    url: 'http://localhost:8084/api/health',
     reuseExistingServer: true,
     timeout: 120000,
   },

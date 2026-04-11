@@ -15,7 +15,7 @@
 ## Smoke Test
 | Endpoint | Status | Response |
 |----------|--------|----------|
-| Frontend (https://localhost:8084) | 200 | OK |
+| Frontend (http://localhost:8084) | 200 | OK |
 | API Health | 200 | `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok"}}` |
 | DB | connected | `accepting connections` |
 | Auth login | 200 | JWT token issued |

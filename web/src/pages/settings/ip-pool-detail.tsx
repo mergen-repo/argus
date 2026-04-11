@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -204,7 +205,7 @@ export default function IpPoolDetailPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-[16px] font-semibold text-text-primary">{pool.name}</h1>
-            <span className="font-mono text-xs text-text-tertiary">{pool.cidr}</span>
+            <span className="font-mono text-xs text-text-tertiary">{pool.cidr_v4 || pool.cidr_v6 || ''}</span>
           </div>
           <div className="flex items-center gap-2 mt-1">
             {operator && (
@@ -230,17 +231,17 @@ export default function IpPoolDetailPage() {
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-tertiary pointer-events-none" />
-            <input
+            <Input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
               placeholder="Filter by IP, SIM..."
-              className="h-8 w-56 rounded-[var(--radius-sm)] border border-border bg-bg-surface pl-8 pr-8 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors"
+              className="h-8 w-56 bg-bg-surface pl-8 pr-8 text-xs"
             />
             {searchFilter && (
-              <button onClick={() => setSearchFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary">
+              <Button variant="ghost" size="icon" onClick={() => setSearchFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary">
                 <X className="h-3 w-3" />
-              </button>
+              </Button>
             )}
           </div>
           <Button size="sm" className="gap-2" onClick={() => { setShowReservePanel(true); setReserveQueue([]) }}>
@@ -341,10 +342,12 @@ export default function IpPoolDetailPage() {
                   </TableCell>
                   <TableCell>
                     {(addr.state === 'reserved' || addr.state === 'assigned') && (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => handleRelease(addr.id)}
                         disabled={releaseMutation.isPending}
-                        className="p-1 rounded text-text-tertiary hover:text-danger hover:bg-danger-dim transition-colors"
+                        className="h-7 w-7 text-text-tertiary hover:text-danger hover:bg-danger-dim"
                         title="Release reservation"
                       >
                         {releaseMutation.isPending ? (
@@ -352,7 +355,7 @@ export default function IpPoolDetailPage() {
                         ) : (
                           <Trash2 className="h-3.5 w-3.5" />
                         )}
-                      </button>
+                      </Button>
                     )}
                   </TableCell>
                 </TableRow>
@@ -367,12 +370,13 @@ export default function IpPoolDetailPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more addresses
-            </button>
+            </Button>
           ) : allAddresses.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               {searchFilter ? `${filteredAddresses.length} of ${allAddresses.length} addresses` : `${allAddresses.length} addresses`}
@@ -399,7 +403,7 @@ export default function IpPoolDetailPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-text-secondary">{reserveQueue.length} SIM{reserveQueue.length !== 1 ? 's' : ''} to reserve</span>
-                <button onClick={() => setReserveQueue([])} className="text-[11px] text-text-tertiary hover:text-accent transition-colors">Clear all</button>
+                <Button variant="ghost" size="sm" onClick={() => setReserveQueue([])} className="text-[11px] text-text-tertiary hover:text-accent h-auto py-0 px-1">Clear all</Button>
               </div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {reserveQueue.map((sim) => (
@@ -411,9 +415,9 @@ export default function IpPoolDetailPage() {
                         {sim.msisdn && <span className="font-mono text-[10px] text-text-tertiary">{sim.msisdn}</span>}
                       </div>
                     </div>
-                    <button onClick={() => handleRemoveFromQueue(sim.id)} className="p-1 text-text-tertiary hover:text-danger transition-colors shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => handleRemoveFromQueue(sim.id)} className="h-6 w-6 text-text-tertiary hover:text-danger shrink-0">
                       <X className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>

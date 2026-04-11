@@ -24,7 +24,7 @@
 
 | Check | Result |
 |-------|--------|
-| Frontend (https://localhost:8084) | 200 |
+| Frontend (http://localhost:8084) | 200 |
 | API Health (`/api/health`) | `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok","aaa":{"radius":"ok","diameter":"ok","sessions_active":0}}}` |
 | PostgreSQL (`pg_isready`) | Accepting connections |
 

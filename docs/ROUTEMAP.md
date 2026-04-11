@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-03-23
-> Current phase: E2E & Polish Phase [DONE] — Ready for Documentation
-> Overall progress: 100% (Development + E2E & Polish)
+> Last updated: 2026-04-11
+> Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
+> Overall progress: 100% (Dev + E2E) — Phase 10: 0/22 stories
 
 ---
 
@@ -144,6 +144,66 @@
 
 ---
 
+## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
+
+> Stories completed: 0/22
+> Current story: STORY-056
+> Current step: Plan
+> Mode: AUTOPILOT
+> Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
+
+### Wave 1 — Runtime Critical & Data Completeness [sequential]
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-056 | Critical Runtime Fixes (+HTTP 8084, Docker reorg) | M-L | [~] IN PROGRESS | Commit | Phase 9 | — |
+| STORY-057 | Data Accuracy & Missing Endpoints | L | [ ] PENDING | — | STORY-056 | — |
+| STORY-058 | Frontend Consolidation & UX Completeness | L | [ ] PENDING | — | STORY-056, STORY-057 | — |
+
+### Wave 2 — Stubs, DB, Security, Protocol, eSIM [parallel]
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-059 | Security & Compliance Hardening | L | [ ] PENDING | — | STORY-056 | — |
+| STORY-060 | AAA Protocol Correctness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
+| STORY-061 | eSIM Model Evolution | M | [ ] PENDING | — | STORY-057, STORY-060, STORY-063 | — |
+| STORY-063 | Backend Implementation Completeness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
+| STORY-064 | Database Hardening & Partition Automation | L | [ ] PENDING | — | STORY-056, STORY-063 | — |
+
+### Wave 3 — Production Operations [parallel]
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-065 | Observability & Tracing Standardization | L | [ ] PENDING | — | STORY-063 | — |
+| STORY-066 | Reliability, Backup, DR & Runtime Hardening | L | [ ] PENDING | — | STORY-063, STORY-065 | — |
+| STORY-067 | CI/CD Pipeline, Deployment & Ops Tooling | M-L | [ ] PENDING | — | STORY-065, STORY-066 | — |
+| STORY-068 | Enterprise Auth & Access Control Hardening | L | [ ] PENDING | — | STORY-063 | — |
+
+### Wave 4 — Business Completeness [parallel]
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-069 | Onboarding, Reporting & Notification Completeness | L | [ ] PENDING | — | STORY-059, STORY-063, STORY-065 | — |
+| STORY-070 | Frontend Real-Data Wiring | L | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-069 | — |
+| STORY-071 | Roaming Agreement Management | M | [ ] PENDING | — | STORY-063 | — |
+| STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |
+| STORY-073 | Multi-Tenant Admin & Compliance Screens | L | [ ] PENDING | — | STORY-068, STORY-069 | — |
+
+### Wave 5 — Cross-Entity UX & Final Polish [parallel]
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-075 | Cross-Entity Context & Detail Pages | XL | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-068 | — |
+| STORY-076 | Universal Search, Navigation & Clipboard | L | [ ] PENDING | — | STORY-075 | — |
+| STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [ ] PENDING | — | STORY-075, STORY-076 | — |
+| STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [ ] PENDING | — | STORY-056..077 | — |
+
+Source: docs/stories/phase-10/STORY-056..077-*.md
+
+Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stories.
+
+---
+
 ## Documentation Phase [NOT STARTED]
 
 | Step | Name | Status | Completed |
@@ -159,6 +219,10 @@
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-11 | PLAN | Phase 10 expanded from 15 to 22 stories after UX/ergonomics + cross-entity context + deep placeholder audits. 7 new stories: STORY-071 (roaming agreements), 072 (enterprise obs screens — 13 ACs, 10+ screens), 073 (admin/compliance screens — 13 ACs, 12 screens), 074 (code safety — goroutine recover, CORS/AppEnv hardening, error leak scrub), 075 (cross-entity context — 6 shared components + 5 new detail pages + 4 page enrichments), 076 (universal entity search + keyboard shortcuts + recent/favorites + row actions), 077 (saved views, undo, inline edit, export, empty states, impersonation, i18n, sticky tables, form validation, announcements). Total: ~280 ACs, 10-12 weeks. Decisions: DEV-138, DEV-139. | ROUTEMAP.md, docs/stories/phase-10/STORY-071..077, decisions.md |
+| 2026-04-11 | PLAN | Phase 10 expanded from 7 to 15 stories after comprehensive 6-agent gap scan (backend stubs/mocks, frontend mocks, API coverage, DB hardening, production ops, business/compliance). 8 new stories added: STORY-063 (backend completeness), 064 (DB hardening + partitions + RLS), 065 (observability + OTel + Prom client), 066 (reliability + backup/DR + shutdown), 067 (CI/CD + admin CLI + runbooks), 068 (enterprise auth + 13 missing audit logs), 069 (onboarding + reports + webhooks + GDPR), 070 (frontend real-data wiring). Total: ~220 ACs, 6-8 weeks. Decision: DEV-137. | ROUTEMAP.md, docs/stories/phase-10/STORY-063..070, decisions.md |
+| 2026-04-11 | OPS | Infrastructure tuning completed retroactively (Phase 1 skipped step). DevOps Agent Post-Setup mode tuned postgres (30+ params), redis (24 params), NATS (13 + JetStream limits), nginx (full rewrite), pgbouncer preserved. 5 services verified. Report: docs/reports/infra-tuning.md | infra/postgres, infra/redis, infra/nats, infra/nginx, deploy/docker-compose.yml |
+| 2026-04-11 | PLAN | Phase 10 (Cleanup & Production Hardening) initiated. Initial 7 stories (STORY-056 to STORY-062) created to close every non-blocking finding from 55-story Development Phase + E2E & Polish reviews + all DEFER items. Zero-deferral policy for production readiness. Decision: DEV-136. | ROUTEMAP.md, docs/stories/phase-10/, decisions.md |
 | 2026-03-23 | GATE | Phase 9 Gate PASS — Deploy OK, 1058/1058 tests passed, 0 fixes needed. All 55 stories verified. PgBouncer healthy, pprof accessible, security headers present, E2E tests compile. FINAL DEVELOPMENT GATE. Report: docs/reports/phase-9-gate.md | E2E & Polish Phase ready |
 | 2026-03-23 | PHASE | Phase 9 (Integration & Polish) completed — 5 stories (STORY-051 to STORY-055). E2E auth flow test, AAA performance tuning (policy cache, benchmarks, pprof), data volume optimization (compression, S3 archival, PgBouncer), security hardening (TLS, CSP, RadSec, sanitization), tenant onboarding E2E test. All integration and polish features operational. | ALL 55 STORIES COMPLETE — Development Phase 100% |
 | 2026-03-23 | GATE | Phase 8 Gate PASS — Deploy OK, 990 Go tests, frontend build clean, Playwright visual verification. 3 bugs fixed: sessions API sor_decision column, users page state/status normalization, health page services synthesis. 27 pages, 26 components, 13 hooks, 3 stores verified. Report: docs/reports/phase-8-gate.md | Phase 9 ready |
@@ -216,6 +280,15 @@
 | 2026-03-20 | DONE | STORY-010 completed — APN CRUD, IP Pool CRUD, IP allocation/reservation/release, dual-stack IPv4+IPv6 | STORY-011 unblocked, STORY-013 partially unblocked |
 | 2026-03-20 | DONE | STORY-009 completed — Operator CRUD, health check, adapter registry, AES-256 encryption | STORY-018, STORY-021 updated (partial overlap) |
 | 2026-03-18 | INIT | Project initialized — Argus RADIUS/APN Management Platform | — |
+
+---
+
+## Tech Debt
+
+| # | Source | Description | Target Story | Status |
+|---|--------|-------------|-------------|--------|
+| D-001 | STORY-056 Gate | Raw `<input>` in `ip-pool-detail.tsx:233` — should use shadcn/ui `Input` | STORY-077 | OPEN |
+| D-002 | STORY-056 Gate | Raw `<button>` elements in `ip-pool-detail.tsx` and `apns/index.tsx` (7 instances) — should use shadcn/ui `Button` | STORY-077 | OPEN |
 
 ---
 

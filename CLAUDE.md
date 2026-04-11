@@ -32,7 +32,7 @@ Argus is an APN & Subscriber Intelligence Platform built as a Go modular monolit
 
 | Service | URL/Port | Purpose |
 |---------|----------|---------|
-| Nginx | https://localhost:8084 | Reverse proxy + SPA |
+| Nginx | http://localhost:8084 | Reverse proxy + SPA |
 | Argus | :8080 (HTTP), :8081 (WS), :1812/:1813 (RADIUS), :3868 (Diameter), :8443 (5G SBA) | Go monolith |
 | PostgreSQL | localhost:5432 | Database |
 | Redis | localhost:6379 | Cache |
@@ -40,7 +40,7 @@ Argus is an APN & Subscriber Intelligence Platform built as a Go modular monolit
 
 ## Admin Access
 
-- URL: https://localhost/login
+- URL: http://localhost:8084/login
 - Email: admin@argus.io
 - Password: admin
 

@@ -94,10 +94,10 @@ export default function TenantManagementPage() {
   const handleSelectTenant = (tenant: Tenant) => {
     setSelectedTenant(tenant)
     setEditForm({
-      retention_days: tenant.retention_days,
+      retention_days: tenant.retention_days ?? 90,
       max_sims: tenant.max_sims,
       max_users: tenant.max_users,
-      max_api_keys: tenant.max_api_keys,
+      max_api_keys: tenant.max_api_keys ?? 10,
       plan: tenant.plan ?? 'standard',
     })
   }

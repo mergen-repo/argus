@@ -10,7 +10,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 1. `make up` -- 5 container baslamali (nginx, argus, postgres, redis, nats)
 2. `make status` -- Tum containerlar "running" ve "healthy" olmali
-3. `curl -k https://localhost/api/health` -- `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok","uptime":"..."}}` donmeli
+3. `curl -k http://localhost:8084/api/health` -- `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok","uptime":"..."}}` donmeli
 4. `make down` -- Tum containerlar durduruluyor olmali
 5. `make infra-up` -- Sadece postgres, redis, nats baslamali
 6. `make infra-down` -- Altyapi containerlar durmali
@@ -41,7 +41,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 1. `make up` -- Tum servisleri baslat
 2. Login testi:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/auth/login \
+   curl -sk -X POST http://localhost:8084/api/v1/auth/login \
      -H 'Content-Type: application/json' \
      -d '{"email":"admin@argus.io","password":"admin"}' -c cookies.txt
    ```
@@ -50,18 +50,18 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 4. 5 kez yanlis sifre -- 403 ACCOUNT_LOCKED donmeli (15 dk)
 5. Refresh testi:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/auth/refresh -b cookies.txt
+   curl -sk -X POST http://localhost:8084/api/v1/auth/refresh -b cookies.txt
    ```
    Yeni JWT donmeli
 6. Logout testi:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/auth/logout \
+   curl -sk -X POST http://localhost:8084/api/v1/auth/logout \
      -H 'Authorization: Bearer <token>' -b cookies.txt
    ```
    204 donmeli, sonraki refresh basarisiz olmali
 7. 2FA setup (JWT ile):
    ```bash
-   curl -sk -X POST https://localhost/api/v1/auth/2fa/setup \
+   curl -sk -X POST http://localhost:8084/api/v1/auth/2fa/setup \
      -H 'Authorization: Bearer <token>'
    ```
    TOTP secret + QR URI donmeli
@@ -88,12 +88,12 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). RBAC middleware unit 
 2. super_admin ile login yap (admin@argus.io)
 3. Tenant listele:
    ```bash
-   curl -sk https://localhost/api/v1/tenants -H 'Authorization: Bearer <token>'
+   curl -sk http://localhost:8084/api/v1/tenants -H 'Authorization: Bearer <token>'
    ```
    200 + tenant listesi donmeli
 4. Yeni tenant olustur:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/tenants \
+   curl -sk -X POST http://localhost:8084/api/v1/tenants \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Test Corp","domain":"testcorp.com","contact_email":"admin@testcorp.com","max_sims":1000,"max_apns":10,"max_users":5}'
@@ -102,7 +102,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). RBAC middleware unit 
 5. Tenant detay: GET /api/v1/tenants/:id -- 200 + stats donmeli
 6. Kullanici olustur (tenant_admin olarak):
    ```bash
-   curl -sk -X POST https://localhost/api/v1/users \
+   curl -sk -X POST http://localhost:8084/api/v1/users \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"email":"user@testcorp.com","name":"Test User","role":"analyst"}'
@@ -127,7 +127,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    Her satirda `timestamp`, `level`, `service` alanlari bulunmali
 3. Correlation ID kontrolu:
    ```bash
-   curl -sk https://localhost/api/health -v 2>&1 | grep X-Correlation-ID
+   curl -sk http://localhost:8084/api/health -v 2>&1 | grep X-Correlation-ID
    ```
    Response header'da X-Correlation-ID donmeli
 4. NATS stream kontrolu:
@@ -149,25 +149,25 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 3. State-changing islem yap (user olustur veya guncelle) -- Audit entry NATS uzerinden olusturulur
 4. Audit log listele:
    ```bash
-   curl -sk https://localhost/api/v1/audit-logs \
+   curl -sk http://localhost:8084/api/v1/audit-logs \
      -H 'Authorization: Bearer <token>'
    ```
    200 + audit log listesi donmeli (action, entity_type, entity_id, diff)
 5. Filtreleme testi:
    ```bash
-   curl -sk 'https://localhost/api/v1/audit-logs?action=create&entity_type=user' \
+   curl -sk 'http://localhost:8084/api/v1/audit-logs?action=create&entity_type=user' \
      -H 'Authorization: Bearer <token>'
    ```
    Sadece user create kayitlari donmeli
 6. Hash chain dogrulama:
    ```bash
-   curl -sk 'https://localhost/api/v1/audit-logs/verify?count=100' \
+   curl -sk 'http://localhost:8084/api/v1/audit-logs/verify?count=100' \
      -H 'Authorization: Bearer <token>'
    ```
    `{"verified": true, "entries_checked": N}` donmeli
 7. CSV export:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/audit-logs/export \
+   curl -sk -X POST http://localhost:8084/api/v1/audit-logs/export \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"from":"2026-03-01","to":"2026-03-31"}'
@@ -184,7 +184,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 2. Login yap (admin@argus.io) ve JWT al
 3. API key olustur:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/api-keys \
+   curl -sk -X POST http://localhost:8084/api/v1/api-keys \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Test Key","scopes":["sims:read","apns:read"]}'
@@ -192,25 +192,25 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    201 + `argus_{prefix}_{secret}` formatinda key donmeli (tek seferlik gosterilir)
 4. API key listele:
    ```bash
-   curl -sk https://localhost/api/v1/api-keys -H 'Authorization: Bearer <token>'
+   curl -sk http://localhost:8084/api/v1/api-keys -H 'Authorization: Bearer <token>'
    ```
    200 + key listesi (sadece prefix gorunur, secret gizli)
 5. API key ile istek yap:
    ```bash
-   curl -sk https://localhost/api/v1/audit-logs \
+   curl -sk http://localhost:8084/api/v1/audit-logs \
      -H 'X-API-Key: argus_{prefix}_{secret}'
    ```
    Scope izni varsa 200, yoksa 403 donmeli
 6. API key rotate:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/api-keys/{id}/rotate \
+   curl -sk -X POST http://localhost:8084/api/v1/api-keys/{id}/rotate \
      -H 'Authorization: Bearer <token>'
    ```
    200 + yeni key donmeli, eski key 24 saat daha gecerli
 7. Rate limiting testi -- Cok sayida istek gonderildiginde 429 + Retry-After header donmeli
 8. API key sil (revoke):
    ```bash
-   curl -sk -X DELETE https://localhost/api/v1/api-keys/{id} \
+   curl -sk -X DELETE http://localhost:8084/api/v1/api-keys/{id} \
      -H 'Authorization: Bearer <token>'
    ```
    204 donmeli, silinen key ile istek 401 donmeli
@@ -224,7 +224,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 2. Login yap (admin@argus.io) ve JWT al
 3. Operator olustur (super_admin):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/operators \
+   curl -sk -X POST http://localhost:8084/api/v1/operators \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Turkcell","code":"turkcell","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"endpoint":"https://api.turkcell.com.tr"}}'
@@ -232,12 +232,12 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    201 donmeli
 4. Operator listele:
    ```bash
-   curl -sk https://localhost:8084/api/v1/operators -H 'Authorization: Bearer <token>'
+   curl -sk http://localhost:8084/api/v1/operators -H 'Authorization: Bearer <token>'
    ```
    200 + operator listesi donmeli
 5. Operator guncelle (state degistir):
    ```bash
-   curl -sk -X PATCH https://localhost:8084/api/v1/operators/{id} \
+   curl -sk -X PATCH http://localhost:8084/api/v1/operators/{id} \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"state":"suspended"}'
@@ -245,13 +245,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    200 donmeli
 6. Health check:
    ```bash
-   curl -sk https://localhost:8084/api/v1/operators/{id}/health \
+   curl -sk http://localhost:8084/api/v1/operators/{id}/health \
      -H 'Authorization: Bearer <token>'
    ```
    200 + health status donmeli
 7. Grant olustur (tenant'a operator erisimi ver):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/operators/{id}/grants \
+   curl -sk -X POST http://localhost:8084/api/v1/operators/{id}/grants \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"tenant_id":"00000000-0000-0000-0000-000000000001"}'
@@ -268,14 +268,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 2. Login yap ve JWT al
 3. Mock operator olustur (success_rate dusuk, orn: 20):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/operators \
+   curl -sk -X POST http://localhost:8084/api/v1/operators \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Failing Op","code":"fail-op","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"success_rate":20,"latency_ms":100}}'
    ```
 4. Health check durumunu izle:
    ```bash
-   curl -sk https://localhost:8084/api/v1/operators/{id}/health \
+   curl -sk http://localhost:8084/api/v1/operators/{id}/health \
      -H 'Authorization: Bearer <token>'
    ```
    Dusuk success_rate ile circuit breaker acilmali (status: "down")
@@ -292,7 +292,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi — 5G SBA HTTP/2 proto
 1. `make up` -- Servisleri baslat (SBA :8443 — SBA_ENABLED=true gerekli)
 2. Health check:
    ```bash
-   curl -sk https://localhost:8084/api/health
+   curl -sk http://localhost:8084/api/health
    ```
    `{"aaa":{"sba":"ok",...}}` icermeli
 3. AUSF 5G-AKA baslat:
@@ -313,7 +313,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi — Diameter TCP protok
 1. `make up` -- Servisleri baslat (Diameter :3868 otomatik dinler)
 2. Health check ile Diameter durumu:
    ```bash
-   curl -sk https://localhost:8084/api/health
+   curl -sk http://localhost:8084/api/health
    ```
    `{"aaa":{"radius":"ok","diameter":"ok",...}}` icermeli
 3. Unit testler: `go test -race ./internal/aaa/diameter/... -v`
@@ -327,19 +327,19 @@ Bu story icin manuel test senaryosu yok (backend/altyapi — Diameter TCP protok
 2. Login yap (admin@argus.io) ve JWT al
 3. Aktif session listele:
    ```bash
-   curl -sk "https://localhost:8084/api/v1/sessions?limit=10" \
+   curl -sk "http://localhost:8084/api/v1/sessions?limit=10" \
      -H 'Authorization: Bearer <token>'
    ```
    200 + aktif session listesi (cursor pagination)
 4. Session istatistikleri:
    ```bash
-   curl -sk https://localhost:8084/api/v1/sessions/stats \
+   curl -sk http://localhost:8084/api/v1/sessions/stats \
      -H 'Authorization: Bearer <token>'
    ```
    200 + total_active, by_operator, by_apn, avg_duration, avg_bytes
 5. Force disconnect (aktif session varsa):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sessions/{id}/disconnect \
+   curl -sk -X POST http://localhost:8084/api/v1/sessions/{id}/disconnect \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"reason":"test disconnect"}'
@@ -347,7 +347,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi — Diameter TCP protok
    200 + session terminated, audit log olusturulur
 6. Bulk disconnect (tenant_admin):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sessions/bulk/disconnect \
+   curl -sk -X POST http://localhost:8084/api/v1/sessions/bulk/disconnect \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"segment_id":"<segment-id>","reason":"maintenance"}'
@@ -377,7 +377,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi — RADIUS UDP protokol
 2. RADIUS_SECRET env var set edilmis olmali (Docker Compose'da default var)
 3. Health check ile AAA durumu kontrol:
    ```bash
-   curl -sk https://localhost:8084/api/health
+   curl -sk http://localhost:8084/api/health
    ```
    Cevap: `{"aaa":{"radius":"ok","sessions_active":0}}` icermeli
 4. RADIUS test (radtest veya radclient gerekli):
@@ -397,14 +397,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 2. Login yap ve JWT al
 3. Mock operator olustur (adapter_type: "mock"):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/operators \
+   curl -sk -X POST http://localhost:8084/api/v1/operators \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Mock Operator","code":"mock-op","type":"mobile","country":"TR","adapter_type":"mock","adapter_config":{"success_rate":80,"latency_ms":50}}'
    ```
 4. Test connection:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/operators/{id}/test \
+   curl -sk -X POST http://localhost:8084/api/v1/operators/{id}/test \
      -H 'Authorization: Bearer <token>'
    ```
    200 + health status donmeli
@@ -425,20 +425,20 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
    ```
 4. MSISDN import:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/msisdn-pool/import \
+   curl -sk -X POST http://localhost:8084/api/v1/msisdn-pool/import \
      -H 'Authorization: Bearer <token>' \
      -F 'file=@msisdn.csv'
    ```
    201 + import sonucu donmeli
 5. MSISDN listele:
    ```bash
-   curl -sk "https://localhost:8084/api/v1/msisdn-pool?state=available&limit=10" \
+   curl -sk "http://localhost:8084/api/v1/msisdn-pool?state=available&limit=10" \
      -H 'Authorization: Bearer <token>'
    ```
    200 + MSISDN listesi (state: available)
 6. MSISDN ata:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/msisdn-pool/{id}/assign \
+   curl -sk -X POST http://localhost:8084/api/v1/msisdn-pool/{id}/assign \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"sim_id":"<sim-id>"}'
@@ -463,14 +463,14 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
    ```
 4. Bulk import:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims/bulk/import \
+   curl -sk -X POST http://localhost:8084/api/v1/sims/bulk/import \
      -H 'Authorization: Bearer <token>' \
      -F 'file=@test.csv'
    ```
    202 + job_id donmeli
 5. Job durumu kontrol:
    ```bash
-   curl -sk https://localhost:8084/api/v1/jobs/{job_id} \
+   curl -sk http://localhost:8084/api/v1/jobs/{job_id} \
      -H 'Authorization: Bearer <token>'
    ```
    200 + status (pending/running/completed), progress yuzde, processed/total_rows
@@ -478,13 +478,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 7. Duplicate ICCID ile CSV yukle → partial success, error_report'ta duplicate satirlar
 8. Hata raporu indir:
    ```bash
-   curl -sk https://localhost:8084/api/v1/jobs/{job_id}/errors \
+   curl -sk http://localhost:8084/api/v1/jobs/{job_id}/errors \
      -H 'Authorization: Bearer <token>'
    ```
    200 + CSV formatinda hata raporu (row, iccid, error)
 9. Job iptal (uzun sureli import icin):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/jobs/{job_id}/cancel \
+   curl -sk -X POST http://localhost:8084/api/v1/jobs/{job_id}/cancel \
      -H 'Authorization: Bearer <token>'
    ```
    200 + status:"cancelled"
@@ -498,7 +498,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 2. Login yap (admin@argus.io) ve JWT al
 3. Segment olustur:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sim-segments \
+   curl -sk -X POST http://localhost:8084/api/v1/sim-segments \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Active IoT SIMs","filter_definition":{"state":"active","rat_type":"nb_iot"}}'
@@ -508,13 +508,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 5. Segment detay: GET /api/v1/sim-segments/{id} -- 200 + segment detayi
 6. Segment count:
    ```bash
-   curl -sk https://localhost:8084/api/v1/sim-segments/{id}/count \
+   curl -sk http://localhost:8084/api/v1/sim-segments/{id}/count \
      -H 'Authorization: Bearer <token>'
    ```
    200 + `{"count": N}` donmeli
 7. State summary:
    ```bash
-   curl -sk https://localhost:8084/api/v1/sim-segments/{id}/summary \
+   curl -sk http://localhost:8084/api/v1/sim-segments/{id}/summary \
      -H 'Authorization: Bearer <token>'
    ```
    200 + state bazinda sayilar donmeli (active, suspended, vb.)
@@ -529,7 +529,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 2. Login yap (admin@argus.io) ve JWT al
 3. SIM olustur:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims \
+   curl -sk -X POST http://localhost:8084/api/v1/sims \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"iccid":"8990100000000000001","imsi":"310260000000001","msisdn":"+905551234567","operator_id":"<operator-id>","apn_id":"<apn-id>","sim_type":"triple_cut"}'
@@ -538,13 +538,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 4. Duplicate ICCID ile olustur → 409 ICCID_EXISTS donmeli
 5. SIM aktive et:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/activate \
+   curl -sk -X POST http://localhost:8084/api/v1/sims/{id}/activate \
      -H 'Authorization: Bearer <token>'
    ```
    200 + state:"active", ip_address atanmis olmali
 6. SIM askiya al:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/suspend \
+   curl -sk -X POST http://localhost:8084/api/v1/sims/{id}/suspend \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"reason":"non-payment"}'
@@ -552,13 +552,13 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
    200 + state:"suspended", IP korunmus olmali
 7. SIM devam ettir:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/resume \
+   curl -sk -X POST http://localhost:8084/api/v1/sims/{id}/resume \
      -H 'Authorization: Bearer <token>'
    ```
    200 + state:"active"
 8. SIM sonlandir (tenant_admin gerekli):
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/sims/{id}/terminate \
+   curl -sk -X POST http://localhost:8084/api/v1/sims/{id}/terminate \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"reason":"contract-end"}'
@@ -567,7 +567,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 9. Gecersiz gecis testi: ORDERED→SUSPENDED → 422 INVALID_STATE_TRANSITION donmeli
 10. SIM listele (filtreli):
     ```bash
-    curl -sk "https://localhost:8084/api/v1/sims?state=active&limit=10" \
+    curl -sk "http://localhost:8084/api/v1/sims?state=active&limit=10" \
       -H 'Authorization: Bearer <token>'
     ```
     200 + cursor-based pagination (meta.next_cursor) donmeli
@@ -583,7 +583,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 2. Login yap (admin@argus.io) ve JWT al
 3. APN olustur:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/apns \
+   curl -sk -X POST http://localhost:8084/api/v1/apns \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"iot.fleet","operator_id":"<operator-id>","network_identifier":"iot.fleet.turkcell","ip_version":"ipv4"}'
@@ -593,7 +593,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Adapter framework bac
 5. APN guncelle: PATCH /api/v1/apns/{id} -- 200
 6. IP Pool olustur:
    ```bash
-   curl -sk -X POST https://localhost:8084/api/v1/ip-pools \
+   curl -sk -X POST http://localhost:8084/api/v1/ip-pools \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Fleet Pool","apn_id":"<apn-id>","cidr":"10.100.0.0/24","type":"dynamic"}'
@@ -623,7 +623,7 @@ Onkosul: `make up` ile Docker ortami calisir durumda olmali.
 
 1. Policy olustur:
    ```bash
-   curl -sk https://localhost/api/v1/policies \
+   curl -sk http://localhost:8084/api/v1/policies \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"name":"Test Policy","description":"Test","scope":"global","dsl_source":"POLICY \"test\" { MATCH { apn = \"iot\" } RULES { bandwidth_down = 1mbps } }"}'
@@ -645,7 +645,7 @@ Onkosul: `make up` + en az 1 policy ve birkac SIM olmali.
 
 1. Dry-run calistir (sync):
    ```bash
-   curl -sk -X POST https://localhost/api/v1/policy-versions/{vid}/dry-run \
+   curl -sk -X POST http://localhost:8084/api/v1/policy-versions/{vid}/dry-run \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{}'
@@ -663,7 +663,7 @@ Onkosul: `make up` + en az 1 aktif policy version + birkac SIM olmali.
 
 1. Staged rollout baslat:
    ```bash
-   curl -sk -X POST https://localhost/api/v1/policy-versions/{vid}/rollout \
+   curl -sk -X POST http://localhost:8084/api/v1/policy-versions/{vid}/rollout \
      -H 'Authorization: Bearer <token>' \
      -H 'Content-Type: application/json' \
      -d '{"stages":[1,10,100]}'
@@ -732,7 +732,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 1. OTA komutu gonder:
    ```bash
-   curl -k -X POST https://localhost/api/v1/sims/<SIM_UUID>/ota \
+   curl -k -X POST http://localhost:8084/api/v1/sims/<SIM_UUID>/ota \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"command_type":"UPDATE_FILE","channel":"sms_pp","security_mode":"none","payload":{"file_id":"6F07","offset":0,"content":"AQID"}}'
@@ -740,17 +740,17 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
    201 + command_id + status=queued
 2. OTA gecmisi listele:
    ```bash
-   curl -k https://localhost/api/v1/sims/<SIM_UUID>/ota -H "Authorization: Bearer $TOKEN"
+   curl -k http://localhost:8084/api/v1/sims/<SIM_UUID>/ota -H "Authorization: Bearer $TOKEN"
    ```
    200 + paginated list (cursor-based)
 3. OTA komut detayi:
    ```bash
-   curl -k https://localhost/api/v1/ota-commands/<CMD_UUID> -H "Authorization: Bearer $TOKEN"
+   curl -k http://localhost:8084/api/v1/ota-commands/<CMD_UUID> -H "Authorization: Bearer $TOKEN"
    ```
    200 + command details with delivery status timestamps
 4. Bulk OTA (tenant_admin rolu gerekli):
    ```bash
-   curl -k -X POST https://localhost/api/v1/sims/bulk/ota \
+   curl -k -X POST http://localhost:8084/api/v1/sims/bulk/ota \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"sim_ids":["<SIM_UUID_1>","<SIM_UUID_2>"],"command_type":"UPDATE_FILE","channel":"sms_pp","security_mode":"none","payload":{"file_id":"6F07","offset":0,"content":"AQID"}}'
@@ -765,11 +765,11 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Bulk state change: `curl -k -X POST https://localhost/api/v1/sims/bulk/state-change -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_state":"suspended","reason":"maintenance"}'` -- 202 + job_id + estimated_count
-2. Bulk policy assign: `curl -k -X POST https://localhost/api/v1/sims/bulk/policy-assign -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","policy_version_id":"<VER_UUID>"}'` -- 202 + job_id
-3. Bulk operator switch: `curl -k -X POST https://localhost/api/v1/sims/bulk/operator-switch -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_operator_id":"<OP_UUID>","target_apn_id":"<APN_UUID>"}'` -- 202 + job_id
+1. Bulk state change: `curl -k -X POST http://localhost:8084/api/v1/sims/bulk/state-change -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_state":"suspended","reason":"maintenance"}'` -- 202 + job_id + estimated_count
+2. Bulk policy assign: `curl -k -X POST http://localhost:8084/api/v1/sims/bulk/policy-assign -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","policy_version_id":"<VER_UUID>"}'` -- 202 + job_id
+3. Bulk operator switch: `curl -k -X POST http://localhost:8084/api/v1/sims/bulk/operator-switch -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"segment_id":"<SEG_UUID>","target_operator_id":"<OP_UUID>","target_apn_id":"<APN_UUID>"}'` -- 202 + job_id
 4. Job progress: WebSocket'ten job progress event'leri gelmeli
-5. Error report CSV: `curl -k https://localhost/api/v1/jobs/<JOB_UUID>/errors -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
+5. Error report CSV: `curl -k http://localhost:8084/api/v1/jobs/<JOB_UUID>/errors -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
 6. Unit testler: `go test ./internal/job/... ./internal/api/sim/... -v`
 
 ---
@@ -778,9 +778,9 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. CDR listele: `curl -k https://localhost/api/v1/cdrs?from=2026-03-01T00:00:00Z&to=2026-03-31T23:59:59Z -H "Authorization: Bearer $TOKEN"` -- 200 + paginated CDR list
-2. SIM bazli CDR: `curl -k "https://localhost/api/v1/cdrs?sim_id=<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + filtered list
-3. CDR export: `curl -k -X POST https://localhost/api/v1/cdrs/export -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"from":"2026-03-01T00:00:00Z","to":"2026-03-31T23:59:59Z","format":"csv"}'` -- 202 + job_id
+1. CDR listele: `curl -k http://localhost:8084/api/v1/cdrs?from=2026-03-01T00:00:00Z&to=2026-03-31T23:59:59Z -H "Authorization: Bearer $TOKEN"` -- 200 + paginated CDR list
+2. SIM bazli CDR: `curl -k "http://localhost:8084/api/v1/cdrs?sim_id=<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + filtered list
+3. CDR export: `curl -k -X POST http://localhost:8084/api/v1/cdrs/export -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"from":"2026-03-01T00:00:00Z","to":"2026-03-31T23:59:59Z","format":"csv"}'` -- 202 + job_id
 4. NATS event test: RADIUS accounting event gonderdikten sonra CDR tablosunda yeni kayit olusturulmali
 5. Unit testler: `go test ./internal/analytics/cdr/... ./internal/store/ ./internal/api/cdr/... ./internal/job/ -v`
 
@@ -790,8 +790,8 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Sistem metrikleri: `curl -k https://localhost/api/v1/system/metrics -H "Authorization: Bearer $TOKEN"` -- 200 + auth_per_sec, error_rate, latency, active_sessions, by_operator, system_status
-2. Prometheus: `curl -k https://localhost/metrics` -- OpenMetrics format text
+1. Sistem metrikleri: `curl -k http://localhost:8084/api/v1/system/metrics -H "Authorization: Bearer $TOKEN"` -- 200 + auth_per_sec, error_rate, latency, active_sessions, by_operator, system_status
+2. Prometheus: `curl -k http://localhost:8084/metrics` -- OpenMetrics format text
 3. WebSocket: ws://localhost:8081 baglantisi ile metrics.realtime event'leri 1 saniyede bir gelmeli
 4. Unit testler: `go test ./internal/analytics/metrics/... ./internal/api/metrics/... -v`
 
@@ -801,10 +801,10 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Son 24 saat kullanim: `curl -k "https://localhost/api/v1/analytics/usage?period=24h" -H "Authorization: Bearer $TOKEN"` -- 200 + time_series (15min buckets), totals, breakdowns
-2. Operator bazli gruplama: `curl -k "https://localhost/api/v1/analytics/usage?period=7d&group_by=operator" -H "Authorization: Bearer $TOKEN"` -- 200 + operator bazli breakdowns
-3. RAT tipi gruplama: `curl -k "https://localhost/api/v1/analytics/usage?period=30d&group_by=rat_type" -H "Authorization: Bearer $TOKEN"` -- 200
-4. Karsilastirma modu: `curl -k "https://localhost/api/v1/analytics/usage?period=24h&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
+1. Son 24 saat kullanim: `curl -k "http://localhost:8084/api/v1/analytics/usage?period=24h" -H "Authorization: Bearer $TOKEN"` -- 200 + time_series (15min buckets), totals, breakdowns
+2. Operator bazli gruplama: `curl -k "http://localhost:8084/api/v1/analytics/usage?period=7d&group_by=operator" -H "Authorization: Bearer $TOKEN"` -- 200 + operator bazli breakdowns
+3. RAT tipi gruplama: `curl -k "http://localhost:8084/api/v1/analytics/usage?period=30d&group_by=rat_type" -H "Authorization: Bearer $TOKEN"` -- 200
+4. Karsilastirma modu: `curl -k "http://localhost:8084/api/v1/analytics/usage?period=24h&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
 5. Unit testler: `go test ./internal/store/ ./internal/api/analytics/... -v`
 
 ---
@@ -813,9 +813,9 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Maliyet analizi: `curl -k "https://localhost/api/v1/analytics/cost?period=30d" -H "Authorization: Bearer $TOKEN"` -- 200 + total_cost, by_operator, cost_per_mb, top_expensive_sims, trend, suggestions
-2. Karsilastirma: `curl -k "https://localhost/api/v1/analytics/cost?period=30d&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
-3. Operator filtre: `curl -k "https://localhost/api/v1/analytics/cost?period=30d&operator_id=<OP_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
+1. Maliyet analizi: `curl -k "http://localhost:8084/api/v1/analytics/cost?period=30d" -H "Authorization: Bearer $TOKEN"` -- 200 + total_cost, by_operator, cost_per_mb, top_expensive_sims, trend, suggestions
+2. Karsilastirma: `curl -k "http://localhost:8084/api/v1/analytics/cost?period=30d&compare=true" -H "Authorization: Bearer $TOKEN"` -- 200 + comparison delta
+3. Operator filtre: `curl -k "http://localhost:8084/api/v1/analytics/cost?period=30d&operator_id=<OP_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
 4. Unit testler: `go test ./internal/analytics/cost/... ./internal/api/analytics/... -v`
 
 ---
@@ -824,11 +824,11 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Anomali listele: `curl -k "https://localhost/api/v1/analytics/anomalies" -H "Authorization: Bearer $TOKEN"` -- 200 + paginated anomaly list
-2. Severity filtre: `curl -k "https://localhost/api/v1/analytics/anomalies?severity=critical" -H "Authorization: Bearer $TOKEN"` -- 200 + sadece critical
-3. Anomali detayi: `curl -k "https://localhost/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN"` -- 200 + details JSONB
-4. Durumu guncelle: `curl -k -X PATCH "https://localhost/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"acknowledged"}'` -- 200
-5. False positive: `curl -k -X PATCH "https://localhost/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"false_positive"}'` -- 200
+1. Anomali listele: `curl -k "http://localhost:8084/api/v1/analytics/anomalies" -H "Authorization: Bearer $TOKEN"` -- 200 + paginated anomaly list
+2. Severity filtre: `curl -k "http://localhost:8084/api/v1/analytics/anomalies?severity=critical" -H "Authorization: Bearer $TOKEN"` -- 200 + sadece critical
+3. Anomali detayi: `curl -k "http://localhost:8084/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN"` -- 200 + details JSONB
+4. Durumu guncelle: `curl -k -X PATCH "http://localhost:8084/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"acknowledged"}'` -- 200
+5. False positive: `curl -k -X PATCH "http://localhost:8084/api/v1/analytics/anomalies/<ID>" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"state":"false_positive"}'` -- 200
 6. Unit testler: `go test ./internal/analytics/anomaly/... ./internal/store/ ./internal/api/anomaly/... -v`
 
 ---
@@ -837,10 +837,10 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. SIM teshis: `curl -k -X POST "https://localhost/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'` -- 200 + steps[], overall_status
-2. Test auth ile: `curl -k -X POST "https://localhost/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"include_test_auth":true}'` -- 200 + 7 adim
+1. SIM teshis: `curl -k -X POST "http://localhost:8084/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'` -- 200 + steps[], overall_status
+2. Test auth ile: `curl -k -X POST "http://localhost:8084/api/v1/sims/<SIM_UUID>/diagnose" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"include_test_auth":true}'` -- 200 + 7 adim
 3. Cache testi: Ayni istek 1 dakika icinde tekrar -- cached sonuc donmeli
-4. Gecersiz SIM: `curl -k -X POST "https://localhost/api/v1/sims/00000000-0000-0000-0000-000000000000/diagnose" -H "Authorization: Bearer $TOKEN"` -- 404
+4. Gecersiz SIM: `curl -k -X POST "http://localhost:8084/api/v1/sims/00000000-0000-0000-0000-000000000000/diagnose" -H "Authorization: Bearer $TOKEN"` -- 404
 5. Unit testler: `go test ./internal/diagnostics/... ./internal/api/diagnostics/... -v`
 
 ---
@@ -849,11 +849,11 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Bildirim listele: `curl -k "https://localhost/api/v1/notifications" -H "Authorization: Bearer $TOKEN"` -- 200 + paginated list (unread first)
-2. Okundu isaretle: `curl -k -X PATCH "https://localhost/api/v1/notifications/<ID>/read" -H "Authorization: Bearer $TOKEN"` -- 200
-3. Tumunu okundu: `curl -k -X POST "https://localhost/api/v1/notifications/read-all" -H "Authorization: Bearer $TOKEN"` -- 200 + updated_count
-4. Tercihler: `curl -k "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN"` -- 200 + channels, events, thresholds
-5. Tercih guncelle: `curl -k -X PUT "https://localhost/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"channels":{"email":true,"telegram":false},"events":{"operator.down":true}}'` -- 200
+1. Bildirim listele: `curl -k "http://localhost:8084/api/v1/notifications" -H "Authorization: Bearer $TOKEN"` -- 200 + paginated list (unread first)
+2. Okundu isaretle: `curl -k -X PATCH "http://localhost:8084/api/v1/notifications/<ID>/read" -H "Authorization: Bearer $TOKEN"` -- 200
+3. Tumunu okundu: `curl -k -X POST "http://localhost:8084/api/v1/notifications/read-all" -H "Authorization: Bearer $TOKEN"` -- 200 + updated_count
+4. Tercihler: `curl -k "http://localhost:8084/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN"` -- 200 + channels, events, thresholds
+5. Tercih guncelle: `curl -k -X PUT "http://localhost:8084/api/v1/notification-configs" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"channels":{"email":true,"telegram":false},"events":{"operator.down":true}}'` -- 200
 6. Unit testler: `go test ./internal/notification/... ./internal/store/ ./internal/api/notification/... -v`
 
 ---
@@ -862,12 +862,12 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
 
-1. Dashboard: `curl -k "https://localhost/api/v1/compliance/dashboard" -H "Authorization: Bearer $TOKEN"` -- 200 + state counts, pending purges, compliance %
-2. BTK rapor: `curl -k "https://localhost/api/v1/compliance/btk-report" -H "Authorization: Bearer $TOKEN"` -- 200 + operator breakdown
-3. BTK CSV: `curl -k "https://localhost/api/v1/compliance/btk-report?format=csv" -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
-4. Retention guncelle: `curl -k -X PUT "https://localhost/api/v1/compliance/retention" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"retention_days":180}'` -- 200
-5. DSAR: `curl -k "https://localhost/api/v1/compliance/dsar/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + SIM data JSON
-6. Erasure: `curl -k -X POST "https://localhost/api/v1/compliance/erasure/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
+1. Dashboard: `curl -k "http://localhost:8084/api/v1/compliance/dashboard" -H "Authorization: Bearer $TOKEN"` -- 200 + state counts, pending purges, compliance %
+2. BTK rapor: `curl -k "http://localhost:8084/api/v1/compliance/btk-report" -H "Authorization: Bearer $TOKEN"` -- 200 + operator breakdown
+3. BTK CSV: `curl -k "http://localhost:8084/api/v1/compliance/btk-report?format=csv" -H "Authorization: Bearer $TOKEN"` -- CSV dosyasi
+4. Retention guncelle: `curl -k -X PUT "http://localhost:8084/api/v1/compliance/retention" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"retention_days":180}'` -- 200
+5. DSAR: `curl -k "http://localhost:8084/api/v1/compliance/dsar/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200 + SIM data JSON
+6. Erasure: `curl -k -X POST "http://localhost:8084/api/v1/compliance/erasure/<SIM_UUID>" -H "Authorization: Bearer $TOKEN"` -- 200
 7. Unit testler: `go test ./internal/compliance/... ./internal/store/ ./internal/job/ ./internal/api/compliance/... -v`
 
 ---
@@ -900,7 +900,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ## STORY-042: Frontend Auth (Login + 2FA)
 
-1. Login sayfasi: https://localhost/login adresine gidin -- email/password formu gorunmeli
+1. Login sayfasi: http://localhost:8084/login adresine gidin -- email/password formu gorunmeli
 2. Gecersiz giris: yanlis sifre ile giris deneyin -- "Invalid credentials" hatasi gorunmeli
 3. Basarili giris: admin@argus.io / admin ile giris -- dashboard'a yonlendirilmeli
 4. 2FA akisi: 2FA aktif kullanici ile giris -- /login/2fa sayfasina yonlendirilmeli
@@ -913,7 +913,7 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 
 ## STORY-043: Frontend Main Dashboard
 
-1. Dashboard: https://localhost/ adresine gidin -- 4 metrik karti gorunmeli (Total SIMs, Active Sessions, Auth/s, Monthly Cost)
+1. Dashboard: http://localhost:8084/ adresine gidin -- 4 metrik karti gorunmeli (Total SIMs, Active Sessions, Auth/s, Monthly Cost)
 2. Auth/s canli: Auth/s kartinda LIVE etiketi, deger her saniye guncellenmeli
 3. SIM dagitimi: Pasta grafik SIM durumlarini gostermeli (active, suspended, vb.)
 4. Operator sagligi: Her operator icin renkli saglik cubugu gorunmeli (yesil/sari/kirmizi)
@@ -983,3 +983,63 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 1. Usage: /analytics -- zaman serisi grafik, period seçici (1h/24h/7d/30d), group-by toggle
 2. Cost: /analytics/cost -- maliyet kartı, operator karşılaştırma bar chart, optimizasyon önerileri
 3. Anomalies: /analytics/anomalies -- severity badge'li tablo, satır genişletme, acknowledge/resolve
+
+---
+
+## STORY-056: Critical Runtime Fixes
+
+**Ekran:** IP Pools (SCR-112)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | /settings/ip-pools sayfasina git | Sayfa hatasiz yuklenir, utilization barlari gorunur |
+| 2 | Bir IP pool detayina tikla | Detay sayfasi yuklenir, CIDR bilgisi (v4 veya v6) gorunur |
+
+**Ekran:** Tenants (SCR-121)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 3 | /system/tenants sayfasina git | Tenant listesi hatasiz yuklenir |
+| 4 | Tenant olustur/duzenle dialogunu ac | Tum alanlar dogru gorunur, nullable alanlar bos olabilir |
+
+**Ekran:** Sessions (SCR-050)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 5 | /sessions sayfasina git | Session listesi 200 ile yuklenir (500 yok) |
+| 6 | SIM detay > Sessions tab'ina tikla | Session verileri gorunur |
+
+**Ekran:** Audit Log (SCR-090)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 7 | /audit sayfasina git | Audit log listesi 200 ile yuklenir (404 yok) |
+
+**Ekran:** APN List (SCR-030)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 8 | /apns sayfasinda "Create APN" butonuna tikla | Dialog hemen acilir |
+| 9 | Formu doldurup kaydet | Dialog kapanir, liste yenilenir |
+
+**Ekran:** Dashboard (SCR-010)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 10 | Header'daki bildirim ikonuna bak | Okunmamis bildirim sayisi badge olarak gorunur |
+
+**Ekran:** Tum Sayfalar
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 11 | Browser DevTools WS panelini ac | ws://localhost:8084/ws/v1/events baglantisi kurulur |
+| 12 | Bir sayfada hata olustur, baska sayfaya git | Yeni sayfa duzgun yuklenir, hata ekrani temizlenir |
+| 13 | Browser Network panelinde favicon.ico kontrol et | 200 doner, 404 yok |
+
+**Altyapi:**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 14 | curl -I http://localhost:8084 | 200 doner, HTTPS redirect yok |
+| 15 | docker compose ps | NATS container calisiyor |
+| 16 | make build && make up | Basarili (Dockerfile yeni konumda) |

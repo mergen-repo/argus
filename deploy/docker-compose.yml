@@ -1,5 +1,11 @@
 name: argus
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nginx:
     image: nginx:alpine
@@ -7,19 +13,26 @@ services:
     ports:
       - "8084:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../web/dist:/usr/share/nginx/html:ro
     depends_on:
       argus:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   argus:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile
+      dockerfile: infra/docker/Dockerfile.argus
     container_name: argus-app
     ports:
       - "1812:1812/udp"
@@ -44,6 +57,7 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   postgres:
     image: timescale/timescaledb:latest-pg16
@@ -54,8 +68,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-argus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-argus_secret}
       POSTGRES_DB: ${POSTGRES_DB:-argus}
+    shm_size: 512mb
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ../infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argus}"]
       interval: 5s
@@ -64,15 +84,17 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   redis:
     image: redis:7-alpine
     container_name: argus-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redisdata:/data
+      - ../infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -81,6 +103,7 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   nats:
     image: nats:latest
@@ -88,12 +111,16 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222"
-    command: ["--jetstream", "--store_dir=/data", "--http_port=8222"]
     volumes:
       - natsdata:/data
+      - ../infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    command: ["-c", "/etc/nats/nats.conf"]
+    # NOTE: nats:latest is distroless (no wget/curl/sh), so no healthcheck
+    # block is defined. /healthz is still exposed on :8222 for external probes.
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
@@ -123,6 +150,7 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   pgdata:

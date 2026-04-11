@@ -33,7 +33,7 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ CTN-01: Nginx (:443/:80)                                      │
+│ CTN-01: Nginx (host:8084→:80)                                 │
 │ /        → React SPA static files                             │
 │ /api/*   → Go API (:8080)                                     │
 │ /ws/*    → Go WebSocket (:8081)                                │
@@ -88,13 +88,13 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 | Config | envconfig | Latest | Environment variable configuration |
 | Testing | Go testing + testify | Latest | Unit + integration tests |
 | Container | Docker + Compose | Latest | Deployment |
-| Reverse Proxy | Nginx | Alpine | TLS termination, static serving, routing |
+| Reverse Proxy | Nginx | Alpine | Static serving, reverse proxy, routing (TLS deferred to production story) |
 
 ## Docker Architecture
 
 | Container | Image | Port | Purpose | Health Check |
 |-----------|-------|------|---------|-------------|
-| CTN-01 | nginx:alpine | 443, 80 | Reverse proxy, TLS, static SPA | GET / |
+| CTN-01 | nginx:alpine | 8084→80 | Reverse proxy, static SPA (HTTP; TLS deferred) | GET / |
 | CTN-02 | argus:latest (custom) | 8080, 8081, 1812, 1813, 3868, 8443 | Go monolith | GET :8080/api/health |
 | CTN-03 | timescale/timescaledb:latest-pg16 | 5432 | PostgreSQL + TimescaleDB | pg_isready |
 | CTN-04 | redis:7-alpine | 6379 | Cache, rate limiting | redis-cli ping |
@@ -188,9 +188,15 @@ argus/
 ├── deploy/
 │   ├── docker-compose.yml
 │   ├── docker-compose.prod.yml
-│   ├── nginx/
-│   │   └── nginx.conf
-│   └── Dockerfile
+│   └── nginx/
+│       └── nginx.conf
+├── infra/
+│   ├── docker/
+│   │   └── Dockerfile.argus      # Multi-stage Go+React build
+│   ├── monitoring/
+│   │   └── nats-check.sh         # NATS health probe
+│   └── ...                       # postgres, redis, nats config
+├── .dockerignore
 ├── docs/                         # All planning & architecture docs
 ├── .env.example
 ├── .gitignore

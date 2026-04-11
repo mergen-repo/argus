@@ -125,19 +125,21 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 h-auto rounded text-xs font-mono transition-colors',
                   form.supported_rat_types.includes(rat)
                     ? 'border-accent bg-accent-dim text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -329,12 +331,14 @@ export default function ApnListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setSearchInput('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -371,12 +375,14 @@ export default function ApnListPage() {
         </DropdownMenu>
 
         {filters.operator_id && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFilters({})}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto py-0 px-1"
           >
             Clear filters
-          </button>
+          </Button>
         )}
       </div>
 

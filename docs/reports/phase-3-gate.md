@@ -15,8 +15,8 @@
 ## Smoke Test
 | Endpoint | Status | Response |
 |----------|--------|----------|
-| Frontend (https://localhost:8084) | 200 | OK |
-| API Health (https://localhost:8084/api/health) | 200 | {"status":"success","data":{"db":"ok","redis":"ok","nats":"ok","aaa":{"radius":"ok","diameter":"ok","sessions_active":0}}} |
+| Frontend (http://localhost:8084) | 200 | OK |
+| API Health (http://localhost:8084/api/health) | 200 | {"status":"success","data":{"db":"ok","redis":"ok","nats":"ok","aaa":{"radius":"ok","diameter":"ok","sessions_active":0}}} |
 | DB (pg_isready) | connected | OK |
 
 ## Unit/Integration Tests

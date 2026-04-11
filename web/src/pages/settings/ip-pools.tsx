@@ -45,7 +45,7 @@ function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
-        <div className="font-mono text-xs text-text-secondary">{pool.cidr}</div>
+        <div className="font-mono text-xs text-text-secondary">{pool.cidr_v4 || pool.cidr_v6 || ''}</div>
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
             <span className="text-[10px] uppercase tracking-[1px] text-text-tertiary block">Total</span>

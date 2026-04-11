@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/btopcu/argus/internal/store"
@@ -415,26 +414,56 @@ func (m *Manager) statsFromRedis(ctx context.Context) (*SessionStats, error) {
 		return stats, nil
 	}
 
-	all, err := m.redisClient.HGetAll(ctx, statsActiveKey).Result()
-	if err != nil {
-		return stats, nil
+	var cursor uint64
+	var totalDuration float64
+	var totalBytes float64
+	now := time.Now()
+
+	for {
+		keys, nextCursor, err := m.redisClient.Scan(ctx, cursor, sessionKeyPrefix+"*", 200).Result()
+		if err != nil {
+			return stats, fmt.Errorf("session stats: redis scan: %w", err)
+		}
+
+		for _, key := range keys {
+			if !isSessionDataKey(key) {
+				continue
+			}
+			data, err := m.redisClient.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var sess Session
+			if err := json.Unmarshal(data, &sess); err != nil {
+				continue
+			}
+			if sess.SessionState != "active" {
+				continue
+			}
+
+			stats.TotalActive++
+			if sess.OperatorID != "" {
+				stats.ByOperator[sess.OperatorID]++
+			}
+			if sess.APNID != "" {
+				stats.ByAPN[sess.APNID]++
+			}
+			if sess.RATType != "" {
+				stats.ByRATType[sess.RATType]++
+			}
+			totalDuration += now.Sub(sess.StartedAt).Seconds()
+			totalBytes += float64(sess.BytesIn + sess.BytesOut)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
 	}
 
-	for k, v := range all {
-		count, _ := strconv.ParseInt(v, 10, 64)
-		if count < 0 {
-			count = 0
-		}
-		switch {
-		case k == "total":
-			stats.TotalActive = count
-		case len(k) > 3 && k[:3] == "op:":
-			stats.ByOperator[k[3:]] = count
-		case len(k) > 4 && k[:4] == "apn:":
-			stats.ByAPN[k[4:]] = count
-		case len(k) > 4 && k[:4] == "rat:":
-			stats.ByRATType[k[4:]] = count
-		}
+	if stats.TotalActive > 0 {
+		stats.AvgDurationSec = totalDuration / float64(stats.TotalActive)
+		stats.AvgBytes = totalBytes / float64(stats.TotalActive)
 	}
 
 	return stats, nil

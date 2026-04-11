@@ -49,9 +49,9 @@
 
 | Check | Status | Details |
 |-------|--------|---------|
-| `GET https://localhost/api/health` | PASS | `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok"}}` |
-| `GET https://localhost/` | PASS | Returns React SPA `index.html` (200) |
-| `GET https://localhost/health` | PASS | Proxied to API, returns health JSON |
+| `GET http://localhost:8084/api/health` | PASS | `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok"}}` |
+| `GET http://localhost:8084/` | PASS | Returns React SPA `index.html` (200) |
+| `GET http://localhost:8084/health` | PASS | Proxied to API, returns health JSON |
 | `GET http://localhost/` | PASS | 301 redirect to HTTPS |
 
 ## Phase 5: Fixes Applied

@@ -32,7 +32,7 @@ make db-seed
 make help
 ```
 
-Open https://localhost in your browser.
+Open http://localhost:8084 in your browser.
 
 ## Project Structure
 

@@ -17,7 +17,7 @@
 ## Smoke Test
 | Endpoint | Status | Response |
 |----------|--------|----------|
-| Frontend (https://localhost:8084) | 200 | HTML with JS/CSS bundles |
+| Frontend (http://localhost:8084) | 200 | HTML with JS/CSS bundles |
 | API Health (/health) | 200 | `{"status":"success","data":{"db":"ok","redis":"ok","nats":"ok"}}` |
 | Auth login | 200 | JWT token issued |
 | WebSocket server | UP | Listening on :8081, NATS subscribed |
