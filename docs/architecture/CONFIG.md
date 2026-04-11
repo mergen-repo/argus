@@ -116,6 +116,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `JWT_SECRET` | string | — | **Yes** | HMAC secret for signing JWT tokens. Minimum 32 characters. **Keep secret.** |
 | `JWT_EXPIRY` | duration | `15m` | No | Access token expiration. Short-lived for security. |
 | `JWT_REFRESH_EXPIRY` | duration | `168h` | No | Refresh token expiration (168h = 7 days). Stored in httpOnly cookie and database (TBL-03). |
+| `AUTH_JWT_REMEMBER_ME_TTL` | duration | `168h` | No | Access token TTL when `remember_me=true` on login (168h = 7 days). Enables persistent sessions across browser restarts. |
 | `JWT_ISSUER` | string | `argus` | No | JWT `iss` claim value. |
 | `BCRYPT_COST` | int | `12` | No | bcrypt cost factor for password hashing. Range 10-14. Higher = slower but more secure. 12 is ~250ms on modern hardware. |
 | `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before account lockout. |

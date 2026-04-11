@@ -52,7 +52,7 @@
 | API-032 | GET | /api/v1/apns/:id | Get APN detail + stats | JWT (sim_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) |
 | API-033 | PATCH | /api/v1/apns/:id | Update APN | JWT (tenant_admin+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) |
 | API-034 | DELETE | /api/v1/apns/:id | Archive APN (soft-delete) | JWT (tenant_admin) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) |
-| API-035 | GET | /api/v1/apns/:id/sims | List SIMs on this APN | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) (requires SIM store) |
+| API-035 | GET | /api/v1/apns/:id/sims | List SIMs on this APN | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 
 ## SIMs (14 endpoints)
 
@@ -61,7 +61,7 @@
 | API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-041 | GET | /api/v1/sims/:id | Get SIM detail (full) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-042 | POST | /api/v1/sims | Create single SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
-| API-043 | PATCH | /api/v1/sims/:id | Update SIM metadata | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
+| API-043 | PATCH | /api/v1/sims/:id | Update SIM metadata | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-044 | POST | /api/v1/sims/:id/activate | Activate SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-045 | POST | /api/v1/sims/:id/suspend | Suspend SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-046 | POST | /api/v1/sims/:id/resume | Resume suspended SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
@@ -69,8 +69,8 @@
 | API-048 | POST | /api/v1/sims/:id/report-lost | Report SIM stolen/lost | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-049 | POST | /api/v1/sims/:id/diagnose | Run connectivity diagnostics | JWT (sim_manager+) | See [STORY-037](../../stories/phase-6/STORY-037-connectivity-diagnostics.md) |
 | API-050 | GET | /api/v1/sims/:id/history | Get SIM state history | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
-| API-051 | GET | /api/v1/sims/:id/sessions | Get SIM session history | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
-| API-052 | GET | /api/v1/sims/:id/usage | Get SIM usage analytics | JWT (analyst+) | See [STORY-034](../../stories/phase-6/STORY-034-usage-analytics.md) |
+| API-051 | GET | /api/v1/sims/:id/sessions | Get SIM session history | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
+| API-052 | GET | /api/v1/sims/:id/usage | Get SIM usage analytics | JWT (analyst+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-053 | POST | /api/v1/sims/compare | Compare 2 SIMs side-by-side | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 
 ## SIM Segments & Bulk (10 endpoints)
