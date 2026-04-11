@@ -1223,3 +1223,18 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 | 12 | Diameter peer gecersiz sertifika ile TLS bagla (mTLS on) | Handshake reddedilir |
 | 13 | DSL policy: `WHEN rat_type == "NB_IOT"` ve `"nb_iot"` | Her ikisi ayni canonical RAT'e cozumlenir |
 | 14 | Canonical olmayan rat_type degerleri icin migration calistir | `sessions`, `sims`, `cdrs` tablolarinda normalize edilir |
+
+---
+
+## STORY-063: Backend Implementation Completeness
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `curl http://localhost:8084/api/health` -- DB, Redis, NATS, AAA probe sonuclari ile 200 ya da 503 donmeli (hicbir probe calismadiysа 503)
+2. `psql ... -c "SELECT id, tenant_id, operator_id, score FROM sla_reports LIMIT 5;"` -- TBL-27 tablosu mevcut ve kayit icermeli (periyodik job calistiysa)
+3. `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/sla-reports` -- API-183: SLA rapor listesi donmeli
+4. `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/sla-reports/$REPORT_ID` -- API-184: Tek SLA raporu donmeli
+5. `ESIM_SMDP_PROVIDER=generic` env set edildiginde eSIM profil download isteği gercek HTTP SM-DP+ adapter'ina yonlendirilen log'u kontrol et
+6. `SBA_NRF_URL=http://nrf.5g.local` env set edildiginde uygulama baslarken NRF NFRegister log girdisi gorulmeli
+7. `psql ... -c "SELECT id, user_id FROM sessions WHERE id='...';"` -- Oturum DB'ye yazilmali (sadece Redis degil)
+8. `make test` -- 1859 test gecmeli, hicbir skiplenmis test olmamali

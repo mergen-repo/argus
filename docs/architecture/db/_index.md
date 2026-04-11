@@ -34,6 +34,7 @@
 | TBL-24 | msisdn_pool | SIM/APN | → TBL-01, → TBL-05 | No |
 | TBL-25 | sim_segments | SIM/APN | → TBL-01, → TBL-02 | No |
 | TBL-26 | ota_commands | OTA | → TBL-01, → TBL-10, → TBL-20, → TBL-02 | No |
+| TBL-27 | sla_reports | Analytics/SLA | → TBL-01 (tenant_id), → TBL-05 (operator_id nullable) | No |
 
 ## Domain Detail Files
 
@@ -43,7 +44,7 @@
 | Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23 |
 | SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
-| AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18 |
+| AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27 |
 | Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26 |
 
 ## Entity Relationship Diagram

@@ -28,6 +28,8 @@ const (
 	SubjectPolicyRolloutProgress = "argus.events.policy.rollout_progress"
 	SubjectAnomalyDetected       = "argus.events.anomaly.detected"
 	SubjectAuthAttempt           = "argus.events.auth.attempt"
+	SubjectIPReclaimed           = "argus.events.ip.reclaimed"
+	SubjectSLAReportGenerated    = "argus.events.sla.report.generated"
 
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"

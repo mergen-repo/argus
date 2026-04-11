@@ -51,6 +51,16 @@ type IPAddress struct {
 	ReclaimAt      *time.Time `json:"reclaim_at"`
 }
 
+type ExpiredIPAddress struct {
+	ID            uuid.UUID  `json:"id"`
+	PoolID        uuid.UUID  `json:"pool_id"`
+	TenantID      uuid.UUID  `json:"tenant_id"`
+	AddressV4     *string    `json:"address_v4"`
+	AddressV6     *string    `json:"address_v6"`
+	PreviousSimID *uuid.UUID `json:"previous_sim_id"`
+	ReclaimAt     time.Time  `json:"reclaim_at"`
+}
+
 type CreateIPPoolParams struct {
 	APNID                   uuid.UUID
 	Name                    string
@@ -640,6 +650,68 @@ func (s *IPPoolStore) GetIPAddressByID(ctx context.Context, id uuid.UUID) (*IPAd
 		return nil, fmt.Errorf("store: get ip address by id: %w", err)
 	}
 	return addr, nil
+}
+
+func (s *IPPoolStore) ListExpiredReclaim(ctx context.Context, now time.Time, limit int) ([]ExpiredIPAddress, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT a.id, a.pool_id, p.tenant_id, a.address_v4::text, a.address_v6::text, a.sim_id, a.reclaim_at
+		FROM ip_addresses a
+		JOIN ip_pools p ON a.pool_id = p.id
+		WHERE a.state = 'reclaiming' AND a.reclaim_at <= $1
+		LIMIT $2
+	`, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list expired reclaim: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ExpiredIPAddress
+	for rows.Next() {
+		var e ExpiredIPAddress
+		if err := rows.Scan(&e.ID, &e.PoolID, &e.TenantID, &e.AddressV4, &e.AddressV6, &e.PreviousSimID, &e.ReclaimAt); err != nil {
+			return nil, fmt.Errorf("store: scan expired reclaim: %w", err)
+		}
+		results = append(results, e)
+	}
+	return results, nil
+}
+
+func (s *IPPoolStore) FinalizeReclaim(ctx context.Context, ipID uuid.UUID) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin tx for finalize reclaim: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var poolID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		UPDATE ip_addresses SET state = 'available', sim_id = NULL, allocated_at = NULL, reclaim_at = NULL
+		WHERE id = $1 AND state = 'reclaiming'
+		RETURNING pool_id
+	`, ipID).Scan(&poolID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIPNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: finalize reclaim update ip: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE ip_pools SET used_addresses = GREATEST(used_addresses - 1, 0) WHERE id = $1`, poolID)
+	if err != nil {
+		return fmt.Errorf("store: finalize reclaim update pool: %w", err)
+	}
+
+	_, _ = tx.Exec(ctx,
+		`UPDATE ip_pools SET state = 'active' WHERE id = $1 AND state = 'exhausted'`, poolID)
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit finalize reclaim: %w", err)
+	}
+	return nil
 }
 
 func GenerateIPv4Addresses(cidr string) ([]string, error) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
@@ -35,6 +36,7 @@ import (
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	notifapi "github.com/btopcu/argus/internal/api/notification"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
+	slaapi "github.com/btopcu/argus/internal/api/sla"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
@@ -63,6 +65,7 @@ import (
 	"github.com/btopcu/argus/internal/operator"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/ws"
+	"github.com/btopcu/argus/internal/storage"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
@@ -203,7 +206,23 @@ func main() {
 	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger, apnapi.WithSIMStore(simStore))
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	esimStore := store.NewESimProfileStore(pg.Pool)
-	smdpAdapter := esimpkg.NewMockSMDPAdapter(log.Logger)
+	var smdpAdapter esimpkg.SMDPAdapter
+	switch cfg.ESIMProvider {
+	case "", "mock":
+		smdpAdapter = esimpkg.NewMockSMDPAdapter(log.Logger)
+	default:
+		httpAdapter, esimErr := esimpkg.NewHTTPSMDPAdapter(esimpkg.HTTPSMDPConfig{
+			BaseURL:        cfg.ESIMSMDPBaseURL,
+			APIKey:         cfg.ESIMSMDPAPIKey,
+			ClientCertPath: cfg.ESIMSMDPClientCert,
+			ClientKeyPath:  cfg.ESIMSMDPClientKey,
+			Timeout:        10 * time.Second,
+		}, log.Logger)
+		if esimErr != nil {
+			log.Logger.Fatal().Err(esimErr).Msg("failed to initialize SM-DP+ adapter")
+		}
+		smdpAdapter = httpAdapter
+	}
 	esimHandler := esimapi.NewHandler(esimStore, simStore, smdpAdapter, auditSvc, log.Logger)
 	segmentStore := store.NewSegmentStore(pg.Pool)
 	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
@@ -294,15 +313,17 @@ func main() {
 	complianceStore := store.NewComplianceStore(pg.Pool)
 	complianceSvc := compliance.NewService(complianceStore, auditStore, auditSvc, log.Logger)
 	purgeSweepProc := job.NewPurgeSweepProcessor(jobStore, complianceSvc, eventBus, log.Logger)
-	ipReclaimStub := job.NewStubProcessor(job.JobTypeIPReclaim, jobStore, eventBus, log.Logger)
-	slaReportStub := job.NewStubProcessor(job.JobTypeSLAReport, jobStore, eventBus, log.Logger)
+	slaReportStore := store.NewSLAReportStore(pg.Pool)
+	slaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	ipReclaimProc := job.NewIPReclaimProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, log.Logger)
+	slaReportProc := job.NewSLAReportProcessor(jobStore, slaReportStore, operatorStore, tenantStore, slaRadiusSessionStore, eventBus, log.Logger)
 	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
 	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, distLock, eventBus, log.Logger)
 	jobRunner.Register(purgeSweepProc)
-	jobRunner.Register(ipReclaimStub)
-	jobRunner.Register(slaReportStub)
+	jobRunner.Register(ipReclaimProc)
+	jobRunner.Register(slaReportProc)
 	jobRunner.Register(bulkStateChangeProc)
 	jobRunner.Register(bulkPolicyAssignProc)
 	jobRunner.Register(otaProcessor)
@@ -324,6 +345,21 @@ func main() {
 	jobRunner.Register(dataRetentionProc)
 
 	var s3Uploader job.S3Uploader
+	if cfg.S3Bucket != "" {
+		s3Impl, s3Err := storage.NewS3Uploader(ctx, storage.S3Config{
+			Endpoint:  cfg.S3Endpoint,
+			AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey,
+			Bucket:    cfg.S3Bucket,
+			Region:    cfg.S3Region,
+			PathStyle: cfg.S3PathStyle,
+		}, log.Logger)
+		if s3Err != nil {
+			log.Logger.Warn().Err(s3Err).Msg("S3 uploader initialization failed; archival jobs will be skipped")
+		} else {
+			s3Uploader = s3Impl
+		}
+	}
 	s3ArchivalProc := job.NewS3ArchivalProcessor(jobStore, dataLifecycleStore, storageMonitorStore, cdrStore, s3Uploader, eventBus, cfg.S3Bucket, log.Logger)
 	jobRunner.Register(s3ArchivalProc)
 
@@ -414,7 +450,7 @@ func main() {
 			DefaultChatID: cfg.TelegramDefaultChat,
 		})
 	}
-	notifSvc := notification.NewService(emailSender, telegramSender, nil, notifChannels, log.Logger)
+	notifSvc := notification.NewService(emailSender, telegramSender, &inAppStoreAdapter{s: notifStore}, notifChannels, log.Logger)
 	notifSvc.SetNotifStore(&notifStoreAdapter{notifStore})
 	notifSvc.SetEventPublisher(eventBus, bus.SubjectNotification)
 
@@ -568,6 +604,11 @@ func main() {
 			TLSCertPath: cfg.TLSCertPath,
 			TLSKeyPath:  cfg.TLSKeyPath,
 			EnableMTLS:  cfg.SBAEnableMTLS,
+			NRFConfig: aaasba.NRFConfig{
+				NRFURL:       cfg.SBANRFURL,
+				NFInstanceID: cfg.SBANFInstanceID,
+				HeartbeatSec: cfg.SBANRFHeartbeatSec,
+			},
 		}, aaasba.ServerDeps{
 			SessionMgr: sbaSessionMgr,
 			EventBus:   eventBus,
@@ -579,7 +620,7 @@ func main() {
 		}
 
 		if err := sbaServer.NRFRegistration().Register(); err != nil {
-			log.Warn().Err(err).Msg("NRF registration failed (placeholder)")
+			log.Warn().Err(err).Msg("NRF registration failed")
 		}
 	}
 
@@ -618,6 +659,7 @@ func main() {
 
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
+	slaHandler := slaapi.NewHandler(slaReportStore, log.Logger)
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
 	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, log.Logger)
 	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
@@ -683,6 +725,7 @@ func main() {
 		ComplianceHandler:   complianceHandler,
 		ViolationHandler:    violationHandler,
 		DashboardHandler:    dashboardHandler,
+		SLAHandler:          slaHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
@@ -1099,4 +1142,56 @@ func (a *notifStoreAdapter) Create(ctx context.Context, p notification.NotifCrea
 
 func (a *notifStoreAdapter) UpdateDelivery(ctx context.Context, id uuid.UUID, sentAt, deliveredAt, failedAt *time.Time, retryCount int, channelsSent []string) error {
 	return a.s.UpdateDelivery(ctx, id, sentAt, deliveredAt, failedAt, retryCount, channelsSent)
+}
+
+type inAppStoreAdapter struct {
+	s *store.NotificationStore
+}
+
+func (a *inAppStoreAdapter) CreateNotification(ctx context.Context, n notification.InAppNotification) error {
+	if n.EntityID == uuid.Nil {
+		return nil
+	}
+	_, err := a.s.Create(ctx, store.CreateNotificationParams{
+		TenantID:     n.EntityID,
+		EventType:    n.AlertType,
+		ScopeType:    n.EntityType,
+		ScopeRefID:   &n.EntityID,
+		Title:        n.Title,
+		Body:         n.Body,
+		Severity:     n.Severity,
+		ChannelsSent: n.ChannelsSent,
+	})
+	return err
+}
+
+type auditRecorderAdapter struct {
+	svc *audit.FullService
+}
+
+func (a *auditRecorderAdapter) Record(ctx context.Context, tenantID uuid.UUID, action, entityType, entityID string, before, after any) error {
+	var beforeJSON, afterJSON json.RawMessage
+	if before != nil {
+		b, err := json.Marshal(before)
+		if err != nil {
+			return err
+		}
+		beforeJSON = b
+	}
+	if after != nil {
+		b, err := json.Marshal(after)
+		if err != nil {
+			return err
+		}
+		afterJSON = b
+	}
+	_, err := a.svc.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:   tenantID,
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+		BeforeData: beforeJSON,
+		AfterData:  afterJSON,
+	})
+	return err
 }

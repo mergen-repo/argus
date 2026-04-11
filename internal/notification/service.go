@@ -17,6 +17,8 @@ const (
 	ChannelEmail    Channel = "email"
 	ChannelTelegram Channel = "telegram"
 	ChannelInApp    Channel = "in_app"
+	ChannelWebhook  Channel = "webhook"
+	ChannelSMS      Channel = "sms"
 )
 
 type AlertPayload struct {
@@ -137,12 +139,38 @@ type Service struct {
 }
 
 func NewService(email EmailSender, telegram TelegramSender, inApp InAppStore, channels []Channel, logger zerolog.Logger) *Service {
-	return &Service{
+	svc := &Service{
 		email:    email,
 		telegram: telegram,
 		inApp:    inApp,
 		channels: channels,
 		logger:   logger.With().Str("component", "notification").Logger(),
+	}
+	svc.validateChannels()
+	return svc
+}
+
+func (s *Service) senderFor(ch Channel) interface{} {
+	switch ch {
+	case ChannelEmail:
+		return s.email
+	case ChannelTelegram:
+		return s.telegram
+	case ChannelInApp:
+		return s.inApp
+	case ChannelWebhook:
+		return s.webhook
+	case ChannelSMS:
+		return s.sms
+	}
+	return nil
+}
+
+func (s *Service) validateChannels() {
+	for _, ch := range s.channels {
+		if s.senderFor(ch) == nil {
+			s.logger.Warn().Str("channel", string(ch)).Msg("channel configured but sender is nil; dispatches will skip")
+		}
 	}
 }
 

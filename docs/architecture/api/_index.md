@@ -207,6 +207,19 @@
 | API-178 | GET | /api/v1/compliance/dsar/{simId} | Data Subject Access Request — export all PII for a SIM (KVKK/GDPR Art. 15) | JWT (tenant_admin+) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md) |
 | API-179 | POST | /api/v1/compliance/erasure/{simId} | Right to Erasure — pseudonymize audit logs + purge PII (KVKK/GDPR Art. 17) | JWT (tenant_admin) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md), [STORY-059](../../stories/phase-10/STORY-059-security-compliance.md) (salted hash unification) |
 
+## SLA Reports (2 endpoints)
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-183 | GET | /api/v1/sla-reports | List SLA reports (cursor-paginated) | JWT (tenant_admin+) | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
+| API-184 | GET | /api/v1/sla-reports/{id} | Get single SLA report detail | JWT (tenant_admin+) | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
+
+## Notifications — SMS Webhook (1 endpoint)
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-185 | POST | /api/v1/notifications/sms/status | Twilio SMS delivery status callback (HMAC-SHA256 verified) | Twilio Signature | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
+
 ## System Health (3 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
@@ -236,4 +249,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 108 REST endpoints + 10 WebSocket event types**
+**Total: 111 REST endpoints + 10 WebSocket event types**

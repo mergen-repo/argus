@@ -561,6 +561,69 @@ func (s *OperatorStore) CountFailures24h(ctx context.Context, operatorID uuid.UU
 	return total, failures, nil
 }
 
+type SLAAggregate struct {
+	UptimePct     float64
+	LatencyP95Ms  int
+	IncidentCount int
+	MTTRSec       int
+}
+
+func (s *OperatorStore) AggregateHealthForSLA(ctx context.Context, operatorID uuid.UUID, from, to time.Time) (*SLAAggregate, error) {
+	var agg SLAAggregate
+
+	err := s.db.QueryRow(ctx, `
+		SELECT
+			COALESCE(100.0 * SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*), 0), 0) AS uptime_pct,
+			COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::INTEGER AS latency_p95,
+			COALESCE(SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END), 0)::INTEGER AS incident_count
+		FROM operator_health_logs
+		WHERE operator_id = $1 AND checked_at >= $2 AND checked_at < $3
+	`, operatorID, from, to).Scan(&agg.UptimePct, &agg.LatencyP95Ms, &agg.IncidentCount)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("store: aggregate health for sla: %w", err)
+	}
+
+	if agg.IncidentCount > 0 {
+		var mttrSec *float64
+		err = s.db.QueryRow(ctx, `
+			WITH incidents AS (
+				SELECT
+					checked_at,
+					status,
+					LAG(status) OVER (ORDER BY checked_at) AS prev_status
+				FROM operator_health_logs
+				WHERE operator_id = $1 AND checked_at >= $2 AND checked_at < $3
+			),
+			incident_starts AS (
+				SELECT checked_at AS down_at
+				FROM incidents
+				WHERE status = 'down' AND (prev_status IS NULL OR prev_status != 'down')
+			),
+			incident_recoveries AS (
+				SELECT checked_at AS up_at
+				FROM incidents
+				WHERE status != 'down' AND prev_status = 'down'
+			),
+			paired AS (
+				SELECT
+					d.down_at,
+					MIN(r.up_at) AS up_at
+				FROM incident_starts d
+				LEFT JOIN incident_recoveries r ON r.up_at > d.down_at
+				GROUP BY d.down_at
+			)
+			SELECT AVG(EXTRACT(EPOCH FROM (up_at - down_at)))
+			FROM paired
+			WHERE up_at IS NOT NULL
+		`, operatorID, from, to).Scan(&mttrSec)
+		if err == nil && mttrSec != nil {
+			agg.MTTRSec = int(*mttrSec)
+		}
+	}
+
+	return &agg, nil
+}
+
 func (s *OperatorStore) LatestHealthByOperator(ctx context.Context) (map[uuid.UUID]time.Time, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT DISTINCT ON (operator_id) operator_id, checked_at

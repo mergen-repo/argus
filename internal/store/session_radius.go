@@ -193,6 +193,18 @@ func (s *RadiusSessionStore) CountActive(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+func (s *RadiusSessionStore) CountInWindow(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE tenant_id = $1 AND started_at >= $2 AND started_at < $3`,
+		tenantID, from, to,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count radius sessions in window: %w", err)
+	}
+	return count, nil
+}
+
 func (s *RadiusSessionStore) ListActiveBySIM(ctx context.Context, simID uuid.UUID) ([]RadiusSession, error) {
 	rows, err := s.db.Query(ctx,
 		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 AND session_state = 'active' ORDER BY started_at DESC`,

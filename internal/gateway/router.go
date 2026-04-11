@@ -21,6 +21,7 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
+	slaapi "github.com/btopcu/argus/internal/api/sla"
 	violationapi "github.com/btopcu/argus/internal/api/violation"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -55,12 +56,14 @@ type RouterDeps struct {
 	CDRHandler       *cdrapi.Handler
 	AnalyticsHandler *analyticsapi.Handler
 	AnomalyHandler       *anomalyapi.Handler
-	NotificationHandler  *notifapi.Handler
+	NotificationHandler     *notifapi.Handler
+	SMSWebhookHandler       *notifapi.SMSWebhookHandler
 	DiagnosticsHandler   *diagapi.Handler
 	MetricsHandler     *metricsapi.Handler
 	ComplianceHandler  *complianceapi.Handler
 	ViolationHandler   *violationapi.Handler
 	DashboardHandler   *dashboardapi.Handler
+	SLAHandler         *slaapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -122,6 +125,10 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 
 	r.Get("/api/health", deps.Health.Check)
 	r.Get("/api/v1/health", deps.Health.Check)
+
+	if deps.SMSWebhookHandler != nil {
+		r.Post("/api/v1/notifications/sms/status", deps.SMSWebhookHandler.HandleStatusCallback)
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Post("/api/v1/auth/login", deps.AuthHandler.Login)
@@ -510,6 +517,15 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Put("/api/v1/compliance/retention", deps.ComplianceHandler.UpdateRetention)
 			r.Get("/api/v1/compliance/dsar/{simId}", deps.ComplianceHandler.DataSubjectAccess)
 			r.Post("/api/v1/compliance/erasure/{simId}", deps.ComplianceHandler.RightToErasure)
+		})
+	}
+
+	if deps.SLAHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/sla-reports", deps.SLAHandler.List)
+			r.Get("/api/v1/sla-reports/{id}", deps.SLAHandler.Get)
 		})
 	}
 

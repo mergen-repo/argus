@@ -149,6 +149,9 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `SBA_PORT` | int | `8443` | No | 5G SBA HTTPS/HTTP2 server port. |
 | `SBA_ENABLED` | bool | `false` | No | Enable 5G SBA proxy server. |
 | `SBA_ENABLE_MTLS` | bool | `false` | No | Enable mutual TLS (mTLS) for 5G SBA server. When true, requires client certificates for NF-to-NF communication. |
+| `SBA_NRF_URL` | string | — | No | NRF (Network Repository Function) registration endpoint URL. When set, Argus registers on startup and sends heartbeats. Example: `https://nrf.5gc.example.com`. |
+| `SBA_NF_INSTANCE_ID` | string | `argus-sba-01` | No | NF Instance ID sent in NRF registration requests. Must be unique per Argus instance in a 5G core cluster. |
+| `SBA_NRF_HEARTBEAT_SEC` | int | `30` | No | NRF heartbeat interval in seconds. Argus sends a PUT to the NRF profile URL at this interval to maintain registration. |
 
 ---
 
@@ -240,6 +243,30 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 
 ---
 
+## eSIM SM-DP+
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ESIM_SMDP_PROVIDER` | string | `mock` | No | SM-DP+ adapter: `mock` (development, always succeeds) or `generic` (production HTTP adapter targeting SGP.22 ES9+ JSON endpoints). |
+| `ESIM_SMDP_BASE_URL` | string | — | If generic | Base URL of the SM-DP+ server. Example: `https://smdp.example.com`. |
+| `ESIM_SMDP_API_KEY` | string | — | If generic | API key for SM-DP+ authentication. **Keep secret.** |
+| `ESIM_SMDP_CLIENT_CERT_PATH` | string | — | No | Path to mTLS client certificate (PEM) for SM-DP+ mutual TLS. |
+| `ESIM_SMDP_CLIENT_KEY_PATH` | string | — | No | Path to mTLS client private key (PEM) for SM-DP+ mutual TLS. |
+
+---
+
+## SMS Gateway
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `SMS_PROVIDER` | string | `` | No | SMS provider: `twilio` or empty/unset (SMS disabled). |
+| `SMS_ACCOUNT_ID` | string | — | If Twilio | Twilio Account SID. **Keep secret.** |
+| `SMS_AUTH_TOKEN` | string | — | If Twilio | Twilio Auth Token. **Keep secret.** |
+| `SMS_FROM_NUMBER` | string | — | If Twilio | Sender phone number in E.164 format (e.g. `+15005550006`). |
+| `SMS_STATUS_CALLBACK_URL` | string | — | No | Webhook URL for Twilio delivery status callbacks. |
+
+---
+
 ## TLS Certificates
 
 | Variable | Type | Default | Required | Description |
@@ -274,11 +301,7 @@ These variables are only meaningful in development mode (`APP_ENV=development`):
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DEV_SEED_DATA` | bool | `true` | Auto-run seed migrations on startup. |
-| `DEV_MOCK_OPERATOR` | bool | `true` | Register mock operator adapter. |
-| `DEV_CORS_ALLOW_ALL` | bool | `true` | Allow all CORS origins (for localhost dev server). |
-| `DEV_DISABLE_2FA` | bool | `true` | Skip 2FA verification in development. |
-| `DEV_LOG_SQL` | bool | `false` | Log all SQL queries to stdout. |
+| `DEV_CORS_ALLOW_ALL` | bool | `true` | Allow all CORS origins (for localhost dev server). Hardening deferred to STORY-074 AC-3. |
 
 ---
 
@@ -323,6 +346,9 @@ DIAMETER_ORIGIN_REALM=local
 SBA_PORT=8443
 SBA_ENABLED=false
 SBA_ENABLE_MTLS=false
+# SBA_NRF_URL=https://nrf.5gc.example.com
+# SBA_NF_INSTANCE_ID=argus-sba-01
+# SBA_NRF_HEARTBEAT_SEC=30
 
 # === Diameter TLS (optional) ===
 # DIAMETER_TLS_ENABLED=true
@@ -345,6 +371,20 @@ CRON_ENABLED=true
 CRON_PURGE_SWEEP=@daily
 CRON_IP_RECLAIM=@hourly
 CRON_SLA_REPORT=@daily
+
+# === eSIM SM-DP+ (optional) ===
+# ESIM_SMDP_PROVIDER=generic
+# ESIM_SMDP_BASE_URL=https://smdp.example.com
+# ESIM_SMDP_API_KEY=
+# ESIM_SMDP_CLIENT_CERT_PATH=/certs/smdp-client.pem
+# ESIM_SMDP_CLIENT_KEY_PATH=/certs/smdp-client-key.pem
+
+# === SMS Gateway (optional) ===
+# SMS_PROVIDER=twilio
+# SMS_ACCOUNT_ID=
+# SMS_AUTH_TOKEN=
+# SMS_FROM_NUMBER=+15005550006
+# SMS_STATUS_CALLBACK_URL=
 
 # === Notifications (optional) ===
 # SMTP_HOST=smtp.gmail.com
@@ -376,9 +416,5 @@ DEFAULT_MAX_USERS=50
 DEFAULT_PURGE_RETENTION_DAYS=90
 
 # === Development ===
-DEV_SEED_DATA=true
-DEV_MOCK_OPERATOR=true
 DEV_CORS_ALLOW_ALL=true
-DEV_DISABLE_2FA=true
-DEV_LOG_SQL=false
 ```

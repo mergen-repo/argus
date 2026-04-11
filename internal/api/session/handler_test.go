@@ -11,14 +11,23 @@ import (
 
 	sessModel "github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
 func newTestHandler(t *testing.T) (*Handler, *sessModel.Manager) {
 	t.Helper()
 	logger := zerolog.Nop()
-	mgr := sessModel.NewManager(nil, nil, logger)
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	mgr := sessModel.NewManager(nil, rdb, logger)
 	h := NewHandler(mgr, nil, nil, nil, nil, logger)
 	return h, mgr
 }
@@ -132,7 +141,6 @@ func TestHandler_Disconnect_NotFound(t *testing.T) {
 }
 
 func TestHandler_Disconnect_Success(t *testing.T) {
-	t.Skip("Manager is a stub — session Create/Get not yet implemented")
 	h, mgr := newTestHandler(t)
 
 	ctx := context.Background()
@@ -144,6 +152,7 @@ func TestHandler_Disconnect_Success(t *testing.T) {
 		IMSI:          "286010600000001",
 		AcctSessionID: "acct-disc-001",
 		NASIP:         "10.0.0.1",
+		SessionState:  "active",
 		StartedAt:     time.Now().UTC(),
 	}
 	if err := mgr.Create(ctx, sess); err != nil {

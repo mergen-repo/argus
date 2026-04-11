@@ -6,11 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	ChannelWebhook Channel = "webhook"
-	ChannelSMS     Channel = "sms"
-)
-
 type ScopeType string
 
 const (

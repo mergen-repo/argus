@@ -49,11 +49,25 @@ type DeleteProfileRequest struct {
 	ProfileID  uuid.UUID
 }
 
+type GetProfileInfoRequest struct {
+	EID       string
+	ICCID     string
+	ProfileID string
+}
+
+type GetProfileInfoResponse struct {
+	State      string
+	ICCID      string
+	SMDPPlusID string
+	LastSeenAt time.Time
+}
+
 type SMDPAdapter interface {
 	DownloadProfile(ctx context.Context, req DownloadProfileRequest) (*DownloadProfileResponse, error)
 	EnableProfile(ctx context.Context, req EnableProfileRequest) error
 	DisableProfile(ctx context.Context, req DisableProfileRequest) error
 	DeleteProfile(ctx context.Context, req DeleteProfileRequest) error
+	GetProfileInfo(ctx context.Context, req GetProfileInfoRequest) (*GetProfileInfoResponse, error)
 }
 
 type MockSMDPAdapter struct {
@@ -118,4 +132,21 @@ func (m *MockSMDPAdapter) DeleteProfile(ctx context.Context, req DeleteProfileRe
 
 	m.simulateLatency()
 	return nil
+}
+
+func (m *MockSMDPAdapter) GetProfileInfo(ctx context.Context, req GetProfileInfoRequest) (*GetProfileInfoResponse, error) {
+	m.logger.Info().
+		Str("eid", req.EID).
+		Str("iccid", req.ICCID).
+		Str("profile_id", req.ProfileID).
+		Msg("mock SM-DP+: get profile info")
+
+	m.simulateLatency()
+
+	return &GetProfileInfoResponse{
+		State:      "enabled",
+		ICCID:      req.ICCID,
+		SMDPPlusID: "mock-smdp-" + req.EID,
+		LastSeenAt: time.Now(),
+	}, nil
 }

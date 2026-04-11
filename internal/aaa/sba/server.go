@@ -21,13 +21,14 @@ type ServerConfig struct {
 	TLSCertPath string
 	TLSKeyPath  string
 	EnableMTLS  bool
+	NRFConfig   NRFConfig
 }
 
 type ServerDeps struct {
-	SessionMgr   *session.Manager
-	EventBus     *bus.EventBus
+	SessionMgr      *session.Manager
+	EventBus        *bus.EventBus
 	EAPStateMachine *eap.StateMachine
-	Logger       zerolog.Logger
+	Logger          zerolog.Logger
 }
 
 type Server struct {
@@ -42,12 +43,22 @@ type Server struct {
 	eapProxyHandler *EAPProxyHandler
 	nrfRegistration *NRFRegistration
 
+	heartbeatCancel context.CancelFunc
+
 	mu      sync.Mutex
 	running bool
 }
 
 func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	logger := deps.Logger.With().Str("component", "sba_server").Logger()
+
+	nrfCfg := cfg.NRFConfig
+	if nrfCfg.NFInstanceID == "" {
+		nrfCfg.NFInstanceID = "argus-sba-01"
+	}
+	if nrfCfg.HeartbeatSec == 0 {
+		nrfCfg.HeartbeatSec = 30
+	}
 
 	s := &Server{
 		cfg:        cfg,
@@ -59,9 +70,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	s.ausfHandler = NewAUSFHandler(deps.SessionMgr, deps.EventBus, logger)
 	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, logger)
 	s.eapProxyHandler = NewEAPProxyHandler(deps.EAPStateMachine, logger)
-	s.nrfRegistration = NewNRFRegistration(NRFConfig{
-		NFInstanceID: "argus-sba-01",
-	}, logger)
+	s.nrfRegistration = NewNRFRegistration(nrfCfg, logger)
 
 	mux := http.NewServeMux()
 
@@ -160,6 +169,16 @@ func (s *Server) Start() error {
 		}()
 	}
 
+	heartbeatCtx, cancel := context.WithCancel(context.Background())
+	s.heartbeatCancel = cancel
+
+	if err := s.nrfRegistration.RegisterCtx(heartbeatCtx); err != nil {
+		cancel()
+		return fmt.Errorf("nrf registration: %w", err)
+	}
+
+	go s.nrfHeartbeatLoop(heartbeatCtx)
+
 	s.running = true
 	s.logger.Info().
 		Int("port", s.cfg.Port).
@@ -168,12 +187,47 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func (s *Server) nrfHeartbeatLoop(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error().Interface("panic", r).Msg("nrf heartbeat recovered")
+		}
+	}()
+
+	heartbeatSec := s.cfg.NRFConfig.HeartbeatSec
+	if heartbeatSec <= 0 {
+		heartbeatSec = 30
+	}
+	ticker := time.NewTicker(time.Duration(heartbeatSec) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.nrfRegistration.DeregisterCtx(shutdownCtx); err != nil {
+				s.logger.Warn().Err(err).Msg("NRF deregistration on shutdown failed")
+			}
+			return
+		case <-ticker.C:
+			if err := s.nrfRegistration.HeartbeatCtx(ctx); err != nil {
+				s.logger.Warn().Err(err).Msg("NRF heartbeat failed")
+			}
+		}
+	}
+}
+
 func (s *Server) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.running {
 		return
+	}
+
+	if s.heartbeatCancel != nil {
+		s.heartbeatCancel()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -236,4 +290,3 @@ func (s *Server) ActiveSessionCount(ctx context.Context) (int64, error) {
 	}
 	return s.sessionMgr.CountActive(ctx)
 }
-

@@ -129,11 +129,23 @@ type Config struct {
 	BruteForceMaxAttempts   int `envconfig:"BRUTE_FORCE_MAX_ATTEMPTS" default:"10"`
 	BruteForceWindowSeconds int `envconfig:"BRUTE_FORCE_WINDOW_SECONDS" default:"900"`
 
-	DevSeedData      bool `envconfig:"DEV_SEED_DATA" default:"true"`
-	DevMockOperator  bool `envconfig:"DEV_MOCK_OPERATOR" default:"true"`
 	DevCORSAllowAll  bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`
-	DevDisable2FA    bool `envconfig:"DEV_DISABLE_2FA" default:"true"`
-	DevLogSQL        bool `envconfig:"DEV_LOG_SQL" default:"false"`
+
+	ESIMProvider       string `envconfig:"ESIM_SMDP_PROVIDER"       default:"mock"`
+	ESIMSMDPBaseURL    string `envconfig:"ESIM_SMDP_BASE_URL"`
+	ESIMSMDPAPIKey     string `envconfig:"ESIM_SMDP_API_KEY"`
+	ESIMSMDPClientCert string `envconfig:"ESIM_SMDP_CLIENT_CERT_PATH"`
+	ESIMSMDPClientKey  string `envconfig:"ESIM_SMDP_CLIENT_KEY_PATH"`
+
+	SMSProvider          string `envconfig:"SMS_PROVIDER"              default:""`
+	SMSAccountID         string `envconfig:"SMS_ACCOUNT_ID"`
+	SMSAuthToken         string `envconfig:"SMS_AUTH_TOKEN"`
+	SMSFromNumber        string `envconfig:"SMS_FROM_NUMBER"`
+	SMSStatusCallbackURL string `envconfig:"SMS_STATUS_CALLBACK_URL"`
+
+	SBANRFURL          string `envconfig:"SBA_NRF_URL"`
+	SBANFInstanceID    string `envconfig:"SBA_NF_INSTANCE_ID"       default:"argus-sba-01"`
+	SBANRFHeartbeatSec int    `envconfig:"SBA_NRF_HEARTBEAT_SEC"    default:"30"`
 }
 
 func Load() (*Config, error) {

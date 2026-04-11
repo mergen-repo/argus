@@ -18,7 +18,7 @@
 | SBA | Service-Based Architecture | 5G core network architecture using HTTP/2 APIs |
 | AUSF | Authentication Server Function | 5G core network function for authentication |
 | UDM | Unified Data Management | 5G core network function for subscriber data |
-| NRF | NF Repository Function | 5G core network function for service discovery and registration. Argus implements a placeholder for future NF discovery integration. | SVC-04, STORY-020 |
+| NRF | NF Repository Function | 5G core network function for service discovery and registration. Argus implements real 3GPP NRF HTTP calls: NFRegister (PUT), NFUpdate (PATCH), NFDeregister (DELETE), NFStatusSubscribe (POST). Activated when `SBA_NRF_URL` env var is set; falls back to no-op when unset. | SVC-04, STORY-020, STORY-063 |
 | SUPI | Subscription Permanent Identifier | Globally unique 5G subscriber identifier (typically `imsi-{IMSI}`). Permanent identity resolved from SUCI during authentication. | 5G SBA (TS 23.501), STORY-020 |
 | SUCI | Subscription Concealed Identifier | Privacy-preserving encrypted form of SUPI transmitted over the air in 5G. Format: `suci-{MCC}{MNC}{RoutingID}{...}`. Resolved to SUPI by AUSF/UDM. | 5G SBA (TS 23.003), STORY-020 |
 | S-NSSAI | Single Network Slice Selection Assistance Information | Identifier for a 5G network slice, composed of SST (Slice/Service Type, 1 byte) and optional SD (Slice Differentiator, 3 bytes). Used for slice-level authentication and policy. | 5G SBA (TS 23.501), STORY-020 |
@@ -74,7 +74,7 @@
 | SGP.32 | GSMA IoT eSIM specification | New IoT-specific eSIM standard (2023) |
 | eSIM Profile State Machine | Lifecycle states for an eSIM profile on TBL-12: `disabled` (default, profile loaded but not active) -> `enabled` (active, one per SIM) <-> `disabled` -> `deleted` (removed). Only one profile per SIM can be in `enabled` state. State transitions enforced with FOR UPDATE row locks in PostgreSQL transactions. | SVC-03, STORY-028, TBL-12 |
 | Profile Switch (eSIM) | Atomic operation that disables the currently enabled eSIM profile and enables a different profile on the same SIM in a single PostgreSQL transaction. Updates `sims.operator_id` to the new profile's operator, sets `sims.apn_id = NULL` (requires reassignment), and records the change in `sim_state_history` (TBL-11). | SVC-03, STORY-028, API-074 |
-| SM-DP+ Adapter | Interface for communicating with GSMA SM-DP+ servers (SGP.22) for remote eSIM profile provisioning. 4 methods: DownloadProfile, EnableProfile, DisableProfile, DeleteProfile. Mock implementation for development; real operator-specific adapters are a future extension point. | SVC-03, STORY-028, `internal/esim/smdp.go` |
+| SM-DP+ Adapter | Interface for communicating with GSMA SM-DP+ servers (SGP.22) for remote eSIM profile provisioning. 4 methods: DownloadProfile, EnableProfile, DisableProfile, DeleteProfile. Two implementations: `MockSMDPAdapter` (development) and `HTTPSMDPAdapter` (generic SGP.22 ES9+ HTTP provider, active when `ESIM_SMDP_PROVIDER=generic`). | SVC-03, STORY-028, STORY-063, `internal/esim/smdp.go` |
 
 ## Network Terms
 

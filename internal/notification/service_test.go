@@ -1,8 +1,10 @@
 package notification
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -647,4 +649,21 @@ func TestService_Notify_RateLimitAllowed(t *testing.T) {
 		t.Errorf("store items = %d, want 1", len(notifStore.items))
 	}
 	notifStore.mu.Unlock()
+}
+
+func TestService_ValidateChannels_WarnsNilSenders(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	_ = NewService(nil, nil, nil, []Channel{ChannelWebhook, ChannelSMS, ChannelEmail}, logger)
+
+	logged := buf.String()
+
+	if !strings.Contains(logged, "channel configured but sender is nil") {
+		t.Errorf("expected warn log for nil sender, got: %q", logged)
+	}
+
+	if strings.Contains(logged, string(ChannelInApp)) {
+		t.Errorf("unexpected warn for in_app channel which was not configured")
+	}
 }

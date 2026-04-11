@@ -26,6 +26,13 @@ type SBAHealthChecker interface {
 	ActiveSessionCount(ctx context.Context) (int64, error)
 }
 
+type probeResult struct {
+	Status        string    `json:"status"`
+	LatencyMs     int64     `json:"latency_ms"`
+	LastCheckedAt time.Time `json:"last_checked_at"`
+	Err           string    `json:"error,omitempty"`
+}
+
 type HealthHandler struct {
 	db       HealthChecker
 	redis    HealthChecker
@@ -69,78 +76,115 @@ type apiError struct {
 }
 
 type aaaHealthData struct {
-	Radius         string `json:"radius"`
-	Diameter       string `json:"diameter,omitempty"`
-	SBA            string `json:"sba,omitempty"`
-	SessionsActive int64  `json:"sessions_active"`
+	Radius         probeResult `json:"radius"`
+	Diameter       *probeResult `json:"diameter,omitempty"`
+	SBA            *probeResult `json:"sba,omitempty"`
+	SessionsActive int64        `json:"sessions_active"`
 }
 
 type healthData struct {
-	DB     string         `json:"db"`
-	Redis  string         `json:"redis"`
-	NATS   string         `json:"nats"`
+	DB     probeResult    `json:"db"`
+	Redis  probeResult    `json:"redis"`
+	NATS   probeResult    `json:"nats"`
 	AAA    *aaaHealthData `json:"aaa,omitempty"`
 	Uptime string         `json:"uptime"`
 }
 
+func runProbe(ctx context.Context, checker HealthChecker) probeResult {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := checker.HealthCheck(probeCtx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		return probeResult{
+			Status:        "error: " + err.Error(),
+			LatencyMs:     elapsed.Milliseconds(),
+			LastCheckedAt: time.Now(),
+			Err:           err.Error(),
+		}
+	}
+	return probeResult{
+		Status:        "ok",
+		LatencyMs:     elapsed.Milliseconds(),
+		LastCheckedAt: time.Now(),
+	}
+}
+
+func boolProbe(fn func() bool) probeResult {
+	start := time.Now()
+	healthy := fn()
+	elapsed := time.Since(start)
+	if healthy {
+		return probeResult{
+			Status:        "ok",
+			LatencyMs:     elapsed.Milliseconds(),
+			LastCheckedAt: time.Now(),
+		}
+	}
+	return probeResult{
+		Status:        "stopped",
+		LatencyMs:     elapsed.Milliseconds(),
+		LastCheckedAt: time.Now(),
+		Err:           "service not running",
+	}
+}
+
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	dbResult := runProbe(ctx, h.db)
+	redisResult := runProbe(ctx, h.redis)
+	natsResult := runProbe(ctx, h.nats)
+
 	data := healthData{
-		DB:     "ok",
-		Redis:  "ok",
-		NATS:   "ok",
+		DB:     dbResult,
+		Redis:  redisResult,
+		NATS:   natsResult,
 		Uptime: time.Since(h.startAt).Round(time.Second).String(),
 	}
 
-	healthy := true
-
-	if err := h.db.HealthCheck(ctx); err != nil {
-		data.DB = "error: " + err.Error()
-		healthy = false
-	}
-	if err := h.redis.HealthCheck(ctx); err != nil {
-		data.Redis = "error: " + err.Error()
-		healthy = false
-	}
-	if err := h.nats.HealthCheck(ctx); err != nil {
-		data.NATS = "error: " + err.Error()
-		healthy = false
-	}
+	healthy := dbResult.Err == "" && redisResult.Err == "" && natsResult.Err == ""
 
 	if h.aaa != nil || h.diameter != nil || h.sba != nil {
-		aaaData := &aaaHealthData{
-			Radius:   "stopped",
-			Diameter: "stopped",
-			SBA:      "stopped",
-		}
+		aaaData := &aaaHealthData{}
+
 		if h.aaa != nil {
-			if h.aaa.Healthy() {
-				aaaData.Radius = "ok"
+			aaaData.Radius = boolProbe(h.aaa.Healthy)
+			if aaaData.Radius.Err != "" {
+				healthy = false
 			}
 			if count, err := h.aaa.ActiveSessionCount(ctx); err == nil {
 				aaaData.SessionsActive += count
 			}
+		} else {
+			aaaData.Radius = probeResult{Status: "pending"}
 		}
+
 		if h.diameter != nil {
-			if h.diameter.Healthy() {
-				aaaData.Diameter = "ok"
+			p := boolProbe(h.diameter.Healthy)
+			aaaData.Diameter = &p
+			if p.Err != "" {
+				healthy = false
 			}
 			if count, err := h.diameter.ActiveSessionCount(ctx); err == nil {
 				aaaData.SessionsActive += count
 			}
-		} else {
-			aaaData.Diameter = ""
 		}
+
 		if h.sba != nil {
-			if h.sba.Healthy() {
-				aaaData.SBA = "ok"
+			p := boolProbe(h.sba.Healthy)
+			aaaData.SBA = &p
+			if p.Err != "" {
+				healthy = false
 			}
 			if count, err := h.sba.ActiveSessionCount(ctx); err == nil {
 				aaaData.SessionsActive += count
 			}
-		} else {
-			aaaData.SBA = ""
 		}
+
 		data.AAA = aaaData
 	}
 
