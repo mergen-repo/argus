@@ -4,6 +4,9 @@
 
 Argus is an APN & Subscriber Intelligence Platform built as a Go modular monolith with a React SPA frontend. It manages 10M+ IoT/M2M SIM cards across multiple mobile operators with built-in AAA (RADIUS/Diameter/5G), policy engine, analytics, and multi-operator orchestration.
 
+
+## Development
+- Run `/amil` to start or continue any development work — it manages planning, implementation, quality gates, and deployment.
 ## Tech Stack
 
 - Go 1.22+ backend (single binary, multiple protocol listeners)
