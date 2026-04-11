@@ -155,12 +155,14 @@ export default function UsersPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchQuery && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -221,12 +223,14 @@ export default function UsersPage() {
                         className="h-7 text-xs w-40"
                       />
                     ) : (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setEditingRole({ userId: u.id, role: u.role })}
-                        className="text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                        className="text-xs text-text-secondary hover:text-accent transition-colors h-auto p-0"
                       >
                         {roleLabel(u.role)}
-                      </button>
+                      </Button>
                     )}
                   </TableCell>
                   <TableCell>

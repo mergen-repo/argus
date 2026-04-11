@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -333,13 +334,13 @@ export default function ViolationsPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-tertiary pointer-events-none" />
-          <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Filter by SIM, policy, type..."
-            className="w-full h-8 rounded-[var(--radius-sm)] border border-border bg-bg-surface pl-8 pr-3 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors" />
+          <Input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Filter by SIM, policy, type..."
+            className="h-8 pl-8 pr-3 text-xs" />
         </div>
         <Select options={TYPE_OPTIONS} value={filters.violation_type} onChange={(e) => setFilters((f) => ({ ...f, violation_type: e.target.value }))} className="w-36" />
         <Select options={SEVERITY_OPTIONS} value={filters.severity} onChange={(e) => setFilters((f) => ({ ...f, severity: e.target.value }))} className="w-36" />
         {(filters.violation_type || filters.severity) && (
-          <button onClick={() => setFilters({ violation_type: '', severity: '' })} className="text-[11px] text-text-tertiary hover:text-accent transition-colors">Clear</button>
+          <Button variant="ghost" size="sm" onClick={() => setFilters({ violation_type: '', severity: '' })} className="text-[11px] text-text-tertiary hover:text-accent h-auto p-0">Clear</Button>
         )}
       </div>
 

@@ -13,7 +13,7 @@ import {
   Loader2,
   ExternalLink,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -46,6 +46,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { Session } from '@/types/session'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatDuration, formatNumber } from '@/lib/format'
+import { RATBadge } from '@/components/ui/rat-badge'
 
 function LiveDot() {
   return (
@@ -143,13 +144,7 @@ function SessionRow({
         <span className="font-mono text-xs text-accent">{formatBytes(session.bytes_out)}</span>
       </TableCell>
       <TableCell>
-        {session.rat_type ? (
-          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">
-            {session.rat_type}
-          </span>
-        ) : (
-          <span className="text-text-tertiary text-xs">-</span>
-        )}
+        <RATBadge ratType={session.rat_type} />
       </TableCell>
       <TableCell>
         <Button
@@ -189,9 +184,10 @@ export default function SessionListPage() {
     isFetchingNextPage,
   } = useSessionList({})
 
+  const sessionFilters = useMemo(() => ({}), [])
   const disconnectMutation = useDisconnectSession()
-  const newSessionIds = useRealtimeSessionStarted()
-  const endedSessionIds = useRealtimeSessionEnded()
+  const newSessionIds = useRealtimeSessionStarted(sessionFilters)
+  const endedSessionIds = useRealtimeSessionEnded(sessionFilters)
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -279,12 +275,15 @@ export default function SessionListPage() {
             className="pl-9 h-8 text-sm"
           />
           {filterText && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Clear search"
               onClick={() => setFilterText('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors h-5 w-5"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
         {filterText && (
@@ -399,12 +398,13 @@ export default function SessionListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more sessions
-            </button>
+            </Button>
           ) : filteredSessions.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {filteredSessions.length} active sessions

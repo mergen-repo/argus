@@ -137,16 +137,18 @@ export default function NotificationsPage() {
                       <p className="mt-0.5 text-xs text-text-tertiary">{n.message}</p>
                     </div>
                     {!n.read && (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={(e) => {
                           e.stopPropagation()
                           markAsRead.mutate(n.id)
                         }}
-                        className="shrink-0 rounded p-1 text-text-tertiary opacity-0 hover:text-accent group-hover:opacity-100 transition-opacity"
+                        className="shrink-0 h-7 w-7 text-text-tertiary opacity-0 hover:text-accent group-hover:opacity-100 transition-opacity"
                         title="Mark as read"
                       >
                         <Check className="h-4 w-4" />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )

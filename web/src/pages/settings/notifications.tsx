@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useNotificationConfig, useUpdateNotificationConfig } from '@/hooks/use-settings'
 import type { NotificationConfig } from '@/types/settings'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -68,12 +69,14 @@ const DEFAULT_CONFIG: NotificationConfig = {
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        checked ? 'bg-accent' : 'bg-bg-hover',
+        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent p-0',
+        checked ? 'bg-accent hover:bg-accent' : 'bg-bg-hover hover:bg-bg-hover',
       )}
     >
       <span
@@ -82,7 +85,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
           checked ? 'translate-x-[18px]' : 'translate-x-[3px]',
         )}
       />
-    </button>
+    </Button>
   )
 }
 
@@ -279,13 +282,13 @@ export default function NotificationConfigPage() {
                     {threshold.value.toLocaleString()}{threshold.unit}
                   </span>
                 </div>
-                <input
+                <Input
                   type="range"
                   min={threshold.min}
                   max={threshold.max}
                   value={threshold.value}
                   onChange={(e) => updateThreshold(idx, parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-bg-hover rounded-full appearance-none cursor-pointer accent-accent"
+                  className="w-full h-1.5 bg-bg-hover rounded-full appearance-none cursor-pointer accent-accent border-0 px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:border-0"
                 />
                 <div className="flex justify-between mt-1">
                   <span className="text-[10px] text-text-tertiary">{threshold.min}{threshold.unit}</span>

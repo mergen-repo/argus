@@ -54,6 +54,7 @@ import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
+import { InfoRow } from '@/components/ui/info-row'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -66,17 +67,6 @@ const FAILOVER_DISPLAY: Record<string, string> = {
   reject: 'Reject',
   fallback_to_next: 'Fallback to Next',
   queue_with_timeout: 'Queue with Timeout',
-}
-
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <span className={cn('text-sm text-text-primary', mono && 'font-mono text-xs')}>
-        {value}
-      </span>
-    </div>
-  )
 }
 
 function healthColor(status: string) {
@@ -651,19 +641,21 @@ function EditOperatorDialog({
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors h-auto',
                   form.supported_rat_types.includes(rat)
                     ? 'border-accent bg-accent-dim text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>

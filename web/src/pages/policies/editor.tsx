@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip } from '@/components/ui/tooltip'
 import { DSLEditor } from '@/components/policy/dsl-editor'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { PreviewTab } from '@/components/policy/preview-tab'
 import { VersionsTab } from '@/components/policy/versions-tab'
 import { RolloutTab } from '@/components/policy/rollout-tab'
@@ -231,6 +232,7 @@ export default function PolicyEditorPage() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Go back"
             onClick={() => navigate('/policies')}
             className="h-8 w-8"
           >
@@ -274,6 +276,7 @@ export default function PolicyEditorPage() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Keyboard shortcuts"
               className="h-8 w-8 text-text-tertiary"
             >
               <Keyboard className="h-4 w-4" />
@@ -335,14 +338,16 @@ export default function PolicyEditorPage() {
             </span>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <DSLEditor
-              value={dslContent}
-              onChange={handleDslChange}
-              onSave={handleSave}
-              onDryRun={handleDryRun}
-              readOnly={!isDraft}
-              className="h-full"
-            />
+            <ErrorBoundary>
+              <DSLEditor
+                value={dslContent}
+                onChange={handleDslChange}
+                onSave={handleSave}
+                onDryRun={handleDryRun}
+                readOnly={!isDraft}
+                className="h-full"
+              />
+            </ErrorBoundary>
           </div>
         </div>
 

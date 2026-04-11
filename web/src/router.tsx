@@ -9,11 +9,10 @@ import LoginPage from '@/pages/auth/login'
 import TwoFactorPage from '@/pages/auth/two-factor'
 import OnboardingPage from '@/pages/auth/onboarding'
 
-import DashboardPage from '@/pages/dashboard/index'
-
-import SimListPage from '@/pages/sims/index'
-
 import NotFoundPage from '@/pages/not-found'
+
+const DashboardPage = lazy(() => import('@/pages/dashboard/index'))
+const SimListPage = lazy(() => import('@/pages/sims/index'))
 
 const AnalyticsPage = lazy(() => import('@/pages/dashboard/analytics'))
 const AnalyticsCostPage = lazy(() => import('@/pages/dashboard/analytics-cost'))
@@ -89,25 +88,11 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          {
-            path: '/',
-            element: (
-              <ErrorBoundary>
-                <DashboardPage />
-              </ErrorBoundary>
-            ),
-          },
+          { path: '/', element: lazySuspense(DashboardPage) },
           { path: '/analytics', element: lazySuspense(AnalyticsPage) },
           { path: '/analytics/cost', element: lazySuspense(AnalyticsCostPage) },
           { path: '/analytics/anomalies', element: lazySuspense(AnalyticsAnomaliesPage) },
-          {
-            path: '/sims',
-            element: (
-              <ErrorBoundary>
-                <SimListPage />
-              </ErrorBoundary>
-            ),
-          },
+          { path: '/sims', element: lazySuspense(SimListPage) },
           { path: '/sims/compare', element: lazySuspense(SIMComparePage) },
           { path: '/sims/:id', element: lazySuspense(SimDetailPage) },
           { path: '/apns', element: lazySuspense(ApnListPage) },

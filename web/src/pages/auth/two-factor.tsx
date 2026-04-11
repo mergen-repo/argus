@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent, type ClipboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/lib/api'
@@ -116,7 +117,7 @@ export default function TwoFactorPage() {
 
       <div className="flex justify-center gap-2 py-2">
         {digits.map((digit, i) => (
-          <input
+          <Input
             key={i}
             ref={(el) => { inputRefs.current[i] = el }}
             type="text"
@@ -127,9 +128,7 @@ export default function TwoFactorPage() {
             onKeyDown={(e) => handleKeyDown(i, e)}
             onPaste={i === 0 ? handlePaste : undefined}
             disabled={loading}
-            className="h-12 w-10 rounded-[var(--radius-sm)] border border-border bg-bg-elevated text-center font-mono text-lg text-text-primary shadow-sm transition-colors
-              focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent
-              disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-12 w-10 text-center font-mono text-lg"
             autoComplete="one-time-code"
           />
         ))}

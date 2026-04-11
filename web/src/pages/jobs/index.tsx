@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import {
-  Search,
   Filter,
-  X,
-  ChevronDown,
   Check,
   RefreshCw,
   AlertCircle,
@@ -228,12 +225,14 @@ export default function JobListPage() {
         </DropdownMenu>
 
         {(filters.type || filters.state) && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFilters({})}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent transition-colors h-7 px-2"
           >
             Clear all
-          </button>
+          </Button>
         )}
       </div>
 
@@ -250,7 +249,7 @@ export default function JobListPage() {
                 <TableHead>Processed</TableHead>
                 <TableHead>Failed</TableHead>
                 <TableHead>Duration</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>Created By</TableHead>
                 <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
@@ -320,9 +319,14 @@ export default function JobListPage() {
                     <span className="text-xs text-text-secondary">{job.duration ?? '-'}</span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary">
-                      {new Date(job.created_at).toLocaleString()}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-text-primary font-mono">
+                        {job.created_by ? job.created_by.slice(0, 8) : '-'}
+                      </span>
+                      <span className="text-[10px] text-text-tertiary" title={new Date(job.created_at).toLocaleString()}>
+                        {new Date(job.created_at).toLocaleString()}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
@@ -340,12 +344,13 @@ export default function JobListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more jobs
-            </button>
+            </Button>
           ) : allJobs.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allJobs.length} jobs

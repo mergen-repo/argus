@@ -1087,3 +1087,54 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 | # | Senaryo | Beklenen Sonuc |
 |---|---------|----------------|
 | 10 | "Beni hatirla" tikli login yap | JWT suresi 7 gun (normal: 15dk) |
+
+---
+
+## STORY-058: Frontend Consolidation & UX Completeness
+
+**Ekran:** SIM Listesi (SCR-045)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | 5 SIM sec, "Assign Policy" butonuna tikla | Inline dialog acilir, policy picker gorunur |
+| 2 | Policy sec, "Confirm" tikla | Bulk job olusur, secim temizlenir |
+| 3 | Segment filtrele, "Select all N SIMs" tikla | Tum segment secilir (sadece gorunen satirlar degil) |
+
+**Ekran:** SIM Detail (SCR-075)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 4 | Sessions tab'inda hata olustur | Sadece o tab hata gosterir, diger tablar calisir |
+| 5 | RATBadge gorunuyor mu kontrol et | Kompakt mono badge (LTE, 5G NR vb.) |
+| 6 | InfoRow gorunuyor mu kontrol et | Label sol, value sag, tutarli yapi |
+
+**Ekran:** Live Sessions (SCR-070)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 7 | Filtre uygula (operator), WS event gelsin | Filtreye uymayan event tabloda gorunmez |
+
+**Ekran:** eSIM (SCR-072)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 8 | Operator dropdown'dan operator sec | Liste API uzerinden filtrelenir |
+
+**Ekran:** Audit Log (SCR-080)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 9 | User dropdown'dan kullanici sec | Audit listesi o kullaniciya filtrelenir |
+
+**Ekran:** Jobs (SCR-071)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 10 | Jobs tablosunda "Created By" kolonunu kontrol et | Kullanici ismi/email gorunur |
+
+**Altyapi:**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 11 | npm run build | Chunk size uyarisi yok |
+| 12 | Lazy-loaded sayfaya git (Dashboard) | Skeleton fallback gorunur, sonra sayfa yukler |

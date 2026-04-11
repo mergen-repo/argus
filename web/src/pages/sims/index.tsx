@@ -25,6 +25,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableHeader,
@@ -45,13 +46,23 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
-import { useSIMList, useSegments, useBulkStateChange, useImportSIMs } from '@/hooks/use-sims'
+import { useSIMList, useSegments, useSegmentCount, useBulkStateChange, useBulkPolicyAssign, useImportSIMs } from '@/hooks/use-sims'
+import { usePolicyList } from '@/hooks/use-policies'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useAPNList } from '@/hooks/use-apns'
 import type { SIM, SIMListFilters, SIMState } from '@/types/sim'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY, RAT_OPTIONS } from '@/lib/constants'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
+import { RATBadge } from '@/components/ui/rat-badge'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -79,14 +90,25 @@ export default function SimListPage() {
   const [bulkDialog, setBulkDialog] = useState<{ action: string; label: string } | null>(null)
   const [bulkReason, setBulkReason] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('')
+  const [selectAllSegment, setSelectAllSegment] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const { data: segments } = useSegments()
+  const { data: segmentCount } = useSegmentCount(selectedSegmentId)
   const { data: operators } = useOperatorList()
   const { data: apns } = useAPNList({})
+  const { data: policiesData } = usePolicyList(undefined, 'active')
+
+  const activePolicies = useMemo(() => {
+    if (!policiesData?.pages) return []
+    return policiesData.pages.flatMap((page) => page.data).filter((p) => p.current_version_id)
+  }, [policiesData])
   const bulkMutation = useBulkStateChange()
+  const bulkPolicyAssignMutation = useBulkPolicyAssign()
   const importMutation = useImportSIMs()
+  const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
+  const [selectedPolicyVersionId, setSelectedPolicyVersionId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [importTab, setImportTab] = useState<'paste' | 'file'>('paste')
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -195,6 +217,8 @@ export default function SimListPage() {
     setFilters({})
     setSearchInput('')
     setSelectedSegmentId('')
+    setSelectAllSegment(false)
+    setSelectedIds(new Set())
   }
 
   const removeFilter = (key: string) => {
@@ -203,6 +227,8 @@ export default function SimListPage() {
 
   const handleSegmentSelect = (segId: string) => {
     setSelectedSegmentId(segId)
+    setSelectAllSegment(false)
+    setSelectedIds(new Set())
     if (!segId) {
       setFilters({})
       return
@@ -223,11 +249,14 @@ export default function SimListPage() {
     if (!bulkDialog) return
     try {
       await bulkMutation.mutateAsync({
-        simIds: Array.from(selectedIds),
+        ...(selectAllSegment
+          ? { segmentId: selectedSegmentId }
+          : { simIds: Array.from(selectedIds) }),
         targetState: bulkDialog.action,
         reason: bulkReason || undefined,
       })
       setSelectedIds(new Set())
+      setSelectAllSegment(false)
       setBulkDialog(null)
       setBulkReason('')
     } catch {
@@ -304,15 +333,18 @@ export default function SimListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Clear search"
               onClick={() => {
                 setSearchInput('')
                 setFilters((f) => ({ ...f, q: undefined, iccid: undefined, imsi: undefined, msisdn: undefined, ip: undefined }))
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors h-5 w-5"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -420,21 +452,57 @@ export default function SimListPage() {
             className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border border-accent/30 bg-accent-dim text-accent"
           >
             {af.label}: {af.value}
-            <button onClick={() => removeFilter(af.key)} className="hover:text-text-primary transition-colors">
+            <Button variant="ghost" size="icon" aria-label="Remove filter" onClick={() => removeFilter(af.key)} className="h-4 w-4 hover:text-text-primary">
               <X className="h-3 w-3" />
-            </button>
+            </Button>
           </span>
         ))}
 
         {activeFilters.length > 0 && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={clearFilters}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto py-0 px-1"
           >
             Clear all ({activeFilters.length})
-          </button>
+          </Button>
         )}
       </div>
+
+      {/* Select All in Segment Banner */}
+      {selectedSegmentId && segmentCount && !selectAllSegment && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-md)] border border-accent/20 bg-accent-dim/50">
+          <span className="text-sm text-text-secondary">
+            {selectedIds.size > 0
+              ? `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''} selected on this page.`
+              : `Segment contains ${segmentCount.count.toLocaleString()} SIMs.`}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5 border-accent/30 text-accent hover:bg-accent-dim"
+            onClick={() => { setSelectAllSegment(true); setSelectedIds(new Set()) }}
+          >
+            Select all {segmentCount.count.toLocaleString()} SIMs in segment
+          </Button>
+        </div>
+      )}
+      {selectAllSegment && segmentCount && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-md)] border border-accent/30 bg-accent-dim">
+          <span className="text-sm font-semibold text-accent">
+            {segmentCount.count.toLocaleString()} SIMs selected (entire segment)
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-text-tertiary hover:text-text-primary ml-auto"
+            onClick={() => setSelectAllSegment(false)}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
 
       {/* Data Table */}
       <Card className="overflow-hidden density-compact">
@@ -443,7 +511,7 @@ export default function SimListPage() {
             <TableHeader className="bg-bg-elevated">
               <TableRow>
                 <TableHead className="w-10">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={allSims.length > 0 && selectedIds.size === allSims.length}
                     onChange={toggleSelectAll}
@@ -518,11 +586,11 @@ export default function SimListPage() {
                   onClick={() => navigate(`/sims/${sim.id}`)}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <input
+                    <Input
                       type="checkbox"
                       checked={selectedIds.has(sim.id)}
                       onChange={() => toggleSelect(sim.id)}
-                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer"
+                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer w-4 flex-none"
                     />
                   </TableCell>
                   <TableCell>
@@ -561,13 +629,7 @@ export default function SimListPage() {
                     <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.ip_pool_name || <span className="text-text-tertiary">—</span>}</span>
                   </TableCell>
                   <TableCell>
-                    {sim.rat_type ? (
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">
-                        {RAT_DISPLAY[sim.rat_type] ?? sim.rat_type}
-                      </span>
-                    ) : (
-                      <span className="text-text-tertiary text-xs">-</span>
-                    )}
+                    <RATBadge ratType={sim.rat_type} />
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary">
@@ -576,7 +638,7 @@ export default function SimListPage() {
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
-                      <DropdownMenuTrigger className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
+                      <DropdownMenuTrigger aria-label="Row actions" className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
                         <MoreVertical className="h-4 w-4" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
@@ -625,10 +687,12 @@ export default function SimListPage() {
         </div>
 
         {/* Bulk Action Bar */}
-        {selectedIds.size > 0 && (
+        {(selectedIds.size > 0 || selectAllSegment) && (
           <div className="flex items-center gap-3 px-4 py-2.5 bg-accent-dim border-t border-accent/20 animate-in slide-in-from-bottom-1">
             <span className="text-sm font-semibold text-accent">
-              {selectedIds.size} selected
+              {selectAllSegment
+                ? `${segmentCount?.count.toLocaleString() ?? '?'} selected (entire segment)`
+                : `${selectedIds.size} selected`}
             </span>
             <div className="flex gap-2 ml-2">
               <Button
@@ -651,7 +715,7 @@ export default function SimListPage() {
                 variant="secondary"
                 size="sm"
                 className="text-xs gap-1.5"
-                onClick={() => navigate('/policies')}
+                onClick={() => setPolicyDialogOpen(true)}
               >
                 <Shield className="h-3 w-3" /> Assign Policy
               </Button>
@@ -699,12 +763,14 @@ export default function SimListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1 h-auto"
             >
               Load more SIMs
-            </button>
+            </Button>
           ) : allSims.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allSims.length} SIMs
@@ -718,18 +784,20 @@ export default function SimListPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-text-tertiary mr-1">Saved:</span>
           {segments.map((seg) => (
-            <button
+            <Button
               key={seg.id}
+              variant="ghost"
+              size="sm"
               onClick={() => handleSegmentSelect(seg.id === selectedSegmentId ? '' : seg.id)}
               className={cn(
-                'px-3 py-1 text-xs rounded-full border transition-colors',
+                'px-3 py-1 h-auto text-xs rounded-full border transition-colors',
                 selectedSegmentId === seg.id
-                  ? 'bg-accent-dim border-accent/30 text-accent'
+                  ? 'bg-accent-dim border-accent/30 text-accent hover:bg-accent-dim hover:text-accent'
                   : 'bg-bg-surface border-border text-text-secondary hover:border-accent hover:text-accent',
               )}
             >
               {seg.name}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -812,21 +880,21 @@ export default function SimListPage() {
               </div>
 
               <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                <input
+                <Input
                   type="checkbox"
                   checked={reserveOnImport}
                   onChange={(e) => setReserveOnImport(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-accent"
+                  className="h-4 w-4 rounded border-border accent-accent w-4 flex-none"
                 />
                 <span className="text-xs text-text-secondary">Reserve static IP for each SIM from APN's pool</span>
               </label>
 
               <TabsContent value="paste" className="mt-0">
-                <textarea
+                <Textarea
                   value={pasteContent}
                   onChange={(e) => setPasteContent(e.target.value)}
                   placeholder={`iccid,imsi,msisdn,operator_code,apn_name\n8990010000000001,286010000000001,905301000001,turkcell,iot.demo\n8990010000000002,286010000000002,905301000002,turkcell,m2m.demo`}
-                  className="w-full h-48 bg-bg-primary border border-border rounded-[var(--radius-sm)] p-3 font-mono text-xs text-text-primary placeholder:text-text-tertiary/40 resize-none focus:outline-none focus:border-accent/50 transition-colors"
+                  className="h-48 font-mono text-xs placeholder:text-text-tertiary/40"
                   spellCheck={false}
                 />
                 <div className="flex items-center justify-between mt-2">
@@ -837,7 +905,7 @@ export default function SimListPage() {
               </TabsContent>
 
               <TabsContent value="file" className="mt-0">
-                <input
+                <Input
                   ref={fileInputRef}
                   type="file"
                   accept=".csv,.tsv,.txt"
@@ -847,12 +915,13 @@ export default function SimListPage() {
                     if (f) setImportFile(f)
                   }}
                 />
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
-                    'w-full flex flex-col items-center justify-center py-10 rounded-[var(--radius-md)] border-2 border-dashed transition-colors cursor-pointer',
+                    'w-full h-auto flex flex-col items-center justify-center py-10 rounded-[var(--radius-md)] border-2 border-dashed transition-colors cursor-pointer',
                     importFile
-                      ? 'border-accent/30 bg-accent-dim'
+                      ? 'border-accent/30 bg-accent-dim hover:bg-accent-dim'
                       : 'border-border hover:border-accent/30 hover:bg-bg-hover',
                   )}
                 >
@@ -868,7 +937,7 @@ export default function SimListPage() {
                       <p className="text-[10px] text-text-tertiary mt-1">.csv, .tsv, .txt — max 50MB</p>
                     </>
                   )}
-                </button>
+                </Button>
               </TabsContent>
             </div>
           </Tabs>
@@ -908,6 +977,86 @@ export default function SimListPage() {
           )}
         </div>
       </SlidePanel>
+
+      {/* Bulk Assign Policy Dialog */}
+      <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
+        <DialogContent onClose={() => setPolicyDialogOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>
+              Assign Policy to{' '}
+              {selectAllSegment
+                ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
+                : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-1.5">
+                Select Policy
+              </label>
+              <Select
+                value={selectedPolicyVersionId}
+                onChange={(e) => setSelectedPolicyVersionId(e.target.value)}
+                placeholder="Choose a policy..."
+                options={activePolicies.map((p) => ({
+                  value: p.current_version_id!,
+                  label: `${p.name} v${p.active_version}`,
+                }))}
+              />
+            </div>
+
+            {selectedPolicyVersionId && (
+              <div className="rounded-[var(--radius-sm)] border border-border bg-bg-primary p-3 space-y-1">
+                <p className="text-xs text-text-tertiary">Preview</p>
+                <p className="text-sm text-text-primary font-medium">
+                  {activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.name ?? 'Policy'}{' '}
+                  <span className="text-text-secondary font-normal">
+                    v{activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.active_version}
+                  </span>
+                </p>
+                <p className="text-xs text-text-secondary">
+                  Will be assigned to{' '}
+                  <span className="font-semibold text-text-primary">
+                    {selectAllSegment
+                      ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
+                      : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPolicyDialogOpen(false); setSelectedPolicyVersionId('') }}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!selectedPolicyVersionId || bulkPolicyAssignMutation.isPending}
+              className="gap-2"
+              onClick={async () => {
+                try {
+                  await bulkPolicyAssignMutation.mutateAsync({
+                    ...(selectAllSegment
+                      ? { segmentId: selectedSegmentId }
+                      : { simIds: Array.from(selectedIds) }),
+                    policyVersionId: selectedPolicyVersionId,
+                  })
+                  setSelectedIds(new Set())
+                  setSelectAllSegment(false)
+                  setPolicyDialogOpen(false)
+                  setSelectedPolicyVersionId('')
+                } catch {
+                  // error handled by api interceptor
+                }
+              }}
+            >
+              {bulkPolicyAssignMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

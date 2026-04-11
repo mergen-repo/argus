@@ -9,8 +9,6 @@ import {
   Power,
   PowerOff,
   ArrowRightLeft,
-  Search,
-  X,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -45,6 +43,7 @@ import {
   useDisableProfile,
   useSwitchProfile,
 } from '@/hooks/use-esim'
+import { useOperatorList } from '@/hooks/use-operators'
 import type { ESimProfile, ESimProfileState } from '@/types/esim'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -76,6 +75,9 @@ export default function EsimListPage() {
   const [switchTargetId, setSwitchTargetId] = useState('')
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  const { data: operatorsData } = useOperatorList()
+  const operators = operatorsData ?? []
 
   const {
     data,
@@ -180,13 +182,47 @@ export default function EsimListPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.operator_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <span>
+              Operator{filters.operator_id
+                ? `: ${operators.find((o) => o.id === filters.operator_id)?.name ?? filters.operator_id.slice(0, 8)}`
+                : ''}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+            <DropdownMenuItem
+              onClick={() => setFilters((f) => ({ ...f, operator_id: undefined }))}
+            >
+              <span className="flex-1">All Operators</span>
+              {!filters.operator_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            {operators.map((op) => (
+              <DropdownMenuItem
+                key={op.id}
+                onClick={() => setFilters((f) => ({ ...f, operator_id: op.id }))}
+              >
+                <span className="flex-1">{op.name}</span>
+                {filters.operator_id === op.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {(filters.state || filters.operator_id) && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFilters({})}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent transition-colors h-7 px-2"
           >
             Clear all
-          </button>
+          </Button>
         )}
       </div>
 
@@ -322,12 +358,13 @@ export default function EsimListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more profiles
-            </button>
+            </Button>
           ) : allProfiles.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allProfiles.length} profiles

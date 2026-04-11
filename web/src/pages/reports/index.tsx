@@ -24,6 +24,14 @@ import type { LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -176,63 +184,61 @@ function ReportCard({
 function ScheduledReportsTable({ reports }: { reports: ScheduledReport[] }) {
   return (
     <div className="border border-border rounded-[var(--radius-md)] overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-bg-elevated/50">
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Name</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Schedule</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipient</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Next Run</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map((report, i) => (
-              <tr
-                key={report.id}
-                className={cn(
-                  'border-b border-border last:border-b-0 hover:bg-bg-hover/50 transition-colors',
-                  'animate-in fade-in',
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border bg-bg-elevated/50 hover:bg-bg-elevated/50">
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Name</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Schedule</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipient</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Next Run</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {reports.map((report, i) => (
+            <TableRow
+              key={report.id}
+              className={cn(
+                'border-b border-border last:border-b-0 hover:bg-bg-hover/50 transition-colors',
+                'animate-in fade-in',
+              )}
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              <TableCell>
+                <span className="text-sm font-medium text-text-primary">{report.reportName}</span>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3 w-3 text-text-tertiary" />
+                  <span className="text-xs text-text-secondary font-mono">{report.schedule}</span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1.5">
+                  <Mail className="h-3 w-3 text-text-tertiary" />
+                  <span className="text-xs text-text-secondary font-mono">{report.recipient}</span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <span className="text-xs text-text-secondary font-mono">{formatDate(report.nextRun)}</span>
+              </TableCell>
+              <TableCell>
+                {report.status === 'active' ? (
+                  <Badge variant="success" className="text-[10px] gap-1">
+                    <Play className="h-2.5 w-2.5" />
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px] gap-1">
+                    <Pause className="h-2.5 w-2.5" />
+                    Paused
+                  </Badge>
                 )}
-                style={{ animationDelay: `${i * 40}ms` }}
-              >
-                <td className="px-4 py-3">
-                  <span className="text-sm font-medium text-text-primary">{report.reportName}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="h-3 w-3 text-text-tertiary" />
-                    <span className="text-xs text-text-secondary font-mono">{report.schedule}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <Mail className="h-3 w-3 text-text-tertiary" />
-                    <span className="text-xs text-text-secondary font-mono">{report.recipient}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="text-xs text-text-secondary font-mono">{formatDate(report.nextRun)}</span>
-                </td>
-                <td className="px-4 py-3">
-                  {report.status === 'active' ? (
-                    <Badge variant="success" className="text-[10px] gap-1">
-                      <Play className="h-2.5 w-2.5" />
-                      Active
-                    </Badge>
-                  ) : (
-                    <Badge variant="warning" className="text-[10px] gap-1">
-                      <Pause className="h-2.5 w-2.5" />
-                      Paused
-                    </Badge>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }

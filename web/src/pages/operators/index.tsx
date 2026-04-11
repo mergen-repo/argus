@@ -277,19 +277,21 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 h-auto text-xs font-mono border transition-colors',
                   form.supported_rat_types.includes(rat)
-                    ? 'border-accent bg-accent-dim text-accent'
+                    ? 'border-accent bg-accent-dim text-accent hover:bg-accent-dim hover:text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>

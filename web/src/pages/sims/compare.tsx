@@ -16,6 +16,14 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
@@ -127,9 +135,10 @@ function SearchBox({ index, value, selectedSim, onSelect, onRemove, onQueryChang
       {open && results && results.length > 0 && (
         <div className="absolute z-50 top-full mt-1 left-0 right-0 rounded-[var(--radius-sm)] border border-border bg-bg-elevated shadow-lg max-h-[200px] overflow-y-auto">
           {results.map((sim) => (
-            <button
+            <Button
               key={sim.id}
-              className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors border-b border-border-subtle last:border-0"
+              variant="ghost"
+              className="w-full text-left px-3 py-2 h-auto justify-start hover:bg-bg-hover transition-colors border-b border-border-subtle last:border-0 rounded-none"
               onClick={() => {
                 onSelect(sim)
                 setQuery('')
@@ -148,7 +157,7 @@ function SearchBox({ index, value, selectedSim, onSelect, onRemove, onQueryChang
                   <span className="text-[10px] text-text-tertiary">{sim.operator_name}</span>
                 )}
               </div>
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -283,66 +292,66 @@ function ComparisonTable({ sims }: { sims: (SIM | undefined)[] }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-elevated border-b border-border">
-              <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium w-36">
-                Property
-              </th>
-              {sims.map((sim, i) => (
-                <th key={i} className="text-left px-4 py-3 min-w-[200px]">
-                  {sim ? (
-                    <button
-                      className="flex items-center gap-2 hover:text-accent transition-colors group"
-                      onClick={() => navigate(`/sims/${sim.id}`)}
-                    >
-                      <span className="text-sm font-medium text-text-primary group-hover:text-accent">
-                        SIM {i + 1}
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-bg-elevated border-b border-border hover:bg-bg-elevated">
+            <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium w-36">
+              Property
+            </TableHead>
+            {sims.map((sim, i) => (
+              <TableHead key={i} className="min-w-[200px]">
+                {sim ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex items-center gap-2 hover:text-accent transition-colors group h-auto p-0"
+                    onClick={() => navigate(`/sims/${sim.id}`)}
+                  >
+                    <span className="text-sm font-medium text-text-primary group-hover:text-accent">
+                      SIM {i + 1}
+                    </span>
+                    <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
+                  </Button>
+                ) : (
+                  <span className="text-xs text-text-tertiary">SIM {i + 1}</span>
+                )}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const diff = hasDiff(row)
+            return (
+              <TableRow
+                key={row.label}
+                className={cn(
+                  'border-b border-border-subtle last:border-0 transition-colors',
+                  diff && 'bg-accent/5',
+                )}
+              >
+                <TableCell className="px-4 py-2.5">
+                  <span className="text-xs text-text-secondary">{row.label}</span>
+                  {diff && (
+                    <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                  )}
+                </TableCell>
+                {sims.map((sim, i) => (
+                  <TableCell key={i} className="px-4 py-2.5">
+                    {sim ? (
+                      <span className={cn('text-sm text-text-primary', row.mono && 'font-mono text-xs')}>
+                        {row.getValue(sim)}
                       </span>
-                      <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-text-tertiary">SIM {i + 1}</span>
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const diff = hasDiff(row)
-              return (
-                <tr
-                  key={row.label}
-                  className={cn(
-                    'border-b border-border-subtle last:border-0 transition-colors',
-                    diff && 'bg-accent/5',
-                  )}
-                >
-                  <td className="px-4 py-2.5">
-                    <span className="text-xs text-text-secondary">{row.label}</span>
-                    {diff && (
-                      <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                    ) : (
+                      <span className="text-xs text-text-tertiary">--</span>
                     )}
-                  </td>
-                  {sims.map((sim, i) => (
-                    <td key={i} className="px-4 py-2.5">
-                      {sim ? (
-                        <span className={cn('text-sm text-text-primary', row.mono && 'font-mono text-xs')}>
-                          {row.getValue(sim)}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-text-tertiary">--</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </TableCell>
+                ))}
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
     </Card>
   )
 }

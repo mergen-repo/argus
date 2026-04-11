@@ -59,22 +59,12 @@ import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
+import { InfoRow } from '@/components/ui/info-row'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
   operator_managed: 'Operator Managed',
   customer_managed: 'Customer Managed',
-}
-
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <span className={cn('text-sm text-text-primary', mono && 'font-mono text-xs')}>
-        {value}
-      </span>
-    </div>
-  )
 }
 
 function ConfigTab({ apn, operatorName }: { apn: NonNullable<ReturnType<typeof useAPN>['data']>; operatorName: string }) {
@@ -333,24 +323,24 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
               <div>
                 <div className="text-xs text-text-secondary mb-2">Assigned / Reserved ({reservedAddresses.length})</div>
                 <div className="rounded-[var(--radius-md)] border border-border overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead className="bg-bg-elevated">
-                      <tr>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">IP</th>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">State</th>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">SIM</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table className="text-xs">
+                    <TableHeader className="bg-bg-elevated">
+                      <TableRow>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">IP</TableHead>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">State</TableHead>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">SIM</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {reservedAddresses.map((addr) => (
-                        <tr key={addr.id} className="border-t border-border-subtle">
-                          <td className="px-3 py-1.5 font-mono text-text-primary">{addr.address_v4 || addr.address_v6}</td>
-                          <td className="px-3 py-1.5">
+                        <TableRow key={addr.id} className="border-t border-border-subtle">
+                          <TableCell className="px-3 py-1.5 font-mono text-text-primary">{addr.address_v4 || addr.address_v6}</TableCell>
+                          <TableCell className="px-3 py-1.5">
                             <Badge variant={addr.state === 'assigned' ? 'warning' : 'secondary'} className="text-[9px]">
                               {addr.state.toUpperCase()}
                             </Badge>
-                          </td>
-                          <td className="px-3 py-1.5">
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
                             {addr.sim_iccid ? (
                               <span className="font-mono text-accent">{addr.sim_iccid}</span>
                             ) : addr.sim_id ? (
@@ -358,11 +348,11 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
                             ) : (
                               <span className="text-text-tertiary">-</span>
                             )}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             )}
@@ -503,14 +493,16 @@ function SIMsTab({ apnId }: { apnId: string }) {
       </Table>
       {hasNextPage && (
         <div className="px-4 py-3 border-t border-border-subtle">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2"
+            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2 h-auto"
           >
             {isFetchingNextPage && <Spinner className="h-3 w-3" />}
             {isFetchingNextPage ? 'Loading...' : 'Load more SIMs'}
-          </button>
+          </Button>
         </div>
       )}
     </Card>
@@ -815,14 +807,14 @@ function EditAPNDialog({
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS_LIST.map((rat) => (
-              <button key={rat} type="button" onClick={() => toggleRat(rat)} className={cn(
-                'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+              <Button key={rat} type="button" variant="ghost" size="sm" onClick={() => toggleRat(rat)} className={cn(
+                'px-2.5 py-1 rounded text-xs font-mono border transition-colors h-auto',
                 form.supported_rat_types.includes(rat)
                   ? 'border-accent bg-accent-dim text-accent'
                   : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
               )}>
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>

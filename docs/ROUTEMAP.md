@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 2/22
-> Current story: STORY-058
+> Stories completed: 3/22
+> Current story: —
 > Current step: —
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -158,7 +158,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-056 | Critical Runtime Fixes (+HTTP 8084, Docker reorg) | M-L | [x] DONE | — | Phase 9 | 2026-04-11 |
 | STORY-057 | Data Accuracy & Missing Endpoints | L | [x] DONE | — | STORY-056 | 2026-04-12 |
-| STORY-058 | Frontend Consolidation & UX Completeness | L | [ ] PENDING | — | STORY-056, STORY-057 | — |
+| STORY-058 | Frontend Consolidation & UX Completeness | L | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
 
 ### Wave 2 — Stubs, DB, Security, Protocol, eSIM [parallel]
 
@@ -219,6 +219,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-12 | REVIEW | STORY-058 review completed. 1 implicit decision captured (DEV-141: chunkSizeWarningLimit 500 vs nominal 250). 1 tech debt entry added (D-003: stale SCR IDs in story files, deferred to STORY-062). ROUTEMAP: STORY-058 marked DONE, counter 3/22. No USERTEST gaps. All 3 DEV-136.17/18/19 decisions verified superseded. No glossary or architecture changes. Report: docs/stories/phase-10/STORY-058-review.md | decisions.md, ROUTEMAP.md |
 | 2026-04-12 | REVIEW | STORY-057 review completed. API docs updated: API-035/043/051/052 story references corrected to STORY-057. CONFIG.md: AUTH_JWT_REMEMBER_ME_TTL added. decisions.md: DEV-140 added (remember_me 7d JWT design). ROUTEMAP: STORY-057 marked DONE, counter 2/22. No new glossary terms needed. USERTEST entry present (10 scenarios). Tech debt D-001/D-002 unaffected. Report: docs/stories/phase-10/STORY-057-review.md | api/_index.md, CONFIG.md, decisions.md |
 | 2026-04-11 | REVIEW | STORY-056 review completed. 4 cross-doc contradictions fixed in ARCHITECTURE.md: Nginx port diagram updated (:443/:80 → host:8084→:80), TLS termination removed from Tech Stack table (deferred), Docker Architecture table port corrected (443,80 → 8084→80), project structure updated (deploy/Dockerfile removed, infra/ directory added with Dockerfile.argus + nats-check.sh + .dockerignore). USERTEST entry present (16 scenarios). No new glossary terms. No new decisions needed. Tech debt D-001/D-002 correctly target STORY-077. Report: docs/stories/phase-10/STORY-056-review.md | ARCHITECTURE.md |
 | 2026-04-11 | PLAN | Phase 10 expanded from 15 to 22 stories after UX/ergonomics + cross-entity context + deep placeholder audits. 7 new stories: STORY-071 (roaming agreements), 072 (enterprise obs screens — 13 ACs, 10+ screens), 073 (admin/compliance screens — 13 ACs, 12 screens), 074 (code safety — goroutine recover, CORS/AppEnv hardening, error leak scrub), 075 (cross-entity context — 6 shared components + 5 new detail pages + 4 page enrichments), 076 (universal entity search + keyboard shortcuts + recent/favorites + row actions), 077 (saved views, undo, inline edit, export, empty states, impersonation, i18n, sticky tables, form validation, announcements). Total: ~280 ACs, 10-12 weeks. Decisions: DEV-138, DEV-139. | ROUTEMAP.md, docs/stories/phase-10/STORY-071..077, decisions.md |
@@ -291,6 +292,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 |---|--------|-------------|-------------|--------|
 | D-001 | STORY-056 Gate | Raw `<input>` in `ip-pool-detail.tsx:233` — should use shadcn/ui `Input` | STORY-077 | OPEN |
 | D-002 | STORY-056 Gate | Raw `<button>` elements in `ip-pool-detail.tsx` and `apns/index.tsx` (7 instances) — should use shadcn/ui `Button` | STORY-077 | OPEN |
+| D-003 | STORY-058 Review | Stale SCR IDs in story+plan files (SCR-045/075/070/071/072/080/060/100) — superseded by current SCREENS.md numbering. Doc drift only, no implementation impact. | STORY-062 | OPEN |
 
 ---
 

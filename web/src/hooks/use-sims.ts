@@ -182,15 +182,17 @@ export function useBulkStateChange() {
   return useMutation({
     mutationFn: async ({
       simIds,
+      segmentId,
       targetState,
       reason,
     }: {
-      simIds: string[]
+      simIds?: string[]
+      segmentId?: string
       targetState: string
       reason?: string
     }) => {
       const res = await api.post('/sims/bulk/state-change', {
-        sim_ids: simIds,
+        ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
         target_state: targetState,
         reason,
       })
@@ -208,14 +210,16 @@ export function useBulkPolicyAssign() {
   return useMutation({
     mutationFn: async ({
       simIds,
-      policyId,
+      segmentId,
+      policyVersionId,
     }: {
-      simIds: string[]
-      policyId: string
+      simIds?: string[]
+      segmentId?: string
+      policyVersionId: string
     }) => {
       const res = await api.post('/sims/bulk/policy-assign', {
-        sim_ids: simIds,
-        policy_id: policyId,
+        ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
+        policy_version_id: policyVersionId,
       })
       return res.data
     },

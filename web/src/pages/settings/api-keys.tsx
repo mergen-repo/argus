@@ -274,18 +274,22 @@ export default function ApiKeysPage() {
                   {showKey ? createdKey : createdKey.replace(/./g, '*')}
                 </div>
                 <div className="absolute right-2 top-2 flex items-center gap-1">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setShowKey(!showKey)}
-                    className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+                    className="h-6 w-6 text-text-tertiary hover:text-text-primary"
                   >
                     {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleCopyKey(createdKey)}
-                    className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+                    className="h-6 w-6 text-text-tertiary hover:text-text-primary"
                   >
                     {copiedKey ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <p className="text-xs text-warning flex items-center gap-1.5">
@@ -321,7 +325,7 @@ export default function ApiKeysPage() {
                           : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                       )}
                     >
-                      <input
+                      <Input
                         type="checkbox"
                         checked={createForm.scopes.includes(scope.value)}
                         onChange={() => toggleScope(scope.value)}
@@ -425,13 +429,15 @@ export default function ApiKeysPage() {
             <div className="flex items-center gap-2 p-3 rounded-[var(--radius-sm)] border border-accent/30 bg-accent-dim font-mono text-sm break-all">
               {rotatedKey}
             </div>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { if (rotatedKey) handleCopyKey(rotatedKey) }}
-              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-accent transition-colors"
+              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-accent h-auto p-0"
             >
               {copiedKey ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
               {copiedKey ? 'Copied!' : 'Copy to clipboard'}
-            </button>
+            </Button>
           </div>
           <DialogFooter>
             <Button onClick={() => { setRotatedKey(null); setConfirmAction(null) }}>Done</Button>

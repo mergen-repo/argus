@@ -331,21 +331,23 @@ function PillFilter<T extends string>({
   return (
     <div className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-bg-elevated p-1 border border-border">
       {options.map((opt) => (
-        <button
+        <Button
           key={opt.value}
+          variant="ghost"
+          size="sm"
           onClick={() => onChange(opt.value)}
           className={cn(
-            'px-3 py-1.5 text-xs font-medium rounded-[var(--radius-sm)] transition-all duration-200 cursor-pointer',
+            'px-3 py-1.5 h-auto text-xs font-medium rounded-[var(--radius-sm)] transition-all duration-200',
             value === opt.value
               ? cn(
-                  'bg-bg-active text-text-primary shadow-sm',
+                  'bg-bg-active text-text-primary shadow-sm hover:bg-bg-active',
                   colorMap?.[opt.value],
                 )
               : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover',
           )}
         >
           {opt.label}
-        </button>
+        </Button>
       ))}
     </div>
   )
@@ -439,13 +441,15 @@ function AlertCardExpanded({ anomaly }: { anomaly: Anomaly }) {
       {anomaly.sim_id && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Related Entity</span>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => navigate(`/sims/${anomaly.sim_id}`)}
-            className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline h-auto p-0"
           >
             <ExternalLink className="h-3 w-3" />
             View SIM {anomaly.sim_iccid || anomaly.sim_id.slice(0, 12)}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -518,16 +522,18 @@ function AlertCard({
         </div>
 
         {anomaly.sim_id && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={(e) => {
               e.stopPropagation()
               navigate(`/sims/${anomaly.sim_id}`)
             }}
-            className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline flex-shrink-0 cursor-pointer"
+            className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline flex-shrink-0 h-auto p-0"
           >
             <ExternalLink className="h-3 w-3" />
             {anomaly.sim_iccid ? anomaly.sim_iccid.slice(-8) : anomaly.sim_id.slice(0, 8)}
-          </button>
+          </Button>
         )}
 
         <div className="hidden md:flex items-center gap-1 text-[11px] text-text-tertiary font-mono flex-shrink-0">

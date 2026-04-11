@@ -186,12 +186,14 @@ export default function PolicyListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => { setSearchInput(''); setSearch('') }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -219,12 +221,14 @@ export default function PolicyListPage() {
         </DropdownMenu>
 
         {statusFilter && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setStatusFilter('')}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto p-0"
           >
             Clear filter
-          </button>
+          </Button>
         )}
       </div>
 
@@ -364,12 +368,14 @@ export default function PolicyListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1 h-auto"
             >
               Load more policies
-            </button>
+            </Button>
           ) : allPolicies.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allPolicies.length} policies

@@ -166,12 +166,12 @@ export default function LoginPage() {
       </div>
 
       <div className="flex items-center gap-2">
-        <input
+        <Input
           id="remember"
           type="checkbox"
           checked={rememberMe}
           onChange={(e) => setRememberMe(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-border bg-bg-elevated text-accent accent-accent focus:ring-accent focus:ring-offset-0"
+          className="h-3.5 w-3.5 rounded border-border bg-bg-elevated text-accent accent-accent focus:ring-accent focus:ring-offset-0 w-3.5 flex-none"
           disabled={loading || !!lockout}
         />
         <label htmlFor="remember" className="text-xs text-text-secondary cursor-pointer select-none">

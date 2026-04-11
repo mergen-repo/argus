@@ -53,7 +53,15 @@ export function useDisconnectSession() {
   })
 }
 
-export function useRealtimeSessionStarted() {
+type SessionFilters = { operator_id?: string; apn_id?: string }
+
+function sessionMatchesFilters(session: Session, filters: SessionFilters): boolean {
+  if (filters.operator_id && session.operator_id !== filters.operator_id) return false
+  if (filters.apn_id && session.apn_id !== filters.apn_id) return false
+  return true
+}
+
+export function useRealtimeSessionStarted(filters: SessionFilters = {}) {
   const queryClient = useQueryClient()
   const newSessionIdsRef = useRef<Set<string>>(new Set())
 
@@ -84,24 +92,26 @@ export function useRealtimeSessionStarted() {
         started_at: event.started_at,
       }
 
-      queryClient.setQueryData<{ pages: ListResponse<Session>[]; pageParams: string[] }>(
-        [...SESSIONS_KEY, 'list', {}],
-        (old) => {
-          if (!old || !old.pages || old.pages.length === 0) return old
-          const firstPage = old.pages[0]
-          return {
-            ...old,
-            pages: [
-              { ...firstPage, data: [newSession, ...firstPage.data] },
-              ...old.pages.slice(1),
-            ],
-          }
-        },
-      )
+      if (sessionMatchesFilters(newSession, filters)) {
+        queryClient.setQueryData<{ pages: ListResponse<Session>[]; pageParams: string[] }>(
+          [...SESSIONS_KEY, 'list', filters],
+          (old) => {
+            if (!old || !old.pages || old.pages.length === 0) return old
+            const firstPage = old.pages[0]
+            return {
+              ...old,
+              pages: [
+                { ...firstPage, data: [newSession, ...firstPage.data] },
+                ...old.pages.slice(1),
+              ],
+            }
+          },
+        )
+      }
 
       queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'stats'] })
     },
-    [queryClient],
+    [queryClient, filters],
   )
 
   useEffect(() => {
@@ -112,7 +122,7 @@ export function useRealtimeSessionStarted() {
   return newSessionIdsRef
 }
 
-export function useRealtimeSessionEnded() {
+export function useRealtimeSessionEnded(filters: SessionFilters = {}) {
   const queryClient = useQueryClient()
   const endedSessionIdsRef = useRef<Set<string>>(new Set())
 
@@ -125,12 +135,12 @@ export function useRealtimeSessionEnded() {
 
       setTimeout(() => {
         endedSessionIdsRef.current.delete(event.session_id)
-        queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'list'] })
+        queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'list', filters] })
       }, 2000)
 
       queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'stats'] })
     },
-    [queryClient],
+    [queryClient, filters],
   )
 
   useEffect(() => {
