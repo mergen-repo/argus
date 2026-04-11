@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARGUS — Sales Deck</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: rgba(18, 16, 24, 0.92);
+    --amber: #f59e0b;
+    --amber-light: #fbbf24;
+    --amber-glow: rgba(245, 158, 11, 0.18);
+    --amber-dim: rgba(245, 158, 11, 0.08);
+    --text: #e8e4df;
+    --text-dim: #9c978f;
+    --text-dimmer: #6b6560;
+    --border: rgba(245, 158, 11, 0.1);
+    --border-subtle: rgba(148, 140, 130, 0.1);
+    --emerald: #10b981;
+    --red: #ef4444;
+    --purple: #a78bfa;
+    --blue: #60a5fa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+  @page { size: A4 landscape; margin: 0; }
+
+  .page {
+    width: 297mm;
+    height: 210mm;
+    padding: 14mm 20mm 10mm;
+    page-break-after: always;
+    page-break-inside: avoid;
+    position: relative;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+  .page::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 80% 20%, rgba(245,158,11,0.04) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 10% 80%, rgba(167,139,250,0.03) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .page-content {
+    position: relative;
+    z-index: 1;
+    height: calc(100% - 20px);
+    overflow: hidden;
+  }
+
+  h1 { font-size: 42px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; color: #fff; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #fff; margin-bottom: 4px; }
+  h3 { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  p { font-size: 12px; line-height: 1.4; color: var(--text-dim); }
+
+  .amber { color: var(--amber); }
+  .subtitle { font-size: 18px; font-weight: 600; color: var(--amber); }
+  .divider { width: 40px; height: 2px; background: linear-gradient(90deg, var(--amber), transparent); border-radius: 2px; margin: 8px 0; }
+  .section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--amber); margin-bottom: 6px; }
+
+  .glass {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 12px;
+    backdrop-filter: blur(8px);
+  }
+  .glass-sm {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px;
+    backdrop-filter: blur(8px);
+  }
+  .glow { box-shadow: 0 0 20px var(--amber-glow); border-color: rgba(245,158,11,0.2); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+  .grid-5 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 8px; }
+
+  ul { list-style: none; padding: 0; }
+  ul li { position: relative; padding-left: 12px; margin-bottom: 2px; font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+  ul li::before { content: ''; position: absolute; left: 0; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--amber); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { text-align: left; padding: 4px 8px; font-weight: 600; color: var(--amber); border-bottom: 1px solid rgba(245,158,11,0.2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); color: var(--text-dim); }
+  td:first-child { color: var(--text); font-weight: 500; }
+
+  .metric-card {
+    background: rgba(245,158,11,0.05);
+    border: 1px solid rgba(245,158,11,0.12);
+    border-radius: 8px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  .metric-card .value { font-size: 20px; font-weight: 800; color: var(--amber-light); }
+  .metric-card .label { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+
+  .layer-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 10px 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .layer-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--amber), var(--amber-light)); }
+  .layer-card .number { font-size: 28px; font-weight: 900; color: rgba(245,158,11,0.12); position: absolute; top: 6px; right: 10px; line-height: 1; }
+  .layer-card h3 { margin-bottom: 3px; }
+
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    background: rgba(245,158,11,0.06);
+    color: var(--amber);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .code-block {
+    background: rgba(10,10,15,0.95);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.4;
+    white-space: pre;
+  }
+
+  .tag { display: inline-block; background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,158,11,0.18); padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; }
+
+  .footer {
+    position: absolute;
+    bottom: 10mm;
+    left: 20mm;
+    right: 20mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 9px;
+    color: var(--text-dimmer);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 6px;
+  }
+
+  .cover-center { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }
+
+  .compare-good { color: var(--emerald); font-weight: 600; }
+  .compare-bad { color: var(--text-dimmer); }
+  .compare-partial { color: var(--amber); }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: KAPAK -->
+<div class="page">
+  <div class="page-content cover-center">
+    <svg width="90" height="90" viewBox="0 0 120 120" fill="none" style="margin-bottom: 20px;">
+      <circle cx="60" cy="60" r="56" stroke="url(#g1)" stroke-width="2" fill="rgba(245,158,11,0.03)"/>
+      <circle cx="60" cy="60" r="56" stroke="rgba(245,158,11,0.1)" stroke-width="8" fill="none"/>
+      <ellipse cx="60" cy="60" rx="32" ry="18" stroke="url(#g2)" stroke-width="2" fill="rgba(245,158,11,0.05)"/>
+      <circle cx="60" cy="60" r="10" fill="url(#g2)"/>
+      <circle cx="60" cy="60" r="4" fill="#0a0a0f"/>
+      <line x1="60" y1="18" x2="60" y2="28" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+      <line x1="60" y1="92" x2="60" y2="102" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+      <line x1="22" y1="42" x2="30" y2="48" stroke="rgba(245,158,11,0.2)" stroke-width="1.5"/>
+      <line x1="98" y1="42" x2="90" y2="48" stroke="rgba(245,158,11,0.2)" stroke-width="1.5"/>
+      <line x1="22" y1="78" x2="30" y2="72" stroke="rgba(245,158,11,0.2)" stroke-width="1.5"/>
+      <line x1="98" y1="78" x2="90" y2="72" stroke="rgba(245,158,11,0.2)" stroke-width="1.5"/>
+      <defs>
+        <linearGradient id="g1" x1="0" y1="0" x2="120" y2="120"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#fbbf24"/></linearGradient>
+        <linearGradient id="g2" x1="40" y1="42" x2="80" y2="78"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#f59e0b"/></linearGradient>
+      </defs>
+    </svg>
+    <h1 style="font-size: 56px; margin-bottom: 8px; letter-spacing: -0.04em;">ARGUS</h1>
+    <p class="subtitle" style="font-size: 18px; margin-bottom: 6px;">APN & Subscriber Intelligence Platform</p>
+    <p style="font-size: 14px; max-width: 520px; margin-bottom: 10px;">Kurumsal IoT/M2M Bağlantı Yönetim Platformu</p>
+    <p style="font-size: 17px; font-weight: 500; color: var(--text); max-width: 560px; margin-bottom: 28px; line-height: 1.4;">10M+ SIM Kartını Birden Fazla Operatörle, Tek Platformdan Yönetin</p>
+    <div style="display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; justify-content: center;">
+      <span class="tag" style="padding: 5px 14px; font-size: 11px; letter-spacing: 0.03em;">RADIUS / Diameter / 5G SBA</span>
+      <span class="tag" style="padding: 5px 14px; font-size: 11px; letter-spacing: 0.03em;">Multi-Operator Orchestration</span>
+      <span class="tag" style="padding: 5px 14px; font-size: 11px; letter-spacing: 0.03em;">Policy DSL Engine</span>
+      <span class="tag" style="padding: 5px 14px; font-size: 11px; letter-spacing: 0.03em;">Real-Time BI</span>
+    </div>
+    <div style="width: 50px; height: 1px; background: linear-gradient(90deg, transparent, var(--amber), transparent); margin-bottom: 14px;"></div>
+    <p style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dimmer);">NAR Sistem Teknoloji A.Ş.</p>
+    <p style="font-size: 10px; color: var(--text-dimmer); margin-top: 4px;">2026</p>
+  </div>
+</div>
+
+<!-- PAGE 2: EXECUTIVE SUMMARY -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Executive Summary</div>
+    <h2>10M+ IoT SIM, <span class="amber">Tek Kontrol Merkezi</span></h2>
+    <div class="divider"></div>
+    <p style="max-width: 680px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;">
+      <strong style="color: var(--text);">Tüm IoT/M2M SIM filonuzu tek platformdan yönetin.</strong>
+      Argus, AAA protokol motoru, SIM yaşam döngüsü yönetimi, çoklu operatör orkestrasyonu, politika motoru ve iş zekâsını 5 katmanlı tek bir üründe birleştirerek IoT bağlantı yönetimini kolaylaştırır.
+    </p>
+
+    <div class="grid-5" style="margin-bottom: 10px;">
+      <div class="metric-card">
+        <div class="value">10M+</div>
+        <div class="label">Yönetilen SIM</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">10K+</div>
+        <div class="label">Auth/s per Node</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">&lt;5ms</div>
+        <div class="label">Auth Latency (p50)</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">5M+</div>
+        <div class="label">Eşanlı Oturum</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">5</div>
+        <div class="label">Entegre Katman</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="glass-sm" style="padding: 8px;">
+        <h3 style="color: var(--red); font-size: 13px; margin-bottom: 6px;">Kurumsal Zorluklar</h3>
+        <ul>
+          <li>Her operatörün ayrı portalı — <strong>birleşik görünüm yok</strong></li>
+          <li>QoS/FUP politikaları <strong>her operatör için ayrı ayrı</strong> konfigüre</li>
+          <li>Kullanım verileri ve maliyet analizi <strong>silolara dağılmış</strong></li>
+          <li>eSIM profil geçişleri <strong>manuel koordinasyon</strong> gerektiriyor</li>
+          <li>Mevcut araçlar <strong>protokol derinliği + analitik</strong> sunmuyor</li>
+        </ul>
+      </div>
+      <div class="glass-sm glow" style="padding: 8px;">
+        <h3 style="color: var(--amber); font-size: 13px; margin-bottom: 6px;">Argus Çözümü</h3>
+        <ul>
+          <li><strong>Yerleşik AAA</strong>: RADIUS + Diameter + 5G SBA tek binary</li>
+          <li><strong>Çoklu operatör</strong>: Pluggable adapter, otomatik failover</li>
+          <li><strong>Policy DSL</strong>: Staged rollout, dry-run, versiyon yönetimi</li>
+          <li><strong>eSIM</strong>: SM-DP+ entegrasyon, bulk operatör geçişi</li>
+          <li><strong>BI & Anomali</strong>: Gerçek zamanlı dashboard, maliyet optimizasyonu</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 3: 5-KATMANLI MİMARİ -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Platform Architecture</div>
+    <h2>5-Katmanlı <span class="amber">Platform Mimarisi</span></h2>
+    <div class="divider"></div>
+    <p style="margin-bottom: 12px;">Hiçbir rakip tek üründe 5 katmanı birden sunmuyor &mdash; Argus'un temel farkı.</p>
+
+    <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+      <div class="layer-card" style="border-left: 3px solid var(--purple);">
+        <div class="number">L5</div>
+        <h3>BI & Analytics <span style="font-weight: 400; font-size: 11px; color: var(--text-dim);">&mdash; İş Zekâsı</span></h3>
+        <p style="font-size: 11px;">Gerçek zamanlı dashboard, anomali tespiti, CDR rating, maliyet optimizasyonu, BTK/KVKK/GDPR raporları</p>
+      </div>
+      <div class="layer-card" style="border-left: 3px solid var(--blue);">
+        <div class="number">L4</div>
+        <h3>Policy & Charging <span style="font-weight: 400; font-size: 11px; color: var(--text-dim);">&mdash; mini-PCRF</span></h3>
+        <p style="font-size: 11px;">QoS, FUP, charging kuralları, Policy DSL, staged rollout (canary %1&#8594;%10&#8594;%100), dry-run simülasyonu</p>
+      </div>
+      <div class="layer-card" style="border-left: 3px solid var(--emerald);">
+        <div class="number">L3</div>
+        <h3>Multi-Operator <span style="font-weight: 400; font-size: 11px; color: var(--text-dim);">&mdash; Orkestrasyon</span></h3>
+        <p style="font-size: 11px;">Pluggable adapter framework, IMSI routing, Steering of Roaming, operatör failover, circuit breaker, SLA izleme</p>
+      </div>
+      <div class="layer-card" style="border-left: 3px solid var(--amber);">
+        <div class="number">L2</div>
+        <h3>SIM & APN Lifecycle <span style="font-weight: 400; font-size: 11px; color: var(--text-dim);">&mdash; Yaşam Döngüsü</span></h3>
+        <p style="font-size: 11px;">10M+ SIM yönetimi, eSIM (SM-DP+), IPAM dual-stack, bulk ops (10K+/batch), OTA, KVKK/GDPR purge</p>
+      </div>
+      <div class="layer-card" style="border-left: 3px solid var(--red);">
+        <div class="number">L1</div>
+        <h3>AAA Core Engine <span style="font-weight: 400; font-size: 11px; color: var(--text-dim);">&mdash; Protokol Motoru</span></h3>
+        <p style="font-size: 11px;">RADIUS (:1812/13), Diameter (:3868), 5G SBA (:8443), EAP-SIM/AKA, CoA/DM, Active-Active HA, 10K+ auth/s</p>
+      </div>
+    </div>
+
+    <div class="grid-5">
+      <div class="glass-sm" style="text-align: center; padding: 6px;">
+        <p style="font-size: 16px; margin-bottom: 2px;">&#x1F4E1;</p>
+        <p style="font-size: 10px; font-weight: 600; color: #fff;">10 Servis</p>
+        <p style="font-size: 9px;">Tek Go binary</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 6px;">
+        <p style="font-size: 16px; margin-bottom: 2px;">&#x1F5C3;</p>
+        <p style="font-size: 10px; font-weight: 600; color: #fff;">26 Tablo</p>
+        <p style="font-size: 9px;">PG + TimescaleDB</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 6px;">
+        <p style="font-size: 16px; margin-bottom: 2px;">&#x26A1;</p>
+        <p style="font-size: 10px; font-weight: 600; color: #fff;">182 API</p>
+        <p style="font-size: 9px;">REST + WebSocket</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 6px;">
+        <p style="font-size: 16px; margin-bottom: 2px;">&#x1F4F1;</p>
+        <p style="font-size: 10px; font-weight: 600; color: #fff;">26 Ekran</p>
+        <p style="font-size: 9px;">Premium React SPA</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 6px;">
+        <p style="font-size: 16px; margin-bottom: 2px;">&#x1F512;</p>
+        <p style="font-size: 10px; font-weight: 600; color: #fff;">7 RBAC Rol</p>
+        <p style="font-size: 9px;">Tam yetkilendirme</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 4: AAA CORE ENGINE -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Layer 1 &mdash; AAA Core</div>
+    <h2>AAA Protokol <span class="amber">Motoru</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2" style="margin-bottom: 8px;">
+      <div>
+        <h3 style="margin-bottom: 6px;">Protokol Desteği</h3>
+        <table>
+          <tr><td><strong>RADIUS</strong></td><td>:1812/13 &mdash; RFC 2865/2866 &mdash; Auth, Authz, Acct</td></tr>
+          <tr><td><strong>RadSec</strong></td><td>TLS &mdash; RFC 6614 &mdash; Şifrelenmiş RADIUS</td></tr>
+          <tr><td><strong>Diameter</strong></td><td>:3868 &mdash; RFC 6733 &mdash; 3GPP Gx/Gy</td></tr>
+          <tr><td><strong>5G SBA</strong></td><td>:8443 &mdash; HTTP/2 &mdash; AUSF/UDM proxy</td></tr>
+          <tr><td><strong>EAP</strong></td><td>EAP-SIM, EAP-AKA, EAP-AKA'</td></tr>
+        </table>
+
+        <h3 style="margin-top: 8px; margin-bottom: 6px;">Temel Özellikler</h3>
+        <ul>
+          <li><strong>CoA/DM</strong>: Gerçek zamanlı oturum değişikliği ve bağlantı kesme</li>
+          <li><strong>Session Mgmt</strong>: SIM başına yapılandırılabilir eşanlı oturum limiti</li>
+          <li><strong>Active-Active HA</strong>: Kesintisiz küme, tek hata noktası yok</li>
+          <li><strong>Circuit Breaker</strong>: Operatör başına retry, dead letter queue</li>
+          <li><strong>Network Slice</strong>: 5G SA dilim kimlik doğrulaması</li>
+          <li><strong>Protocol Bridge</strong>: Diameter &#8596; RADIUS köprüleme</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="margin-bottom: 6px;">Hot Path Performans (p99 &lt; 50ms)</h3>
+        <div class="code-block" style="font-size: 9.5px; line-height: 1.35; margin-bottom: 8px;">RADIUS Request
+  &#8594; UDP listener (goroutine pool)
+  &#8594; Parse packet         ~0.1ms
+  &#8594; Redis: cache lookup   ~0.5ms
+  &#8594; Policy evaluate       ~0.1ms
+  &#8594; IMSI route            ~0.01ms
+  &#8594; Operator forward      ~5-30ms
+  &#8594; Redis: session update ~0.5ms
+  &#8594; NATS: accounting      async
+  &#8594; Response              ~0.1ms</div>
+
+        <div class="grid-2" style="gap: 6px;">
+          <div class="metric-card">
+            <div class="value">10K+</div>
+            <div class="label">Auth/s per Node</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">&lt;5ms</div>
+            <div class="label">p50 Latency</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">&lt;20ms</div>
+            <div class="label">p95 Latency</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">&lt;50ms</div>
+            <div class="label">p99 Latency</div>
+          </div>
+        </div>
+
+        <div class="glass-sm" style="margin-top: 8px; text-align: center; padding: 6px;">
+          <p style="font-size: 11px; color: var(--text);">
+            <strong>Neden Custom?</strong> FreeRADIUS (C) Diameter/5G desteği yok. Go ile tek binary, goroutine-per-request, sub-ms internal ops.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 5: SIM LIFECYCLE & MULTI-OPERATOR -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Layer 2 &amp; 3 &mdash; SIM Lifecycle &amp; Multi-Operator</div>
+    <h2>SIM Yönetimi <span class="amber">& Operatör Orkestrasyonu</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2">
+      <div>
+        <h3 style="margin-bottom: 6px;">SIM State Machine</h3>
+        <div class="code-block" style="font-size: 10px; margin-bottom: 8px; text-align: center;">ORDERED &#8594; ACTIVE &#8596; SUSPENDED &#8594; TERMINATED &#8594; PURGED
+              &#8600; STOLEN/LOST &#8599;</div>
+
+        <table style="font-size: 10px; margin-bottom: 8px;">
+          <th>Geçiş</th><th>Yan Etki</th>
+          <tr><td>ORDERED &#8594; ACTIVE</td><td>IP tahsis, varsayılan politika</td></tr>
+          <tr><td>ACTIVE &#8594; SUSPENDED</td><td>CoA/DM, oturum sonlandır, IP tut</td></tr>
+          <tr><td>ACTIVE &#8594; STOLEN/LOST</td><td>Anında CoA/DM, flag</td></tr>
+          <tr><td>TERMINATED &#8594; PURGED</td><td>Pseudonymize, kişisel veri sil</td></tr>
+        </table>
+
+        <h3 style="margin-bottom: 4px;">eSIM & IPAM</h3>
+        <ul>
+          <li><strong>SM-DP+ API</strong>: Profil provision, switch, delete</li>
+          <li><strong>Bulk eSIM</strong>: Toplu operatör geçişi</li>
+          <li><strong>Dual-Stack</strong>: IPv4 + IPv6 havuzları</li>
+          <li><strong>Kullanım Alarmları</strong>: %80 / %90 / %100</li>
+          <li><strong>Statik Rezervasyon</strong>: SIM bazında IP sabitleme</li>
+        </ul>
+
+        <h3 style="margin-top: 6px; margin-bottom: 4px;">Bulk Operations</h3>
+        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+          <span class="tag">10K+ SIM/batch</span>
+          <span class="tag">Async Queue</span>
+          <span class="tag">Progress Bar</span>
+          <span class="tag">Partial Success</span>
+          <span class="tag">Retry Failed</span>
+          <span class="tag">Undo</span>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom: 6px;">Çoklu Operatör Orkestrasyonu</h3>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Pluggable Adapter Framework</h3>
+          <ul>
+            <li>Her operatör için bağımsız adapter modülü</li>
+            <li>IMSI-prefix bazlı akıllı yönlendirme</li>
+            <li>Mock simulator (geliştirme & test)</li>
+            <li>RAT-type awareness: NB-IoT, LTE-M, 4G, 5G</li>
+          </ul>
+        </div>
+
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Steering of Roaming (SoR)</h3>
+          <ul>
+            <li>RAT-type tercihli yönlendirme</li>
+            <li>Operatör sağlık durumuna göre dinamik karar</li>
+            <li>Yapılandırılabilir SoR politikaları</li>
+          </ul>
+        </div>
+
+        <div class="glass-sm">
+          <h3 style="font-size: 11px; color: var(--amber);">Failover & Circuit Breaker</h3>
+          <table style="font-size: 10px;">
+            <tr><td><strong>reject</strong></td><td>Auth reddedilir</td></tr>
+            <tr><td><strong>fallback-to-next</strong></td><td>Sonraki operatöre geç</td></tr>
+            <tr><td><strong>queue-with-timeout</strong></td><td>Bekle, sonra fallback</td></tr>
+          </table>
+          <p style="font-size: 10px; margin-top: 4px;">SLA ihlal olayları + otomatik bildirim + rapor</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 6: POLİTİKA MOTORU -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Layer 4 &mdash; Policy &amp; Charging</div>
+    <h2>Politika DSL <span class="amber">Motoru</span> <span style="font-size: 14px; font-weight: 400; color: var(--text-dim);">(mini-PCRF)</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2" style="margin-bottom: 8px;">
+      <div>
+        <h3 style="margin-bottom: 6px;">Policy DSL Örneği</h3>
+        <div class="code-block" style="font-size: 10px; line-height: 1.4;">RULE "iot_bandwidth_limit"
+  WHEN apn = "iot.fleet"
+   AND rat_type IN ("NB-IoT", "LTE-M")
+  THEN
+    SET qos.max_dl = 256kbps
+    SET qos.max_ul = 128kbps
+  PRIORITY 100
+
+RULE "fup_throttle"
+  WHEN quota.used_pct > 80
+  THEN
+    SET qos.max_dl = 64kbps
+    NOTIFY "quota_warning"
+  PRIORITY 200</div>
+
+        <h3 style="margin-top: 8px; margin-bottom: 4px;">Kural Tipleri</h3>
+        <div class="grid-2" style="gap: 4px;">
+          <div class="glass-sm" style="padding: 6px; text-align: center;">
+            <p style="font-size: 11px; font-weight: 600; color: #fff;">QoS</p>
+            <p style="font-size: 9px;">Bant genişliği limiti</p>
+          </div>
+          <div class="glass-sm" style="padding: 6px; text-align: center;">
+            <p style="font-size: 11px; font-weight: 600; color: #fff;">FUP</p>
+            <p style="font-size: 9px;">Adil kullanım</p>
+          </div>
+          <div class="glass-sm" style="padding: 6px; text-align: center;">
+            <p style="font-size: 11px; font-weight: 600; color: #fff;">Charging</p>
+            <p style="font-size: 9px;">Ön/sonra ödeme</p>
+          </div>
+          <div class="glass-sm" style="padding: 6px; text-align: center;">
+            <p style="font-size: 11px; font-weight: 600; color: #fff;">Slice</p>
+            <p style="font-size: 9px;">5G dilim politikası</p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom: 6px;">Staged Rollout (Canary Deployment)</h3>
+        <div class="glass-sm" style="margin-bottom: 8px; padding: 10px;">
+          <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 6px;">
+            <span class="tag" style="background: rgba(245,158,11,0.15);">1. Dry-Run</span>
+            <span style="color: var(--text-dimmer); font-size: 10px;">&#8594;</span>
+            <span class="tag" style="background: rgba(245,158,11,0.15);">2. Canary %1</span>
+            <span style="color: var(--text-dimmer); font-size: 10px;">&#8594;</span>
+            <span class="tag" style="background: rgba(245,158,11,0.15);">3. %10</span>
+            <span style="color: var(--text-dimmer); font-size: 10px;">&#8594;</span>
+            <span class="tag" style="background: rgba(245,158,11,0.15);">4. %100</span>
+          </div>
+          <ul>
+            <li><strong>Dry-run</strong>: "Bu kural 2.3M SIM'i etkiler" önizlemesi</li>
+            <li><strong>Stage 1</strong>: 23K SIM'e yeni versiyon + CoA</li>
+            <li><strong>Stage 2</strong>: Metrik inceleme sonrası 230K SIM</li>
+            <li><strong>Stage 3</strong>: Tam yaygınlaştırma (2.3M)</li>
+            <li><strong>Rollback</strong>: Her aşamada anında geri alınabilir + CoA</li>
+          </ul>
+        </div>
+
+        <h3 style="margin-bottom: 4px;">Policy Versioning</h3>
+        <ul>
+          <li>Her politika versiyonlanır (DRAFT &#8594; ACTIVE &#8594; ROLLING_OUT &#8594; ROLLED_BACK)</li>
+          <li>Concurrent versions: rollout sırasında birden fazla versiyon aktif</li>
+          <li>Operatör bazında özel politika yapılandırması</li>
+          <li>Değerlendirme sırası: SIM &gt; APN &gt; Operatör &gt; Tenant default</li>
+        </ul>
+
+        <div class="glass-sm glow" style="margin-top: 6px; text-align: center; padding: 6px;">
+          <p style="font-size: 12px; color: var(--text);"><strong>Diğer platformlarda yok:</strong> Dry-run + staged rollout + rollback + DSL</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 7: PORTAL & BI -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Portal &amp; Analytics</div>
+    <h2>Yönetim Portalı <span class="amber">& İş Zekâsı</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2">
+      <div>
+        <h3 style="margin-bottom: 6px;">26 Ekranlı Premium Portal</h3>
+        <table style="font-size: 10px;">
+          <tr><td><strong>Dashboard</strong></td><td>Sistem sağlığı, SIM özeti, alarm, aktif oturumlar</td></tr>
+          <tr><td><strong>SIM Yönetimi</strong></td><td>Group-first UX, segmentler, bulk actions</td></tr>
+          <tr><td><strong>APN</strong></td><td>CRUD, soft-delete, IP pool yönetimi</td></tr>
+          <tr><td><strong>Operatörler</strong></td><td>Adapter durumu, SLA izleme</td></tr>
+          <tr><td><strong>Politikalar</strong></td><td>DSL editor, versiyon, rollout</td></tr>
+          <tr><td><strong>eSIM</strong></td><td>Profil yönetimi, operatör geçişi</td></tr>
+          <tr><td><strong>Oturumlar</strong></td><td>Aktif oturum takibi, disconnect</td></tr>
+          <tr><td><strong>Analitik</strong></td><td>Kullanım, maliyet, anomali</td></tr>
+          <tr><td><strong>Denetim Logu</strong></td><td>Değiştirilemez log, arama, export</td></tr>
+          <tr><td><strong>Ayarlar</strong></td><td>Users, API Keys, IP Pools, System</td></tr>
+        </table>
+
+        <div style="margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap;">
+          <span class="tag">Dark Mode</span>
+          <span class="tag">Ctrl+K</span>
+          <span class="tag">Diagnostics</span>
+          <span class="tag">Bildirimler</span>
+          <span class="tag">Undo</span>
+          <span class="tag">Virtual Scroll</span>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom: 6px;">BI & Gözlemlenebilirlik</h3>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Gerçek Zamanlı Metrikler</h3>
+          <ul>
+            <li>Per SIM/APN/operatör/RAT-type kullanım</li>
+            <li>Canlı auth/s, latency p50/p90/p95/p99</li>
+            <li>WebSocket ile &lt;100ms event-to-UI</li>
+          </ul>
+        </div>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Anomali & Maliyet</h3>
+          <ul>
+            <li>SIM klonlama, kötü kullanım, veri spike tespiti</li>
+            <li>En ucuz operatör yönlendirme önerileri</li>
+            <li>RAT-type bazlı maliyet farklılaştırması</li>
+            <li>CDR processing & rating engine</li>
+          </ul>
+        </div>
+        <div class="glass-sm">
+          <h3 style="font-size: 11px; color: var(--amber);">Uyumluluk Raporları</h3>
+          <div class="grid-4" style="gap: 4px; margin-top: 4px;">
+            <div style="text-align: center; padding: 4px; background: rgba(245,158,11,0.04); border-radius: 4px;">
+              <p style="font-size: 11px; font-weight: 700; color: #fff;">BTK</p>
+              <p style="font-size: 9px;">Yerel uyum</p>
+            </div>
+            <div style="text-align: center; padding: 4px; background: rgba(245,158,11,0.04); border-radius: 4px;">
+              <p style="font-size: 11px; font-weight: 700; color: #fff;">KVKK</p>
+              <p style="font-size: 9px;">Veri koruma</p>
+            </div>
+            <div style="text-align: center; padding: 4px; background: rgba(245,158,11,0.04); border-radius: 4px;">
+              <p style="font-size: 11px; font-weight: 700; color: #fff;">GDPR</p>
+              <p style="font-size: 9px;">AB uyumu</p>
+            </div>
+            <div style="text-align: center; padding: 4px; background: rgba(245,158,11,0.04); border-radius: 4px;">
+              <p style="font-size: 11px; font-weight: 700; color: #fff;">ISO 27001</p>
+              <p style="font-size: 9px;">Denetim izi</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 8: KULLANIM SENARYOLARI -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Use Cases</div>
+    <h2>Kullanım <span class="amber">Senaryoları</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-3" style="margin-bottom: 8px;">
+      <div class="glass" style="padding: 10px;">
+        <h3 style="margin-bottom: 4px; font-size: 12px;">1. IoT Fleet Provisioning</h3>
+        <p style="font-size: 11px; margin-bottom: 6px;">10K SIM toplu aktifleştirilmesi:</p>
+        <div class="code-block" style="font-size: 9.5px;">CSV Upload (10K SIM)
+&#8594; Validate + uniqueness
+&#8594; Background job
+&#8594; Per-SIM:
+    Create (ORDERED)
+    Activate (ACTIVE)
+    Assign APN + Policy
+    Allocate IP
+&#8594; Progress bar
+&#8594; Error report CSV</div>
+        <p style="font-size: 10px; margin-top: 4px; color: var(--emerald);">Partial success + retry + undo</p>
+      </div>
+      <div class="glass" style="padding: 10px;">
+        <h3 style="margin-bottom: 4px; font-size: 12px;">2. Operatör Failover</h3>
+        <p style="font-size: 11px; margin-bottom: 6px;">Turkcell kesintisinde otomatik geçiş:</p>
+        <div class="code-block" style="font-size: 9.5px;">Turkcell RADIUS &#x2717;
+&#8594; Circuit breaker tetiklenir
+&#8594; Durum: DEGRADED
+&#8594; Alarm: email+Telegram
+&#8594; Per-SIM failover:
+    "fallback-to-next"
+    &#8594; Vodafone'a yönlendir
+&#8594; Turkcell toparlanır
+&#8594; Circuit breaker reset
+&#8594; SLA raporu üretilir</div>
+        <p style="font-size: 10px; margin-top: 4px; color: var(--emerald);">Sıfır müdahale, tam görünüm</p>
+      </div>
+      <div class="glass" style="padding: 10px;">
+        <h3 style="margin-bottom: 4px; font-size: 12px;">3. eSIM Operatör Geçişi</h3>
+        <p style="font-size: 11px; margin-bottom: 6px;">Fleet segmenti toplu operatör geçişi:</p>
+        <div class="code-block" style="font-size: 9.5px;">Seç: "Fleet - Turkcell"
+&#8594; Bulk: "Vodafone'a geç"
+&#8594; Kontrol: adapter, APN, IP
+&#8594; Per-SIM:
+    TC SM-DP+ disable
+    VF SM-DP+ enable
+    Kayıt güncelle
+    Politika ata
+    IP tahsis et
+&#8594; CoA aktif oturumlara
+&#8594; Maliyet karşılaştırması</div>
+        <p style="font-size: 10px; margin-top: 4px; color: var(--emerald);">Maliyet öncesi/sonrası analiz</p>
+      </div>
+    </div>
+
+    <div class="glass-sm glow" style="text-align: center; padding: 8px;">
+      <p style="font-size: 12px; color: var(--text);">
+        <strong>Her senaryo için otomatik:</strong>
+        <span class="tag" style="margin: 0 2px;">Auth</span>
+        <span class="tag" style="margin: 0 2px;">Rate Limit</span>
+        <span class="tag" style="margin: 0 2px;">Denetim Logu</span>
+        <span class="tag" style="margin: 0 2px;">Bildirim</span>
+        <span class="tag" style="margin: 0 2px;">Geri Alma</span>
+      </p>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 9: REKABET AVANTAJLARI -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Competitive Landscape</div>
+    <h2>Rekabet <span class="amber">Avantajları</span></h2>
+    <div class="divider"></div>
+
+    <table style="font-size: 10px; margin-bottom: 10px;">
+      <tr>
+        <th style="width: 15%;">Kriter</th>
+        <th style="width: 17%;">FreeRADIUS / Mobile ITM</th>
+        <th style="width: 17%;">emnify / Cisco Jasper</th>
+        <th style="width: 17%;">Enea / Alepo / Nokia</th>
+        <th style="width: 17%; color: var(--amber-light);">ARGUS</th>
+      </tr>
+      <tr>
+        <td><strong>AAA Motoru</strong></td>
+        <td class="compare-bad">FreeRADIUS (C, config)</td>
+        <td class="compare-bad">Bulut, sınırlı</td>
+        <td class="compare-partial">Özel, lisanslı</td>
+        <td class="compare-good">Go, custom, yerleşik</td>
+      </tr>
+      <tr>
+        <td><strong>Diameter / 5G</strong></td>
+        <td class="compare-bad">Ek modül gerekir</td>
+        <td class="compare-bad">Yok / sınırlı</td>
+        <td class="compare-partial">Var ama ayrı ürün</td>
+        <td class="compare-good">Yerleşik, tek binary</td>
+      </tr>
+      <tr>
+        <td><strong>SIM Yönetimi</strong></td>
+        <td class="compare-bad">Harici gerekir</td>
+        <td class="compare-partial">Var, bulut-only</td>
+        <td class="compare-bad">Sınırlı</td>
+        <td class="compare-good">10M+, group-first UX</td>
+      </tr>
+      <tr>
+        <td><strong>Çoklu Operatör</strong></td>
+        <td class="compare-bad">Manuel</td>
+        <td class="compare-bad">Platform sınırı</td>
+        <td class="compare-bad">Tek operatör</td>
+        <td class="compare-good">Pluggable, failover</td>
+      </tr>
+      <tr>
+        <td><strong>Policy Engine</strong></td>
+        <td class="compare-bad">Flat config</td>
+        <td class="compare-bad">Temel kurallar</td>
+        <td class="compare-partial">Gelişmiş, karışık</td>
+        <td class="compare-good">DSL, staged rollout</td>
+      </tr>
+      <tr>
+        <td><strong>eSIM</strong></td>
+        <td class="compare-bad">Yok</td>
+        <td class="compare-partial">Kısmen</td>
+        <td class="compare-bad">Yok</td>
+        <td class="compare-good">SM-DP+, bulk switch</td>
+      </tr>
+      <tr>
+        <td><strong>Analitik</strong></td>
+        <td class="compare-bad">Yok</td>
+        <td class="compare-bad">Temel</td>
+        <td class="compare-bad">Ayrı ürün</td>
+        <td class="compare-good">Yerleşik, anomali, cost opt</td>
+      </tr>
+      <tr>
+        <td><strong>Deployment</strong></td>
+        <td class="compare-partial">On-prem only</td>
+        <td class="compare-partial">Cloud only</td>
+        <td class="compare-bad">On-prem, karmaşık</td>
+        <td class="compare-good">On-prem + Cloud, Docker</td>
+      </tr>
+    </table>
+
+    <div class="grid-3">
+      <div class="glass-sm glow" style="text-align: center; padding: 10px;">
+        <p style="font-size: 28px; font-weight: 900; color: var(--amber-light); margin-bottom: 2px;">5-in-1</p>
+        <p style="font-size: 11px; color: var(--text);">Hiçbir rakip tek üründe 5 katmanı birden sunmuyor</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 10px;">
+        <p style="font-size: 28px; font-weight: 900; color: var(--amber-light); margin-bottom: 2px;">Go Native</p>
+        <p style="font-size: 11px; color: var(--text);">JVM overhead yok, tek binary, sub-ms internal ops</p>
+      </div>
+      <div class="glass-sm" style="text-align: center; padding: 10px;">
+        <p style="font-size: 28px; font-weight: 900; color: var(--amber-light); margin-bottom: 2px;">Hybrid</p>
+        <p style="font-size: 11px; color: var(--text);">On-prem + cloud aynı artifact, docker compose up</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 10: GÜVENLİK & UYUMLULUK -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Security &amp; Compliance</div>
+    <h2>Güvenlik <span class="amber">& Uyumluluk</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2" style="margin-bottom: 8px;">
+      <div>
+        <h3 style="margin-bottom: 6px;">Kimlik Doğrulama</h3>
+        <table>
+          <tr><td><strong>JWT + Refresh</strong></td><td>Portal kullanıcıları (15dk + 7 gün)</td></tr>
+          <tr><td><strong>2FA (TOTP)</strong></td><td>Ek güvenlik katmanı, zorunlu kılınabilir</td></tr>
+          <tr><td><strong>API Key</strong></td><td>M2M, servis hesapları, scope-sınırlı</td></tr>
+          <tr><td><strong>OAuth2 CC</strong></td><td>Üçüncü parti entegrasyon</td></tr>
+        </table>
+
+        <h3 style="margin-top: 8px; margin-bottom: 6px;">RBAC &mdash; 7 Rol</h3>
+        <table style="font-size: 10px;">
+          <tr><td><strong>Super Admin</strong></td><td>Platform, tenant, operatör</td></tr>
+          <tr><td><strong>Tenant Admin</strong></td><td>Kullanıcı, APN, SIM, politika, audit</td></tr>
+          <tr><td><strong>Operator Mgr</strong></td><td>Operatör, APN, IP havuzu</td></tr>
+          <tr><td><strong>SIM Manager</strong></td><td>SIM CRUD, eSIM, bulk ops</td></tr>
+          <tr><td><strong>Policy Editor</strong></td><td>Politika, DSL, rollout</td></tr>
+          <tr><td><strong>Analyst</strong></td><td>Analitik, raporlar (read-only)</td></tr>
+          <tr><td><strong>API User</strong></td><td>Programatik, scope-sınırlı</td></tr>
+        </table>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom: 6px;">Denetim & Uyumluluk</h3>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Değiştirilemez Denetim Logu</h3>
+          <ul>
+            <li><strong>Hash chain</strong>: Her kayıt öncekine bağlı, değiştirilemez</li>
+            <li><strong>Before/After</strong>: Her işlemde öncesi/sonrası diff</li>
+            <li><strong>Searchable</strong>: Full-text arama + filtreleme</li>
+            <li><strong>Exportable</strong>: CSV/JSON export</li>
+          </ul>
+        </div>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <h3 style="font-size: 11px; color: var(--amber);">Veri Koruma</h3>
+          <ul>
+            <li><strong>KVKK Purge</strong>: Pseudonymization, otomatik temizleme</li>
+            <li><strong>GDPR</strong>: Silme hakkı, veri taşıma, onay takibi</li>
+            <li><strong>Saklama</strong>: Yapılandırılabilir saklama süresi</li>
+          </ul>
+        </div>
+
+        <div class="grid-3" style="gap: 4px;">
+          <div class="glass-sm" style="text-align: center; padding: 6px;">
+            <p style="font-size: 13px; margin-bottom: 2px;">&#x1F510;</p>
+            <p style="font-size: 10px; font-weight: 600; color: #fff;">TLS Everywhere</p>
+            <p style="font-size: 9px;">HTTPS, RadSec, Dia/TLS</p>
+          </div>
+          <div class="glass-sm" style="text-align: center; padding: 6px;">
+            <p style="font-size: 13px; margin-bottom: 2px;">&#x23F1;</p>
+            <p style="font-size: 10px; font-weight: 600; color: #fff;">Rate Limiting</p>
+            <p style="font-size: 9px;">Tenant/key/endpoint</p>
+          </div>
+          <div class="glass-sm" style="text-align: center; padding: 6px;">
+            <p style="font-size: 13px; margin-bottom: 2px;">&#x1F6E1;</p>
+            <p style="font-size: 10px; font-weight: 600; color: #fff;">Input Validation</p>
+            <p style="font-size: 9px;">XSS/SQLi, CORS</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 11: TEKNOLOJİ & DEPLOYMENT -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Technical Specifications</div>
+    <h2>Teknoloji <span class="amber">& Deployment</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2">
+      <div>
+        <h3 style="margin-bottom: 6px;">Teknoloji Yığını</h3>
+        <table>
+          <tr><td><strong>Backend</strong></td><td>Go 1.22+, chi router, single binary</td></tr>
+          <tr><td><strong>Frontend</strong></td><td>React 19, Vite 6, Tailwind CSS, shadcn/ui</td></tr>
+          <tr><td><strong>Veritabanı</strong></td><td>PostgreSQL 16 + TimescaleDB (time-series)</td></tr>
+          <tr><td><strong>Önbellek</strong></td><td>Redis 7 (session, policy, rate limit)</td></tr>
+          <tr><td><strong>Mesaj Kuyruğu</strong></td><td>NATS JetStream (events, job queue)</td></tr>
+          <tr><td><strong>RADIUS lib</strong></td><td>layeh/radius (Go native)</td></tr>
+          <tr><td><strong>Container</strong></td><td>Docker + Docker Compose</td></tr>
+          <tr><td><strong>Proxy</strong></td><td>Nginx (TLS, SPA, routing)</td></tr>
+        </table>
+
+        <h3 style="margin-top: 8px; margin-bottom: 6px;">Kapasite Planlaması</h3>
+        <table style="font-size: 10px;">
+          <tr><td><strong>PostgreSQL</strong></td><td>500 GB SSD (200 GB/yıl compressed)</td></tr>
+          <tr><td><strong>Redis</strong></td><td>16 GB (5 GB peak, 10M SIM)</td></tr>
+          <tr><td><strong>NATS</strong></td><td>10 GB JetStream</td></tr>
+          <tr><td><strong>CDR Hacmi</strong></td><td>30-150M kayıt/gün</td></tr>
+        </table>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom: 6px;">Performans Metrikleri</h3>
+        <div class="grid-2" style="gap: 6px; margin-bottom: 8px;">
+          <div class="metric-card">
+            <div class="value">10K+</div>
+            <div class="label">Auth/s per Node</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">&lt;50ms</div>
+            <div class="label">p99 Auth Latency</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">10M+</div>
+            <div class="label">SIM Kapasitesi</div>
+          </div>
+          <div class="metric-card">
+            <div class="value">99.9%</div>
+            <div class="label">AAA Uptime Hedefi</div>
+          </div>
+        </div>
+
+        <h3 style="margin-bottom: 6px;">Deployment Seçenekleri</h3>
+        <div class="glass-sm" style="margin-bottom: 6px;">
+          <div class="grid-3" style="gap: 4px;">
+            <div style="text-align: center;">
+              <p style="font-size: 11px; font-weight: 600; color: #fff;">On-Premise</p>
+              <p style="font-size: 9px; color: var(--text-dim);">Müşteri altyapısı</p>
+            </div>
+            <div style="text-align: center;">
+              <p style="font-size: 11px; font-weight: 600; color: #fff;">Private Cloud</p>
+              <p style="font-size: 9px; color: var(--text-dim);">AWS / Azure / GCP</p>
+            </div>
+            <div style="text-align: center;">
+              <p style="font-size: 11px; font-weight: 600; color: #fff;">Docker</p>
+              <p style="font-size: 9px; color: var(--text-dim);">docker compose up</p>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-bottom: 4px;">Devreye Alma Süreci</h3>
+        <table style="font-size: 10px;">
+          <tr><td><strong>Kurulum</strong></td><td>1-2 gün</td></tr>
+          <tr><td><strong>Operatör entegrasyonu</strong></td><td>1-2 hafta</td></tr>
+          <tr><td><strong>SIM import & politika</strong></td><td>1 hafta</td></tr>
+          <tr><td><strong>Eğitim</strong></td><td>1-2 gün</td></tr>
+          <tr><td><strong>Pilot</strong></td><td>2-4 hafta</td></tr>
+          <tr><td><strong>Production</strong></td><td>1 gün</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+<!-- PAGE 12: GELECEK VİZYONU & İLETİŞİM -->
+<div class="page">
+  <div class="page-content">
+    <div class="section-label">Roadmap &amp; Contact</div>
+    <h2>Gelecek <span class="amber">Vizyonu</span></h2>
+    <div class="divider"></div>
+
+    <div class="grid-2" style="margin-bottom: 16px;">
+      <div class="glass" style="padding: 12px;">
+        <h3 style="margin-bottom: 6px; color: var(--purple);">AI & Predictive Intelligence</h3>
+        <ul>
+          <li><strong>AI Anomaly Engine</strong>: ML tabanlı anomali tespiti, SIM klonlama ve fraud önleme</li>
+          <li><strong>Predictive Quota</strong>: Per-SIM kota tüketim tahmini, otomatik aksiyon</li>
+          <li><strong>Auto-SoR</strong>: AI ile otonom operatör seçimi (coverage + cost + latency)</li>
+          <li><strong>Quality Scoring</strong>: ML tabanlı operatör/APN/bölge kalite skoru</li>
+        </ul>
+      </div>
+      <div class="glass" style="padding: 12px;">
+        <h3 style="margin-bottom: 6px; color: var(--blue);">Digital Twin & Simulation</h3>
+        <ul>
+          <li><strong>Network Digital Twin</strong>: Tüm SIM filosunun sanal kopyası, risksiz test</li>
+          <li><strong>What-If Senaryoları</strong>: "Turkcell'i çıkarıp Vodafone+TT ile çalışsak?" simülasyonu</li>
+          <li><strong>Load Testing</strong>: 10M eşanlı auth simüle, darılma noktalarını bul</li>
+        </ul>
+        <p style="font-size: 10px; color: var(--text-dimmer); margin-top: 6px;">İlham: AT&T IoT Network Intelligence, Vodafone Digital Twin, emnify SuperNetwork</p>
+      </div>
+    </div>
+
+    <div style="text-align: center; padding: 20px 0;">
+      <svg width="50" height="50" viewBox="0 0 120 120" fill="none" style="margin-bottom: 12px;">
+        <circle cx="60" cy="60" r="56" stroke="rgba(245,158,11,0.2)" stroke-width="2" fill="rgba(245,158,11,0.03)"/>
+        <ellipse cx="60" cy="60" rx="32" ry="18" stroke="rgba(245,158,11,0.3)" stroke-width="2" fill="rgba(245,158,11,0.05)"/>
+        <circle cx="60" cy="60" r="10" fill="rgba(245,158,11,0.4)"/>
+        <circle cx="60" cy="60" r="4" fill="#0a0a0f"/>
+      </svg>
+      <h2 style="font-size: 24px; margin-bottom: 4px;">NAR Sistem Teknoloji A.Ş.</h2>
+      <p style="font-size: 13px; color: var(--text-dim); max-width: 500px; margin: 0 auto 16px;">
+        IoT/M2M bağlantı yönetimi ve APN zekâsı ihtiyaçlarınız için bize ulaşın.
+      </p>
+      <div style="width: 50px; height: 1px; background: linear-gradient(90deg, transparent, var(--amber), transparent); margin: 0 auto 12px;"></div>
+      <p style="font-size: 11px; color: var(--text-dimmer); letter-spacing: 0.05em;">ARGUS &mdash; APN & Subscriber Intelligence Platform</p>
+      <p style="font-size: 10px; color: var(--text-dimmer);">Version 1.0 | 2026</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span>ARGUS &mdash; APN & Subscriber Intelligence Platform</span>
+    <span>Gizli | NAR Sistem Teknoloji A.Ş.</span>
+  </div>
+</div>
+
+</body>
+</html>
