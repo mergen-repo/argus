@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -88,8 +89,11 @@ func isAuthEndpoint(path string) bool {
 
 func extractIP(r *http.Request) string {
 	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		return host
+	}
+	if parsed := net.ParseIP(ip); parsed != nil {
+		return parsed.String()
 	}
 	return ip
 }

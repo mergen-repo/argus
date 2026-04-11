@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 2/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 4/22 stories
 
 ---
 
@@ -146,9 +146,9 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 3/22
-> Current story: STORY-059
-> Current step: Plan
+> Stories completed: 4/22
+> Current story: STORY-060
+> Current step: —
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
@@ -164,7 +164,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-059 | Security & Compliance Hardening | L | [~] IN PROGRESS | Commit | STORY-056 | — |
+| STORY-059 | Security & Compliance Hardening | L | [x] DONE | — | STORY-056 | 2026-04-12 |
 | STORY-060 | AAA Protocol Correctness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
 | STORY-061 | eSIM Model Evolution | M | [ ] PENDING | — | STORY-057, STORY-060, STORY-063 | — |
 | STORY-063 | Backend Implementation Completeness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
@@ -219,6 +219,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-12 | CLOSEOUT | STORY-059 zero-deferral close-out — D-004 and D-005 resolved in-story per Phase 10 policy. D-004: `internal/gateway/bruteforce.go` extractIP rewritten with `net.SplitHostPort`+`net.ParseIP`, 4 IPv6 test cases added to TestExtractIP. D-005: Added "Compliance & Data Governance (5 endpoints)" section to api/_index.md with API-175..179 (dashboard, BTK report JSON/CSV/PDF, retention, DSAR, right-to-erasure). Review report Issues table updated to reflect FIXED status on both. | ROUTEMAP.md, api/_index.md, bruteforce.go, bruteforce_test.go, STORY-059-review.md |
+| 2026-04-12 | REVIEW | STORY-059 review completed. CONFIG.md: 3 gaps fixed (NOTIFICATION_RATE_LIMIT_PER_MINUTE added to Rate Limiting section, notif:rl: added to Redis Key Namespaces, ENCRYPTION_KEY description updated to include totp_secret). Initially tech debt D-004 and D-005 logged and then immediately closed in same session per user's zero-deferral directive. ROUTEMAP: STORY-059 marked DONE, counter 4/22. All DEV-142..147 + PAT-001/PAT-002 decisions confirmed present. USERTEST entry present (16 scenarios). Report: docs/stories/phase-10/STORY-059-review.md | CONFIG.md, ROUTEMAP.md |
 | 2026-04-12 | REVIEW | STORY-058 review completed. 1 implicit decision captured (DEV-141: chunkSizeWarningLimit 500 vs nominal 250). 1 tech debt entry added (D-003: stale SCR IDs in story files, deferred to STORY-062). ROUTEMAP: STORY-058 marked DONE, counter 3/22. No USERTEST gaps. All 3 DEV-136.17/18/19 decisions verified superseded. No glossary or architecture changes. Report: docs/stories/phase-10/STORY-058-review.md | decisions.md, ROUTEMAP.md |
 | 2026-04-12 | REVIEW | STORY-057 review completed. API docs updated: API-035/043/051/052 story references corrected to STORY-057. CONFIG.md: AUTH_JWT_REMEMBER_ME_TTL added. decisions.md: DEV-140 added (remember_me 7d JWT design). ROUTEMAP: STORY-057 marked DONE, counter 2/22. No new glossary terms needed. USERTEST entry present (10 scenarios). Tech debt D-001/D-002 unaffected. Report: docs/stories/phase-10/STORY-057-review.md | api/_index.md, CONFIG.md, decisions.md |
 | 2026-04-11 | REVIEW | STORY-056 review completed. 4 cross-doc contradictions fixed in ARCHITECTURE.md: Nginx port diagram updated (:443/:80 → host:8084→:80), TLS termination removed from Tech Stack table (deferred), Docker Architecture table port corrected (443,80 → 8084→80), project structure updated (deploy/Dockerfile removed, infra/ directory added with Dockerfile.argus + nats-check.sh + .dockerignore). USERTEST entry present (16 scenarios). No new glossary terms. No new decisions needed. Tech debt D-001/D-002 correctly target STORY-077. Report: docs/stories/phase-10/STORY-056-review.md | ARCHITECTURE.md |
@@ -293,6 +295,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 | D-001 | STORY-056 Gate | Raw `<input>` in `ip-pool-detail.tsx:233` — should use shadcn/ui `Input` | STORY-077 | OPEN |
 | D-002 | STORY-056 Gate | Raw `<button>` elements in `ip-pool-detail.tsx` and `apns/index.tsx` (7 instances) — should use shadcn/ui `Button` | STORY-077 | OPEN |
 | D-003 | STORY-058 Review | Stale SCR IDs in story+plan files (SCR-045/075/070/071/072/080/060/100) — superseded by current SCREENS.md numbering. Doc drift only, no implementation impact. | STORY-062 | OPEN |
+| D-004 | STORY-059 Gate | `internal/gateway/bruteforce.go:91` `extractIP` uses buggy last-colon split (same pattern AC-1 fixed in anomaly detector). Fixed in STORY-059 close-out commit using `net.SplitHostPort` + `net.ParseIP`; new IPv6 tests added (`TestExtractIP` subtests `ipv6_bracketed_with_port`, `ipv6_loopback_bracketed`, `ipv6_bare`). Future helper extraction to `internal/net/addr.go` remains optional. | STORY-059 | ✓ RESOLVED (2026-04-12) |
+| D-005 | STORY-059 Review | Compliance API section entirely absent from `docs/architecture/api/_index.md` (compliance endpoints from STORY-039 never indexed; STORY-059 adds PDF variant). Added "Compliance & Data Governance (5 endpoints)" section with API-175..179 in STORY-059 close-out commit. | STORY-059 | ✓ RESOLVED (2026-04-12) |
 
 ---
 

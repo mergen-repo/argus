@@ -197,6 +197,16 @@
 | API-170 | POST | /api/v1/sms/send | Send SMS to SIM | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-sim.md) |
 | API-171 | GET | /api/v1/sms/history | SMS delivery history | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-sim.md) |
 
+## Compliance & Data Governance (5 endpoints)
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-175 | GET | /api/v1/compliance/dashboard | Compliance dashboard: BTK/KVKK/GDPR status, pending DSARs, audit hash-chain health | JWT (tenant_admin+) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md) |
+| API-176 | GET | /api/v1/compliance/btk-report | Monthly BTK SIM inventory report (query `?format=json\|csv\|pdf`) | JWT (tenant_admin+) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md), [STORY-059](../../stories/phase-10/STORY-059-security-compliance.md) (PDF format added) |
+| API-177 | PUT | /api/v1/compliance/retention | Update tenant data retention policy (days per entity type) | JWT (tenant_admin) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md) |
+| API-178 | GET | /api/v1/compliance/dsar/{simId} | Data Subject Access Request — export all PII for a SIM (KVKK/GDPR Art. 15) | JWT (tenant_admin+) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md) |
+| API-179 | POST | /api/v1/compliance/erasure/{simId} | Right to Erasure — pseudonymize audit logs + purge PII (KVKK/GDPR Art. 17) | JWT (tenant_admin) | See [STORY-039](../../stories/phase-7/STORY-039-compliance-reporting.md), [STORY-059](../../stories/phase-10/STORY-059-security-compliance.md) (salted hash unification) |
+
 ## System Health (3 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |

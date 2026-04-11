@@ -83,6 +83,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `operator:latency:` | 2hr (auto-pruned to 1hr window) | SLA latency samples per operator (sorted set, score=timestamp, member=latencyMs) |
 | `lock:` | 30s | Distributed locks (job runner) |
 | `ota:ratelimit:` | 1hr | OTA per-SIM rate limit counters (INCR + EXPIRE) |
+| `notif:rl:` | Per-minute sliding window TTL | Notification delivery rate limit counters per tenant (ZADD/ZREMRANGEBYSCORE/ZCARD) |
 
 ---
 
@@ -121,7 +122,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `BCRYPT_COST` | int | `12` | No | bcrypt cost factor for password hashing. Range 10-14. Higher = slower but more secure. 12 is ~250ms on modern hardware. |
 | `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before account lockout. |
 | `LOGIN_LOCKOUT_DURATION` | duration | `15m` | No | Account lockout duration after max failed attempts. |
-| `ENCRYPTION_KEY` | string | — | No | 32-byte hex-encoded key for AES-256-GCM encryption of sensitive fields (adapter_config, sm_dp_plus_config). Empty = no encryption (dev mode passthrough). **Keep secret.** |
+| `ENCRYPTION_KEY` | string | — | No | 32-byte hex-encoded key for AES-256-GCM encryption of sensitive fields (adapter_config, sm_dp_plus_config, totp_secret). Empty = no encryption (dev mode passthrough). **Keep secret.** |
 
 ---
 
@@ -154,6 +155,7 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `RATE_LIMIT_ALGORITHM` | string | `sliding_window` | No | Algorithm: `sliding_window` (default, most accurate) or `fixed_window` (simpler, slightly less accurate). |
 | `RATE_LIMIT_AUTH_PER_MINUTE` | int | `10` | No | Login attempts per minute per IP (brute force protection). |
 | `RATE_LIMIT_ENABLED` | bool | `true` | No | Master switch to disable rate limiting (useful in development). |
+| `NOTIFICATION_RATE_LIMIT_PER_MINUTE` | int | `60` | No | Maximum notification deliveries per minute per tenant. Enforced via Redis sliding window (`notif:rl:` namespace, ZADD/ZREMRANGEBYSCORE/ZCARD). Applied by `DeliveryTracker` in `internal/notification/`. |
 
 ---
 
