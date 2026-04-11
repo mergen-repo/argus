@@ -370,12 +370,7 @@ func TestStateMachineEAPSIMFlow(t *testing.T) {
 		t.Fatal("session SIMData is nil after start response")
 	}
 
-	var combinedSRES []byte
-	for i := 0; i < 3; i++ {
-		combinedSRES = append(combinedSRES, session.SIMData.SRES[i][:]...)
-	}
-
-	simChallengeData := buildSIMChallengeResponseData(combinedSRES)
+	simChallengeData := buildSIMChallengeResponseData(session.SIMData.Kc, session.Identifier)
 	simResp := NewResponse(challengePkt.Identifier, MethodSIM, simChallengeData)
 	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(simResp))
 	if err != nil {
@@ -686,7 +681,25 @@ func buildSIMStartResponseData() []byte {
 	return buf.Bytes()
 }
 
-func buildSIMChallengeResponseData(combinedSRES []byte) []byte {
+func buildSIMChallengeResponseData(kc [3][8]byte, identifier uint8) []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(SimSubtypeChallenge)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+
+	buf.WriteByte(SimATMAC)
+	buf.WriteByte(5)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+	buf.Write(make([]byte, 16))
+
+	data := buf.Bytes()
+	mac := computeSIMMAC(kc, data, identifier)
+	copy(data[len(data)-16:], mac)
+	return data
+}
+
+func buildSIMChallengeResponseDataWithSRESMAC(combinedSRES []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(SimSubtypeChallenge)
 	buf.WriteByte(0)
@@ -891,10 +904,11 @@ func TestEAPAKASyncFailure(t *testing.T) {
 	}
 }
 
-func TestGetSessionMSK_SIM(t *testing.T) {
+func TestConsumeSessionMSK_SIM(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
+	defer sm.Stop()
 	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
 
 	ctx := context.Background()
@@ -909,41 +923,143 @@ func TestGetSessionMSK_SIM(t *testing.T) {
 
 	startResponseData := buildSIMStartResponseData()
 	startResp := NewResponse(startPkt.Identifier, MethodSIM, startResponseData)
-	_, err = sm.ProcessPacket(ctx, sessionID, Encode(startResp))
+	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(startResp))
 	if err != nil {
 		t.Fatalf("ProcessPacket start response error: %v", err)
 	}
+	challengePkt, _ := Decode(challengeRaw)
 
-	msk, err := sm.GetSessionMSK(ctx, sessionID)
+	session, _ := stateStore.Get(ctx, sessionID)
+	if session == nil || session.SIMData == nil {
+		t.Fatal("session or SIMData not available after start response")
+	}
+
+	simChallengeData := buildSIMChallengeResponseData(session.SIMData.Kc, session.Identifier)
+	simResp := NewResponse(challengePkt.Identifier, MethodSIM, simChallengeData)
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(simResp))
 	if err != nil {
-		t.Fatalf("GetSessionMSK error: %v", err)
+		t.Fatalf("ProcessPacket challenge response error: %v", err)
+	}
+	resultPkt, _ := Decode(resultRaw)
+	if resultPkt.Code != CodeSuccess {
+		t.Fatalf("challenge result Code = %d, want Success", resultPkt.Code)
+	}
+
+	msk, ok := sm.ConsumeSessionMSK(sessionID)
+	if !ok {
+		t.Fatal("ConsumeSessionMSK returned ok=false, expected true")
 	}
 	if len(msk) != 64 {
 		t.Errorf("MSK length = %d, want 64", len(msk))
 	}
+
+	msk2, ok2 := sm.ConsumeSessionMSK(sessionID)
+	if ok2 {
+		t.Errorf("second ConsumeSessionMSK returned ok=true, want false (single-use)")
+	}
+	if msk2 != nil {
+		t.Errorf("second ConsumeSessionMSK returned non-nil MSK, want nil")
+	}
 }
 
-func TestGetSessionMSK_AKA(t *testing.T) {
+func TestConsumeSessionMSK_AKA(t *testing.T) {
 	stateStore := NewMemoryStateStore()
 	provider := NewMockVectorProvider()
 	sm := NewStateMachine(stateStore, provider, testLogger())
+	defer sm.Stop()
 	sm.RegisterMethod(NewAKAHandler())
 
 	ctx := context.Background()
 	sessionID := "msk-aka-1"
 
 	identityResp := NewIdentityResponse(0, "286010123456789")
-	_, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
 	if err != nil {
 		t.Fatalf("ProcessPacket identity error: %v", err)
 	}
+	challengePkt, _ := Decode(challengeRaw)
 
-	msk, err := sm.GetSessionMSK(ctx, sessionID)
+	session, _ := stateStore.Get(ctx, sessionID)
+	if session == nil || session.AKAData == nil {
+		t.Fatal("session or AKAData not available after identity")
+	}
+
+	resData := buildAKAChallengeResponseData(session.AKAData.XRES)
+	akaResp := NewResponse(challengePkt.Identifier, MethodAKA, resData)
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(akaResp))
 	if err != nil {
-		t.Fatalf("GetSessionMSK error: %v", err)
+		t.Fatalf("ProcessPacket challenge response error: %v", err)
+	}
+	resultPkt, _ := Decode(resultRaw)
+	if resultPkt.Code != CodeSuccess {
+		t.Fatalf("challenge result Code = %d, want Success", resultPkt.Code)
+	}
+
+	msk, ok := sm.ConsumeSessionMSK(sessionID)
+	if !ok {
+		t.Fatal("ConsumeSessionMSK returned ok=false, expected true")
 	}
 	if len(msk) != 64 {
 		t.Errorf("MSK length = %d, want 64", len(msk))
+	}
+
+	msk2, ok2 := sm.ConsumeSessionMSK(sessionID)
+	if ok2 {
+		t.Errorf("second ConsumeSessionMSK returned ok=true, want false (single-use)")
+	}
+	if msk2 != nil {
+		t.Errorf("second ConsumeSessionMSK returned non-nil MSK, want nil")
+	}
+}
+
+func TestHandleChallengeResponse_SimpleSRES_Rejected(t *testing.T) {
+	stateStore := NewMemoryStateStore()
+	provider := NewMockVectorProvider()
+	sm := NewStateMachine(stateStore, provider, testLogger())
+	defer sm.Stop()
+	sm.RegisterMethod(NewSIMHandlerWithProvider(provider))
+
+	ctx := context.Background()
+	sessionID := "simple-sres-rejected-1"
+
+	identityResp := NewIdentityResponse(0, "286010123456789")
+	startRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(identityResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket identity error: %v", err)
+	}
+	startPkt, _ := Decode(startRaw)
+
+	startResponseData := buildSIMStartResponseData()
+	startResp := NewResponse(startPkt.Identifier, MethodSIM, startResponseData)
+	challengeRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(startResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket start response error: %v", err)
+	}
+	challengePkt, _ := Decode(challengeRaw)
+
+	session, _ := stateStore.Get(ctx, sessionID)
+	if session == nil || session.SIMData == nil {
+		t.Fatal("session or SIMData not available after start response")
+	}
+
+	var combinedSRES []byte
+	for i := 0; i < 3; i++ {
+		combinedSRES = append(combinedSRES, session.SIMData.SRES[i][:]...)
+	}
+
+	simChallengeData := buildSIMChallengeResponseDataWithSRESMAC(combinedSRES)
+	simResp := NewResponse(challengePkt.Identifier, MethodSIM, simChallengeData)
+	resultRaw, err := sm.ProcessPacket(ctx, sessionID, Encode(simResp))
+	if err != nil {
+		t.Fatalf("ProcessPacket challenge response error: %v", err)
+	}
+	resultPkt, _ := Decode(resultRaw)
+	if resultPkt.Code != CodeFailure {
+		t.Errorf("simple-SRES MAC should be rejected: result Code = %d, want %d (Failure)", resultPkt.Code, CodeFailure)
+	}
+
+	if _, ok := sm.ConsumeSessionMSK(sessionID); ok {
+		t.Error("ConsumeSessionMSK returned ok=true after failure, expected false")
 	}
 }
 

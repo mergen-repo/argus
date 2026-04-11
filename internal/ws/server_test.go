@@ -807,6 +807,160 @@ func TestServer_ManyConnections(t *testing.T) {
 	}
 }
 
+func TestPongTimeout_Default90s(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+	srv := NewServer(hub, ServerConfig{
+		Addr:              ":0",
+		JWTSecret:         testJWTSecret,
+		MaxConnsPerTenant: 100,
+		PongTimeout:       500 * time.Millisecond,
+	}, zerolog.Nop())
+
+	if srv.cfg.PongTimeout != 500*time.Millisecond {
+		t.Fatalf("PongTimeout = %v, want 500ms", srv.cfg.PongTimeout)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/v1/events", srv.handleWS)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	token := validToken(t, uuid.New(), uuid.New())
+	conn := dialWS(t, wsURL(ts, token))
+	defer conn.Close()
+
+	readJSON(t, conn)
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _, err := conn.ReadMessage()
+	if err == nil {
+		t.Error("expected connection to be closed after pong timeout")
+	}
+}
+
+func TestPongTimeout_ZeroDefaultsTo90s(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+	srv := NewServer(hub, ServerConfig{
+		Addr:              ":0",
+		JWTSecret:         testJWTSecret,
+		MaxConnsPerTenant: 100,
+	}, zerolog.Nop())
+
+	if srv.cfg.PongTimeout != 90*time.Second {
+		t.Errorf("PongTimeout = %v, want 90s", srv.cfg.PongTimeout)
+	}
+}
+
+func TestReconnectBroadcast(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenantID := uuid.New()
+	conn := &Connection{
+		TenantID: tenantID,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 256),
+	}
+	hub.Register(conn)
+
+	hub.BroadcastReconnect("maintenance", 3000)
+
+	select {
+	case msg := <-conn.SendCh:
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if parsed["type"] != "reconnect" {
+			t.Errorf("type = %v, want reconnect", parsed["type"])
+		}
+		data, ok := parsed["data"].(map[string]interface{})
+		if !ok {
+			t.Fatal("data field missing or wrong type")
+		}
+		if data["reason"] != "maintenance" {
+			t.Errorf("reason = %v, want maintenance", data["reason"])
+		}
+		afterMs, ok := data["after_ms"].(float64)
+		if !ok {
+			t.Fatal("after_ms missing or wrong type")
+		}
+		if int(afterMs) != 3000 {
+			t.Errorf("after_ms = %v, want 3000", afterMs)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for reconnect message")
+	}
+}
+
+func TestMaxConnectionsPerUser(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+	srv := NewServer(hub, ServerConfig{
+		Addr:              ":0",
+		JWTSecret:         testJWTSecret,
+		MaxConnsPerTenant: 100,
+		MaxConnsPerUser:   5,
+	}, zerolog.Nop())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/v1/events", srv.handleWS)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+
+	conns := make([]*websocket.Conn, 5)
+	for i := 0; i < 5; i++ {
+		token := validToken(t, tenantID, userID)
+		c := dialWS(t, wsURL(ts, token))
+		readJSON(t, c) // auth.ok
+		conns[i] = c
+	}
+	defer func() {
+		for _, c := range conns {
+			if c != nil {
+				c.Close()
+			}
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	if hub.UserConnectionCount(tenantID, userID) != 5 {
+		t.Fatalf("expected 5 user connections, got %d", hub.UserConnectionCount(tenantID, userID))
+	}
+
+	conn1Done := make(chan int, 1)
+	go func() {
+		conns[0].SetReadDeadline(time.Now().Add(3 * time.Second))
+		_, _, err := conns[0].ReadMessage()
+		if closeErr, ok := err.(*websocket.CloseError); ok {
+			conn1Done <- closeErr.Code
+		} else {
+			conn1Done <- -1
+		}
+	}()
+
+	token6 := validToken(t, tenantID, userID)
+	conn6 := dialWS(t, wsURL(ts, token6))
+	defer conn6.Close()
+	readJSON(t, conn6) // auth.ok
+
+	select {
+	case code := <-conn1Done:
+		if code != CloseCodePerUserMax {
+			t.Errorf("expected eviction close code %d, got %d", CloseCodePerUserMax, code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("timeout waiting for oldest connection to be evicted")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if hub.UserConnectionCount(tenantID, userID) != 5 {
+		t.Errorf("expected 5 user connections after eviction, got %d", hub.UserConnectionCount(tenantID, userID))
+	}
+}
+
 func TestServer_SlowClientBackpressure(t *testing.T) {
 	hub := NewHub(zerolog.Nop())
 

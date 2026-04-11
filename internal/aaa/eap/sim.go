@@ -9,6 +9,8 @@ import (
 	"fmt"
 )
 
+const simMACLen = 16
+
 const (
 	SimSubtypeStart     uint8 = 10
 	SimSubtypeChallenge uint8 = 11
@@ -123,18 +125,22 @@ func (h *SIMHandler) handleStartResponse(ctx context.Context, session *EAPSessio
 
 func (h *SIMHandler) handleChallengeResponse(session *EAPSession, pkt *Packet) (*Packet, error) {
 	mac := extractSIMAttribute(pkt.Data[3:], SimATMAC)
-	if mac == nil {
+	if mac == nil || len(mac) != simMACLen {
 		return NewFailure(pkt.Identifier), nil
 	}
 
-	var combinedSRES []byte
-	for i := 0; i < 3; i++ {
-		combinedSRES = append(combinedSRES, session.SIMData.SRES[i][:]...)
+	receivedMAC := make([]byte, simMACLen)
+	copy(receivedMAC, mac)
+
+	macComputationData := make([]byte, len(pkt.Data))
+	copy(macComputationData, pkt.Data)
+	if !zeroSIMAttribute(macComputationData[3:], SimATMAC) {
+		return NewFailure(pkt.Identifier), nil
 	}
 
-	expectedMAC := computeSIMMAC(session.SIMData.Kc, pkt.Data, session.Identifier)
+	expectedMAC := computeSIMMAC(session.SIMData.Kc, macComputationData, session.Identifier)
 
-	if hmac.Equal(mac, expectedMAC) || verifySimpleSRES(mac, combinedSRES) {
+	if hmac.Equal(receivedMAC, expectedMAC) {
 		return NewSuccess(pkt.Identifier), nil
 	}
 
@@ -201,6 +207,28 @@ func extractSIMAttribute(data []byte, attrType uint8) []byte {
 	return nil
 }
 
+func zeroSIMAttribute(data []byte, attrType uint8) bool {
+	offset := 0
+	for offset+1 < len(data) {
+		at := data[offset]
+		al := int(data[offset+1]) * 4
+		if al < 4 || offset+al > len(data) {
+			return false
+		}
+		if at == attrType {
+			if al <= 4 {
+				return false
+			}
+			for i := offset + 4; i < offset+al; i++ {
+				data[i] = 0
+			}
+			return true
+		}
+		offset += al
+	}
+	return false
+}
+
 func computeSIMMAC(kc [3][8]byte, eapData []byte, identifier uint8) []byte {
 	var key []byte
 	for i := 0; i < 3; i++ {
@@ -212,13 +240,6 @@ func computeSIMMAC(kc [3][8]byte, eapData []byte, identifier uint8) []byte {
 	mac.Write([]byte{identifier})
 	sum := mac.Sum(nil)
 	return sum[:16]
-}
-
-func verifySimpleSRES(mac, combinedSRES []byte) bool {
-	if len(mac) < len(combinedSRES) {
-		return false
-	}
-	return bytes.Equal(mac[:len(combinedSRES)], combinedSRES)
 }
 
 func deriveSIMMSK(kc [3][8]byte) []byte {

@@ -51,4 +51,7 @@ type BulkResult struct {
 	FailedCount    int         `json:"failed_count"`
 	TotalCount     int         `json:"total_count"`
 	UndoRecords    interface{} `json:"undo_records,omitempty"`
+	CoASentCount   int         `json:"coa_sent_count,omitempty"`
+	CoAAckedCount  int         `json:"coa_acked_count,omitempty"`
+	CoAFailedCount int         `json:"coa_failed_count,omitempty"`
 }

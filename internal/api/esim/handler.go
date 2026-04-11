@@ -1,28 +1,41 @@
 package esim
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	esimpkg "github.com/btopcu/argus/internal/esim"
+	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	esimpkg "github.com/btopcu/argus/internal/esim"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
+type activeSessionLister interface {
+	ListActiveBySIM(ctx context.Context, simID uuid.UUID) ([]store.RadiusSession, error)
+}
+
+type dmDispatcher interface {
+	SendDM(ctx context.Context, req aaasession.DMRequest) (*aaasession.DMResult, error)
+}
+
 type Handler struct {
-	esimStore   *store.ESimProfileStore
-	simStore    *store.SIMStore
-	smdpAdapter esimpkg.SMDPAdapter
-	auditSvc    audit.Auditor
-	logger      zerolog.Logger
+	esimStore    *store.ESimProfileStore
+	simStore     *store.SIMStore
+	smdpAdapter  esimpkg.SMDPAdapter
+	auditSvc     audit.Auditor
+	sessionStore activeSessionLister
+	dmSender     dmDispatcher
+	logger       zerolog.Logger
 }
 
 func NewHandler(
@@ -41,6 +54,14 @@ func NewHandler(
 	}
 }
 
+// SetSessionDeps wires the active session lister and DM dispatcher used by the
+// Switch handler to disconnect active sessions before changing eSIM profiles.
+// Safe to call after construction; when either dep is nil the DM step is skipped.
+func (h *Handler) SetSessionDeps(sessionStore activeSessionLister, dmSender dmDispatcher) {
+	h.sessionStore = sessionStore
+	h.dmSender = dmSender
+}
+
 type profileResponse struct {
 	ID                string  `json:"id"`
 	SimID             string  `json:"sim_id"`
@@ -56,10 +77,11 @@ type profileResponse struct {
 }
 
 type switchResponse struct {
-	SimID      string          `json:"sim_id"`
-	OldProfile profileResponse `json:"old_profile"`
-	NewProfile profileResponse `json:"new_profile"`
-	NewOperatorID string       `json:"new_operator_id"`
+	SimID                string                   `json:"sim_id"`
+	OldProfile           profileResponse          `json:"old_profile"`
+	NewProfile           profileResponse          `json:"new_profile"`
+	NewOperatorID        string                   `json:"new_operator_id"`
+	DisconnectedSessions []map[string]interface{} `json:"disconnected_sessions,omitempty"`
 }
 
 type switchRequest struct {
@@ -363,6 +385,17 @@ func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	force := r.URL.Query().Get("force") == "true"
+	dmResults, nakSessionID, dmErr := h.disconnectActiveSessionsForSwitch(r.Context(), sim.ID, sim.IMSI, force)
+	if dmErr != nil {
+		h.logger.Error().Err(dmErr).Str("sim_id", sim.ID.String()).Msg("list active sessions for esim switch")
+	}
+	if nakSessionID != "" {
+		apierr.WriteError(w, http.StatusConflict, apierr.CodeSessionDisconnectFailed,
+			fmt.Sprintf("NAS refused DM for session %s; pass force=true to override", nakSessionID))
+		return
+	}
+
 	if h.smdpAdapter != nil {
 		smdpErr := h.smdpAdapter.DisableProfile(r.Context(), esimpkg.DisableProfileRequest{
 			EID:       sourceProfile.EID,
@@ -412,18 +445,69 @@ func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditAfter := map[string]interface{}{"switch_result": result}
+	if len(dmResults) > 0 {
+		auditAfter["disconnected_sessions"] = dmResults
+	}
 	h.createAuditEntry(r, "esim_profile.switch", sourceProfileID.String(),
-		map[string]interface{}{"source_profile_id": sourceProfileID, "target_profile_id": targetProfileID},
-		result, userID)
+		map[string]interface{}{"source_profile_id": sourceProfileID, "target_profile_id": targetProfileID, "force": force},
+		auditAfter, userID)
 
 	resp := switchResponse{
-		SimID:         result.SimID.String(),
-		OldProfile:    toProfileResponse(result.OldProfile),
-		NewProfile:    toProfileResponse(result.NewProfile),
-		NewOperatorID: result.NewOperatorID.String(),
+		SimID:                result.SimID.String(),
+		OldProfile:           toProfileResponse(result.OldProfile),
+		NewProfile:           toProfileResponse(result.NewProfile),
+		NewOperatorID:        result.NewOperatorID.String(),
+		DisconnectedSessions: dmResults,
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+// disconnectActiveSessionsForSwitch sends DMs for every active session on the SIM
+// before an eSIM profile switch. Returns the per-session DM result list, the
+// acct_session_id of the first session that NAK'd (empty if none), and any lookup
+// error from ListActiveBySIM (non-fatal). When force is true, DM is skipped entirely.
+// When either the session store or DM sender is unset, the call is a no-op.
+func (h *Handler) disconnectActiveSessionsForSwitch(ctx context.Context, simID uuid.UUID, imsi string, force bool) ([]map[string]interface{}, string, error) {
+	if force || h.sessionStore == nil || h.dmSender == nil {
+		return nil, "", nil
+	}
+
+	sessions, listErr := h.sessionStore.ListActiveBySIM(ctx, simID)
+	if listErr != nil {
+		return nil, "", listErr
+	}
+
+	var dmResults []map[string]interface{}
+	for _, sess := range sessions {
+		if sess.NASIP == nil || *sess.NASIP == "" || sess.AcctSessionID == nil || *sess.AcctSessionID == "" {
+			h.logger.Warn().Str("session_id", sess.ID.String()).Msg("skip DM: missing NAS IP or acct session ID")
+			continue
+		}
+		nasIP := *sess.NASIP
+		if idx := strings.Index(nasIP, ":"); idx > 0 {
+			nasIP = nasIP[:idx]
+		}
+		dmRes, dmErr := h.dmSender.SendDM(ctx, aaasession.DMRequest{
+			NASIP:         nasIP,
+			AcctSessionID: *sess.AcctSessionID,
+			IMSI:          imsi,
+		})
+		status := aaasession.DMResultError
+		if dmErr == nil && dmRes != nil {
+			status = dmRes.Status
+		}
+		dmResults = append(dmResults, map[string]interface{}{
+			"session_id":      sess.ID.String(),
+			"acct_session_id": *sess.AcctSessionID,
+			"dm_status":       status,
+		})
+		if dmErr == nil && dmRes != nil && dmRes.Status == aaasession.DMResultNAK {
+			return dmResults, *sess.AcctSessionID, nil
+		}
+	}
+	return dmResults, "", nil
 }
 
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}, userID *uuid.UUID) {

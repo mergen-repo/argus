@@ -472,6 +472,40 @@ func TestParser_InvalidRATType(t *testing.T) {
 	}
 }
 
+func TestParser_RATTypeAliasesAccepted(t *testing.T) {
+	// Only aliases that the DSL lexer can tokenize as a single identifier:
+	// must start with a letter/underscore; hyphens and digit-prefixes are not valid DSL identifier chars.
+	aliases := []string{
+		"nb_iot", "nbiot",
+		"lte_m", "cat_m1",
+		"lte", "eutran",
+		"nr_5g", "nr_5g_nsa",
+		"utran", "geran",
+		"unknown",
+	}
+
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			src := `POLICY "test" {
+    MATCH { apn = "test" }
+    RULES {}
+    CHARGING {
+        model = postpaid
+        rat_type_multiplier {
+            ` + alias + ` = 1.0
+        }
+    }
+}`
+			_, errs := parseSource(src)
+			for _, e := range errs {
+				if e.Code == "DSL_INVALID_RAT_TYPE" {
+					t.Errorf("alias %q rejected: %s", alias, e.Message)
+				}
+			}
+		})
+	}
+}
+
 func TestParser_ActionParameterValidation(t *testing.T) {
 	tests := []struct {
 		name    string

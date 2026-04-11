@@ -112,7 +112,9 @@ type Config struct {
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
 	GOGC         int    `envconfig:"GOGC" default:"100"`
 
-	WSMaxConnsPerTenant int `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
+	WSMaxConnsPerTenant int           `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
+	WSMaxConnsPerUser   int           `envconfig:"WS_MAX_CONNS_PER_USER" default:"5"`
+	WSPongTimeout       time.Duration `envconfig:"WS_PONG_TIMEOUT" default:"90s"`
 
 	RadSecPort         int    `envconfig:"RADSEC_PORT" default:"2083"`
 	DiameterTLSEnabled bool   `envconfig:"DIAMETER_TLS_ENABLED" default:"false"`

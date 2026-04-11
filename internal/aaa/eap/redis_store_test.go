@@ -162,6 +162,64 @@ func TestRedisStateStore_GetNonExistent(t *testing.T) {
 	}
 }
 
+func TestMemoryStateStore_GetAndDelete(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStateStore()
+
+	session := &EAPSession{
+		ID:         "get-and-delete-1",
+		IMSI:       "286010123456789",
+		State:      StateChallenge,
+		Method:     MethodSIM,
+		Identifier: 1,
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(30 * time.Second),
+	}
+	if err := store.Save(ctx, session); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	got, err := store.GetAndDelete(ctx, "get-and-delete-1")
+	if err != nil {
+		t.Fatalf("GetAndDelete error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetAndDelete returned nil for existing session")
+	}
+	if got.IMSI != session.IMSI {
+		t.Errorf("IMSI = %q, want %q", got.IMSI, session.IMSI)
+	}
+
+	got2, err := store.GetAndDelete(ctx, "get-and-delete-1")
+	if err != nil {
+		t.Fatalf("second GetAndDelete error: %v", err)
+	}
+	if got2 != nil {
+		t.Error("second GetAndDelete expected nil (already consumed)")
+	}
+
+	remaining, err := store.Get(ctx, "get-and-delete-1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if remaining != nil {
+		t.Error("Get after GetAndDelete expected nil")
+	}
+}
+
+func TestMemoryStateStore_GetAndDelete_NonExistent(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStateStore()
+
+	got, err := store.GetAndDelete(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("GetAndDelete error: %v", err)
+	}
+	if got != nil {
+		t.Error("GetAndDelete for nonexistent expected nil")
+	}
+}
+
 func TestRedisStateStore_SaveWithSIMStartData(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStateStore()

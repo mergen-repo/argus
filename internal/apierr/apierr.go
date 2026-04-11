@@ -50,11 +50,12 @@ const (
 	CodeIMSIExists             = "IMSI_EXISTS"
 	CodeInvalidStateTransition = "INVALID_STATE_TRANSITION"
 
-	CodeProfileAlreadyEnabled = "PROFILE_ALREADY_ENABLED"
-	CodeNotESIM               = "NOT_ESIM"
-	CodeInvalidProfileState   = "INVALID_PROFILE_STATE"
-	CodeSameProfile           = "SAME_PROFILE"
-	CodeDifferentSIM          = "DIFFERENT_SIM"
+	CodeProfileAlreadyEnabled   = "PROFILE_ALREADY_ENABLED"
+	CodeNotESIM                 = "NOT_ESIM"
+	CodeInvalidProfileState     = "INVALID_PROFILE_STATE"
+	CodeSameProfile             = "SAME_PROFILE"
+	CodeDifferentSIM            = "DIFFERENT_SIM"
+	CodeSessionDisconnectFailed = "SESSION_DISCONNECT_FAILED"
 )
 
 type SuccessResponse struct {

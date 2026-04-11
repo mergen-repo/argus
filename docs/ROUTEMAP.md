@@ -165,7 +165,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-059 | Security & Compliance Hardening | L | [x] DONE | — | STORY-056 | 2026-04-12 |
-| STORY-060 | AAA Protocol Correctness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
+| STORY-060 | AAA Protocol Correctness | XL | [~] IN PROGRESS | Commit | STORY-056, STORY-057 | — |
 | STORY-061 | eSIM Model Evolution | M | [ ] PENDING | — | STORY-057, STORY-060, STORY-063 | — |
 | STORY-063 | Backend Implementation Completeness | XL | [ ] PENDING | — | STORY-056, STORY-057 | — |
 | STORY-064 | Database Hardening & Partition Automation | L | [ ] PENDING | — | STORY-056, STORY-063 | — |

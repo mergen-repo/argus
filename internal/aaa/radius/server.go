@@ -314,7 +314,7 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 	accept := r.Packet.Response(radius.CodeAccessAccept)
 	rfc2869.EAPMessage_Set(accept, eapSuccessRaw)
 
-	msk, _ := s.eapMachine.GetSessionMSK(ctx, sessionID)
+	msk, _ := s.eapMachine.ConsumeSessionMSK(sessionID)
 	if len(msk) >= 64 {
 		sendKey := msk[:32]
 		recvKey := msk[32:64]

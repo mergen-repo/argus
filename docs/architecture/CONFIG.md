@@ -32,6 +32,8 @@ All variables are read once at startup. Changing a variable requires restart (ex
 | `LOG_LEVEL` | string | `info` | No | Zerolog level: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`. In development, defaults to `debug`. |
 | `DEPLOYMENT_MODE` | string | `single` | No | `single` (one instance) or `cluster` (multiple instances, enables distributed locking and NATS-based coordination). |
 | `WS_MAX_CONNS_PER_TENANT` | int | `100` | No | Maximum concurrent WebSocket connections per tenant. Enforced after JWT auth with close code 4002. |
+| `WS_MAX_CONNS_PER_USER` | int | `5` | No | Maximum concurrent WebSocket connections per user. When exceeded, the oldest connection is evicted with close code 4029. |
+| `WS_PONG_TIMEOUT` | duration | `90s` | No | How long the server waits for a pong response after sending a ping before closing the connection. |
 
 ---
 
@@ -138,6 +140,10 @@ DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.co
 | `DIAMETER_PORT` | int | `3868` | No | Diameter server TCP port. |
 | `DIAMETER_ORIGIN_HOST` | string | — | **Yes** (if Diameter enabled) | Diameter Origin-Host AVP. FQDN of this Argus instance. |
 | `DIAMETER_ORIGIN_REALM` | string | — | **Yes** (if Diameter enabled) | Diameter Origin-Realm AVP. Domain realm. |
+| `DIAMETER_TLS_ENABLED` | bool | `false` | No | Enable TLS wrapping of Diameter TCP listener on port 3868 |
+| `DIAMETER_TLS_CERT_PATH` | string | — | If TLS | PEM server cert path |
+| `DIAMETER_TLS_KEY_PATH` | string | — | If TLS | PEM server key path |
+| `DIAMETER_TLS_CA_PATH` | string | — | No | PEM CA bundle for peer mTLS; when set, Argus requires and verifies client certificates |
 | `DIAMETER_VENDOR_ID` | int | `99999` | No | Argus vendor ID (for custom AVPs). 3GPP AVPs use 10415. |
 | `DIAMETER_WATCHDOG_INTERVAL` | duration | `30s` | No | DWR (Device-Watchdog-Request) send interval. |
 | `SBA_PORT` | int | `8443` | No | 5G SBA HTTPS/HTTP2 server port. |
@@ -317,6 +323,12 @@ DIAMETER_ORIGIN_REALM=local
 SBA_PORT=8443
 SBA_ENABLED=false
 SBA_ENABLE_MTLS=false
+
+# === Diameter TLS (optional) ===
+# DIAMETER_TLS_ENABLED=true
+# DIAMETER_TLS_CERT_PATH=/etc/argus/diameter-server.pem
+# DIAMETER_TLS_KEY_PATH=/etc/argus/diameter-server-key.pem
+# DIAMETER_TLS_CA_PATH=/etc/argus/diameter-ca.pem
 
 # === Rate Limiting ===
 RATE_LIMIT_DEFAULT_PER_MINUTE=1000

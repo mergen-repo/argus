@@ -1183,3 +1183,43 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 | 14 | System event (tenant_id=nil) publish et | Tum tenant baglantilari event'i ALIR |
 | 15 | `make vuln-check` calistir | `govulncheck ./...` 0 high/critical bildirir |
 | 16 | `make web-audit` calistir | `npm audit --audit-level=high` 0 vulnerability bildirir |
+
+---
+
+## STORY-060: AAA Protocol Correctness
+
+**Not:** Bu story backend/protokol seviyesi duzeltmelerden olusuyor — UI tarafinda sadece CoA dispatch sayilari mevcut ekranlarda gorunur (Live Sessions, Policy Editor). Ana testler backend ve protocol seviyesinde yapilir.
+
+**Ekran:** Live Sessions (SCR-070)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | Aktif bir SIM icin bulk policy assign tetikle | Jobs tablosunda `coa_sent_count`, `coa_acked_count`, `coa_failed_count` sayaclari gorunur |
+| 2 | Policy editor > staged rollout > progress takip et | CoA dispatch sayisi UI'da arttigi gorulur |
+
+**Ekran:** eSIM (SCR-072)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 3 | Aktif oturumu olan bir SIM icin profil degisimi dene (force=false) | Once DM gider, sonuc `disconnected_sessions` field'inda doner; DM NAK ise 409 SESSION_DISCONNECT_FAILED |
+| 4 | Ayni durumda `force=true` ile dene | DM atlanir, profil degisimi direkt yapilir |
+
+**WebSocket Davranisi (dev-browser/backend):**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 5 | WS client ping'e 95 saniye yanit verme | Sunucu baglantiyi `pongWait` sonrasi kapatir (default 90s) |
+| 6 | WS client hizli yavas — 300+ mesaj buffer'a yigil | Eski mesajlar dusurulur (drop-oldest), yeni mesajlar alinir; `DroppedMessageCount` artar |
+| 7 | Ayni kullanici 6. WS baglantisi acsin | 1. baglanti close code 4029 ile kapatilir, 6. baglanti aktif kalir |
+| 8 | Sunucu shutdown baslat | Tum baglantilar `{"type":"reconnect","data":{...,"after_ms":2000}}` alir, sonra baglantilar kapanir |
+
+**Protokol/Altyapi:**
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 9 | EAP-SIM authentication spec-uyumlu MAC ile gonder | Access-Accept + MSK (ConsumeSessionMSK in-memory hit) |
+| 10 | EAP-SIM eski test-compat simple-SRES path ile gonder | Access-Reject — RFC 4186 strict |
+| 11 | Diameter peer `openssl s_client` ile TLS bagla | TLS 1.2+ handshake OK, CER/CEA akar |
+| 12 | Diameter peer gecersiz sertifika ile TLS bagla (mTLS on) | Handshake reddedilir |
+| 13 | DSL policy: `WHEN rat_type == "NB_IOT"` ve `"nb_iot"` | Her ikisi ayni canonical RAT'e cozumlenir |
+| 14 | Canonical olmayan rat_type degerleri icin migration calistir | `sessions`, `sims`, `cdrs` tablolarinda normalize edilir |

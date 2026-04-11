@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,13 +19,14 @@ type EventEnvelope struct {
 }
 
 type Connection struct {
-	TenantID uuid.UUID
-	UserID   uuid.UUID
-	SendCh   chan []byte
-	Filters  []string
-	ws       *websocket.Conn
-	done     chan struct{}
-	mu       sync.Mutex
+	TenantID  uuid.UUID
+	UserID    uuid.UUID
+	SendCh    chan []byte
+	Filters   []string
+	ws        *websocket.Conn
+	done      chan struct{}
+	mu        sync.Mutex
+	createdAt time.Time
 }
 
 func (c *Connection) MatchesFilter(eventType string) bool {
@@ -61,7 +63,34 @@ type Hub struct {
 	conns map[uuid.UUID]map[*Connection]struct{}
 	subs  []Subscription
 
+	dropped uint64
+
 	logger zerolog.Logger
+}
+
+func (h *Hub) safeSend(conn *Connection, msg []byte) {
+	select {
+	case conn.SendCh <- msg:
+		return
+	default:
+	}
+	select {
+	case <-conn.SendCh:
+		atomic.AddUint64(&h.dropped, 1)
+		h.logger.Warn().
+			Str("tenant_id", conn.TenantID.String()).
+			Msg("ws send buffer full, dropped oldest message")
+	default:
+	}
+	select {
+	case conn.SendCh <- msg:
+	default:
+		atomic.AddUint64(&h.dropped, 1)
+	}
+}
+
+func (h *Hub) DroppedMessageCount() uint64 {
+	return atomic.LoadUint64(&h.dropped)
 }
 
 func NewHub(logger zerolog.Logger) *Hub {
@@ -123,13 +152,7 @@ func (h *Hub) BroadcastAll(eventType string, data interface{}) {
 	for _, conns := range h.conns {
 		for conn := range conns {
 			if conn.MatchesFilter(eventType) {
-				select {
-				case conn.SendCh <- msg:
-				default:
-					h.logger.Warn().
-						Str("tenant_id", conn.TenantID.String()).
-						Msg("ws send buffer full, dropping message")
-				}
+				h.safeSend(conn, msg)
 			}
 		}
 	}
@@ -159,13 +182,7 @@ func (h *Hub) BroadcastToTenant(tenantID uuid.UUID, eventType string, data inter
 
 	for conn := range conns {
 		if conn.MatchesFilter(eventType) {
-			select {
-			case conn.SendCh <- msg:
-			default:
-				h.logger.Warn().
-					Str("tenant_id", tenantID.String()).
-					Msg("ws send buffer full, dropping message")
-			}
+			h.safeSend(conn, msg)
 		}
 	}
 }
@@ -256,6 +273,44 @@ func (h *Hub) TenantConnectionCount(tenantID uuid.UUID) int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.conns[tenantID])
+}
+
+func (h *Hub) UserConnectionCount(tenantID, userID uuid.UUID) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	n := 0
+	for conn := range h.conns[tenantID] {
+		if conn.UserID == userID {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *Hub) EvictOldestByUser(tenantID, userID uuid.UUID) *Connection {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var oldest *Connection
+	for conn := range h.conns[tenantID] {
+		if conn.UserID == userID {
+			if oldest == nil || conn.createdAt.Before(oldest.createdAt) {
+				oldest = conn
+			}
+		}
+	}
+	return oldest
+}
+
+func (h *Hub) BroadcastReconnect(reason string, afterMs int) {
+	payload := map[string]interface{}{"reason": reason, "after_ms": afterMs}
+	msg, _ := json.Marshal(map[string]interface{}{"type": "reconnect", "data": payload})
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, conns := range h.conns {
+		for conn := range conns {
+			h.safeSend(conn, msg)
+		}
+	}
 }
 
 func (h *Hub) Stop() {

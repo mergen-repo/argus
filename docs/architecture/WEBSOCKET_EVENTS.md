@@ -33,7 +33,7 @@ If no auth message is received within 5 seconds (method 2) and no query param to
 ### Heartbeat
 
 - **Ping/Pong**: Server sends WebSocket ping frame every 30 seconds.
-- **Pong timeout**: If no pong received within 10 seconds, server closes the connection.
+- **Pong timeout**: If no pong received within 90 seconds, server closes the connection. Configurable via `WS_PONG_TIMEOUT` env var (default 90s).
 - **Client-side**: Standard WebSocket implementations handle pong automatically. If implementing custom client, respond to ping with pong.
 
 ### Reconnection Strategy
@@ -393,15 +393,20 @@ Fired every 1 second. Contains aggregated real-time metrics for the system dashb
 
 ### Reconnect Message
 
+Sent by the server before planned maintenance or graceful shutdown to allow clients to reconnect gracefully.
+
 ```json
 {
   "type": "reconnect",
   "data": {
-    "reason": "Server maintenance scheduled",
-    "delay_seconds": 5
+    "reason": "server shutting down",
+    "after_ms": 2000
   }
 }
 ```
+
+- `reason`: Human-readable reason for the reconnect request.
+- `after_ms`: Milliseconds to wait before reconnecting.
 
 Client should close the connection and reconnect after the specified delay.
 

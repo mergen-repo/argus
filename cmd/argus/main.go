@@ -445,6 +445,8 @@ func main() {
 		Addr:              fmt.Sprintf(":%d", cfg.WSPort),
 		JWTSecret:         cfg.JWTSecret,
 		MaxConnsPerTenant: cfg.WSMaxConnsPerTenant,
+		MaxConnsPerUser:   cfg.WSMaxConnsPerUser,
+		PongTimeout:       cfg.WSPongTimeout,
 	}, log.Logger)
 	if err := wsServer.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start ws server")
@@ -459,6 +461,8 @@ func main() {
 		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
 		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
 		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
+
+		esimHandler.SetSessionDeps(radiusSessionStore, dmSender)
 
 		radiusServer = aaaradius.NewServer(
 			aaaradius.ServerConfig{
@@ -497,6 +501,10 @@ func main() {
 
 		rolloutSvc.SetSessionProvider(&rolloutSessionAdapter{mgr: sessionMgr})
 		rolloutSvc.SetCoADispatcher(&rolloutCoAAdapter{sender: coaSender})
+
+		bulkPolicyAssignProc.SetSessionProvider(&bulkPolicySessionAdapter{mgr: sessionMgr})
+		bulkPolicyAssignProc.SetCoADispatcher(&bulkPolicyCoAAdapter{sender: coaSender})
+		bulkPolicyAssignProc.SetPolicyCoAUpdater(policyStore)
 
 		if cfg.RadSecCertPath != "" && cfg.RadSecKeyPath != "" {
 			radSecServer := aaaradius.NewRadSecServer(aaaradius.RadSecConfig{
@@ -759,6 +767,8 @@ func main() {
 	metricsPusher.Stop()
 
 	log.Info().Msg("stopping ws server")
+	wsHub.BroadcastReconnect("server shutting down", 2000)
+	time.Sleep(500 * time.Millisecond)
 	if err := wsServer.Stop(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("ws server shutdown error")
 	}
@@ -993,6 +1003,48 @@ func (a *rolloutCoAAdapter) SendCoA(ctx context.Context, req rollout.CoARequest)
 		return nil, err
 	}
 	return &rollout.CoAResult{
+		Status:  result.Status,
+		Message: result.Message,
+	}, nil
+}
+
+type bulkPolicySessionAdapter struct {
+	mgr *aaasession.Manager
+}
+
+func (a *bulkPolicySessionAdapter) GetSessionsForSIM(ctx context.Context, simID string) ([]job.BulkSessionInfo, error) {
+	sessions, err := a.mgr.GetSessionsForSIM(ctx, simID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]job.BulkSessionInfo, 0, len(sessions))
+	for _, s := range sessions {
+		result = append(result, job.BulkSessionInfo{
+			ID:            s.ID,
+			SimID:         s.SimID,
+			NASIP:         s.NASIP,
+			AcctSessionID: s.AcctSessionID,
+			IMSI:          s.IMSI,
+		})
+	}
+	return result, nil
+}
+
+type bulkPolicyCoAAdapter struct {
+	sender *aaasession.CoASender
+}
+
+func (a *bulkPolicyCoAAdapter) SendCoA(ctx context.Context, req job.BulkCoARequest) (*job.BulkCoAResult, error) {
+	result, err := a.sender.SendCoA(ctx, aaasession.CoARequest{
+		NASIP:         req.NASIP,
+		AcctSessionID: req.AcctSessionID,
+		IMSI:          req.IMSI,
+		Attributes:    req.Attributes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &job.BulkCoAResult{
 		Status:  result.Status,
 		Message: result.Message,
 	}, nil

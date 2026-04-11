@@ -19,6 +19,9 @@ const (
 	StateFailure     SessionState = "failure"
 
 	DefaultStateTTL = 30 * time.Second
+
+	mskStashTTL        = 10 * time.Second
+	mskStashSweepEvery = 30 * time.Second
 )
 
 type SessionState string
@@ -83,12 +86,18 @@ type StateStore interface {
 	Save(ctx context.Context, session *EAPSession) error
 	Get(ctx context.Context, id string) (*EAPSession, error)
 	Delete(ctx context.Context, id string) error
+	GetAndDelete(ctx context.Context, id string) (*EAPSession, error)
 }
 
 type MethodHandler interface {
 	Type() MethodType
 	HandleResponse(ctx context.Context, session *EAPSession, pkt *Packet) (*Packet, error)
 	StartChallenge(ctx context.Context, session *EAPSession, provider AuthVectorProvider) (*Packet, error)
+}
+
+type msksEntry struct {
+	msk       []byte
+	createdAt time.Time
 }
 
 type StateMachine struct {
@@ -98,15 +107,51 @@ type StateMachine struct {
 	simTypeLookup SIMTypeLookupFunc
 	logger        zerolog.Logger
 	mu            sync.RWMutex
+
+	msks       sync.Map
+	sweepStop  chan struct{}
+	sweepOnce  sync.Once
 }
 
 func NewStateMachine(store StateStore, provider AuthVectorProvider, logger zerolog.Logger) *StateMachine {
-	return &StateMachine{
-		store:    store,
-		provider: provider,
-		methods:  make(map[MethodType]MethodHandler),
-		logger:   logger.With().Str("component", "eap_state_machine").Logger(),
+	sm := &StateMachine{
+		store:     store,
+		provider:  provider,
+		methods:   make(map[MethodType]MethodHandler),
+		logger:    logger.With().Str("component", "eap_state_machine").Logger(),
+		sweepStop: make(chan struct{}),
 	}
+	go sm.sweepMSKStash()
+	return sm
+}
+
+func (sm *StateMachine) sweepMSKStash() {
+	ticker := time.NewTicker(mskStashSweepEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sm.sweepStop:
+			return
+		case now := <-ticker.C:
+			sm.msks.Range(func(key, value interface{}) bool {
+				entry, ok := value.(msksEntry)
+				if !ok {
+					sm.msks.Delete(key)
+					return true
+				}
+				if now.Sub(entry.createdAt) > mskStashTTL {
+					sm.msks.Delete(key)
+				}
+				return true
+			})
+		}
+	}
+}
+
+func (sm *StateMachine) Stop() {
+	sm.sweepOnce.Do(func() {
+		close(sm.sweepStop)
+	})
 }
 
 func (sm *StateMachine) SetSIMTypeLookup(fn SIMTypeLookupFunc) {
@@ -337,6 +382,7 @@ func (sm *StateMachine) handleChallenge(ctx context.Context, session *EAPSession
 
 	if respPkt.Code == CodeSuccess {
 		session.State = StateSuccess
+		sm.stashSessionMSK(session)
 		_ = sm.store.Delete(ctx, session.ID)
 		sm.logger.Info().
 			Str("session_id", session.ID).
@@ -425,21 +471,37 @@ func (sm *StateMachine) GetSessionMethod(ctx context.Context, sessionID string) 
 	return session.Method, nil
 }
 
-func (sm *StateMachine) GetSessionMSK(ctx context.Context, sessionID string) ([]byte, error) {
-	session, err := sm.store.Get(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
+func (sm *StateMachine) stashSessionMSK(session *EAPSession) {
 	if session == nil {
-		return nil, nil
+		return
 	}
-	if session.SIMData != nil && session.SIMData.MSK != nil {
-		return session.SIMData.MSK, nil
+	var msk []byte
+	if session.SIMData != nil && len(session.SIMData.MSK) > 0 {
+		msk = session.SIMData.MSK
+	} else if session.AKAData != nil && len(session.AKAData.MSK) > 0 {
+		msk = session.AKAData.MSK
 	}
-	if session.AKAData != nil && session.AKAData.MSK != nil {
-		return session.AKAData.MSK, nil
+	if msk == nil {
+		return
 	}
-	return nil, nil
+	stashed := make([]byte, len(msk))
+	copy(stashed, msk)
+	sm.msks.Store(session.ID, msksEntry{msk: stashed, createdAt: time.Now()})
+}
+
+func (sm *StateMachine) ConsumeSessionMSK(sessionID string) ([]byte, bool) {
+	v, ok := sm.msks.LoadAndDelete(sessionID)
+	if !ok {
+		return nil, false
+	}
+	entry, ok := v.(msksEntry)
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.createdAt) > mskStashTTL {
+		return nil, false
+	}
+	return entry.msk, true
 }
 
 type MemoryStateStore struct {
@@ -483,4 +545,19 @@ func (s *MemoryStateStore) Delete(_ context.Context, id string) error {
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
 	return nil
+}
+
+func (s *MemoryStateStore) GetAndDelete(_ context.Context, id string) (*EAPSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.sessions[id]
+	if !ok {
+		return nil, nil
+	}
+	delete(s.sessions, id)
+	var session EAPSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
 }

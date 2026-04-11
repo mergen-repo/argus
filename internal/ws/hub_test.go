@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,7 +204,7 @@ func TestHub_SetFilters(t *testing.T) {
 	}
 }
 
-func TestHub_FullSendBuffer_DropsMessage(t *testing.T) {
+func TestHub_FullSendBuffer_DropsOldest(t *testing.T) {
 	hub := NewHub(zerolog.Nop())
 
 	tenantID := uuid.New()
@@ -219,9 +220,128 @@ func TestHub_FullSendBuffer_DropsMessage(t *testing.T) {
 	hub.BroadcastAll("event2", "data2")
 
 	select {
-	case <-conn.SendCh:
+	case msg := <-conn.SendCh:
+		var env EventEnvelope
+		if err := json.Unmarshal(msg, &env); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if env.Type != "event2" {
+			t.Errorf("type = %s, want event2 (oldest should be dropped)", env.Type)
+		}
 	default:
-		t.Fatal("first message should be delivered")
+		t.Fatal("expected one message to be buffered")
+	}
+
+	if got := hub.DroppedMessageCount(); got != 1 {
+		t.Errorf("DroppedMessageCount = %d, want 1", got)
+	}
+}
+
+func TestSafeSend_DropOldest(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	conn := &Connection{
+		TenantID: uuid.New(),
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 2),
+	}
+
+	msg1 := []byte("msg1")
+	msg2 := []byte("msg2")
+	msg3 := []byte("msg3")
+
+	hub.safeSend(conn, msg1)
+	hub.safeSend(conn, msg2)
+	hub.safeSend(conn, msg3)
+
+	got1 := <-conn.SendCh
+	got2 := <-conn.SendCh
+
+	if string(got1) != "msg2" {
+		t.Errorf("first received = %q, want msg2 (msg1 should be dropped as oldest)", string(got1))
+	}
+	if string(got2) != "msg3" {
+		t.Errorf("second received = %q, want msg3", string(got2))
+	}
+
+	if got := hub.DroppedMessageCount(); got != 1 {
+		t.Errorf("DroppedMessageCount = %d, want 1", got)
+	}
+
+	select {
+	case extra := <-conn.SendCh:
+		t.Errorf("unexpected extra message: %q", string(extra))
+	default:
+	}
+}
+
+func TestDroppedCounter_NonBlocking(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	conn := &Connection{
+		TenantID: uuid.New(),
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 4),
+	}
+
+	const producers = 8
+	const perProducer = 200
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	done := make(chan struct{})
+
+	var consumed uint64
+	go func() {
+		for {
+			select {
+			case <-done:
+				for {
+					select {
+					case <-conn.SendCh:
+						atomic.AddUint64(&consumed, 1)
+					default:
+						return
+					}
+				}
+			case <-conn.SendCh:
+				atomic.AddUint64(&consumed, 1)
+			}
+		}
+	}()
+
+	for i := 0; i < producers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < perProducer; j++ {
+				hub.safeSend(conn, []byte("x"))
+			}
+		}()
+	}
+
+	deadline := time.After(5 * time.Second)
+	close(start)
+
+	finished := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+	case <-deadline:
+		t.Fatal("safeSend blocked under concurrent load")
+	}
+
+	close(done)
+	time.Sleep(50 * time.Millisecond)
+
+	total := uint64(producers * perProducer)
+	if got := hub.DroppedMessageCount() + atomic.LoadUint64(&consumed); got < total {
+		t.Errorf("dropped+consumed = %d, want >= %d", got, total)
 	}
 }
 

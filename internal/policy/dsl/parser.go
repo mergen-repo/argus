@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/btopcu/argus/internal/aaa/rattype"
 )
 
 type DSLError struct {
@@ -25,12 +27,6 @@ var unitSet = map[string]bool{
 	"s": true, "ms": true, "min": true, "h": true, "d": true,
 }
 
-var validRATTypes = map[string]bool{
-	"nb_iot": true, "lte_m": true, "lte": true, "nr_5g": true,
-	"utran": true, "geran": true, "nr_5g_nsa": true,
-	"cat_m1": true, "2g": true, "3g": true, "4g": true,
-	"5g": true, "5g_sa": true, "5g_nsa": true, "unknown": true,
-}
 
 var validMatchFields = map[string]bool{
 	"apn": true, "operator": true, "rat_type": true,
@@ -729,9 +725,9 @@ func (p *Parser) parseChargingBlock() *ChargingBlock {
 					continue
 				}
 				ratName := ratTok.Literal
-				if !validRATTypes[ratName] {
+				if !rattype.IsRecognized(ratName) {
 					p.addError(ratTok.Line, ratTok.Column, "DSL_INVALID_RAT_TYPE",
-						fmt.Sprintf("invalid RAT type %q, must be one of: nb_iot, lte_m, lte, nr_5g", ratName))
+						fmt.Sprintf("invalid RAT type %q, valid types: %s", ratName, strings.Join(rattype.AllCanonical(), ", ")))
 				}
 				p.advance()
 				p.expect(TokenEq)
