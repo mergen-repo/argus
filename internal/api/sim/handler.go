@@ -37,6 +37,8 @@ type Handler struct {
 	ippoolStore   *store.IPPoolStore
 	tenantStore   *store.TenantStore
 	policyStore   *store.PolicyStore
+	cdrStore      *store.CDRStore
+	sessionStore  *store.RadiusSessionStore
 	nameCache     *cache.NameCache
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
@@ -76,6 +78,18 @@ func WithPolicyStore(ps *store.PolicyStore) func(*Handler) {
 func WithNameCache(nc *cache.NameCache) func(*Handler) {
 	return func(h *Handler) {
 		h.nameCache = nc
+	}
+}
+
+func WithSessionStore(ss *store.RadiusSessionStore) func(*Handler) {
+	return func(h *Handler) {
+		h.sessionStore = ss
+	}
+}
+
+func WithCDRStore(cs *store.CDRStore) func(*Handler) {
+	return func(h *Handler) {
+		h.cdrStore = cs
 	}
 }
 
@@ -626,6 +640,113 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type simSessionResponse struct {
+	ID            string  `json:"id"`
+	SimID         string  `json:"sim_id"`
+	OperatorID    string  `json:"operator_id"`
+	APNID         *string `json:"apn_id"`
+	NASIP         *string `json:"nas_ip"`
+	FramedIP      *string `json:"framed_ip"`
+	RATType       *string `json:"rat_type"`
+	SessionState  string  `json:"session_state"`
+	AcctSessionID *string `json:"acct_session_id"`
+	StartedAt     string  `json:"started_at"`
+	EndedAt       *string `json:"ended_at"`
+	BytesIn       int64   `json:"bytes_in"`
+	BytesOut      int64   `json:"bytes_out"`
+	DurationSec   int64   `json:"duration_sec"`
+	ProtocolType  string  `json:"protocol_type"`
+}
+
+func toSimSessionResponse(s *store.RadiusSession) simSessionResponse {
+	resp := simSessionResponse{
+		ID:            s.ID.String(),
+		SimID:         s.SimID.String(),
+		OperatorID:    s.OperatorID.String(),
+		NASIP:         s.NASIP,
+		FramedIP:      s.FramedIP,
+		RATType:       s.RATType,
+		SessionState:  s.SessionState,
+		AcctSessionID: s.AcctSessionID,
+		StartedAt:     s.StartedAt.Format(time.RFC3339),
+		BytesIn:       s.BytesIn,
+		BytesOut:      s.BytesOut,
+		ProtocolType:  s.ProtocolType,
+	}
+	if s.APNID != nil {
+		v := s.APNID.String()
+		resp.APNID = &v
+	}
+	if s.EndedAt != nil {
+		v := s.EndedAt.Format(time.RFC3339)
+		resp.EndedAt = &v
+		resp.DurationSec = int64(s.EndedAt.Sub(s.StartedAt).Seconds())
+	} else {
+		resp.DurationSec = int64(time.Since(s.StartedAt).Seconds())
+	}
+	return resp
+}
+
+func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	simID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid SIM ID format")
+		return
+	}
+
+	if _, err := h.simStore.GetByID(r.Context(), tenantID, simID); err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for sessions")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.sessionStore == nil {
+		apierr.WriteList(w, http.StatusOK, []simSessionResponse{}, apierr.ListMeta{Limit: 50})
+		return
+	}
+
+	q := r.URL.Query()
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	sessions, nextCursor, err := h.sessionStore.ListBySIM(r.Context(), tenantID, simID, store.ListBySIMSessionParams{
+		Cursor: q.Get("cursor"),
+		Limit:  limit,
+		State:  q.Get("state"),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("list sim sessions")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	items := make([]simSessionResponse, 0, len(sessions))
+	for i := range sessions {
+		items = append(items, toSimSessionResponse(&sessions[i]))
+	}
+
+	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
+	})
+}
+
 func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -903,6 +1024,123 @@ func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
 }
 
+func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	simID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid SIM ID format")
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	patch := make(map[string]interface{})
+	var validationErrors []map[string]string
+
+	if v, exists := body["label"]; exists {
+		if v == nil {
+			patch["label"] = nil
+		} else if s, ok := v.(string); ok {
+			if len(s) > 255 {
+				validationErrors = append(validationErrors, map[string]string{"field": "label", "message": "Label must be at most 255 characters", "code": "max_length"})
+			} else {
+				patch["label"] = s
+			}
+		} else {
+			validationErrors = append(validationErrors, map[string]string{"field": "label", "message": "Label must be a string", "code": "invalid_type"})
+		}
+	}
+
+	if v, exists := body["notes"]; exists {
+		if v == nil {
+			patch["notes"] = nil
+		} else if s, ok := v.(string); ok {
+			if len(s) > 2000 {
+				validationErrors = append(validationErrors, map[string]string{"field": "notes", "message": "Notes must be at most 2000 characters", "code": "max_length"})
+			} else {
+				patch["notes"] = s
+			}
+		} else {
+			validationErrors = append(validationErrors, map[string]string{"field": "notes", "message": "Notes must be a string", "code": "invalid_type"})
+		}
+	}
+
+	if v, exists := body["custom_attributes"]; exists {
+		if v == nil {
+			patch["custom_attributes"] = nil
+		} else if m, ok := v.(map[string]interface{}); ok {
+			if len(m) > 50 {
+				validationErrors = append(validationErrors, map[string]string{"field": "custom_attributes", "message": "Custom attributes must have at most 50 keys", "code": "max_keys"})
+			} else {
+				patch["custom_attributes"] = m
+			}
+		} else {
+			validationErrors = append(validationErrors, map[string]string{"field": "custom_attributes", "message": "Custom attributes must be a JSON object", "code": "invalid_type"})
+		}
+	}
+
+	if len(validationErrors) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
+		return
+	}
+
+	if len(patch) == 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "No valid fields to update")
+		return
+	}
+
+	existing, err := h.simStore.GetByID(r.Context(), tenantID, simID)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for patch")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if existing.State == "terminated" || existing.State == "purged" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidStateTransition,
+			fmt.Sprintf("Cannot update SIM in '%s' state", existing.State))
+		return
+	}
+
+	userID := userIDFromCtx(r)
+
+	sim, err := h.simStore.PatchMetadata(r.Context(), tenantID, simID, patch)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		if errors.Is(err, store.ErrSIMStateBlocked) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidStateTransition,
+				fmt.Sprintf("Cannot update SIM in '%s' state", existing.State))
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("patch sim metadata")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "sim.patch_metadata", simID.String(), existing, sim, userID)
+
+	resp := toSIMResponse(sim)
+	h.enrichSIMResponse(r.Context(), tenantID, sim, &resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}, userID *uuid.UUID) {
 	if h.auditSvc == nil {
 		return
@@ -950,4 +1188,101 @@ func userIDFromCtx(r *http.Request) *uuid.UUID {
 		return nil
 	}
 	return &uid
+}
+
+type usageResponse struct {
+	SimID         string            `json:"sim_id"`
+	Period        string            `json:"period"`
+	TotalBytesIn  int64             `json:"total_bytes_in"`
+	TotalBytesOut int64             `json:"total_bytes_out"`
+	TotalCost     float64           `json:"total_cost"`
+	Series        []usageBucketResp `json:"series"`
+	TopSessions   []topSessionResp  `json:"top_sessions"`
+}
+
+type usageBucketResp struct {
+	Bucket   string  `json:"bucket"`
+	BytesIn  int64   `json:"bytes_in"`
+	BytesOut int64   `json:"bytes_out"`
+	Cost     float64 `json:"cost"`
+}
+
+type topSessionResp struct {
+	SessionID   string `json:"session_id"`
+	StartedAt   string `json:"started_at"`
+	BytesTotal  int64  `json:"bytes_total"`
+	DurationSec int    `json:"duration_sec"`
+}
+
+func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	simID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid SIM ID format")
+		return
+	}
+
+	if h.cdrStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Usage data unavailable")
+		return
+	}
+
+	if _, err := h.simStore.GetByID(r.Context(), tenantID, simID); err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for usage")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	validPeriods := map[string]bool{"24h": true, "7d": true, "30d": true}
+	if !validPeriods[period] {
+		period = "30d"
+	}
+
+	result, err := h.cdrStore.GetSIMUsage(r.Context(), tenantID, simID, period)
+	if err != nil {
+		h.logger.Error().Err(err).Str("sim_id", idStr).Str("period", period).Msg("get sim usage")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	series := make([]usageBucketResp, 0, len(result.Series))
+	for _, b := range result.Series {
+		series = append(series, usageBucketResp{
+			Bucket:   b.Bucket.Format(time.RFC3339),
+			BytesIn:  b.BytesIn,
+			BytesOut: b.BytesOut,
+			Cost:     b.Cost,
+		})
+	}
+
+	topSessions := make([]topSessionResp, 0, len(result.TopSessions))
+	for _, t := range result.TopSessions {
+		topSessions = append(topSessions, topSessionResp{
+			SessionID:   t.SessionID.String(),
+			StartedAt:   t.StartedAt.Format(time.RFC3339),
+			BytesTotal:  t.BytesTotal,
+			DurationSec: t.DurationSec,
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, usageResponse{
+		SimID:         result.SimID.String(),
+		Period:        result.Period,
+		TotalBytesIn:  result.TotalBytesIn,
+		TotalBytesOut: result.TotalBytesOut,
+		TotalCost:     result.TotalCost,
+		Series:        series,
+		TopSessions:   topSessions,
+	})
 }

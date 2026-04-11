@@ -175,7 +175,7 @@ func TestLogin_ValidCredentials(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	result, lockInfo, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	result, lockInfo, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestLogin_InvalidPassword(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	_, _, err := svc.Login(context.Background(), "test@example.com", "wrongpassword", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "test@example.com", "wrongpassword", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Expected ErrInvalidCredentials, got: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestLogin_InvalidPassword(t *testing.T) {
 func TestLogin_InvalidEmail(t *testing.T) {
 	svc, _, _, _ := newTestService()
 
-	_, _, err := svc.Login(context.Background(), "nonexistent@example.com", "password", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "nonexistent@example.com", "password", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Expected ErrInvalidCredentials, got: %v", err)
 	}
@@ -242,13 +242,13 @@ func TestLogin_AccountLockout(t *testing.T) {
 	users.addUser(user)
 
 	for i := 0; i < 4; i++ {
-		_, _, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent")
+		_, _, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent", false)
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Fatalf("Attempt %d: Expected ErrInvalidCredentials, got: %v", i+1, err)
 		}
 	}
 
-	_, lockInfo, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent")
+	_, lockInfo, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountLocked) {
 		t.Fatalf("Expected ErrAccountLocked on 5th attempt, got: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestLogin_AccountLockout(t *testing.T) {
 		t.Errorf("Expected 5 failed attempts, got %d", lockInfo.FailedAttempts)
 	}
 
-	_, lockInfo2, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	_, lockInfo2, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountLocked) {
 		t.Fatalf("Expected ErrAccountLocked even with correct password, got: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestLogin_With2FA(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", true)
 	users.addUser(user)
 
-	result, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	result, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestLogin_DisabledAccount(t *testing.T) {
 	user.State = "disabled"
 	users.addUser(user)
 
-	_, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountDisabled) {
 		t.Fatalf("Expected ErrAccountDisabled, got: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestRefresh_Valid(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestRefresh_RevokedToken(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestLogout(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}

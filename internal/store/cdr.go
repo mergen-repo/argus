@@ -63,6 +63,30 @@ type ListCDRParams struct {
 	MinCost    *float64
 }
 
+type UsageBucket struct {
+	Bucket  time.Time `json:"bucket"`
+	BytesIn int64     `json:"bytes_in"`
+	BytesOut int64    `json:"bytes_out"`
+	Cost    float64   `json:"cost"`
+}
+
+type TopSession struct {
+	SessionID  uuid.UUID `json:"session_id"`
+	StartedAt  time.Time `json:"started_at"`
+	BytesTotal int64     `json:"bytes_total"`
+	DurationSec int     `json:"duration_sec"`
+}
+
+type SIMUsageResult struct {
+	SimID         uuid.UUID      `json:"sim_id"`
+	Period        string         `json:"period"`
+	TotalBytesIn  int64          `json:"total_bytes_in"`
+	TotalBytesOut int64          `json:"total_bytes_out"`
+	TotalCost     float64        `json:"total_cost"`
+	Series        []UsageBucket  `json:"series"`
+	TopSessions   []TopSession   `json:"top_sessions"`
+}
+
 type CostAggRow struct {
 	OperatorID       uuid.UUID `json:"operator_id"`
 	Bucket           time.Time `json:"bucket"`
@@ -331,4 +355,165 @@ func (s *CDRStore) GetCumulativeSessionBytes(ctx context.Context, sessionID uuid
 		return 0, fmt.Errorf("store: get cumulative session bytes: %w", err)
 	}
 	return total, nil
+}
+
+func (s *CDRStore) GetSIMUsage(ctx context.Context, tenantID, simID uuid.UUID, period string) (*SIMUsageResult, error) {
+	var truncFunc string
+	var since time.Time
+	now := time.Now().UTC()
+
+	switch period {
+	case "24h":
+		truncFunc = "hour"
+		since = now.Add(-24 * time.Hour)
+	case "7d":
+		truncFunc = "day"
+		since = now.AddDate(0, 0, -7)
+	default:
+		period = "30d"
+		truncFunc = "day"
+		since = now.AddDate(0, 0, -30)
+	}
+
+	seriesQuery := fmt.Sprintf(`
+		SELECT date_trunc('%s', timestamp) AS bucket,
+			COALESCE(SUM(bytes_in), 0),
+			COALESCE(SUM(bytes_out), 0),
+			COALESCE(SUM(usage_cost), 0)
+		FROM cdrs
+		WHERE sim_id = $1 AND tenant_id = $2 AND timestamp >= $3
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, truncFunc)
+
+	rows, err := s.db.Query(ctx, seriesQuery, simID, tenantID, since)
+	if err != nil {
+		return nil, fmt.Errorf("store: get sim usage series: %w", err)
+	}
+	defer rows.Close()
+
+	var totalIn, totalOut int64
+	var totalCost float64
+	var series []UsageBucket
+
+	for rows.Next() {
+		var b UsageBucket
+		if err := rows.Scan(&b.Bucket, &b.BytesIn, &b.BytesOut, &b.Cost); err != nil {
+			return nil, fmt.Errorf("store: scan sim usage bucket: %w", err)
+		}
+		totalIn += b.BytesIn
+		totalOut += b.BytesOut
+		totalCost += b.Cost
+		series = append(series, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: sim usage series rows: %w", err)
+	}
+
+	topQuery := `
+		SELECT session_id,
+			MIN(timestamp) AS started_at,
+			COALESCE(SUM(bytes_in + bytes_out), 0) AS bytes_total,
+			COALESCE(MAX(duration_sec), 0) AS duration_sec
+		FROM cdrs
+		WHERE sim_id = $1 AND tenant_id = $2 AND timestamp >= $3
+		GROUP BY session_id
+		ORDER BY bytes_total DESC
+		LIMIT 5
+	`
+
+	topRows, err := s.db.Query(ctx, topQuery, simID, tenantID, since)
+	if err != nil {
+		return nil, fmt.Errorf("store: get sim top sessions: %w", err)
+	}
+	defer topRows.Close()
+
+	var topSessions []TopSession
+	for topRows.Next() {
+		var t TopSession
+		if err := topRows.Scan(&t.SessionID, &t.StartedAt, &t.BytesTotal, &t.DurationSec); err != nil {
+			return nil, fmt.Errorf("store: scan top session: %w", err)
+		}
+		topSessions = append(topSessions, t)
+	}
+	if err := topRows.Err(); err != nil {
+		return nil, fmt.Errorf("store: top sessions rows: %w", err)
+	}
+
+	if series == nil {
+		series = []UsageBucket{}
+	}
+	if topSessions == nil {
+		topSessions = []TopSession{}
+	}
+
+	return &SIMUsageResult{
+		SimID:         simID,
+		Period:        period,
+		TotalBytesIn:  totalIn,
+		TotalBytesOut: totalOut,
+		TotalCost:     totalCost,
+		Series:        series,
+		TopSessions:   topSessions,
+	}, nil
+}
+
+func (s *CDRStore) GetMonthlyCostForTenant(ctx context.Context, tenantID uuid.UUID) (float64, error) {
+	var total float64
+	err := s.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(total_usage_cost), 0)
+		FROM cdrs_monthly
+		WHERE tenant_id = $1
+		  AND bucket >= date_trunc('month', NOW())
+	`, tenantID).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("store: get monthly cost: %w", err)
+	}
+	return total, nil
+}
+
+func (s *CDRStore) GetDailyKPISparklines(ctx context.Context, tenantID uuid.UUID, days int) (map[string][]float64, error) {
+	if days <= 0 {
+		days = 7
+	}
+
+	costRows, err := s.db.Query(ctx, `
+		SELECT bucket, COALESCE(SUM(total_cost), 0), COALESCE(SUM(active_sims), 0)
+		FROM cdrs_daily
+		WHERE tenant_id = $1
+		  AND bucket >= NOW() - ($2::int * INTERVAL '1 day')
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, tenantID, days)
+	if err != nil {
+		return nil, fmt.Errorf("store: get daily kpi sparklines (cdrs_daily): %w", err)
+	}
+	defer costRows.Close()
+
+	type dailyRow struct {
+		bucket     time.Time
+		cost       float64
+		activeSims float64
+	}
+	var daily []dailyRow
+	for costRows.Next() {
+		var r dailyRow
+		if err := costRows.Scan(&r.bucket, &r.cost, &r.activeSims); err != nil {
+			return nil, fmt.Errorf("store: scan daily sparkline row: %w", err)
+		}
+		daily = append(daily, r)
+	}
+
+	costSeries := make([]float64, len(daily))
+	simSeries := make([]float64, len(daily))
+	for i, r := range daily {
+		costSeries[i] = r.cost
+		simSeries[i] = r.activeSims
+	}
+
+	result := map[string][]float64{
+		"monthly_cost": costSeries,
+		"total_sims":   simSeries,
+	}
+	return result, nil
 }

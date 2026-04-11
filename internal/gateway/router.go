@@ -214,6 +214,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/apns", deps.APNHandler.List)
 			r.Get("/api/v1/apns/{id}", deps.APNHandler.Get)
+			r.Get("/api/v1/apns/{id}/sims", deps.APNHandler.ListSIMs)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -267,7 +268,9 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Get("/api/v1/sims", deps.SIMHandler.List)
 			r.Post("/api/v1/sims", deps.SIMHandler.Create)
 			r.Get("/api/v1/sims/{id}", deps.SIMHandler.Get)
+			r.Patch("/api/v1/sims/{id}", deps.SIMHandler.Patch)
 			r.Get("/api/v1/sims/{id}/history", deps.SIMHandler.GetHistory)
+			r.Get("/api/v1/sims/{id}/sessions", deps.SIMHandler.GetSessions)
 			r.Post("/api/v1/sims/{id}/activate", deps.SIMHandler.Activate)
 			r.Post("/api/v1/sims/{id}/suspend", deps.SIMHandler.Suspend)
 			r.Post("/api/v1/sims/{id}/resume", deps.SIMHandler.Resume)
@@ -278,6 +281,12 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Use(JWTAuth(deps.JWTSecret))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/sims/{id}/usage", deps.SIMHandler.GetUsage)
 		})
 	}
 

@@ -20,6 +20,7 @@ type Handler struct {
 	operatorStore *store.OperatorStore
 	anomalyStore  *store.AnomalyStore
 	apnStore      *store.APNStore
+	cdrStore      *store.CDRStore
 	redisClient   *redis.Client
 	logger        zerolog.Logger
 }
@@ -29,6 +30,12 @@ type HandlerOption func(*Handler)
 func WithRedisClient(rc *redis.Client) HandlerOption {
 	return func(h *Handler) {
 		h.redisClient = rc
+	}
+}
+
+func WithCDRStore(cs *store.CDRStore) HandlerOption {
+	return func(h *Handler) {
+		h.cdrStore = cs
 	}
 }
 
@@ -83,14 +90,16 @@ type alertDTO struct {
 }
 
 type dashboardDTO struct {
-	TotalSIMs      int               `json:"total_sims"`
-	ActiveSessions int64             `json:"active_sessions"`
-	AuthPerSec     float64           `json:"auth_per_sec"`
-	MonthlyCost    float64           `json:"monthly_cost"`
-	SIMByState     []simByStateDTO   `json:"sim_by_state"`
-	OperatorHealth []operatorHealthDTO `json:"operator_health"`
-	TopAPNs        []topAPNDTO       `json:"top_apns"`
-	RecentAlerts   []alertDTO        `json:"recent_alerts"`
+	TotalSIMs      int                 `json:"total_sims"`
+	ActiveSessions int64               `json:"active_sessions"`
+	AuthPerSec     float64             `json:"auth_per_sec"`
+	MonthlyCost    float64             `json:"monthly_cost"`
+	SIMByState     []simByStateDTO     `json:"sim_by_state"`
+	OperatorHealth []operatorHealthDTO  `json:"operator_health"`
+	TopAPNs        []topAPNDTO         `json:"top_apns"`
+	RecentAlerts   []alertDTO          `json:"recent_alerts"`
+	Sparklines     map[string][]float64 `json:"sparklines"`
+	Deltas         map[string]float64   `json:"deltas"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +125,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	wg.Add(4)
+	wg.Add(5)
 
 	go func() {
 		defer wg.Done()
@@ -225,6 +234,48 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		mu.Unlock()
 	}()
 
+	go func() {
+		defer wg.Done()
+		if h.cdrStore == nil {
+			return
+		}
+		cost, err := h.cdrStore.GetMonthlyCostForTenant(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get monthly cost")
+		}
+		sparklines, err := h.cdrStore.GetDailyKPISparklines(ctx, tenantID, 7)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get daily kpi sparklines")
+			sparklines = map[string][]float64{}
+		}
+
+		var totalSimsDelta, activeSessionsDelta, monthlyCostDelta float64
+		if costSeries, ok := sparklines["monthly_cost"]; ok && len(costSeries) >= 2 {
+			today := costSeries[len(costSeries)-1]
+			yesterday := costSeries[len(costSeries)-2]
+			if yesterday != 0 {
+				monthlyCostDelta = (today - yesterday) / yesterday * 100
+			}
+		}
+		if simSeries, ok := sparklines["total_sims"]; ok && len(simSeries) >= 2 {
+			today := simSeries[len(simSeries)-1]
+			yesterday := simSeries[len(simSeries)-2]
+			if yesterday != 0 {
+				totalSimsDelta = (today - yesterday) / yesterday * 100
+			}
+		}
+
+		mu.Lock()
+		resp.MonthlyCost = cost
+		resp.Sparklines = sparklines
+		resp.Deltas = map[string]float64{
+			"total_sims_delta":       totalSimsDelta,
+			"active_sessions_delta":  activeSessionsDelta,
+			"monthly_cost_delta":     monthlyCostDelta,
+		}
+		mu.Unlock()
+	}()
+
 	wg.Wait()
 
 	if resp.SIMByState == nil {
@@ -238,6 +289,12 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.RecentAlerts == nil {
 		resp.RecentAlerts = []alertDTO{}
+	}
+	if resp.Sparklines == nil {
+		resp.Sparklines = map[string][]float64{}
+	}
+	if resp.Deltas == nil {
+		resp.Deltas = map[string]float64{}
 	}
 
 	if h.redisClient != nil {

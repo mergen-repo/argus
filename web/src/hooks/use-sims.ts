@@ -8,6 +8,7 @@ import type {
   SegmentCount,
   DiagnosticResult,
   SIMListFilters,
+  SIMUsageData,
   ListResponse,
   ApiResponse,
 } from '@/types/sim'
@@ -77,16 +78,16 @@ export function useSIMHistory(simId: string) {
   })
 }
 
-export function useSIMSessions(simId: string) {
+export function useSIMSessions(simId: string, state?: string) {
   return useInfiniteQuery({
-    queryKey: [...SIMS_KEY, 'sessions', simId],
+    queryKey: [...SIMS_KEY, 'sessions', simId, state],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '50')
-      params.set('sim_id', simId)
+      if (state) params.set('state', state)
       const res = await api.get<ListResponse<SIMSession>>(
-        `/sessions?${params.toString()}`,
+        `/sims/${simId}/sessions?${params.toString()}`,
       )
       return res.data
     },
@@ -97,11 +98,15 @@ export function useSIMSessions(simId: string) {
   })
 }
 
-export function useSIMUsage(simId: string) {
+export function useSIMUsage(simId: string, period: string = '30d') {
   return useQuery({
-    queryKey: [...SIMS_KEY, 'usage', simId],
+    queryKey: [...SIMS_KEY, 'usage', simId, period],
     queryFn: async () => {
-      const res = await api.get<ApiResponse<unknown>>(`/sims/${simId}/usage`)
+      const params = new URLSearchParams()
+      params.set('period', period)
+      const res = await api.get<ApiResponse<SIMUsageData>>(
+        `/sims/${simId}/usage?${params.toString()}`,
+      )
       return res.data.data
     },
     enabled: !!simId,

@@ -49,22 +49,9 @@ export function useDashboard() {
         const keys = ['total_sims', 'active_sessions', 'auth_per_sec', 'monthly_cost', 'error_rate', 'ip_pool_usage', 'session_start_rate', 'sim_velocity']
         keys.forEach(k => {
           if (!d.sparklines[k]) {
-            d.sparklines[k] = Array.from({ length: 24 }, () => 40 + Math.random() * 60)
+            d.sparklines[k] = []
           }
         })
-      }
-      if (d.traffic_heatmap.length === 0) {
-        for (let day = 0; day < 7; day++) {
-          for (let hour = 0; hour < 24; hour++) {
-            const base = hour >= 6 && hour <= 22 ? 60 : 20
-            const dayFactor = day < 5 ? 1.2 : 0.7
-            d.traffic_heatmap.push({
-              day,
-              hour,
-              value: Math.round((base + Math.random() * 40) * dayFactor),
-            })
-          }
-        }
       }
       return d
     },

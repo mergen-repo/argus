@@ -35,8 +35,9 @@ func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCoo
 }
 
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 type loginResponse struct {
@@ -77,7 +78,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
-	result, lockInfo, err := h.svc.Login(r.Context(), req.Email, req.Password, ipAddr, userAgent)
+	result, lockInfo, err := h.svc.Login(r.Context(), req.Email, req.Password, ipAddr, userAgent, req.RememberMe)
 	if err != nil {
 		switch {
 		case errors.Is(err, authpkg.ErrAccountLocked):

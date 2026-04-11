@@ -32,10 +32,11 @@ type Config struct {
 	NATSMaxReconnect int           `envconfig:"NATS_MAX_RECONNECT" default:"60"`
 	NATSReconnectWait time.Duration `envconfig:"NATS_RECONNECT_WAIT" default:"2s"`
 
-	JWTSecret        string        `envconfig:"JWT_SECRET" required:"true"`
-	JWTExpiry        time.Duration `envconfig:"JWT_EXPIRY" default:"15m"`
-	JWTRefreshExpiry time.Duration `envconfig:"JWT_REFRESH_EXPIRY" default:"168h"`
-	JWTIssuer        string        `envconfig:"JWT_ISSUER" default:"argus"`
+	JWTSecret              string        `envconfig:"JWT_SECRET" required:"true"`
+	JWTExpiry              time.Duration `envconfig:"JWT_EXPIRY" default:"15m"`
+	JWTRefreshExpiry       time.Duration `envconfig:"JWT_REFRESH_EXPIRY" default:"168h"`
+	JWTRememberMeExpiry    time.Duration `envconfig:"AUTH_JWT_REMEMBER_ME_TTL" default:"168h"`
+	JWTIssuer              string        `envconfig:"JWT_ISSUER" default:"argus"`
 	BcryptCost       int           `envconfig:"BCRYPT_COST" default:"12"`
 	LoginMaxAttempts int           `envconfig:"LOGIN_MAX_ATTEMPTS" default:"5"`
 	LoginLockoutDur  time.Duration `envconfig:"LOGIN_LOCKOUT_DURATION" default:"15m"`

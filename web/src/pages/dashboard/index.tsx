@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Sparkline } from '@/components/ui/sparkline'
 import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics } from '@/hooks/use-dashboard'
@@ -268,28 +269,27 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
             No operators configured
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pr-3">Operator</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth/s</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-center">SLA</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table className="text-left">
+              <TableHeader>
+                <TableRow className="border-b border-border">
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pr-3">Operator</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth/s</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-center">SLA</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.map((op) => {
                   const sla = slaStatus(op.health_pct, op.sla_target || 99.5)
                   return (
-                    <tr
+                    <TableRow
                       key={op.id}
                       className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-bg-hover transition-colors group"
                       onClick={() => navigate(`/operators/${op.id}`)}
                     >
-                      <td className="py-2.5 pr-3">
+                      <TableCell className="py-2.5 pr-3">
                         <div className="flex items-center gap-2">
                           <span className="text-[13px] text-text-primary font-medium group-hover:text-accent transition-colors">
                             {op.name}
@@ -298,8 +298,8 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                             <span className="text-[10px] font-mono text-text-tertiary">{op.code}</span>
                           )}
                         </div>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
+                      </TableCell>
+                      <TableCell className="py-2.5 px-3 text-center">
                         <span className="inline-flex items-center gap-1.5">
                           <span
                             className="h-2 w-2 rounded-full pulse-dot"
@@ -310,33 +310,32 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                           />
                           <span className="text-[11px] text-text-secondary capitalize">{op.status}</span>
                         </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
+                      </TableCell>
+                      <TableCell className="py-2.5 px-3 text-right">
                         <span className="font-mono text-[12px] text-text-primary">
                           {formatNumber(Math.round(op.auth_rate || 0))}
                         </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
+                      </TableCell>
+                      <TableCell className="py-2.5 px-3 text-right">
                         <span className={cn('font-mono text-[12px]', uptimeColor(op.health_pct))}>
                           {op.health_pct.toFixed(2)}%
                         </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
+                      </TableCell>
+                      <TableCell className="py-2.5 px-3 text-right">
                         <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
                           {(op.latency_ms || 0).toFixed(0)}ms
                         </span>
-                      </td>
-                      <td className="py-2.5 pl-3 text-center">
+                      </TableCell>
+                      <TableCell className="py-2.5 pl-3 text-center">
                         <span className="inline-flex items-center gap-1" title={sla.label}>
                           {sla.icon}
                         </span>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
@@ -939,7 +938,6 @@ export default function DashboardPage() {
     ip_pool_usage_delta: 0,
   }
   const sp = data.sparklines || {}
-  const fallbackSparkline = Array.from({ length: 24 }, () => 40 + Math.random() * 60)
 
   const errorRateColor =
     m.error_rate > 1 ? 'var(--color-danger)' :
@@ -965,7 +963,7 @@ export default function DashboardPage() {
           title="Total SIMs"
           value={m.total_sims}
           formatter={formatNumber}
-          sparklineData={sp.total_sims || fallbackSparkline}
+          sparklineData={sp.total_sims || []}
           color="var(--color-accent)"
           delta={d.total_sims_delta}
           onClick={() => navigate('/sims')}
@@ -975,7 +973,7 @@ export default function DashboardPage() {
           title="Active Sessions"
           value={m.active_sessions}
           formatter={formatNumber}
-          sparklineData={sp.active_sessions || fallbackSparkline}
+          sparklineData={sp.active_sessions || []}
           color="var(--color-success)"
           delta={d.active_sessions_delta}
           onClick={() => navigate('/sessions')}
@@ -985,7 +983,7 @@ export default function DashboardPage() {
           title="Auth/s"
           value={Math.round(m.auth_per_sec)}
           formatter={formatNumber}
-          sparklineData={sp.auth_per_sec || fallbackSparkline}
+          sparklineData={sp.auth_per_sec || []}
           color="var(--color-purple)"
           delta={d.auth_per_sec_delta}
           live
@@ -996,7 +994,7 @@ export default function DashboardPage() {
           title="Session Start/s"
           value={Math.round(m.session_start_rate)}
           formatter={formatNumber}
-          sparklineData={sp.session_start_rate || fallbackSparkline}
+          sparklineData={sp.session_start_rate || []}
           color="var(--color-cyan)"
           delay={140}
         />
@@ -1004,7 +1002,7 @@ export default function DashboardPage() {
           title="Error Rate"
           value={m.error_rate}
           formatter={(n) => `${n.toFixed(2)}%`}
-          sparklineData={sp.error_rate || fallbackSparkline}
+          sparklineData={sp.error_rate || []}
           color={errorRateColor}
           delta={d.error_rate_delta}
           deltaFormat="absolute"
@@ -1015,7 +1013,7 @@ export default function DashboardPage() {
           title="Monthly Cost"
           value={m.monthly_cost}
           formatter={formatCurrency}
-          sparklineData={sp.monthly_cost || fallbackSparkline}
+          sparklineData={sp.monthly_cost || []}
           color="var(--color-warning)"
           delta={d.monthly_cost_delta}
           onClick={() => navigate('/analytics/cost')}
@@ -1025,7 +1023,7 @@ export default function DashboardPage() {
           title="IP Pool Usage"
           value={m.ip_pool_usage_pct}
           formatter={(n) => `${n.toFixed(1)}%`}
-          sparklineData={sp.ip_pool_usage || fallbackSparkline}
+          sparklineData={sp.ip_pool_usage || []}
           color={ipPoolColor}
           delta={d.ip_pool_usage_delta}
           deltaFormat="absolute"
@@ -1035,7 +1033,7 @@ export default function DashboardPage() {
           title="SIM Velocity"
           value={Math.round(m.sim_velocity_per_hour)}
           formatter={(n) => `+${formatNumber(n)}`}
-          sparklineData={sp.sim_velocity || fallbackSparkline}
+          sparklineData={sp.sim_velocity || []}
           color="var(--color-info)"
           suffix="/h"
           delay={260}

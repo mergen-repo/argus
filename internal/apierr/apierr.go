@@ -75,7 +75,7 @@ type ErrorDetail struct {
 }
 
 type ListMeta struct {
-	Total      int64  `json:"total"`
+	Total      int64  `json:"total,omitempty"`
 	Cursor     string `json:"cursor,omitempty"`
 	HasMore    bool   `json:"has_more"`
 	Limit      int    `json:"limit,omitempty"`

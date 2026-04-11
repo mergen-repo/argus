@@ -154,13 +154,14 @@ func main() {
 		&sessionStoreAdapter{sessionStore},
 		nil,
 		auth.Config{
-			JWTSecret:        cfg.JWTSecret,
-			JWTExpiry:        cfg.JWTExpiry,
-			JWTRefreshExpiry: cfg.JWTRefreshExpiry,
-			JWTIssuer:        cfg.JWTIssuer,
-			BcryptCost:       cfg.BcryptCost,
-			MaxLoginAttempts: cfg.LoginMaxAttempts,
-			LockoutDuration:  cfg.LoginLockoutDur,
+			JWTSecret:           cfg.JWTSecret,
+			JWTExpiry:           cfg.JWTExpiry,
+			JWTRefreshExpiry:    cfg.JWTRefreshExpiry,
+			JWTRememberMeExpiry: cfg.JWTRememberMeExpiry,
+			JWTIssuer:           cfg.JWTIssuer,
+			BcryptCost:          cfg.BcryptCost,
+			MaxLoginAttempts:    cfg.LoginMaxAttempts,
+			LockoutDuration:     cfg.LoginLockoutDur,
 		},
 	)
 
@@ -192,7 +193,7 @@ func main() {
 		operatorapi.WithSIMStore(simStore),
 		operatorapi.WithSessionStore(operatorMetricsSessionStore),
 	)
-	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger)
+	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger, apnapi.WithSIMStore(simStore))
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	esimStore := store.NewESimProfileStore(pg.Pool)
 	smdpAdapter := esimpkg.NewMockSMDPAdapter(log.Logger)
@@ -206,7 +207,9 @@ func main() {
 
 	policyStore := store.NewPolicyStore(pg.Pool)
 	nameCache := cache.NewNameCache(rdb.Client)
-	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache))
+	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	cdrStore := store.NewCDRStore(pg.Pool)
+	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore))
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
@@ -221,7 +224,6 @@ func main() {
 	diagService := diagnosticspkg.NewService(simStore, diagSessionStore, operatorStore, apnStore, policyStore, ippoolStore, log.Logger)
 	diagHandler := diagapi.NewHandler(diagService, rdb.Client, log.Logger)
 
-	cdrStore := store.NewCDRStore(pg.Pool)
 	analyticsPool := pg.Pool
 	if pgReadReplica != nil {
 		analyticsPool = pgReadReplica.Pool
@@ -605,7 +607,7 @@ func main() {
 	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
-	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client))
+	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client), dashboardapi.WithCDRStore(cdrStore))
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {

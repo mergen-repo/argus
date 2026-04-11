@@ -46,21 +46,19 @@ export interface SIMHistoryEntry {
 export interface SIMSession {
   id: string
   sim_id: string
-  tenant_id: string
   operator_id: string
   apn_id?: string
-  imsi: string
-  msisdn?: string
-  acct_session_id: string
-  nas_ip: string
+  nas_ip?: string
   framed_ip?: string
   rat_type?: string
-  state: string
+  session_state: string
+  acct_session_id?: string
+  started_at: string
+  ended_at?: string
   bytes_in: number
   bytes_out: number
   duration_sec: number
-  ip_address?: string
-  started_at: string
+  protocol_type: string
 }
 
 export interface SIMSegment {
@@ -119,4 +117,28 @@ export interface ListResponse<T> {
 export interface ApiResponse<T> {
   status: string
   data: T
+}
+
+export interface SIMUsageSeriesBucket {
+  bucket: string
+  bytes_in: number
+  bytes_out: number
+  cost: number
+}
+
+export interface SIMUsageTopSession {
+  session_id: string
+  started_at: string
+  bytes_total: number
+  duration_sec: number
+}
+
+export interface SIMUsageData {
+  sim_id: string
+  period: string
+  total_bytes_in: number
+  total_bytes_out: number
+  total_cost: number
+  series: SIMUsageSeriesBucket[]
+  top_sessions: SIMUsageTopSession[]
 }

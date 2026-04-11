@@ -598,6 +598,42 @@ func (s *SIMStore) ReportLost(ctx context.Context, tenantID, simID uuid.UUID, us
 	return sim, nil
 }
 
+var ErrSIMStateBlocked = errors.New("store: sim state blocked for update")
+
+func (s *SIMStore) PatchMetadata(ctx context.Context, tenantID, simID uuid.UUID, patch map[string]interface{}) (*SIM, error) {
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("store: marshal patch metadata: %w", err)
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE sims SET metadata = metadata || $3, updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2 AND state NOT IN ('terminated', 'purged')
+		RETURNING `+simColumns,
+		simID, tenantID, patchJSON,
+	)
+
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		checkErr := s.db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM sims WHERE id = $1 AND tenant_id = $2)`,
+			simID, tenantID,
+		).Scan(&exists)
+		if checkErr != nil {
+			return nil, fmt.Errorf("store: check sim exists: %w", checkErr)
+		}
+		if !exists {
+			return nil, ErrSIMNotFound
+		}
+		return nil, ErrSIMStateBlocked
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: patch sim metadata: %w", err)
+	}
+	return sim, nil
+}
+
 func insertStateHistory(ctx context.Context, tx pgx.Tx, simID uuid.UUID, fromState *string, toState, triggeredBy string, userID *uuid.UUID, reason *string) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO sim_state_history (sim_id, from_state, to_state, reason, triggered_by, user_id)

@@ -590,8 +590,8 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 			g.granted_at, g.granted_by,
 			o.name, o.code, o.mcc, o.mnc, o.supported_rat_types, o.health_status, o.state
 		FROM operator_grants g
-		JOIN operators o ON o.id = g.operator_id
-		WHERE g.tenant_id = $1 AND g.enabled = true AND o.state = 'active'
+		LEFT JOIN operators o ON o.id = g.operator_id
+		WHERE g.tenant_id = $1 AND g.enabled = true AND (o.state = 'active' OR o.state IS NULL)
 		ORDER BY g.sor_priority ASC, g.cost_per_mb ASC NULLS LAST
 	`, tenantID)
 	if err != nil {
@@ -602,14 +602,37 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 	var results []GrantWithOperator
 	for rows.Next() {
 		var gw GrantWithOperator
+		var opName, opCode, opMCC, opMNC, opHealth, opState *string
+		var opRATTypes []string
 		if err := rows.Scan(
 			&gw.ID, &gw.TenantID, &gw.OperatorID, &gw.Enabled,
 			&gw.SoRPriority, &gw.CostPerMB, &gw.Region,
 			&gw.GrantedAt, &gw.GrantedBy,
-			&gw.OperatorName, &gw.OperatorCode, &gw.MCC, &gw.MNC,
-			&gw.SupportedRATTypes, &gw.HealthStatus, &gw.OperatorState,
+			&opName, &opCode, &opMCC, &opMNC,
+			&opRATTypes, &opHealth, &opState,
 		); err != nil {
 			return nil, fmt.Errorf("store: scan grant with operator: %w", err)
+		}
+		if opName != nil {
+			gw.OperatorName = *opName
+		}
+		if opCode != nil {
+			gw.OperatorCode = *opCode
+		}
+		if opMCC != nil {
+			gw.MCC = *opMCC
+		}
+		if opMNC != nil {
+			gw.MNC = *opMNC
+		}
+		if opRATTypes != nil {
+			gw.SupportedRATTypes = opRATTypes
+		}
+		if opHealth != nil {
+			gw.HealthStatus = *opHealth
+		}
+		if opState != nil {
+			gw.OperatorState = *opState
 		}
 		results = append(results, gw)
 	}

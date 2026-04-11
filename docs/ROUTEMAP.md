@@ -1,6 +1,6 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-04-11
+> Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
 > Overall progress: 100% (Dev + E2E) — Phase 10: 0/22 stories
 
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 0/22
-> Current story: STORY-056
+> Stories completed: 1/22
+> Current story: STORY-057
 > Current step: Plan
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -156,8 +156,8 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-056 | Critical Runtime Fixes (+HTTP 8084, Docker reorg) | M-L | [~] IN PROGRESS | Commit | Phase 9 | — |
-| STORY-057 | Data Accuracy & Missing Endpoints | L | [ ] PENDING | — | STORY-056 | — |
+| STORY-056 | Critical Runtime Fixes (+HTTP 8084, Docker reorg) | M-L | [x] DONE | — | Phase 9 | 2026-04-11 |
+| STORY-057 | Data Accuracy & Missing Endpoints | L | [~] IN PROGRESS | Commit | STORY-056 | — |
 | STORY-058 | Frontend Consolidation & UX Completeness | L | [ ] PENDING | — | STORY-056, STORY-057 | — |
 
 ### Wave 2 — Stubs, DB, Security, Protocol, eSIM [parallel]
@@ -219,6 +219,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-11 | REVIEW | STORY-056 review completed. 4 cross-doc contradictions fixed in ARCHITECTURE.md: Nginx port diagram updated (:443/:80 → host:8084→:80), TLS termination removed from Tech Stack table (deferred), Docker Architecture table port corrected (443,80 → 8084→80), project structure updated (deploy/Dockerfile removed, infra/ directory added with Dockerfile.argus + nats-check.sh + .dockerignore). USERTEST entry present (16 scenarios). No new glossary terms. No new decisions needed. Tech debt D-001/D-002 correctly target STORY-077. Report: docs/stories/phase-10/STORY-056-review.md | ARCHITECTURE.md |
 | 2026-04-11 | PLAN | Phase 10 expanded from 15 to 22 stories after UX/ergonomics + cross-entity context + deep placeholder audits. 7 new stories: STORY-071 (roaming agreements), 072 (enterprise obs screens — 13 ACs, 10+ screens), 073 (admin/compliance screens — 13 ACs, 12 screens), 074 (code safety — goroutine recover, CORS/AppEnv hardening, error leak scrub), 075 (cross-entity context — 6 shared components + 5 new detail pages + 4 page enrichments), 076 (universal entity search + keyboard shortcuts + recent/favorites + row actions), 077 (saved views, undo, inline edit, export, empty states, impersonation, i18n, sticky tables, form validation, announcements). Total: ~280 ACs, 10-12 weeks. Decisions: DEV-138, DEV-139. | ROUTEMAP.md, docs/stories/phase-10/STORY-071..077, decisions.md |
 | 2026-04-11 | PLAN | Phase 10 expanded from 7 to 15 stories after comprehensive 6-agent gap scan (backend stubs/mocks, frontend mocks, API coverage, DB hardening, production ops, business/compliance). 8 new stories added: STORY-063 (backend completeness), 064 (DB hardening + partitions + RLS), 065 (observability + OTel + Prom client), 066 (reliability + backup/DR + shutdown), 067 (CI/CD + admin CLI + runbooks), 068 (enterprise auth + 13 missing audit logs), 069 (onboarding + reports + webhooks + GDPR), 070 (frontend real-data wiring). Total: ~220 ACs, 6-8 weeks. Decision: DEV-137. | ROUTEMAP.md, docs/stories/phase-10/STORY-063..070, decisions.md |
 | 2026-04-11 | OPS | Infrastructure tuning completed retroactively (Phase 1 skipped step). DevOps Agent Post-Setup mode tuned postgres (30+ params), redis (24 params), NATS (13 + JetStream limits), nginx (full rewrite), pgbouncer preserved. 5 services verified. Report: docs/reports/infra-tuning.md | infra/postgres, infra/redis, infra/nats, infra/nginx, deploy/docker-compose.yml |

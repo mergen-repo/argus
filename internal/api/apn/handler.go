@@ -15,6 +15,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type HandlerOption func(*Handler)
+
 var validAPNTypes = map[string]bool{
 	"private_managed":  true,
 	"operator_managed": true,
@@ -31,8 +33,13 @@ var validRATTypes = map[string]bool{
 type Handler struct {
 	apnStore      *store.APNStore
 	operatorStore *store.OperatorStore
+	simStore      *store.SIMStore
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
+}
+
+func WithSIMStore(s *store.SIMStore) HandlerOption {
+	return func(h *Handler) { h.simStore = s }
 }
 
 func NewHandler(
@@ -40,13 +47,18 @@ func NewHandler(
 	operatorStore *store.OperatorStore,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		apnStore:      apnStore,
 		operatorStore: operatorStore,
 		auditSvc:      auditSvc,
 		logger:        logger.With().Str("component", "apn_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 type apnResponse struct {
@@ -466,6 +478,98 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, bef
 	if auditErr != nil {
 		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
 	}
+}
+
+type simAPNResponse struct {
+	ID           string  `json:"id"`
+	ICCID        string  `json:"iccid"`
+	IMSI         string  `json:"imsi"`
+	MSISDN       *string `json:"msisdn,omitempty"`
+	State        string  `json:"state"`
+	RATType      *string `json:"rat_type,omitempty"`
+	OperatorName string  `json:"operator_name"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+func (h *Handler) ListSIMs(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	apnID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid APN ID format")
+		return
+	}
+
+	if _, err := h.apnStore.GetByID(r.Context(), tenantID, apnID); err != nil {
+		if errors.Is(err, store.ErrAPNNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "APN not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("apn_id", idStr).Msg("get apn for list sims")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.simStore == nil {
+		apierr.WriteList(w, http.StatusOK, []simAPNResponse{}, apierr.ListMeta{HasMore: false, Limit: 50})
+		return
+	}
+
+	q := r.URL.Query()
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	params := store.ListSIMsParams{
+		Cursor: q.Get("cursor"),
+		Limit:  limit,
+		APNID:  &apnID,
+		State:  q.Get("state"),
+		Q:      q.Get("q"),
+	}
+
+	sims, nextCursor, err := h.simStore.List(r.Context(), tenantID, params)
+	if err != nil {
+		h.logger.Error().Err(err).Str("apn_id", idStr).Msg("list sims for apn")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	operatorNames := make(map[uuid.UUID]string)
+	items := make([]simAPNResponse, 0, len(sims))
+	for _, s := range sims {
+		name := operatorNames[s.OperatorID]
+		if name == "" && h.operatorStore != nil {
+			if op, err := h.operatorStore.GetByID(r.Context(), s.OperatorID); err == nil {
+				name = op.Name
+				operatorNames[s.OperatorID] = name
+			}
+		}
+		items = append(items, simAPNResponse{
+			ID:           s.ID.String(),
+			ICCID:        s.ICCID,
+			IMSI:         s.IMSI,
+			MSISDN:       s.MSISDN,
+			State:        s.State,
+			RATType:      s.RATType,
+			OperatorName: name,
+			CreatedAt:    s.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
+	})
 }
 
 func userIDFromContext(r *http.Request) *uuid.UUID {

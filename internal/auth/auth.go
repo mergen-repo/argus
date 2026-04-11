@@ -111,13 +111,14 @@ type LockInfo struct {
 }
 
 type Config struct {
-	JWTSecret        string
-	JWTExpiry        time.Duration
-	JWTRefreshExpiry time.Duration
-	JWTIssuer        string
-	BcryptCost       int
-	MaxLoginAttempts int
-	LockoutDuration  time.Duration
+	JWTSecret           string
+	JWTExpiry           time.Duration
+	JWTRefreshExpiry    time.Duration
+	JWTRememberMeExpiry time.Duration
+	JWTIssuer           string
+	BcryptCost          int
+	MaxLoginAttempts    int
+	LockoutDuration     time.Duration
 }
 
 type Service struct {
@@ -136,7 +137,7 @@ func NewService(users UserRepository, sessions SessionRepository, audit AuditLog
 	}
 }
 
-func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent string) (*LoginResult, *LockInfo, error) {
+func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent string, rememberMe bool) (*LoginResult, *LockInfo, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, nil, ErrInvalidCredentials
@@ -194,7 +195,7 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 		}, nil, nil
 	}
 
-	token, refreshToken, sessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent)
+	token, refreshToken, sessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent, rememberMe)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -246,7 +247,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ipAddr, userAgent s
 		return nil, ErrInvalidRefreshTkn
 	}
 
-	token, newRefresh, newSessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent)
+	token, newRefresh, newSessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent, false)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +326,7 @@ func (s *Service) Verify2FA(ctx context.Context, userID uuid.UUID, code, ipAddr,
 		}
 	}
 
-	token, refreshToken, sessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent)
+	token, refreshToken, sessionID, err := s.createFullSession(ctx, user, &ipAddr, &userAgent, false)
 	if err != nil {
 		return nil, err
 	}
@@ -340,8 +341,15 @@ func (s *Service) Verify2FA(ctx context.Context, userID uuid.UUID, code, ipAddr,
 	}, nil
 }
 
-func (s *Service) createFullSession(ctx context.Context, user *User, ipAddr, userAgent *string) (string, string, uuid.UUID, error) {
-	token, err := GenerateToken(s.cfg.JWTSecret, user.ID, user.TenantID, user.Role, s.cfg.JWTExpiry, false)
+func (s *Service) createFullSession(ctx context.Context, user *User, ipAddr, userAgent *string, rememberMe bool) (string, string, uuid.UUID, error) {
+	jwtExpiry := s.cfg.JWTExpiry
+	refreshExpiry := s.cfg.JWTRefreshExpiry
+	if rememberMe {
+		jwtExpiry = s.cfg.JWTRememberMeExpiry
+		refreshExpiry = s.cfg.JWTRememberMeExpiry
+	}
+
+	token, err := GenerateToken(s.cfg.JWTSecret, user.ID, user.TenantID, user.Role, jwtExpiry, false)
 	if err != nil {
 		return "", "", uuid.Nil, fmt.Errorf("auth: generate token: %w", err)
 	}
@@ -361,7 +369,7 @@ func (s *Service) createFullSession(ctx context.Context, user *User, ipAddr, use
 		RefreshTokenHash: string(hash),
 		IPAddress:        ipAddr,
 		UserAgent:        userAgent,
-		ExpiresAt:        time.Now().Add(s.cfg.JWTRefreshExpiry),
+		ExpiresAt:        time.Now().Add(refreshExpiry),
 	})
 	if err != nil {
 		return "", "", uuid.Nil, fmt.Errorf("auth: create session: %w", err)

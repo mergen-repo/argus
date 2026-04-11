@@ -56,11 +56,12 @@ import {
   useSIMSessions,
   useSIMDiagnostics,
   useSIMStateAction,
+  useSIMUsage,
 } from '@/hooks/use-sims'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
-import type { SIM, SIMState, DiagnosticResult } from '@/types/sim'
+import type { SIM, SIMState, DiagnosticResult, SIMUsageData } from '@/types/sim'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
@@ -120,12 +121,14 @@ function OverviewTab({ sim }: { sim: SIM }) {
             <div className="flex items-center gap-2">
               <span className={cn('text-sm text-text-primary', sim.ip_address && 'font-mono text-xs')}>{sim.ip_address || 'Not allocated'}</span>
               {!sim.ip_address && sim.apn_id && sim.state === 'active' && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setReserveOpen(true)}
-                  className="text-[10px] text-accent hover:underline"
+                  className="text-[10px] text-accent hover:underline h-auto py-0 px-1"
                 >
                   Reserve Static IP
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -267,14 +270,14 @@ function SessionsTab({ simId }: { simId: string }) {
           {allSessions.map((session) => (
             <TableRow key={session.id}>
               <TableCell>
-                <span className="font-mono text-xs text-text-secondary">{session.acct_session_id.slice(0, 12)}...</span>
+                <span className="font-mono text-xs text-text-secondary">{session.acct_session_id ? session.acct_session_id.slice(0, 12) + '...' : '-'}</span>
               </TableCell>
               <TableCell>
-                <Badge variant={session.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
-                  {session.state.toUpperCase()}
+                <Badge variant={session.session_state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
+                  {session.session_state.toUpperCase()}
                 </Badge>
               </TableCell>
-              <TableCell><span className="font-mono text-xs text-text-secondary">{session.nas_ip}</span></TableCell>
+              <TableCell><span className="font-mono text-xs text-text-secondary">{session.nas_ip || '-'}</span></TableCell>
               <TableCell><span className="font-mono text-xs text-text-secondary">{session.framed_ip || '-'}</span></TableCell>
               <TableCell>
                 {session.rat_type ? (
@@ -307,27 +310,19 @@ function SessionsTab({ simId }: { simId: string }) {
   )
 }
 
-const SIM_TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
-  '15m': { count: 15, labelFn: (i) => `${i}m` },
-  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
-  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
-  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
-  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
-  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
-}
-
 function UsageTab({ simId }: { simId: string }) {
   const [timeframe, setTimeframe] = useState('30d')
+  const { data: usageData, isLoading } = useSIMUsage(simId, timeframe)
+  const usage = usageData as SIMUsageData | undefined
 
-  const mockUsageData = useMemo(() => {
-    const cfg = SIM_TIMEFRAME_POINTS[timeframe] ?? SIM_TIMEFRAME_POINTS['30d']
-    const scale = timeframe === '15m' ? 0.05 : timeframe === '1h' ? 0.1 : timeframe === '6h' ? 0.3 : timeframe === '24h' ? 0.5 : timeframe === '7d' ? 2 : 1
-    return Array.from({ length: cfg.count }, (_, i) => ({
-      label: cfg.labelFn(i),
-      bytes_in: Math.floor(Math.random() * 100_000_000 * scale),
-      bytes_out: Math.floor(Math.random() * 50_000_000 * scale),
+  const chartData = useMemo(() => {
+    if (!usage?.series?.length) return []
+    return usage.series.map((b) => ({
+      label: b.bucket,
+      bytes_in: b.bytes_in,
+      bytes_out: b.bytes_out,
     }))
-  }, [timeframe])
+  }, [usage])
 
   return (
     <div className="space-y-4">
@@ -338,60 +333,70 @@ function UsageTab({ simId }: { simId: string }) {
       <Card>
         <CardContent className="pt-4">
           <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockUsageData}>
-                <defs>
-                  <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={Math.max(0, Math.floor(mockUsageData.length / 8) - 1)}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatBytes(v)}
-                  width={60}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value) => [formatBytes(Number(value))]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_in"
-                  stroke="var(--color-accent)"
-                  fill="url(#gradIn)"
-                  strokeWidth={2}
-                  name="Data In"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_out"
-                  stroke="var(--color-purple)"
-                  fill="url(#gradOut)"
-                  strokeWidth={2}
-                  name="Data Out"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-text-tertiary" />
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
+                No usage data for this period
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(chartData.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => formatBytes(v)}
+                    width={60}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-bg-elevated)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '12px',
+                    }}
+                    formatter={(value) => [formatBytes(Number(value))]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="bytes_in"
+                    stroke="var(--color-accent)"
+                    fill="url(#gradIn)"
+                    strokeWidth={2}
+                    name="Data In"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="bytes_out"
+                    stroke="var(--color-purple)"
+                    fill="url(#gradOut)"
+                    strokeWidth={2}
+                    name="Data Out"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -404,19 +409,19 @@ function UsageTab({ simId }: { simId: string }) {
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-accent">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_in, 0))}
+                {formatBytes(usage?.total_bytes_in ?? 0)}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
             </div>
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-purple">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_out, 0))}
+                {formatBytes(usage?.total_bytes_out ?? 0)}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
             </div>
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-text-primary">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}
+                {formatBytes((usage?.total_bytes_in ?? 0) + (usage?.total_bytes_out ?? 0))}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
             </div>

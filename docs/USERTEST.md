@@ -1043,3 +1043,47 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 | 14 | curl -I http://localhost:8084 | 200 doner, HTTPS redirect yok |
 | 15 | docker compose ps | NATS container calisiyor |
 | 16 | make build && make up | Basarili (Dockerfile yeni konumda) |
+
+---
+
+## STORY-057: Data Accuracy & Missing Endpoints
+
+**Ekran:** Dashboard (SCR-001)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 1 | Dashboard'a git, "Top 5 APNs" widget'ina bak | APN isimleri gorunur (UUID degil) |
+| 2 | "Operator Health" bolumune bak | Operator listesi gorunur (seed varsa 3 operator) |
+| 3 | "Monthly Cost" kartina bak | CDR varsa 0'dan buyuk deger, yoksa 0 |
+| 4 | KPI sparkline grafiklere bak | Gercek 7 gunluk trend (rastgele degil) |
+
+**Ekran:** SIM Detail �� Sessions Tab (SCR-041)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 5 | Bir SIM detayina git, Sessions tab'ina tikla | Session listesi /sims/:id/sessions endpoint'inden yuklenir |
+
+**Ekran:** SIM Detail — Usage Tab (SCR-042)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 6 | Usage tab'ina tikla, period sec (24h/7d/30d) | Gercek CDR verileriyle grafik cikar, Math.random yok |
+
+**Ekran:** APN Detail — Connected SIMs (SCR-060)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 7 | APN detayinda "Connected SIMs" tab'ina tikla | SIM listesi /apns/:id/sims endpoint'inden yuklenir |
+
+**Ekran:** SIM Edit
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 8 | SIM detayinda label/notes degistir | PATCH /sims/:id basarili, audit log olusur |
+| 9 | Terminated SIM'de edit dene | 422 hatasi, guncelleme engellenir |
+
+**Ekran:** Login (SCR-011)
+
+| # | Senaryo | Beklenen Sonuc |
+|---|---------|----------------|
+| 10 | "Beni hatirla" tikli login yap | JWT suresi 7 gun (normal: 15dk) |
