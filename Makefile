@@ -5,7 +5,7 @@ export
 
 .PHONY: help up down restart status logs build build-fresh deploy-dev deploy-prod \
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
-        test test-watch test-coverage lint lint-fix lint-sql \
+        test test-watch test-coverage typecheck lint lint-fix lint-sql \
         clean docker-clean dev start stop backup web-dev web-build \
         vuln-check web-audit
 
@@ -47,6 +47,7 @@ help:
 	@echo "  Kalite:"
 	@echo "    make test            Go testlerini calistir"
 	@echo "    make test-coverage   Test coverage raporu"
+	@echo "    make typecheck       Go + TypeScript tip kontrolu"
 	@echo "    make lint            Go lint kontrolu"
 	@echo "    make lint-fix        Go lint otomatik duzeltme"
 	@echo "    make vuln-check      Go vulnerability scan (govulncheck)"
@@ -185,6 +186,13 @@ test-coverage:
 	@go test ./... -coverprofile=coverage.out -race
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Rapor: coverage.html"
+
+typecheck:
+	@echo "Go tip kontrolu..."
+	@go build ./...
+	@echo "TypeScript tip kontrolu..."
+	@cd web && npm run typecheck 2>/dev/null || npx tsc --noEmit
+	@echo "Tip kontrolu tamamlandi."
 
 lint:
 	@golangci-lint run ./...

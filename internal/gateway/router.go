@@ -117,10 +117,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Use(InputSanitizer(deps.Logger))
 	}
 
-	if deps.MetricsReg != nil {
-		r.Handle("/metrics", deps.MetricsReg.Handler())
-	}
-
 	if deps.RedisClient != nil {
 		perMin := deps.RateLimitPerMinute
 		if perMin <= 0 {
@@ -135,6 +131,10 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		if deps.BruteForceCfg != nil {
 			r.Use(BruteForceProtection(deps.RedisClient, *deps.BruteForceCfg, deps.Logger))
 		}
+	}
+
+	if deps.MetricsReg != nil {
+		r.Handle("/metrics", deps.MetricsReg.Handler())
 	}
 
 	r.Get("/api/health", deps.Health.Check)
