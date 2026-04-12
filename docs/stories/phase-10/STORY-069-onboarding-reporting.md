@@ -6,6 +6,8 @@ As an enterprise customer and compliance officer, I want a real end-to-end onboa
 ## Description
 Audit surfaced multiple incomplete enterprise workflows: onboarding wizard E2E test exists but UI + backend orchestration is manual multi-step, scheduled reports are spec'd but not implemented (handleGenerate is a 2-second setTimeout), webhooks have no delivery tracking or HMAC verification, notification templates are English-only, GDPR data portability coverage is unclear, KVKK purge requires manual cron trigger, and IP grace-period release is not scheduled. Close all of them.
 
+> Updated by Compliance Auditor [2026-04-12]: added AC-12 from audit gap FEAT-055 / API-170 / API-171 (SMS Gateway outbound) — see docs/reports/compliance-audit-report.md.
+
 ## Architecture Reference
 - Services: SVC-03 (Core API), SVC-07 (Analytics — reports), SVC-08 (Notification), SVC-09 (Job Runner — scheduled reports), SVC-10 (Audit — compliance)
 - Packages: internal/api/onboarding, internal/api/reports, internal/notification, internal/api/compliance, internal/job, web/src/pages/onboarding, web/src/pages/reports, migrations
@@ -74,6 +76,14 @@ Audit surfaced multiple incomplete enterprise workflows: onboarding wizard E2E t
   - Finds `ip_addresses` where `released_at IS NULL AND grace_expires_at < NOW()` and sim state is terminated
   - Sets state=available, grace_expires_at=NULL, emits NATS `ip.released` event
   - Metric `argus_ip_grace_released_total` increments
+- [ ] AC-12: **[AUDIT-GAP] SMS Gateway outbound endpoints (F-055 partial coverage closure).**
+       - Source: docs/reports/compliance-audit-report.md (API-170, API-171, F-055)
+       - Added by: Compliance Auditor [2026-04-12]
+       - Implement `POST /api/v1/sms/send` (API-170): JWT (sim_manager+), request `{ sim_id, text, priority? }`, sends device-management SMS via configured SMS provider (reuse STORY-063 Twilio adapter), returns `{ message_id, queued_at }`. Enforces per-tenant rate limit (`RATE_LIMIT_SMS_PER_MINUTE` env var). Audit log entry emitted (`action=sms.sent`).
+       - Implement `GET /api/v1/sms/history` (API-171): JWT (sim_manager+), cursor-paginated, query filters `sim_id`, `from`, `to`, `status` (queued/sent/delivered/failed). Returns list of SMS records from `sms_outbound` table.
+       - New table `sms_outbound` (migration): `id`, `tenant_id`, `sim_id`, `msisdn`, `text_hash`, `status`, `provider_message_id`, `error_code`, `queued_at`, `sent_at`, `delivered_at`, indexed by `(tenant_id, sim_id, queued_at DESC)`.
+       - Delivery callback reuses existing `POST /api/v1/notifications/sms/status` webhook handler (API-185) but matches against both inbound-notification and outbound-gateway records by `provider_message_id`.
+       - Feature F-055 marked COVERED in PRODUCT → Story matrix after this AC lands.
 
 ## Dependencies
 - Blocked by: STORY-059 (PDF export base), STORY-063 (S3 uploader + SMS + InApp real), STORY-065 (job metrics)

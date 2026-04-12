@@ -197,6 +197,7 @@
 | STORY-076 | Universal Search, Navigation & Clipboard | L | [ ] PENDING | — | STORY-075 | — |
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [ ] PENDING | — | STORY-075, STORY-076 | — |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [ ] PENDING | — | STORY-056..077 | — |
+| STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [ ] PENDING | — | STORY-011, STORY-001 | — |
 
 Source: docs/stories/phase-10/STORY-056..077-*.md
 

@@ -6,6 +6,8 @@ As an ops engineer and architect, I want the remaining perf follow-ups applied a
 ## Description
 Final cleanup pass. Track F (perf follow-ups that perf-optimizer flagged but didn't apply) and Track G (all documentation drift noted across 55 story reviews). Low-risk, mostly small changes, but must land before Documentation Phase starts so spec work can trust the docs.
 
+> Updated by Compliance Auditor [2026-04-12]: added AC-12 from audit gap "Undocumented endpoints" (compliance-audit-report.md).
+
 ## Architecture Reference
 - Services: SVC-01 (API Gateway — dashboard endpoint), SVC-07 (Analytics — CDR export), SVC-10 (Audit)
 - Packages: internal/api/dashboard, internal/store/msisdn, internal/store/cdr, internal/store/session, internal/store/audit, all docs/*
@@ -44,6 +46,11 @@ Final cleanup pass. Track F (perf follow-ups that perf-optimizer flagged but did
   - api: Add API-061b, API-061c, API-062b supplementary endpoints; refresh API counts
   - USERTEST.md endpoint paths corrected (OTA paths, STORY-030 `/errors` vs `/error-report`)
 - [ ] AC-11: **Doc drift batch — `ROUTEMAP.md`:** Phase 4 header `[PENDING]` → `[DONE]` (stale). Phase 10 section added (this story). All per-story counters reconciled.
+- [ ] AC-12: **[AUDIT-GAP] Document 11 undocumented backend endpoints in `api/_index.md`** (Compliance Auditor 2026-04-12):
+       - Source: docs/reports/compliance-audit-report.md "Undocumented endpoints in code" table
+       - Add entries for: `GET /api/v1/ota-commands/{commandId}`, `POST /api/v1/sims/{id}/ota`, `POST /api/v1/sims/bulk/ota` (assign API-172/173/174 or appropriate STORY-029 IDs), `GET /api/v1/policy-versions/{id1}/diff/{id2}` (new API ID under Policies), `GET /api/v1/policy-violations`, `GET /api/v1/policy-violations/counts` (new API IDs under Policies/Analytics), `GET /api/v1/notifications/unread-count` (supplementary to API-130), `GET /api/v1/analytics/anomalies/{id}` (API-113b detail variant), `GET /api/v1/operator-grants/{id}` (API-026b), `GET /api/v1/policy-versions/{id}` (API-094b), `/api/v1/audit` alias — either document as alias of `/audit-logs` or remove from router.
+       - Refresh "Total: 114 REST endpoints" footer to actual total after additions.
+       - Cross-link to owner stories (STORY-025 for violations, STORY-023 for diff, STORY-029 for OTA, STORY-036 for anomaly detail, STORY-038 for unread-count).
 
 ## Dependencies
 - Blocked by: STORY-056..061 (code must stabilize before docs describe final state)
