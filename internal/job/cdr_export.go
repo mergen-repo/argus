@@ -16,23 +16,26 @@ import (
 )
 
 type CDRExportProcessor struct {
-	jobs     *store.JobStore
-	cdrStore *store.CDRStore
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs         *store.JobStore
+	cdrStore     *store.CDRStore
+	readCDRStore *store.CDRStore
+	eventBus     *bus.EventBus
+	logger       zerolog.Logger
 }
 
 func NewCDRExportProcessor(
 	jobs *store.JobStore,
 	cdrStore *store.CDRStore,
+	readCDRStore *store.CDRStore,
 	eventBus *bus.EventBus,
 	logger zerolog.Logger,
 ) *CDRExportProcessor {
 	return &CDRExportProcessor{
-		jobs:     jobs,
-		cdrStore: cdrStore,
-		eventBus: eventBus,
-		logger:   logger.With().Str("processor", JobTypeCDRExport).Logger(),
+		jobs:         jobs,
+		cdrStore:     cdrStore,
+		readCDRStore: readCDRStore,
+		eventBus:     eventBus,
+		logger:       logger.With().Str("processor", JobTypeCDRExport).Logger(),
 	}
 }
 
@@ -69,7 +72,7 @@ func (p *CDRExportProcessor) Process(ctx context.Context, job *store.Job) error 
 		}
 	}
 
-	count, err := p.cdrStore.CountForExport(ctx, job.TenantID, fromTime, toTime, operatorID)
+	count, err := p.readCDRStore.CountForExport(ctx, job.TenantID, fromTime, toTime, operatorID)
 	if err != nil {
 		return fmt.Errorf("count cdrs for export: %w", err)
 	}
@@ -89,7 +92,7 @@ func (p *CDRExportProcessor) Process(ctx context.Context, job *store.Job) error 
 	}
 
 	processed := 0
-	err = p.cdrStore.StreamForExport(ctx, job.TenantID, fromTime, toTime, operatorID, func(c store.CDR) error {
+	err = p.readCDRStore.StreamForExport(ctx, job.TenantID, fromTime, toTime, operatorID, func(c store.CDR) error {
 		row := []string{
 			fmt.Sprintf("%d", c.ID),
 			c.SessionID.String(),

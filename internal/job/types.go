@@ -18,6 +18,11 @@ const (
 	JobTypeDataRetention    = "data_retention"
 	JobTypeStorageMonitor   = "storage_monitor"
 	JobTypePartitionCreate  = "partition_create"
+	JobTypeBackupDaily      = "backup_daily"
+	JobTypeBackupWeekly     = "backup_weekly"
+	JobTypeBackupMonthly    = "backup_monthly"
+	JobTypeBackupVerify     = "backup_verify"
+	JobTypeBackupCleanup    = "backup_cleanup"
 )
 
 var AllJobTypes = []string{
@@ -38,4 +43,9 @@ var AllJobTypes = []string{
 	JobTypeDataRetention,
 	JobTypeStorageMonitor,
 	JobTypePartitionCreate,
+	JobTypeBackupDaily,
+	JobTypeBackupWeekly,
+	JobTypeBackupMonthly,
+	JobTypeBackupVerify,
+	JobTypeBackupCleanup,
 }

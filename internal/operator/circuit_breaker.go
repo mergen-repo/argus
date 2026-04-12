@@ -3,6 +3,8 @@ package operator
 import (
 	"sync"
 	"time"
+
+	"github.com/btopcu/argus/internal/config"
 )
 
 type CircuitState string
@@ -34,6 +36,12 @@ func NewCircuitBreaker(threshold, recoverySec int) *CircuitBreaker {
 		threshold:      threshold,
 		recoveryPeriod: time.Duration(recoverySec) * time.Second,
 	}
+}
+
+// NewCircuitBreakerFromConfig builds a breaker from reliability config fields.
+// Per-operator override is future work (tracked in STORY-066 decisions).
+func NewCircuitBreakerFromConfig(cfg *config.Config) *CircuitBreaker {
+	return NewCircuitBreaker(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerRecoverySec)
 }
 
 // SetTransitionHook registers a callback that fires on every state

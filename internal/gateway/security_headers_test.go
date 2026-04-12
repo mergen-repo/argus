@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 func TestSecurityHeadersDefault(t *testing.T) {
 	cfg := DefaultSecurityHeadersConfig()
+	cfg.HSTSOnlyWhenTLS = false
 	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -99,6 +101,7 @@ func TestSecurityHeadersDisabledHSTS(t *testing.T) {
 func TestSecurityHeadersHSTSPreload(t *testing.T) {
 	cfg := DefaultSecurityHeadersConfig()
 	cfg.HSTSPreload = true
+	cfg.HSTSOnlyWhenTLS = false
 
 	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -130,5 +133,75 @@ func TestPermissionsPolicy(t *testing.T) {
 	}
 	if !strings.Contains(pp, "geolocation=()") {
 		t.Errorf("Permissions-Policy should deny geolocation, got %q", pp)
+	}
+}
+
+func TestHSTSNotEmittedOverPlainHTTP(t *testing.T) {
+	cfg := DefaultSecurityHeadersConfig()
+	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTS must not be emitted over plain HTTP, got %q", got)
+	}
+}
+
+func TestHSTSEmittedOverDirectTLS(t *testing.T) {
+	cfg := DefaultSecurityHeadersConfig()
+	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.TLS = &tls.ConnectionState{}
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	hsts := rr.Header().Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Error("HSTS must be emitted over direct TLS")
+	}
+	if !strings.Contains(hsts, "max-age=31536000") {
+		t.Errorf("HSTS should contain max-age=31536000, got %q", hsts)
+	}
+}
+
+func TestHSTSEmittedViaForwardedProtoWhenTrusted(t *testing.T) {
+	cfg := DefaultSecurityHeadersConfig()
+	cfg.TrustForwardedProto = true
+	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	hsts := rr.Header().Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Error("HSTS must be emitted when X-Forwarded-Proto=https and TrustForwardedProto=true")
+	}
+}
+
+func TestHSTSNotEmittedViaForwardedProtoWhenNotTrusted(t *testing.T) {
+	cfg := DefaultSecurityHeadersConfig()
+	cfg.TrustForwardedProto = false
+	handler := SecurityHeaders(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTS must not be emitted via X-Forwarded-Proto when TrustForwardedProto=false, got %q", got)
 	}
 }

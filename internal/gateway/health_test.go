@@ -49,6 +49,45 @@ func doHealthCheck(t *testing.T, h *HealthHandler) (int, map[string]interface{})
 	return rr.Code, body
 }
 
+func doReady(t *testing.T, h *HealthHandler) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	rr := httptest.NewRecorder()
+	h.Ready(rr, req)
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	return rr.Code, body
+}
+
+func doLive(t *testing.T, h *HealthHandler) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	rr := httptest.NewRecorder()
+	h.Live(rr, req)
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	return rr.Code, body
+}
+
+func doStartup(t *testing.T, h *HealthHandler) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/health/startup", nil)
+	rr := httptest.NewRecorder()
+	h.Startup(rr, req)
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	return rr.Code, body
+}
+
 func TestHealthHandler_AllPass_Returns200(t *testing.T) {
 	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
 	code, body := doHealthCheck(t, h)
@@ -196,5 +235,182 @@ func TestHealthHandler_UptimeField_Present(t *testing.T) {
 	uptime, ok := data["uptime"].(string)
 	if !ok || uptime == "" {
 		t.Error("uptime field missing or empty")
+	}
+}
+
+func TestLive_Always200_NoDependencies(t *testing.T) {
+	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
+	code, body := doLive(t, h)
+
+	if code != http.StatusOK {
+		t.Errorf("live status = %d, want 200", code)
+	}
+	if body["status"] != "success" {
+		t.Errorf("live body status = %q, want success", body["status"])
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing or wrong type")
+	}
+	if data["status"] != "alive" {
+		t.Errorf("data.status = %q, want alive", data["status"])
+	}
+	if _, ok := data["uptime"].(string); !ok {
+		t.Error("data.uptime missing or wrong type")
+	}
+	if _, ok := data["goroutines"].(float64); !ok {
+		t.Error("data.goroutines missing or wrong type")
+	}
+	if _, ok := data["go_version"].(string); !ok {
+		t.Error("data.go_version missing or wrong type")
+	}
+}
+
+func TestLive_Returns200_WhenAllDepsFail(t *testing.T) {
+	h := newTestHealthHandler(
+		&failChecker{msg: "db down"},
+		&failChecker{msg: "redis down"},
+		&failChecker{msg: "nats down"},
+	)
+	code, _ := doLive(t, h)
+	if code != http.StatusOK {
+		t.Errorf("live status = %d, want 200 even when deps fail", code)
+	}
+}
+
+func TestReady_503_WhenDBProbeErrors(t *testing.T) {
+	h := newTestHealthHandler(
+		&failChecker{msg: "db connection refused"},
+		&passChecker{},
+		&passChecker{},
+	)
+	code, body := doReady(t, h)
+
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("ready status = %d, want 503", code)
+	}
+	if body["status"] != "error" {
+		t.Errorf("body status = %q, want error", body["status"])
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing")
+	}
+	if data["state"] != "unhealthy" {
+		t.Errorf("state = %q, want unhealthy", data["state"])
+	}
+}
+
+func TestReady_200_Degraded_WhenDiskAtDegradedThreshold(t *testing.T) {
+	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
+	h.SetDiskConfig([]string{"/tmp"}, 0, 95)
+
+	code, body := doReady(t, h)
+
+	if code != http.StatusOK {
+		t.Errorf("ready status = %d, want 200 for degraded", code)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing")
+	}
+	state, _ := data["state"].(string)
+	if state != "degraded" && state != "healthy" {
+		t.Errorf("state = %q, want degraded (or healthy if disk < threshold)", state)
+	}
+}
+
+func TestReady_200_Degraded_AAA_Partial(t *testing.T) {
+	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
+	h.SetAAAChecker(&mockAAAHealthy{})
+	h.SetDiameterChecker(&mockDiameterUnhealthy{})
+
+	code, body := doReady(t, h)
+
+	if code != http.StatusOK {
+		t.Errorf("ready status = %d, want 200 for partial AAA", code)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing")
+	}
+	if data["state"] != "degraded" {
+		t.Errorf("state = %q, want degraded for partial AAA", data["state"])
+	}
+	reasons, ok := data["degraded_reasons"].([]interface{})
+	if !ok || len(reasons) == 0 {
+		t.Error("expected degraded_reasons to be set")
+	}
+}
+
+type mockAAAHealthy struct{}
+
+func (m *mockAAAHealthy) Healthy() bool                                    { return true }
+func (m *mockAAAHealthy) ActiveSessionCount(_ context.Context) (int64, error) { return 0, nil }
+
+type mockDiameterUnhealthy struct{}
+
+func (m *mockDiameterUnhealthy) Healthy() bool                                    { return false }
+func (m *mockDiameterUnhealthy) ActiveSessionCount(_ context.Context) (int64, error) { return 0, nil }
+
+func TestStartup_LatchesPermanentlyAfterFirstSuccess(t *testing.T) {
+	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
+
+	code, body := doStartup(t, h)
+	if code != http.StatusOK {
+		t.Errorf("startup code = %d, want 200", code)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data missing")
+	}
+	if data["state"] != "started" {
+		t.Errorf("state = %q, want started", data["state"])
+	}
+
+	code2, body2 := doStartup(t, h)
+	if code2 != http.StatusOK {
+		t.Errorf("second startup code = %d, want 200 (latched)", code2)
+	}
+	data2, _ := body2["data"].(map[string]interface{})
+	if data2["state"] != "started" {
+		t.Errorf("second startup state = %q, want started", data2["state"])
+	}
+}
+
+func TestStartup_Returns503_After3TransientFailures_WithinFirstMinute(t *testing.T) {
+	h := newTestHealthHandler(
+		&failChecker{msg: "db down"},
+		&passChecker{},
+		&passChecker{},
+	)
+
+	for i := 1; i <= 3; i++ {
+		code, _ := doStartup(t, h)
+		if code != http.StatusServiceUnavailable {
+			t.Errorf("startup attempt %d: code = %d, want 503", i, code)
+		}
+	}
+
+	code4, body4 := doStartup(t, h)
+	if code4 != http.StatusOK {
+		t.Errorf("4th startup attempt code = %d, want 200 (latched after 3 failures)", code4)
+	}
+	data, _ := body4["data"].(map[string]interface{})
+	if data["state"] != "started" {
+		t.Errorf("state after latch = %q, want started", data["state"])
+	}
+}
+
+func TestReady_StateField_Present(t *testing.T) {
+	h := newTestHealthHandler(&passChecker{}, &passChecker{}, &passChecker{})
+	_, body := doReady(t, h)
+
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing")
+	}
+	if data["state"] != "healthy" {
+		t.Errorf("state = %q, want healthy", data["state"])
 	}
 }

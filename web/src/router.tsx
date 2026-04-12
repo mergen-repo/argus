@@ -43,6 +43,7 @@ const IpPoolsPage = lazy(() => import('@/pages/settings/ip-pools'))
 const IpPoolDetailPage = lazy(() => import('@/pages/settings/ip-pool-detail'))
 const NotificationConfigPage = lazy(() => import('@/pages/settings/notifications'))
 const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
+const ReliabilityPage = lazy(() => import('@/pages/settings/reliability'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
 const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
@@ -112,6 +113,7 @@ export const router = createBrowserRouter([
           { path: '/settings/ip-pools/:poolId', element: lazySuspense(IpPoolDetailPage) },
           { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
           { path: '/settings/knowledgebase', element: lazySuspense(KnowledgeBasePage) },
+          { path: '/settings/reliability', element: lazySuspense(ReliabilityPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
           { path: '/sla', element: lazySuspense(SLADashboardPage) },
           { path: '/topology', element: lazySuspense(TopologyPage) },

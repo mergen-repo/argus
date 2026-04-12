@@ -24,6 +24,7 @@ import (
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
+	systemapi "github.com/btopcu/argus/internal/api/system"
 	violationapi "github.com/btopcu/argus/internal/api/violation"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
 	simapi "github.com/btopcu/argus/internal/api/sim"
@@ -67,20 +68,26 @@ type RouterDeps struct {
 	MetricsHandler     *metricsapi.Handler
 	ComplianceHandler  *complianceapi.Handler
 	ViolationHandler   *violationapi.Handler
-	DashboardHandler   *dashboardapi.Handler
-	SLAHandler         *slaapi.Handler
+	DashboardHandler     *dashboardapi.Handler
+	SLAHandler           *slaapi.Handler
+	ReliabilityHandler   *systemapi.ReliabilityHandler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
 	RateLimitPerHour   int
-	JWTSecret     string
-	Logger        zerolog.Logger
+	JWTSecret         string
+	JWTSecretPrevious string
+	Logger            zerolog.Logger
 	MetricsReg    *metrics.Registry
 
 	CORSConfig           *CORSConfig
 	SecurityHeadersCfg   *SecurityHeadersConfig
 	BruteForceCfg        *BruteForceConfig
 	EnableInputSanitizer bool
+
+	RequestBodyMaxMB  int
+	RequestBodyAuthMB int
+	RequestBodyBulkMB int
 }
 
 func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecret string) http.Handler {
@@ -99,58 +106,73 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	r.Use(CorrelationID())
 	r.Use(chimiddleware.RealIP)
 
-	if deps.SecurityHeadersCfg != nil {
-		r.Use(SecurityHeaders(*deps.SecurityHeadersCfg))
-	}
+	r.Get("/health/live", deps.Health.Live)
+	r.Get("/health/ready", deps.Health.Ready)
+	r.Get("/health/startup", deps.Health.Startup)
 
-	if deps.CORSConfig != nil {
-		r.Use(CORS(*deps.CORSConfig, deps.Logger))
-	}
-
-	r.Use(ZerologRequestLogger(deps.Logger))
-
-	if deps.MetricsReg != nil {
-		r.Use(PrometheusHTTPMetrics(deps.MetricsReg))
-	}
-
-	if deps.EnableInputSanitizer {
-		r.Use(InputSanitizer(deps.Logger))
-	}
-
-	if deps.RedisClient != nil {
-		perMin := deps.RateLimitPerMinute
-		if perMin <= 0 {
-			perMin = 1000
+	r.Group(func(r chi.Router) {
+		if deps.SecurityHeadersCfg != nil {
+			r.Use(SecurityHeaders(*deps.SecurityHeadersCfg))
 		}
-		perHour := deps.RateLimitPerHour
-		if perHour <= 0 {
-			perHour = 30000
+
+		if deps.CORSConfig != nil {
+			r.Use(CORS(*deps.CORSConfig, deps.Logger))
 		}
-		r.Use(RateLimiter(deps.RedisClient, perMin, perHour, deps.Logger))
 
-		if deps.BruteForceCfg != nil {
-			r.Use(BruteForceProtection(deps.RedisClient, *deps.BruteForceCfg, deps.Logger))
+		r.Use(ZerologRequestLogger(deps.Logger))
+
+		if deps.MetricsReg != nil {
+			r.Use(PrometheusHTTPMetrics(deps.MetricsReg))
 		}
-	}
 
-	if deps.MetricsReg != nil {
-		r.Handle("/metrics", deps.MetricsReg.Handler())
-	}
+		if deps.EnableInputSanitizer {
+			r.Use(InputSanitizer(deps.Logger))
+		}
 
-	r.Get("/api/health", deps.Health.Check)
-	r.Get("/api/v1/health", deps.Health.Check)
+		if deps.RedisClient != nil {
+			perMin := deps.RateLimitPerMinute
+			if perMin <= 0 {
+				perMin = 1000
+			}
+			perHour := deps.RateLimitPerHour
+			if perHour <= 0 {
+				perHour = 30000
+			}
+			r.Use(RateLimiter(deps.RedisClient, perMin, perHour, deps.Logger))
+
+			if deps.BruteForceCfg != nil {
+				r.Use(BruteForceProtection(deps.RedisClient, *deps.BruteForceCfg, deps.Logger))
+			}
+		}
+
+		if deps.RequestBodyMaxMB > 0 {
+			r.Use(BodyLimit(deps.RequestBodyMaxMB))
+		}
+
+		if deps.MetricsReg != nil {
+			r.Handle("/metrics", deps.MetricsReg.Handler())
+		}
+
+		r.Get("/api/health", deps.Health.Check)
+		r.Get("/api/v1/health", deps.Health.Check)
 
 	if deps.SMSWebhookHandler != nil {
 		r.Post("/api/v1/notifications/sms/status", deps.SMSWebhookHandler.HandleStatusCallback)
 	}
 
 	r.Group(func(r chi.Router) {
+		if deps.RequestBodyAuthMB > 0 {
+			r.Use(BodyLimit(deps.RequestBodyAuthMB))
+		}
 		r.Post("/api/v1/auth/login", deps.AuthHandler.Login)
 		r.Post("/api/v1/auth/refresh", deps.AuthHandler.Refresh)
 	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(JWTAuth(deps.JWTSecret))
+		if deps.RequestBodyAuthMB > 0 {
+			r.Use(BodyLimit(deps.RequestBodyAuthMB))
+		}
+		r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 		r.Use(RequireRole("api_user"))
 		r.Post("/api/v1/auth/logout", deps.AuthHandler.Logout)
 		r.Post("/api/v1/auth/2fa/setup", deps.AuthHandler.Setup2FA)
@@ -158,20 +180,23 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(JWTAuthAllowPartial(deps.JWTSecret))
+		if deps.RequestBodyAuthMB > 0 {
+			r.Use(BodyLimit(deps.RequestBodyAuthMB))
+		}
+		r.Use(JWTAuthAllowPartial(deps.JWTSecret, deps.JWTSecretPrevious))
 		r.Post("/api/v1/auth/2fa/verify", deps.AuthHandler.Verify2FA)
 	})
 
 	if deps.TenantHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/tenants", deps.TenantHandler.List)
 			r.Post("/api/v1/tenants", deps.TenantHandler.Create)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/tenants/{id}", deps.TenantHandler.Get)
 			r.Patch("/api/v1/tenants/{id}", deps.TenantHandler.Update)
@@ -181,14 +206,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.UserHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/users", deps.UserHandler.List)
 			r.Post("/api/v1/users", deps.UserHandler.Create)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Patch("/api/v1/users/{id}", deps.UserHandler.Update)
 		})
@@ -196,7 +221,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.AuditHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
 			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
@@ -207,7 +232,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.OperatorHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/operators", deps.OperatorHandler.List)
 			r.Post("/api/v1/operators", deps.OperatorHandler.Create)
@@ -218,13 +243,13 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("operator_manager"))
 			r.Get("/api/v1/operators/{id}/health", deps.OperatorHandler.GetHealth)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/operator-grants", deps.OperatorHandler.ListGrants)
 		})
@@ -232,7 +257,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.APNHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/apns", deps.APNHandler.List)
 			r.Get("/api/v1/apns/{id}", deps.APNHandler.Get)
@@ -240,7 +265,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/apns", deps.APNHandler.Create)
 			r.Patch("/api/v1/apns/{id}", deps.APNHandler.Update)
@@ -250,7 +275,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.IPPoolHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("operator_manager"))
 			r.Get("/api/v1/ip-pools", deps.IPPoolHandler.List)
 			r.Get("/api/v1/ip-pools/{id}", deps.IPPoolHandler.Get)
@@ -258,14 +283,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/ip-pools", deps.IPPoolHandler.Create)
 			r.Patch("/api/v1/ip-pools/{id}", deps.IPPoolHandler.Update)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/ip-pools/{id}/addresses/reserve", deps.IPPoolHandler.ReserveIP)
 		})
@@ -273,7 +298,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.APIKeyHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/api-keys", deps.APIKeyHandler.List)
 			r.Post("/api/v1/api-keys", deps.APIKeyHandler.Create)
@@ -285,7 +310,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.SIMHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sims", deps.SIMHandler.List)
 			r.Post("/api/v1/sims", deps.SIMHandler.Create)
@@ -300,13 +325,13 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/sims/{id}/usage", deps.SIMHandler.GetUsage)
 		})
@@ -314,7 +339,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.DiagnosticsHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/sims/{id}/diagnose", deps.DiagnosticsHandler.Diagnose)
 		})
@@ -322,7 +347,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.ESimHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/esim-profiles", deps.ESimHandler.List)
 			r.Post("/api/v1/esim-profiles", deps.ESimHandler.Create)
@@ -336,7 +361,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.SegmentHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sim-segments", deps.SegmentHandler.List)
 			r.Post("/api/v1/sim-segments", deps.SegmentHandler.Create)
@@ -349,20 +374,29 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.BulkHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			if deps.RequestBodyBulkMB > 0 {
+				r.Use(BodyLimit(deps.RequestBodyBulkMB))
+			}
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
 			r.Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			if deps.RequestBodyBulkMB > 0 {
+				r.Use(BodyLimit(deps.RequestBodyBulkMB))
+			}
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("policy_editor"))
 			r.Post("/api/v1/sims/bulk/policy-assign", deps.BulkHandler.PolicyAssign)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			if deps.RequestBodyBulkMB > 0 {
+				r.Use(BodyLimit(deps.RequestBodyBulkMB))
+			}
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/bulk/operator-switch", deps.BulkHandler.OperatorSwitch)
 		})
@@ -370,7 +404,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.JobHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/jobs", deps.JobHandler.List)
 			r.Get("/api/v1/jobs/{id}", deps.JobHandler.Get)
@@ -379,7 +413,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/jobs/{id}/cancel", deps.JobHandler.Cancel)
 		})
@@ -387,14 +421,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.MSISDNHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/msisdn-pool", deps.MSISDNHandler.List)
 			r.Post("/api/v1/msisdn-pool/{id}/assign", deps.MSISDNHandler.Assign)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/msisdn-pool/import", deps.MSISDNHandler.Import)
 		})
@@ -402,7 +436,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.PolicyHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("policy_editor"))
 			r.Get("/api/v1/policies", deps.PolicyHandler.List)
 			r.Post("/api/v1/policies", deps.PolicyHandler.Create)
@@ -423,7 +457,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.OTAHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/sims/{id}/ota", deps.OTAHandler.SendToSIM)
 			r.Get("/api/v1/sims/{id}/ota", deps.OTAHandler.ListHistory)
@@ -431,7 +465,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sims/bulk/ota", deps.OTAHandler.BulkSend)
 		})
@@ -439,7 +473,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.CDRHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/cdrs", deps.CDRHandler.List)
 			r.Post("/api/v1/cdrs/export", deps.CDRHandler.Export)
@@ -448,7 +482,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.AnalyticsHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/analytics/usage", deps.AnalyticsHandler.GetUsage)
 			r.Get("/api/v1/analytics/cost", deps.AnalyticsHandler.GetCost)
@@ -457,7 +491,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.AnomalyHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/analytics/anomalies", deps.AnomalyHandler.List)
 			r.Get("/api/v1/analytics/anomalies/{id}", deps.AnomalyHandler.Get)
@@ -467,7 +501,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.ViolationHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Get("/api/v1/policy-violations", deps.ViolationHandler.List)
 			r.Get("/api/v1/policy-violations/counts", deps.ViolationHandler.CountByType)
 		})
@@ -475,20 +509,20 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.SessionHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sessions", deps.SessionHandler.List)
 			r.Post("/api/v1/sessions/{id}/disconnect", deps.SessionHandler.Disconnect)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/sessions/stats", deps.SessionHandler.Stats)
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/sessions/bulk/disconnect", deps.SessionHandler.BulkDisconnect)
 		})
@@ -496,7 +530,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.NotificationHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/notifications", deps.NotificationHandler.List)
 			r.Get("/api/v1/notifications/unread-count", deps.NotificationHandler.UnreadCount)
@@ -509,7 +543,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.MetricsHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/system/metrics", deps.MetricsHandler.GetSystemMetrics)
 		})
@@ -518,7 +552,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.DashboardHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/dashboard", deps.DashboardHandler.GetDashboard)
 		})
@@ -526,7 +560,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.ComplianceHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/compliance/dashboard", deps.ComplianceHandler.Dashboard)
 			r.Get("/api/v1/compliance/btk-report", deps.ComplianceHandler.BTKReport)
@@ -538,12 +572,28 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 
 	if deps.SLAHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(JWTAuth(deps.JWTSecret))
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/sla-reports", deps.SLAHandler.List)
 			r.Get("/api/v1/sla-reports/{id}", deps.SLAHandler.Get)
 		})
 	}
+
+	if deps.ReliabilityHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/system/backup-status", deps.ReliabilityHandler.BackupStatus)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/system/jwt-rotation-history", deps.ReliabilityHandler.JWTRotationHistory)
+		})
+	}
+
+	})
 
 	var handler http.Handler = r
 	handler = otelhttp.NewHandler(handler, "argus.http",

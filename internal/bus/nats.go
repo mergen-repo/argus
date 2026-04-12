@@ -36,6 +36,8 @@ const (
 	SubjectAuthAttempt           = "argus.events.auth.attempt"
 	SubjectIPReclaimed           = "argus.events.ip.reclaimed"
 	SubjectSLAReportGenerated    = "argus.events.sla.report.generated"
+	SubjectBackupCompleted       = "argus.events.backup.completed"
+	SubjectBackupVerified        = "argus.events.backup.verified"
 
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"

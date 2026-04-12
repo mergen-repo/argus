@@ -264,3 +264,72 @@ None.
 - TBL-01 tenants (tenant_id FK, UNIQUE)
 - TBL-30 s3_archival_log — archival jobs reference this config to determine target bucket
 - SVC-09 job engine — purge/archival jobs read retention windows from this table
+
+---
+
+## TBL-32: backup_runs
+
+System-level table tracking all automated backup executions (daily, weekly, monthly pg_dump runs uploaded to S3). Created by migration `20260412000009_backup_runs`.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | BIGSERIAL | NOT NULL | — | Auto-incrementing run ID |
+| kind | VARCHAR(20) | NOT NULL | — | Backup kind: `daily`, `weekly`, `monthly` |
+| state | VARCHAR(20) | NOT NULL | — | Run state: `running`, `success`, `failed` |
+| s3_bucket | VARCHAR(200) | NOT NULL | — | Target S3 bucket name |
+| s3_key | VARCHAR(500) | NOT NULL | — | S3 object key for the dump file |
+| size_bytes | BIGINT | NOT NULL | 0 | Compressed dump size in bytes |
+| sha256 | VARCHAR(64) | NULL | — | SHA-256 checksum of the dump file |
+| started_at | TIMESTAMPTZ | NOT NULL | — | When the backup run began |
+| finished_at | TIMESTAMPTZ | NULL | — | When the backup run completed (NULL if still running) |
+| duration_seconds | INTEGER | NULL | — | Wall-clock duration of the run |
+| error_message | TEXT | NULL | — | Error detail if state = `failed` |
+| created_at | TIMESTAMPTZ | NOT NULL | NOW() | Row creation time |
+
+### Indexes
+
+- `idx_backup_runs_kind_time` on (kind, started_at DESC)
+- `idx_backup_runs_state` on (state)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-33 backup_verifications — verification results reference backup_run_id
+- SVC-09 job engine — BackupProcessor runs inside the scheduler
+- API-190 `/api/v1/system/backup-status` — surfaces latest runs per kind
+
+---
+
+## TBL-33: backup_verifications
+
+Stores the result of weekly backup verification jobs that restore a dump to a scratch container and count rows. Created by migration `20260412000009_backup_runs`.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | BIGSERIAL | NOT NULL | — | Auto-incrementing verification ID |
+| backup_run_id | BIGINT | NOT NULL | — | FK → backup_runs.id (CASCADE DELETE) |
+| state | VARCHAR(20) | NOT NULL | — | Verification state: `ok`, `failed` |
+| tenants_count | BIGINT | NULL | — | Row count of tenants table after restore |
+| sims_count | BIGINT | NULL | — | Row count of sims table after restore |
+| error_message | TEXT | NULL | — | Error detail if state = `failed` |
+| verified_at | TIMESTAMPTZ | NOT NULL | NOW() | When the verification was performed |
+
+### Indexes
+
+- `idx_backup_verifications_run` on (backup_run_id)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-32 backup_runs (backup_run_id FK, CASCADE DELETE)
+- API-190 `/api/v1/system/backup-status` — `last_verify` field surfaces latest verification

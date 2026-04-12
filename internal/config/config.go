@@ -156,6 +156,47 @@ type Config struct {
 	MetricsEnabled             bool    `envconfig:"METRICS_ENABLED"                default:"true"`
 	MetricsNamespace           string  `envconfig:"METRICS_NAMESPACE"              default:"argus"`
 	OTELBSPExportTimeoutSec    int     `envconfig:"OTEL_BSP_EXPORT_TIMEOUT_SEC"    default:"5"`
+
+	ShutdownTimeoutSec  int `envconfig:"SHUTDOWN_TIMEOUT_SECONDS"  default:"30"`
+	ShutdownHTTPSec     int `envconfig:"SHUTDOWN_HTTP_SECONDS"     default:"20"`
+	ShutdownWSSec       int `envconfig:"SHUTDOWN_WS_SECONDS"       default:"10"`
+	ShutdownRADIUSSec   int `envconfig:"SHUTDOWN_RADIUS_SECONDS"   default:"5"`
+	ShutdownDiameterSec int `envconfig:"SHUTDOWN_DIAMETER_SECONDS" default:"5"`
+	ShutdownSBASec      int `envconfig:"SHUTDOWN_SBA_SECONDS"      default:"5"`
+	ShutdownJobSec      int `envconfig:"SHUTDOWN_JOB_SECONDS"      default:"30"`
+	ShutdownNATSSec     int `envconfig:"SHUTDOWN_NATS_SECONDS"     default:"5"`
+	ShutdownDBSec       int `envconfig:"SHUTDOWN_DB_SECONDS"       default:"5"`
+
+	CircuitBreakerThreshold   int `envconfig:"CIRCUIT_BREAKER_THRESHOLD"    default:"5"`
+	CircuitBreakerRecoverySec int `envconfig:"CIRCUIT_BREAKER_RECOVERY_SEC" default:"30"`
+
+	JWTSecretPrevious string `envconfig:"JWT_SECRET_PREVIOUS"`
+
+	TLSEnabled            bool `envconfig:"TLS_ENABLED"             default:"false"`
+	TrustForwardedProto   bool `envconfig:"TRUST_FORWARDED_PROTO"   default:"true"`
+
+	PprofToken string `envconfig:"PPROF_TOKEN"`
+
+	RequestBodyMaxMB  int `envconfig:"REQUEST_BODY_MAX_MB"  default:"10"`
+	RequestBodyAuthMB int `envconfig:"REQUEST_BODY_AUTH_MB" default:"1"`
+	RequestBodyBulkMB int `envconfig:"REQUEST_BODY_BULK_MB" default:"50"`
+
+	DiskProbeMount  string `envconfig:"DISK_PROBE_MOUNTS"    default:"/var/lib/postgresql/data,/app/logs,/data"`
+	DiskDegradedPct int    `envconfig:"DISK_DEGRADED_PCT"    default:"85"`
+	DiskUnhealthyPct int   `envconfig:"DISK_UNHEALTHY_PCT"   default:"95"`
+
+	BackupEnabled          bool   `envconfig:"BACKUP_ENABLED"           default:"false"`
+	BackupDailyCron        string `envconfig:"BACKUP_DAILY_CRON"        default:"0 2 * * *"`
+	BackupVerifyCron       string `envconfig:"BACKUP_VERIFY_CRON"       default:"0 3 * * 0"`
+	BackupCleanupCron      string `envconfig:"BACKUP_CLEANUP_CRON"      default:"0 4 * * *"`
+	BackupBucket           string `envconfig:"BACKUP_BUCKET"            default:"argus-backup"`
+	BackupTimeoutSec       int    `envconfig:"BACKUP_TIMEOUT_SECONDS"   default:"1800"`
+	BackupRetentionDaily   int    `envconfig:"BACKUP_RETENTION_DAILY"   default:"14"`
+	BackupRetentionWeekly  int    `envconfig:"BACKUP_RETENTION_WEEKLY"  default:"8"`
+	BackupRetentionMonthly int    `envconfig:"BACKUP_RETENTION_MONTHLY" default:"12"`
+
+	NATSConsumerLagAlertThreshold int `envconfig:"NATS_CONSUMER_LAG_ALERT_THRESHOLD" default:"10000"`
+	NATSConsumerLagPollSec        int `envconfig:"NATS_CONSUMER_LAG_POLL_SECONDS"    default:"30"`
 }
 
 func Load() (*Config, error) {
@@ -217,6 +258,42 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("OTEL_SAMPLER_RATIO must be in [0.0, 1.0] (got %g)", c.OTELSamplerRatio)
 	}
 
+	if c.ShutdownTimeoutSec < 5 {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT_SECONDS must be >= 5 (got %d)", c.ShutdownTimeoutSec)
+	}
+
+	if c.ShutdownJobSec > c.ShutdownTimeoutSec {
+		return fmt.Errorf("SHUTDOWN_JOB_SECONDS (%d) must not exceed SHUTDOWN_TIMEOUT_SECONDS (%d)", c.ShutdownJobSec, c.ShutdownTimeoutSec)
+	}
+
+	if c.PprofEnabled && !c.IsDev() && len(c.PprofToken) < 32 {
+		return fmt.Errorf("PPROF_TOKEN must be at least 32 characters when PPROF_ENABLED=true in non-development environments (got %d)", len(c.PprofToken))
+	}
+
+	if c.JWTSecretPrevious != "" && len(c.JWTSecretPrevious) < 32 {
+		return fmt.Errorf("JWT_SECRET_PREVIOUS must be at least 32 characters if set (got %d)", len(c.JWTSecretPrevious))
+	}
+
+	if c.RequestBodyMaxMB <= 0 {
+		return fmt.Errorf("REQUEST_BODY_MAX_MB must be > 0 (got %d)", c.RequestBodyMaxMB)
+	}
+
+	if c.RequestBodyAuthMB <= 0 {
+		return fmt.Errorf("REQUEST_BODY_AUTH_MB must be > 0 (got %d)", c.RequestBodyAuthMB)
+	}
+
+	if c.RequestBodyBulkMB <= 0 {
+		return fmt.Errorf("REQUEST_BODY_BULK_MB must be > 0 (got %d)", c.RequestBodyBulkMB)
+	}
+
+	if c.CircuitBreakerThreshold < 1 {
+		return fmt.Errorf("CIRCUIT_BREAKER_THRESHOLD must be >= 1 (got %d)", c.CircuitBreakerThreshold)
+	}
+
+	if c.DiskDegradedPct >= c.DiskUnhealthyPct || c.DiskUnhealthyPct > 100 {
+		return fmt.Errorf("DISK_DEGRADED_PCT (%d) must be < DISK_UNHEALTHY_PCT (%d) and DISK_UNHEALTHY_PCT must be <= 100", c.DiskDegradedPct, c.DiskUnhealthyPct)
+	}
+
 	return nil
 }
 
@@ -230,4 +307,10 @@ func (c *Config) IsProd() bool {
 
 func (c *Config) Addr() string {
 	return fmt.Sprintf(":%d", c.AppPort)
+}
+
+func (c *Config) TotalShutdownBudget() time.Duration {
+	sum := c.ShutdownHTTPSec + c.ShutdownWSSec + c.ShutdownRADIUSSec + c.ShutdownDiameterSec +
+		c.ShutdownSBASec + c.ShutdownJobSec + c.ShutdownNATSSec + c.ShutdownDBSec
+	return time.Duration(max(c.ShutdownTimeoutSec, sum)) * time.Second
 }

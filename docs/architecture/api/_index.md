@@ -223,13 +223,18 @@
 |----|--------|------|-------------|------|--------|
 | API-185 | POST | /api/v1/notifications/sms/status | Twilio SMS delivery status callback (HMAC-SHA256 verified) | Twilio Signature | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
 
-## System Health (3 endpoints)
+## System Health (8 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-180 | GET | /api/health | Health check (DB, Redis, NATS, AAA) | None | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md), [STORY-015](../../stories/phase-3/STORY-015-radius-server.md) (AAA status) |
+| API-180 | GET | /api/health | Legacy health check (DB, Redis, NATS, AAA) — kept for backward compat | None | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md), [STORY-015](../../stories/phase-3/STORY-015-radius-server.md) (AAA status) |
 | API-181 | GET | /api/v1/system/metrics | Built-in metrics (auth/s, latency, sessions) | JWT (super_admin) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-182 | GET | /api/v1/system/config | System configuration | JWT (super_admin) | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md) |
+| API-187 | GET | /health/live | Liveness probe — goroutine-only check, always 200 when process is alive | None | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-3) |
+| API-188 | GET | /health/ready | Readiness probe — full dependency check (DB, Redis, NATS, AAA) + disk space probe; 200=healthy/degraded, 503=unhealthy | None | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-3, AC-4) |
+| API-189 | GET | /health/startup | Startup probe — 60-second grace period; returns 503 during startup, then delegates to /health/ready | None | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-3) |
+| API-190 | GET | /api/v1/system/backup-status | Backup run history and latest verification result | JWT (super_admin) | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-1, AC-2) |
+| API-191 | GET | /api/v1/system/jwt-rotation-history | JWT key rotation audit log (last 10 detections) | JWT (super_admin) | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-7) |
 
 ## Observability Endpoints (1 endpoint)
 

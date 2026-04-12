@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -28,6 +29,14 @@ type Registry struct {
 	JobDuration           *prometheus.HistogramVec
 	OperatorHealth        *prometheus.GaugeVec
 	CircuitBreakerState   *prometheus.GaugeVec
+	DiskUsagePercent      *prometheus.GaugeVec
+	JWTVerifyTotal        *prometheus.CounterVec
+
+	NATSConsumerLag       *prometheus.GaugeVec
+	NATSConsumerLagAlerts *prometheus.CounterVec
+
+	BackupLastSuccessTimestamp *prometheus.GaugeVec
+	BackupRunsTotal            *prometheus.CounterVec
 }
 
 func NewRegistry() *Registry {
@@ -143,7 +152,50 @@ func NewRegistry() *Registry {
 	}, []string{"operator_id", "state"})
 	reg.MustRegister(r.CircuitBreakerState)
 
+	r.DiskUsagePercent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_disk_usage_percent",
+		Help: "Disk usage percent per mount point.",
+	}, []string{"mount"})
+	reg.MustRegister(r.DiskUsagePercent)
+
+	r.JWTVerifyTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_jwt_verify_total",
+		Help: "Total number of JWT verification attempts.",
+	}, []string{"key_slot"})
+	reg.MustRegister(r.JWTVerifyTotal)
+
+	r.NATSConsumerLag = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_nats_consumer_lag",
+		Help: "Number of pending messages (lag) per NATS JetStream consumer.",
+	}, []string{"stream", "consumer"})
+	reg.MustRegister(r.NATSConsumerLag)
+
+	r.NATSConsumerLagAlerts = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_nats_consumer_lag_alerts_total",
+		Help: "Total number of NATS consumer lag alerts emitted.",
+	}, []string{"consumer"})
+	reg.MustRegister(r.NATSConsumerLagAlerts)
+
+	r.BackupLastSuccessTimestamp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_backup_last_success_timestamp_seconds",
+		Help: "Unix timestamp of the last successful backup run by kind.",
+	}, []string{"kind"})
+	reg.MustRegister(r.BackupLastSuccessTimestamp)
+
+	r.BackupRunsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_backup_runs_total",
+		Help: "Total number of backup runs by kind and state.",
+	}, []string{"kind", "state"})
+	reg.MustRegister(r.BackupRunsTotal)
+
 	return r
+}
+
+func (r *Registry) IncJWTVerify(slot string) {
+	if r == nil || r.JWTVerifyTotal == nil {
+		return
+	}
+	r.JWTVerifyTotal.WithLabelValues(slot).Inc()
 }
 
 func (r *Registry) Handler() http.Handler {
@@ -185,6 +237,42 @@ func (r *Registry) SetCircuitBreakerState(operatorID, state string) {
 		}
 		r.CircuitBreakerState.WithLabelValues(operatorID, s).Set(value)
 	}
+}
+
+// SetNATSConsumerLag updates the lag gauge for a specific stream/consumer pair.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) SetNATSConsumerLag(stream, consumer string, lag float64) {
+	if r == nil || r.NATSConsumerLag == nil {
+		return
+	}
+	r.NATSConsumerLag.WithLabelValues(stream, consumer).Set(lag)
+}
+
+// IncNATSConsumerLagAlert increments the alert counter for the given consumer.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncNATSConsumerLagAlert(consumer string) {
+	if r == nil || r.NATSConsumerLagAlerts == nil {
+		return
+	}
+	r.NATSConsumerLagAlerts.WithLabelValues(consumer).Inc()
+}
+
+// SetBackupLastSuccess records the unix timestamp of the last successful backup for the given kind.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) SetBackupLastSuccess(kind string, ts time.Time) {
+	if r == nil || r.BackupLastSuccessTimestamp == nil {
+		return
+	}
+	r.BackupLastSuccessTimestamp.WithLabelValues(kind).Set(float64(ts.Unix()))
+}
+
+// IncBackupRun increments the backup runs counter for the given kind and state.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncBackupRun(kind, state string) {
+	if r == nil || r.BackupRunsTotal == nil {
+		return
+	}
+	r.BackupRunsTotal.WithLabelValues(kind, state).Inc()
 }
 
 func operatorHealthValue(status string) float64 {

@@ -20,6 +20,7 @@ const IP_POOLS_KEY = ['ip-pools'] as const
 const NOTIF_CONFIG_KEY = ['notification-configs'] as const
 const SYSTEM_KEY = ['system'] as const
 const TENANTS_KEY = ['tenants'] as const
+const RELIABILITY_KEY = ['reliability'] as const
 
 export function useUserList() {
   return useQuery({
@@ -235,6 +236,100 @@ export function useRealtimeMetrics() {
     const unsub = wsClient.on('metrics.realtime', handler)
     return unsub
   }, [handler])
+}
+
+export function useHealthLive() {
+  return useQuery({
+    queryKey: [...SYSTEM_KEY, 'health-live'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: { status: string; uptime: string; goroutines: number; go_version: string } }>('/health/live', { baseURL: '/' })
+      return res.data.data
+    },
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  })
+}
+
+export function useHealthReady() {
+  return useQuery({
+    queryKey: [...SYSTEM_KEY, 'health-ready'],
+    queryFn: async () => {
+      const res = await api.get<{
+        status: string
+        data: {
+          state: string
+          db: { status: string; latency_ms: number }
+          redis: { status: string; latency_ms: number }
+          nats: { status: string; latency_ms: number }
+          aaa?: { radius: { status: string }; sessions_active: number }
+          disks?: { mount: string; used_pct: number; status: string }[]
+          uptime: string
+          degraded_reasons?: string[]
+        }
+      }>('/health/ready', { baseURL: '/' })
+      return res.data.data
+    },
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  })
+}
+
+export interface BackupRunEntry {
+  status: string
+  finished_at?: string
+  size_mb: number
+  s3_key: string
+  sha256: string
+  kind: string
+  started_at: string
+}
+
+export interface BackupStatusData {
+  last_daily?: BackupRunEntry
+  last_weekly?: BackupRunEntry
+  last_monthly?: BackupRunEntry
+  last_verify?: {
+    status: string
+    verified_at: string
+    tenants_count: number
+    sims_count: number
+  }
+  history: BackupRunEntry[]
+}
+
+export function useBackupStatus() {
+  return useQuery({
+    queryKey: [...RELIABILITY_KEY, 'backup-status'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: BackupStatusData }>('/system/backup-status')
+      return res.data.data
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+}
+
+export interface JWTRotationEntry {
+  when: string
+  actor: string
+  correlation_id: string
+}
+
+export interface JWTRotationHistoryData {
+  current_fingerprint: string
+  previous_fingerprint: string
+  history: JWTRotationEntry[]
+}
+
+export function useJwtRotationHistory() {
+  return useQuery({
+    queryKey: [...RELIABILITY_KEY, 'jwt-rotation'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: JWTRotationHistoryData }>('/system/jwt-rotation-history')
+      return res.data.data
+    },
+    staleTime: 60_000,
+  })
 }
 
 export function useTenantList() {

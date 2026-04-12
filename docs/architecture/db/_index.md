@@ -39,6 +39,8 @@
 | TBL-29 | policy_violations | Policy Engine | → TBL-01, → TBL-10, → TBL-13, → TBL-14 | No |
 | TBL-30 | s3_archival_log | Platform Services | → TBL-01 (tenant_id) | No |
 | TBL-31 | tenant_retention_config | Platform Services | → TBL-01 (tenant_id, UNIQUE) | No |
+| TBL-32 | backup_runs | Backup | System-level (no tenant_id) | No |
+| TBL-33 | backup_verifications | Backup | → TBL-32 (backup_run_id) | No |
 
 ## Domain Detail Files
 
@@ -50,6 +52,7 @@
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
 | AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27, TBL-28 |
 | Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26, TBL-29, TBL-30, TBL-31 |
+| Backup | [platform-services.md](platform-services.md) | TBL-32, TBL-33 |
 
 ## Entity Relationship Diagram
 

@@ -1316,3 +1316,23 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 14. Circuit breaker open simulasyonu (operator failover test) -> `argus_circuit_breaker_state{operator_id="...",state="open"} == 1`
 15. `go test -tags integration ./internal/observability/... -race` -- 1 integration test gecmeli
 16. `go test ./...` -- 2009+ test gecmeli
+
+---
+
+## STORY-066: Reliability, Backup, DR & Runtime Hardening
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `curl http://localhost:8080/health/live` -- `{"status":"ok","data":{"state":"alive"}}` donmeli (her zaman 200)
+2. `curl http://localhost:8080/health/ready` -- `{"status":"ok","data":{"state":"healthy","checks":{...},"disks":[...]}}` donmeli; `disks` dizisi yapilandirilmis mount noktalarini icermeli
+3. `curl http://localhost:8080/health/startup` -- Baslangictan 60 saniye sonra hazirlik probe'una delege eder; erken cagrida 503 donmeli
+4. `curl -H "Authorization: Bearer $SUPERADMIN_TOKEN" http://localhost:8084/api/v1/system/backup-status` -- `{"last_daily":null,"last_weekly":null,"last_monthly":null,"last_verify":null,"history":[]}` (ilk calistirmada, henuz backup yok); Backup processor calishiktan sonra dolu donmeli
+5. `curl -H "Authorization: Bearer $SUPERADMIN_TOKEN" http://localhost:8084/api/v1/system/jwt-rotation-history` -- `{"current_fingerprint":"...","previous_fingerprint":"","history":[]}` donmeli; JWT_SECRET_PREVIOUS degistiginde history kaydi gorulmeli
+6. `curl http://localhost:8080/metrics | grep argus_disk_usage_percent` -- konfigureli mount noktalari icin gauge serisi donmeli
+7. `docker compose logs argus | grep "disk probe configured"` -- Baslangicta mount noktalarini iceren yapilandirilmis log kaydi gorulmeli
+8. `docker compose logs argus | grep "backup processor started"` -- Backup islemcisinin baslatildigina dair log kaydi gorulmeli
+9. SIGTERM gonderme: `docker compose stop argus` -- Graceful shutdown log sirasini gozlemle: HTTP drain → RADIUS drain → Diameter drain → 5G SBA drain → WS drain → jobs → NATS → Redis → PG (30 saniye icinde tamamlanmali)
+10. pprof erisilebilirlik: `PPROF_ENABLED=false` varsayilaniyla `curl http://localhost:6060/debug/pprof/` -- 404 veya baglanti reddedilmeli; `PPROF_ENABLED=true` ve `PPROF_TOKEN` ile `curl "http://localhost:6060/debug/pprof/?token=$PPROF_TOKEN"` -- profil ciktisi donmeli
+11. `psql ... -c "\d backup_runs"` -- TBL-32 tablosu mevcut olmali (kind, state, s3_bucket, s3_key, sha256 kolonlari)
+12. `psql ... -c "\d backup_verifications"` -- TBL-33 tablosu mevcut olmali (backup_run_id FK, tenants_count, sims_count kolonlari)
+13. `make test` -- 2135 test gecmeli, hicbir skiplenmis test olmamali

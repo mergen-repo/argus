@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var JWTVerifyHook func(slot string)
+
 var (
 	ErrTokenExpired = errors.New("auth: token expired")
 	ErrTokenInvalid = errors.New("auth: token invalid")
@@ -60,4 +62,36 @@ func ValidateToken(tokenString, secret string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func ValidateTokenMulti(tokenString string, secrets ...string) (*Claims, error) {
+	var lastErr error
+	for i, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		claims, err := ValidateToken(tokenString, secret)
+		if err == nil {
+			slot := "current"
+			if i > 0 {
+				slot = "previous"
+			}
+			if JWTVerifyHook != nil {
+				JWTVerifyHook(slot)
+			}
+			return claims, nil
+		}
+		if errors.Is(err, ErrTokenExpired) {
+			lastErr = err
+		} else if lastErr == nil {
+			lastErr = err
+		}
+	}
+	if JWTVerifyHook != nil {
+		JWTVerifyHook("failed")
+	}
+	if lastErr == nil {
+		lastErr = ErrTokenInvalid
+	}
+	return nil, lastErr
 }

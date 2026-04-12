@@ -98,7 +98,7 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 | Container | Image | Port | Purpose | Health Check |
 |-----------|-------|------|---------|-------------|
 | CTN-01 | nginx:alpine | 8084→80 | Reverse proxy, static SPA (HTTP; TLS deferred) | GET / |
-| CTN-02 | argus:latest (custom) | 8080, 8081, 1812, 1813, 3868, 8443 | Go monolith | GET :8080/api/health |
+| CTN-02 | argus:latest (custom) | 8080, 8081, 1812, 1813, 3868, 8443 | Go monolith | GET :8080/health/ready |
 | CTN-03 | timescale/timescaledb:latest-pg16 | 5432 | PostgreSQL + TimescaleDB | pg_isready |
 | CTN-04 | redis:7-alpine | 6379 | Cache, rate limiting | redis-cli ping |
 | CTN-05 | nats:latest | 4222, 8222 | Event bus, job queue | /healthz on :8222 |
@@ -109,6 +109,7 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 ### Volumes
 - `pgdata`: PostgreSQL data persistence
 - `natsdata`: NATS JetStream persistence
+- `postgres_wal_archive`: WAL segment archive staging (mounted into postgres container; S3 shipping via `archive_command` when `ARGUS_WAL_BUCKET`/`ARGUS_WAL_PREFIX` are set)
 
 ### Environment Variables
 See `.env.example` for complete list.
@@ -367,6 +368,20 @@ Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross
 - **Alert rules** (`infra/prometheus/alerts.yml`, 9 rules): `ArgusHighErrorRate`, `ArgusAuthLatencyHigh`, `ArgusOperatorDown`, `ArgusCircuitBreakerOpen`, `ArgusDBPoolExhausted`, `ArgusNATSConsumerLag`, `ArgusJobFailureRate`, `ArgusRedisEvictionStorm`, `ArgusDiskSpaceLow`.
 - **Deployment**: Optional overlay compose file `deploy/docker-compose.obs.yml` starts Prometheus, Grafana, and OTel Collector on `argus_argus-net` (DEV-176). The core Argus binary's `/metrics` endpoint works standalone without the overlay.
 
+## Backup Infrastructure (STORY-066)
+
+Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC-09 job scheduler:
+
+- **BackupProcessor** (`internal/job/backup.go`) — schedules daily/weekly/monthly `pg_dump` runs, uploads compressed dumps to S3 (`AWS_REGION`, `BACKUP_S3_BUCKET`, `BACKUP_S3_PREFIX`), and records every run in TBL-32 (`backup_runs`). Configurable retention sweep: `BACKUP_DAILY_RETAIN`, `BACKUP_WEEKLY_RETAIN`, `BACKUP_MONTHLY_RETAIN`.
+- **Weekly verification** — a follow-on job restores the latest daily dump to a scratch container and counts rows in `tenants` and `sims`, writing results to TBL-33 (`backup_verifications`). Deviation > 1% triggers an incident log.
+- **WAL archiving** — `archive_mode = on` and `archive_command` are set in `infra/postgres/postgresql.conf`. The `postgres_wal_archive` Docker volume provides local staging. Live S3/MinIO WAL shipping activates when `ARGUS_WAL_BUCKET` + `ARGUS_WAL_PREFIX` env vars are set at deploy time.
+- **PITR** — Point-in-time recovery uses `recovery.signal` + `recovery_target_time` + `recovery_target_action = promote` in `postgresql.auto.conf`. Full procedure documented in `docs/runbook/dr-pitr.md`.
+- **Health probe split** (`internal/gateway/health.go`): three distinct endpoints replace the legacy `/api/health`:
+  - `GET /health/live` — goroutine-only, always 200 while process runs (API-187)
+  - `GET /health/ready` — full dependency check + disk space probe (API-188)
+  - `GET /health/startup` — 60-second grace period, then delegates to ready (API-189)
+- **Disk space probe** — `argus_disk_usage_percent{mount}` Prometheus gauge; configurable mounts via `DISK_PROBE_MOUNTS`, thresholds via `DISK_DEGRADED_PCT`/`DISK_UNHEALTHY_PCT`.
+
 ## Extension Points (for FUTURE.md)
 
 | Extension | Design Provision |
@@ -381,8 +396,8 @@ Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 109 | API-001 to API-186 |
-| TBL-NN | 31 | TBL-01 to TBL-31 |
+| API-NNN | 115 | API-001 to API-191 |
+| TBL-NN | 33 | TBL-01 to TBL-33 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |
 
@@ -413,8 +428,8 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (114 endpoints + story links) |
-| [architecture/db/](architecture/db/_index.md) | Database schema (31 tables) |
+| [architecture/api/](architecture/api/_index.md) | API surface (120 endpoints + story links) |
+| [architecture/db/](architecture/db/_index.md) | Database schema (33 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
 

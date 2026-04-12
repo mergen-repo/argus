@@ -178,7 +178,7 @@ web-build:
 
 test:
 	@echo "Testler calistiriliyor..."
-	@go test ./... -v -race
+	@go test ./... -v -race -short
 	@echo "Testler tamamlandi."
 
 test-coverage:

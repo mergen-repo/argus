@@ -37,6 +37,7 @@ import (
 	notifapi "github.com/btopcu/argus/internal/api/notification"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
+	systemapi "github.com/btopcu/argus/internal/api/system"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
@@ -104,12 +105,22 @@ func main() {
 	if cfg.PprofEnabled || cfg.IsDev() {
 		go func() {
 			pprofAddr := cfg.PprofAddr
-			log.Info().Str("addr", pprofAddr).Msg("pprof server starting (endpoints: /debug/pprof/)")
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			mux := http.NewServeMux()
+			mux.Handle("/debug/pprof/", http.DefaultServeMux)
+			var pprofHandler http.Handler = mux
+			if cfg.IsDev() {
+				log.Info().Str("addr", pprofAddr).Str("mode", "open").Msg("pprof server starting (endpoints: /debug/pprof/)")
+			} else {
+				pprofHandler = gateway.PprofGuard(cfg.PprofToken)(mux)
+				log.Info().Str("addr", pprofAddr).Str("mode", "guarded").Msg("pprof server starting (endpoints: /debug/pprof/)")
+			}
+			if err := http.ListenAndServe(pprofAddr, pprofHandler); err != nil {
 				log.Error().Err(err).Msg("pprof server error")
 			}
 		}()
 	}
+
+	bootID := uuid.New().String()
 
 	log.Info().Str("env", cfg.AppEnv).Int("port", cfg.AppPort).Msg("starting argus")
 
@@ -121,6 +132,7 @@ func main() {
 
 	// --- Observability init (STORY-065) ---
 	metricsReg := obsmetrics.NewRegistry()
+	auth.JWTVerifyHook = metricsReg.IncJWTVerify
 
 	otelInitCtx, otelInitCancel := context.WithTimeout(appCtx, 10*time.Second)
 	otelShutdown, err := observability.Init(otelInitCtx, observability.Config{
@@ -219,6 +231,10 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to start audit consumer")
 	}
 
+	if err := auth.CheckAndAuditRotation(ctx, cfg, auditSvc, bootID, log.Logger); err != nil {
+		log.Warn().Err(err).Msg("jwt key rotation audit failed")
+	}
+
 	tenantHandler := tenantapi.NewHandler(tenantStore, auditSvc, log.Logger)
 	userHandler := userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger)
 	auditHandler := auditapi.NewHandler(auditStore, auditSvc, log.Logger)
@@ -302,6 +318,17 @@ func main() {
 	}
 	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, log.Logger)
 
+	lagPoller := bus.NewLagPoller(
+		bus.NewJSStreamLookup(ns.JetStream),
+		metricsReg,
+		[]string{bus.StreamEvents, bus.StreamJobs},
+		time.Duration(cfg.NATSConsumerLagPollSec)*time.Second,
+		cfg.NATSConsumerLagAlertThreshold,
+		eventBus,
+		log.Logger,
+	)
+	lagPoller.Start(appCtx)
+
 	anomalyStore := store.NewAnomalyStore(pg.Pool)
 	anomalyThresholds := anomalysvc.DefaultThresholds()
 	realtimeDetector := anomalysvc.NewRealtimeDetector(rdb.Client, anomalyThresholds, log.Logger)
@@ -333,6 +360,12 @@ func main() {
 		log.Logger,
 	)
 
+	readPool := pg.Pool
+	if pgReadReplica != nil {
+		readPool = pgReadReplica.Pool
+		log.Info().Msg("bulk reads + CDR export routed to read replica")
+	}
+
 	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
 	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
@@ -353,7 +386,8 @@ func main() {
 	slaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	ipReclaimProc := job.NewIPReclaimProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, log.Logger)
 	slaReportProc := job.NewSLAReportProcessor(jobStore, slaReportStore, operatorStore, tenantStore, slaRadiusSessionStore, eventBus, log.Logger)
-	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
+	readSegmentStore := store.NewSegmentStore(readPool)
+	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, readSegmentStore, distLock, eventBus, log.Logger)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
 	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, distLock, eventBus, log.Logger)
@@ -365,11 +399,13 @@ func main() {
 	jobRunner.Register(otaProcessor)
 	jobRunner.Register(bulkEsimSwitchProc)
 
-	cdrExportProc := job.NewCDRExportProcessor(jobStore, cdrStore, eventBus, log.Logger)
+	readCDRStore := store.NewCDRStore(readPool)
+	cdrExportProc := job.NewCDRExportProcessor(jobStore, cdrStore, readCDRStore, eventBus, log.Logger)
 	jobRunner.Register(cdrExportProc)
 
 	anomalyBatchProc := job.NewAnomalyBatchProcessor(batchDetector, jobStore, eventBus, log.Logger)
-	jobRunner.Register(anomalyBatchProc)
+	safeAnomalyProc := job.NewCrashSafeProcessor(anomalyBatchProc, eventBus, log.Logger)
+	jobRunner.Register(safeAnomalyProc)
 
 	storageMonitorStore := store.NewStorageMonitorStore(pg.Pool)
 	dataLifecycleStore := store.NewDataLifecycleStore(pg.Pool)
@@ -384,8 +420,10 @@ func main() {
 	jobRunner.Register(partitionCreatorProc)
 
 	var s3Uploader job.S3Uploader
+	var s3Impl *storage.S3Uploader
 	if cfg.S3Bucket != "" {
-		s3Impl, s3Err := storage.NewS3Uploader(ctx, storage.S3Config{
+		var s3Err error
+		s3Impl, s3Err = storage.NewS3Uploader(ctx, storage.S3Config{
 			Endpoint:  cfg.S3Endpoint,
 			AccessKey: cfg.S3AccessKey,
 			SecretKey: cfg.S3SecretKey,
@@ -401,6 +439,53 @@ func main() {
 	}
 	s3ArchivalProc := job.NewS3ArchivalProcessor(jobStore, dataLifecycleStore, storageMonitorStore, cdrStore, s3Uploader, eventBus, cfg.S3Bucket, log.Logger)
 	jobRunner.Register(s3ArchivalProc)
+
+	var backupDailyProc, backupWeeklyProc, backupMonthlyProc *job.BackupProcessor
+	var backupVerifyProc *job.BackupVerifyProcessor
+	var backupCleanupProc *job.BackupCleanupProcessor
+	if cfg.BackupEnabled {
+		backupStore := store.NewBackupStore(pg.Pool)
+		backupTimeout := time.Duration(cfg.BackupTimeoutSec) * time.Second
+
+		// Guard against nil-pointer-wrapped-in-interface: only assign when s3Impl != nil.
+		var backupS3 job.BackupS3Client
+		if s3Impl != nil {
+			backupS3 = s3Impl
+		}
+
+		backupDailyProc = job.NewBackupProcessor(job.BackupProcessorOpts{
+			Store: backupStore, Uploader: backupS3, Bucket: cfg.BackupBucket,
+			TempDir: "/tmp", Timeout: backupTimeout, Kind: "daily",
+			DatabaseURL: cfg.DatabaseURL, Reg: metricsReg, Logger: log.Logger, EventBus: eventBus,
+		})
+		backupWeeklyProc = job.NewBackupProcessor(job.BackupProcessorOpts{
+			Store: backupStore, Uploader: backupS3, Bucket: cfg.BackupBucket,
+			TempDir: "/tmp", Timeout: backupTimeout, Kind: "weekly",
+			DatabaseURL: cfg.DatabaseURL, Reg: metricsReg, Logger: log.Logger, EventBus: eventBus,
+		})
+		backupMonthlyProc = job.NewBackupProcessor(job.BackupProcessorOpts{
+			Store: backupStore, Uploader: backupS3, Bucket: cfg.BackupBucket,
+			TempDir: "/tmp", Timeout: backupTimeout, Kind: "monthly",
+			DatabaseURL: cfg.DatabaseURL, Reg: metricsReg, Logger: log.Logger, EventBus: eventBus,
+		})
+		backupVerifyProc = job.NewBackupVerifyProcessor(job.BackupVerifyProcessorOpts{
+			Store: backupStore, Uploader: backupS3, Bucket: cfg.BackupBucket,
+			TempDir: "/tmp", Timeout: backupTimeout,
+			DatabaseURL: cfg.DatabaseURL, EventBus: eventBus, Logger: log.Logger,
+		})
+		backupCleanupProc = job.NewBackupCleanupProcessor(job.BackupCleanupProcessorOpts{
+			Store: backupStore, Uploader: backupS3, Bucket: cfg.BackupBucket,
+			RetentionDaily: cfg.BackupRetentionDaily, RetentionWeekly: cfg.BackupRetentionWeekly,
+			RetentionMonthly: cfg.BackupRetentionMonthly, Logger: log.Logger,
+		})
+
+		jobRunner.Register(backupDailyProc)
+		jobRunner.Register(backupWeeklyProc)
+		jobRunner.Register(backupMonthlyProc)
+		jobRunner.Register(backupVerifyProc)
+		jobRunner.Register(backupCleanupProc)
+		log.Info().Msg("backup processors registered")
+	}
 
 	if err := jobRunner.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start job runner")
@@ -458,8 +543,20 @@ func main() {
 			Schedule: "0 2 * * *",
 			JobType:  job.JobTypePartitionCreate,
 		})
+
+		if cfg.BackupEnabled && backupDailyProc != nil {
+			cronScheduler.AddEntry(job.CronEntry{Name: "backup-daily", Schedule: cfg.BackupDailyCron, JobType: backupDailyProc.Type()})
+			cronScheduler.AddEntry(job.CronEntry{Name: "backup-weekly", Schedule: "0 2 * * 0", JobType: backupWeeklyProc.Type()})
+			cronScheduler.AddEntry(job.CronEntry{Name: "backup-monthly", Schedule: "0 2 1 * *", JobType: backupMonthlyProc.Type()})
+			cronScheduler.AddEntry(job.CronEntry{Name: "backup-verify", Schedule: cfg.BackupVerifyCron, JobType: backupVerifyProc.Type()})
+			cronScheduler.AddEntry(job.CronEntry{Name: "backup-cleanup", Schedule: cfg.BackupCleanupCron, JobType: backupCleanupProc.Type()})
+		}
+
 		cronScheduler.Start()
 	}
+
+	operatorRouter := operator.NewOperatorRouterFromConfig(cfg, adapterRegistry, log.Logger)
+	_ = operatorRouter
 
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
 	healthChecker.SetEventPublisher(eventBus, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered)
@@ -731,6 +828,16 @@ func main() {
 	if sbaServer != nil {
 		health.SetSBAChecker(sbaServer)
 	}
+	diskMountsRaw := strings.Split(cfg.DiskProbeMount, ",")
+	diskMounts := make([]string, 0, len(diskMountsRaw))
+	for _, m := range diskMountsRaw {
+		if m = strings.TrimSpace(m); m != "" {
+			diskMounts = append(diskMounts, m)
+		}
+	}
+	health.SetDiskConfig(diskMounts, cfg.DiskDegradedPct, cfg.DiskUnhealthyPct)
+	health.SetMetricsRegistry(metricsReg)
+	log.Logger.Info().Strs("mounts", diskMounts).Int("degraded_pct", cfg.DiskDegradedPct).Int("unhealthy_pct", cfg.DiskUnhealthyPct).Msg("disk probe configured")
 	secHeadersCfg := gateway.DefaultSecurityHeadersConfig()
 	if cfg.CSPDirectives != "" {
 		secHeadersCfg.CSPDirectives = cfg.CSPDirectives
@@ -750,6 +857,9 @@ func main() {
 	if cfg.BruteForceWindowSeconds > 0 {
 		bfCfg.WindowSeconds = cfg.BruteForceWindowSeconds
 	}
+
+	reliabilityBackupStore := store.NewBackupStore(pg.Pool)
+	reliabilityHandler := systemapi.NewReliabilityHandler(reliabilityBackupStore, auditStore, cfg, log.Logger)
 
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
@@ -780,11 +890,13 @@ func main() {
 		ViolationHandler:    violationHandler,
 		DashboardHandler:    dashboardHandler,
 		SLAHandler:          slaHandler,
+		ReliabilityHandler:  reliabilityHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
 		RateLimitPerHour:   cfg.RateLimitPerHour,
 		JWTSecret:          cfg.JWTSecret,
+		JWTSecretPrevious:  cfg.JWTSecretPrevious,
 		Logger:             log.Logger,
 		SecurityHeadersCfg:   &secHeadersCfg,
 		CORSConfig:           &corsCfg,
@@ -819,102 +931,218 @@ func main() {
 		}
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
+	gracefulShutdown(
+		appCtx,
+		appCancel,
+		cfg,
+		srv,
+		radiusServer,
+		diameterServer,
+		sbaServer,
+		wsServer,
+		wsHub,
+		sessionSweeper,
+		cronScheduler,
+		timeoutDetector,
+		jobRunner,
+		metricsPusher,
+		notifSvc,
+		healthChecker,
+		anomalyEngine,
+		lagPoller,
+		cdrConsumer,
+		auditSvc,
+		otelShutdown,
+		ns,
+		rdb,
+		pg,
+		log.Logger,
+	)
+}
 
-	log.Info().Msg("shutting down http server")
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("http server shutdown error")
+// AC-5: Ordered graceful shutdown.
+// Order rationale: ingress drains first so no new work arrives; then control plane so no new
+// background tasks spawn; then data plane so in-flight work completes; then observability
+// flush so traces/metrics for shutdown itself land; THEN infra close so flush operations have
+// live connections. Per-subsystem timeout from cfg.Shutdown*Sec.
+func gracefulShutdown(
+	appCtx context.Context,
+	appCancel context.CancelFunc,
+	cfg *config.Config,
+	srv *http.Server,
+	radiusServer *aaaradius.Server,
+	diameterServer *aaadiameter.Server,
+	sbaServer *aaasba.Server,
+	wsServer *ws.Server,
+	wsHub *ws.Hub,
+	sessionSweeper *aaasession.TimeoutSweeper,
+	cronScheduler *job.Scheduler,
+	timeoutDetector *job.TimeoutDetector,
+	jobRunner *job.Runner,
+	metricsPusher *analyticmetrics.Pusher,
+	notifSvc *notification.Service,
+	healthChecker *operator.HealthChecker,
+	anomalyEngine *anomalysvc.Engine,
+	lagPoller *bus.LagPoller,
+	cdrConsumer *cdrsvc.Consumer,
+	auditSvc *audit.FullService,
+	otelShutdown func(context.Context) error,
+	ns *bus.NATS,
+	rdb *cache.Redis,
+	pg *store.Postgres,
+	logger zerolog.Logger,
+) {
+	// 1. HTTP server — ingress drain.
+	t := time.Now()
+	httpCtx, httpCancel := context.WithTimeout(appCtx, time.Duration(cfg.ShutdownHTTPSec)*time.Second)
+	defer httpCancel()
+	logger.Info().Str("subsystem", "http").Msg("shutdown step starting")
+	if err := srv.Shutdown(httpCtx); err != nil {
+		logger.Error().Err(err).Str("subsystem", "http").Msg("shutdown error")
 	}
+	logger.Info().Str("subsystem", "http").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
+	// 2. RADIUS server stop.
 	if radiusServer != nil {
-		log.Info().Msg("stopping RADIUS server")
-		if err := radiusServer.Stop(shutdownCtx); err != nil {
-			log.Error().Err(err).Msg("RADIUS server shutdown error")
+		t = time.Now()
+		radCtx, radCancel := context.WithTimeout(appCtx, time.Duration(cfg.ShutdownRADIUSSec)*time.Second)
+		defer radCancel()
+		logger.Info().Str("subsystem", "radius").Msg("shutdown step starting")
+		if err := radiusServer.Stop(radCtx); err != nil {
+			logger.Error().Err(err).Str("subsystem", "radius").Msg("shutdown error")
 		}
+		logger.Info().Str("subsystem", "radius").Dur("duration", time.Since(t)).Msg("shutdown step done")
 	}
 
+	// 3. Diameter server stop.
 	if diameterServer != nil {
-		log.Info().Msg("stopping Diameter server")
+		t = time.Now()
+		logger.Info().Str("subsystem", "diameter").Msg("shutdown step starting")
 		diameterServer.Stop()
+		logger.Info().Str("subsystem", "diameter").Dur("duration", time.Since(t)).Msg("shutdown step done")
 	}
 
+	// 4. SBA server stop (NRF deregister first).
 	if sbaServer != nil {
-		log.Info().Msg("stopping SBA server")
+		t = time.Now()
+		logger.Info().Str("subsystem", "sba").Msg("shutdown step starting")
 		_ = sbaServer.NRFRegistration().Deregister()
 		sbaServer.Stop()
+		logger.Info().Str("subsystem", "sba").Dur("duration", time.Since(t)).Msg("shutdown step done")
 	}
 
-	if sessionSweeper != nil {
-		log.Info().Msg("stopping session sweeper")
-		sessionSweeper.Stop()
-	}
-
-	if cronScheduler != nil {
-		log.Info().Msg("stopping cron scheduler")
-		cronScheduler.Stop()
-	}
-
-	log.Info().Msg("stopping timeout detector")
-	timeoutDetector.Stop()
-
-	log.Info().Msg("stopping job runner")
-	jobRunner.Stop()
-
-	log.Info().Msg("stopping metrics pusher")
-	metricsPusher.Stop()
-
-	log.Info().Msg("stopping ws server")
+	// 5. WebSocket server stop (broadcast reconnect hint first, then drain).
+	t = time.Now()
+	logger.Info().Str("subsystem", "ws").Msg("shutdown step starting")
 	wsHub.BroadcastReconnect("server shutting down", 2000)
 	time.Sleep(500 * time.Millisecond)
-	if err := wsServer.Stop(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("ws server shutdown error")
+	wsCtx, wsCancel := context.WithTimeout(appCtx, time.Duration(cfg.ShutdownWSSec)*time.Second)
+	defer wsCancel()
+	if err := wsServer.Stop(wsCtx); err != nil {
+		logger.Error().Err(err).Str("subsystem", "ws").Msg("shutdown error")
 	}
-
-	log.Info().Msg("stopping ws hub")
 	wsHub.Stop()
+	logger.Info().Str("subsystem", "ws").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
-	log.Info().Msg("stopping notification service")
-	notifSvc.Stop()
-
-	log.Info().Msg("stopping health checker")
-	healthChecker.Stop()
-
-	log.Info().Msg("stopping anomaly engine")
-	anomalyEngine.Stop()
-
-	log.Info().Msg("stopping cdr consumer")
-	cdrConsumer.Stop()
-
-	log.Info().Msg("stopping audit consumer")
-	auditSvc.Stop()
-
-	// Flush OTel spans BEFORE closing NATS/Redis/DB so any in-flight span
-	// that references those resources still serializes cleanly. Must run
-	// before ns.Close() / rdb.Close() / pg.Close() below.
-	log.Info().Msg("flushing otel spans")
-	otelShutdownCtx, otelShutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := otelShutdown(otelShutdownCtx); err != nil {
-		log.Error().Err(err).Msg("otel shutdown failed")
+	// 6. Control-plane services — sync stop (no per-subsystem timeout needed).
+	if sessionSweeper != nil {
+		t = time.Now()
+		logger.Info().Str("subsystem", "session_sweeper").Msg("shutdown step starting")
+		sessionSweeper.Stop()
+		logger.Info().Str("subsystem", "session_sweeper").Dur("duration", time.Since(t)).Msg("shutdown step done")
 	}
-	otelShutdownCancel()
+	if cronScheduler != nil {
+		t = time.Now()
+		logger.Info().Str("subsystem", "cron_scheduler").Msg("shutdown step starting")
+		cronScheduler.Stop()
+		logger.Info().Str("subsystem", "cron_scheduler").Dur("duration", time.Since(t)).Msg("shutdown step done")
+	}
+	t = time.Now()
+	logger.Info().Str("subsystem", "timeout_detector").Msg("shutdown step starting")
+	timeoutDetector.Stop()
+	logger.Info().Str("subsystem", "timeout_detector").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
-	// Cancel appCtx so long-lived background goroutines (pool gauge etc.)
+	// 7. Job runner — allow in-flight jobs to complete within ShutdownJobSec budget.
+	t = time.Now()
+	logger.Info().Str("subsystem", "job_runner").Msg("shutdown step starting")
+	jobRunner.Stop()
+	logger.Info().Str("subsystem", "job_runner").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	// 8. Data-plane services — stop in declared order.
+	t = time.Now()
+	logger.Info().Str("subsystem", "metrics_pusher").Msg("shutdown step starting")
+	metricsPusher.Stop()
+	logger.Info().Str("subsystem", "metrics_pusher").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "notification").Msg("shutdown step starting")
+	notifSvc.Stop()
+	logger.Info().Str("subsystem", "notification").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "health_checker").Msg("shutdown step starting")
+	healthChecker.Stop()
+	logger.Info().Str("subsystem", "health_checker").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "anomaly_engine").Msg("shutdown step starting")
+	anomalyEngine.Stop()
+	logger.Info().Str("subsystem", "anomaly_engine").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "lag_poller").Msg("shutdown step starting")
+	lagPoller.Stop()
+	logger.Info().Str("subsystem", "lag_poller").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "cdr_consumer").Msg("shutdown step starting")
+	cdrConsumer.Stop()
+	logger.Info().Str("subsystem", "cdr_consumer").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "audit").Msg("shutdown step starting")
+	auditSvc.Stop()
+	logger.Info().Str("subsystem", "audit").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	// 9. OTel flush — MUST run BEFORE infra close so in-flight spans flush with
+	// NATS/Redis/DB connections still alive. See STORY-065 rationale.
+	t = time.Now()
+	logger.Info().Str("subsystem", "otel").Msg("shutdown step starting")
+	otelCtx, otelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := otelShutdown(otelCtx); err != nil {
+		logger.Error().Err(err).Str("subsystem", "otel").Msg("shutdown error")
+	}
+	otelCancel()
+	logger.Info().Str("subsystem", "otel").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	// 10. Cancel appCtx so long-lived background goroutines (pool gauge etc.)
 	// exit before their underlying resources are torn down.
 	appCancel()
 
-	log.Info().Msg("closing nats connection")
-	ns.Close()
-
-	log.Info().Msg("closing redis connection")
-	if err := rdb.Close(); err != nil {
-		log.Error().Err(err).Msg("redis close error")
+	// 11. NATS flush then close.
+	t = time.Now()
+	logger.Info().Str("subsystem", "nats").Msg("shutdown step starting")
+	if err := ns.Conn.FlushTimeout(time.Duration(cfg.ShutdownNATSSec) * time.Second); err != nil {
+		logger.Error().Err(err).Str("subsystem", "nats").Msg("flush error")
 	}
+	ns.Close()
+	logger.Info().Str("subsystem", "nats").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
-	log.Info().Msg("closing database connection")
+	// 12. Redis close.
+	t = time.Now()
+	logger.Info().Str("subsystem", "redis").Msg("shutdown step starting")
+	if err := rdb.Close(); err != nil {
+		logger.Error().Err(err).Str("subsystem", "redis").Msg("shutdown error")
+	}
+	logger.Info().Str("subsystem", "redis").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	// 13. PostgreSQL close.
+	t = time.Now()
+	logger.Info().Str("subsystem", "postgres").Msg("shutdown step starting")
 	pg.Close()
+	logger.Info().Str("subsystem", "postgres").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
-	log.Info().Msg("argus stopped gracefully")
+	logger.Info().Msg("argus stopped gracefully")
 }
 
 type userStoreAdapter struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/btopcu/argus/internal/auth"
 )
 
-func JWTAuth(secret string) func(http.Handler) http.Handler {
+func JWTAuth(currentSecret, previousSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenStr := extractBearerToken(r)
@@ -19,7 +19,7 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := auth.ValidateToken(tokenStr, secret)
+			claims, err := auth.ValidateTokenMulti(tokenStr, currentSecret, previousSecret)
 			if err != nil {
 				code := apierr.CodeInvalidCredentials
 				msg := "Invalid authentication token"
@@ -47,7 +47,7 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 	}
 }
 
-func JWTAuthAllowPartial(secret string) func(http.Handler) http.Handler {
+func JWTAuthAllowPartial(currentSecret, previousSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenStr := extractBearerToken(r)
@@ -57,7 +57,7 @@ func JWTAuthAllowPartial(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := auth.ValidateToken(tokenStr, secret)
+			claims, err := auth.ValidateTokenMulti(tokenStr, currentSecret, previousSecret)
 			if err != nil {
 				code := apierr.CodeInvalidCredentials
 				msg := "Invalid authentication token"

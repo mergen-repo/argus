@@ -43,6 +43,8 @@ const (
 
 	CodeRateLimited = "RATE_LIMITED"
 
+	CodeRequestBodyTooLarge = "REQUEST_BODY_TOO_LARGE"
+
 	CodeAPNHasActiveSIMs       = "APN_HAS_ACTIVE_SIMS"
 	CodePoolExhausted          = "POOL_EXHAUSTED"
 	CodeIPAlreadyAllocated     = "IP_ALREADY_ALLOCATED"
@@ -61,6 +63,8 @@ const (
 	CodeDuplicateProfile        = "DUPLICATE_PROFILE"
 	CodeProfileNotAvailable     = "PROFILE_NOT_AVAILABLE"
 	CodeIPReleaseFailed         = "IP_RELEASE_FAILED"
+
+	CodeOperatorUnavailable = "OPERATOR_UNAVAILABLE"
 )
 
 type SuccessResponse struct {

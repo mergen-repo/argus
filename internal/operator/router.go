@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/config"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -18,15 +19,29 @@ type OperatorRouter struct {
 	failoverConfigs map[uuid.UUID]FailoverConfig
 	logger          zerolog.Logger
 	onStateChange   func(operatorID uuid.UUID, from, to CircuitState)
+
+	defaultThreshold   int
+	defaultRecoverySec int
 }
 
 func NewOperatorRouter(registry *adapter.Registry, logger zerolog.Logger) *OperatorRouter {
 	return &OperatorRouter{
-		registry:        registry,
-		breakers:        make(map[uuid.UUID]*CircuitBreaker),
-		failoverConfigs: make(map[uuid.UUID]FailoverConfig),
-		logger:          logger,
+		registry:           registry,
+		breakers:           make(map[uuid.UUID]*CircuitBreaker),
+		failoverConfigs:    make(map[uuid.UUID]FailoverConfig),
+		logger:             logger,
+		defaultThreshold:   5,
+		defaultRecoverySec: 30,
 	}
+}
+
+// NewOperatorRouterFromConfig builds a router seeded with circuit breaker defaults
+// from global config. Per-operator override is future work (tracked in STORY-066 decisions).
+func NewOperatorRouterFromConfig(cfg *config.Config, registry *adapter.Registry, logger zerolog.Logger) *OperatorRouter {
+	r := NewOperatorRouter(registry, logger)
+	r.defaultThreshold = cfg.CircuitBreakerThreshold
+	r.defaultRecoverySec = cfg.CircuitBreakerRecoverySec
+	return r
 }
 
 func (r *OperatorRouter) SetStateChangeCallback(fn func(operatorID uuid.UUID, from, to CircuitState)) {
@@ -57,10 +72,10 @@ func (r *OperatorRouter) RegisterOperator(operatorID uuid.UUID, a adapter.Adapte
 	r.registry.Set(operatorID, a)
 
 	if cbThreshold <= 0 {
-		cbThreshold = 5
+		cbThreshold = r.defaultThreshold
 	}
 	if cbRecoverySec <= 0 {
-		cbRecoverySec = 60
+		cbRecoverySec = r.defaultRecoverySec
 	}
 	r.breakers[operatorID] = NewCircuitBreaker(cbThreshold, cbRecoverySec)
 }
@@ -289,6 +304,10 @@ func (r *OperatorRouter) FetchAuthVectors(ctx context.Context, operatorID uuid.U
 	return vectors, nil
 }
 
+// HealthCheck bypasses the circuit breaker's ShouldAllow gate intentionally:
+// health probes MUST execute even when the circuit is open so the breaker can
+// detect operator recovery. Results are still recorded on the breaker so that
+// a successful probe transitions it back to half-open/closed.
 func (r *OperatorRouter) HealthCheck(ctx context.Context, operatorID uuid.UUID) adapter.HealthResult {
 	a, ok := r.registry.Get(operatorID)
 	if !ok {
@@ -326,6 +345,10 @@ func (r *OperatorRouter) resolveWithCircuitBreaker(operatorID uuid.UUID) (adapte
 	r.mu.RUnlock()
 
 	if cb != nil && !cb.ShouldAllow() {
+		// Returns apierr.CodeOperatorUnavailable ("OPERATOR_UNAVAILABLE") at the HTTP layer
+		// when translated by the gateway error handler. The adapter layer wraps
+		// adapter.ErrCircuitOpen so protocol-level callers (RADIUS, Diameter, 5G) can
+		// inspect the sentinel directly without importing apierr.
 		return nil, nil, adapter.WrapError(operatorID, a.Type(), adapter.ErrCircuitOpen)
 	}
 

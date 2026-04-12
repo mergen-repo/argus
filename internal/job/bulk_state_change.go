@@ -17,29 +17,32 @@ const (
 )
 
 type BulkStateChangeProcessor struct {
-	jobs     *store.JobStore
-	sims     *store.SIMStore
-	segments *store.SegmentStore
-	distLock *DistributedLock
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs         *store.JobStore
+	sims         *store.SIMStore
+	segments     *store.SegmentStore
+	readSegments *store.SegmentStore
+	distLock     *DistributedLock
+	eventBus     *bus.EventBus
+	logger       zerolog.Logger
 }
 
 func NewBulkStateChangeProcessor(
 	jobs *store.JobStore,
 	sims *store.SIMStore,
 	segments *store.SegmentStore,
+	readSegments *store.SegmentStore,
 	distLock *DistributedLock,
 	eventBus *bus.EventBus,
 	logger zerolog.Logger,
 ) *BulkStateChangeProcessor {
 	return &BulkStateChangeProcessor{
-		jobs:     jobs,
-		sims:     sims,
-		segments: segments,
-		distLock: distLock,
-		eventBus: eventBus,
-		logger:   logger.With().Str("processor", JobTypeBulkStateChange).Logger(),
+		jobs:         jobs,
+		sims:         sims,
+		segments:     segments,
+		readSegments: readSegments,
+		distLock:     distLock,
+		eventBus:     eventBus,
+		logger:       logger.With().Str("processor", JobTypeBulkStateChange).Logger(),
 	}
 }
 
@@ -60,7 +63,7 @@ func (p *BulkStateChangeProcessor) Process(ctx context.Context, j *store.Job) er
 }
 
 func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
-	simDetails, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
+	simDetails, err := p.readSegments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
 	if err != nil {
 		return fmt.Errorf("list segment sims: %w", err)
 	}
