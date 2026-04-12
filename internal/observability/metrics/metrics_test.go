@@ -74,6 +74,25 @@ func TestHandler_ReturnsMetrics(t *testing.T) {
 	}
 }
 
+func TestNewRegistry_BuildInfoRegistered(t *testing.T) {
+	r := metrics.NewRegistry()
+	if r.BuildInfo == nil {
+		t.Fatal("BuildInfo gauge vec is nil")
+	}
+	r.BuildInfo.WithLabelValues("v1.0.0", "abc1234", "2026-04-12T00:00:00Z").Set(1)
+
+	mfs, err := r.Reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather() error: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "argus_build_info" {
+			return
+		}
+	}
+	t.Error("argus_build_info metric not found in gathered metrics")
+}
+
 func TestCounter_Increments(t *testing.T) {
 	r := metrics.NewRegistry()
 	r.HTTPRequestsTotal.WithLabelValues("GET", "/test", "200", "t1").Inc()

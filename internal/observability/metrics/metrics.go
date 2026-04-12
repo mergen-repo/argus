@@ -37,6 +37,8 @@ type Registry struct {
 
 	BackupLastSuccessTimestamp *prometheus.GaugeVec
 	BackupRunsTotal            *prometheus.CounterVec
+
+	BuildInfo *prometheus.GaugeVec
 }
 
 func NewRegistry() *Registry {
@@ -187,6 +189,12 @@ func NewRegistry() *Registry {
 		Help: "Total number of backup runs by kind and state.",
 	}, []string{"kind", "state"})
 	reg.MustRegister(r.BackupRunsTotal)
+
+	r.BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_build_info",
+		Help: "Argus build information (always 1).",
+	}, []string{"version", "git_sha", "build_time"})
+	reg.MustRegister(r.BuildInfo)
 
 	return r
 }

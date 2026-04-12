@@ -71,6 +71,7 @@ type RouterDeps struct {
 	DashboardHandler     *dashboardapi.Handler
 	SLAHandler           *slaapi.Handler
 	ReliabilityHandler   *systemapi.ReliabilityHandler
+	StatusHandler        *systemapi.StatusHandler
 	APIKeyStore      *store.APIKeyStore
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
@@ -156,6 +157,10 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Get("/api/health", deps.Health.Check)
 		r.Get("/api/v1/health", deps.Health.Check)
 
+	if deps.StatusHandler != nil {
+		r.Get("/api/v1/status", deps.StatusHandler.Serve)
+	}
+
 	if deps.SMSWebhookHandler != nil {
 		r.Post("/api/v1/notifications/sms/status", deps.SMSWebhookHandler.HandleStatusCallback)
 	}
@@ -217,6 +222,13 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("api_user"))
 			r.Patch("/api/v1/users/{id}", deps.UserHandler.Update)
 		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			// GDPR erasure — requires ?gdpr=1 query param (enforced in handler).
+			r.Delete("/api/v1/users/{id}", deps.UserHandler.Delete)
+		})
 	}
 
 	if deps.AuditHandler != nil {
@@ -227,6 +239,12 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
 			r.Get("/api/v1/audit", deps.AuditHandler.List)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Post("/api/v1/audit/system-events", deps.AuditHandler.EmitSystemEvent)
 		})
 	}
 
@@ -590,6 +608,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/system/jwt-rotation-history", deps.ReliabilityHandler.JWTRotationHistory)
+		})
+	}
+
+	if deps.StatusHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/status/details", deps.StatusHandler.ServeDetails)
 		})
 	}
 

@@ -291,6 +291,15 @@ func (s *TenantStore) GetStats(ctx context.Context, tenantID uuid.UUID) (*Tenant
 	return &stats, nil
 }
 
+func (s *TenantStore) CountActive(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM tenants WHERE state = 'active'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active tenants: %w", err)
+	}
+	return count, nil
+}
+
 func (s *TenantStore) CountUsersByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
 	var count int
 	err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND state != 'terminated'`, tenantID).Scan(&count)

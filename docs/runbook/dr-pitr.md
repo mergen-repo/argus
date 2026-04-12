@@ -245,3 +245,21 @@ docker compose -f deploy/docker-compose.yml up -d
 ```
 
 Then contact the on-call DBA with the postgres logs from the failed attempt.
+
+---
+
+## Related Runbooks
+
+- [deploy.md](deploy.md) — Standard deploy procedure; a pre-deploy snapshot is always taken before production deploys and is the recommended starting point for the full backup used in Step 3
+- [rollback.md](rollback.md) — If the PITR is being performed to support a deployment rollback (e.g., a bad migration), coordinate with rollback.md to ensure the application version is reverted to match the recovered database schema
+
+## Verification via API
+
+After argus is fully restored and the stack is running, perform a final end-to-end API check:
+
+```bash
+curl -sf http://localhost:8084/api/v1/status | jq
+# Expected: {"status":"ok", "db":"up", "cache":"up", "nats":"up", "version":"..."}
+```
+
+This confirms not just that postgres is up, but that argus can connect to all dependencies and is serving traffic correctly.

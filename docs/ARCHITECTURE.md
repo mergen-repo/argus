@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (114 APIs, 31 tables, 10 services)
+> Scale: Large (118 APIs, 31 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -119,8 +119,11 @@ See `.env.example` for complete list.
 ```
 argus/
 ├── cmd/
-│   └── argus/
-│       └── main.go              # Entry point — starts all listeners
+│   ├── argus/
+│   │   └── main.go              # Entry point — starts all listeners
+│   └── argusctl/                # Ops CLI (STORY-067): tenant/apikey/user/sim/health/backup commands
+│       ├── main.go
+│       └── cmd/                 # cobra subcommands (root, tenant, apikey, user, compliance, sim, health, backup)
 ├── internal/
 │   ├── gateway/                  # SVC-01: HTTP API gateway, middleware
 │   ├── ws/                       # SVC-02: WebSocket server
@@ -194,8 +197,16 @@ argus/
 │       └── 002_system_data.sql
 ├── deploy/
 │   ├── docker-compose.yml
+│   ├── docker-compose.blue.yml   # Blue stack (STORY-067): ports 8080/8081/1812/1813/3868/8443
+│   ├── docker-compose.green.yml  # Green stack (STORY-067): ports 9080/9081/1822/1823/3878/9443
 │   ├── docker-compose.prod.yml
 │   ├── docker-compose.obs.yml    # Optional observability overlay: Prometheus + Grafana + OTel Collector (STORY-065)
+│   ├── scripts/                  # Deployment automation (STORY-067)
+│   │   ├── bluegreen-flip.sh     # Flip Nginx upstream; hard-fails on audit error
+│   │   ├── rollback.sh           # Restore previous color from snapshot; hard-fails on audit error
+│   │   ├── smoke-test.sh         # Post-deploy health assertions
+│   │   ├── deploy-snapshot.sh    # Capture pre-deploy state as JSON snapshot
+│   │   └── deploy-tag.sh         # Create git tag for deploy event
 │   └── nginx/
 │       └── nginx.conf
 ├── infra/
@@ -382,6 +393,36 @@ Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC
   - `GET /health/startup` — 60-second grace period, then delegates to ready (API-189)
 - **Disk space probe** — `argus_disk_usage_percent{mount}` Prometheus gauge; configurable mounts via `DISK_PROBE_MOUNTS`, thresholds via `DISK_DEGRADED_PCT`/`DISK_UNHEALTHY_PCT`.
 
+## CI/CD Pipeline & Ops Tooling (STORY-067)
+
+### GitHub Actions CI Pipeline
+
+Five-stage pipeline (`.github/workflows/ci.yml`): `lint` → `test` → `security-scan` → `build` → `deploy`. Fail-fast: downstream stages are gated by upstream success.
+
+- **lint**: `golangci-lint` + `npm run lint` + `npm run type-check`
+- **test**: `go test ./... -race -short` + `npm test`
+- **security-scan**: `govulncheck` + `gosec` + `npm audit`
+- **build**: Multi-stage Docker build; digest-pinned base image (see DEV-190); pushes to registry
+- **deploy**: Parameterized `deploy-staging` / `deploy-prod` jobs; calls `bluegreen-flip.sh`; creates git deploy tag
+
+All Docker `FROM` statements are pinned via `image@sha256:<digest>` (DEV-190). `infra/scripts/update-digests.sh` re-pins on demand.
+
+### Blue-Green Deployment
+
+Two Docker Compose stacks (`deploy/docker-compose.blue.yml` / `deploy/docker-compose.green.yml`) on distinct port ranges. Nginx upstream toggled via `infra/nginx/upstream.conf` include (see DEV-186).
+
+- `deploy/scripts/bluegreen-flip.sh` — identifies active color, starts inactive color, runs smoke test, flips Nginx, saves JSON deploy snapshot, posts audit event to `POST /api/v1/audit/system-events`; on failure, reverts Nginx immediately
+- `deploy/scripts/rollback.sh` — reads deploy snapshot by `VERSION=`, starts rollback color, smoke-tests, flips Nginx back, posts audit event; fails hard on non-2xx audit response
+- `deploy/scripts/smoke-test.sh` — asserts `/health/ready` and `/api/v1/status` return 200
+
+### argusctl CLI
+
+Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` env (Viper prefix `ARGUSCTL_`). Config: `~/.argusctl.yaml`. Subcommands: `tenant` (list/create/suspend/resume), `apikey` (list/create), `user` (purge), `compliance` (dsar/erasure), `sim` (state), `health`, `backup` (verify). Build: `make build-ctl` → `dist/argusctl`.
+
+### Status Endpoint
+
+`GET /api/v1/status` — public aggregate (no auth). `GET /api/v1/status/details` — auth-gated (super_admin). Both served by `internal/api/system/status_handler.go`. `argus_build_info{version,git_sha,build_time}` Prometheus gauge emitted at startup.
+
 ## Extension Points (for FUTURE.md)
 
 | Extension | Design Provision |
@@ -396,7 +437,7 @@ Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 115 | API-001 to API-191 |
+| API-NNN | 119 | API-001 to API-195 |
 | TBL-NN | 33 | TBL-01 to TBL-33 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |

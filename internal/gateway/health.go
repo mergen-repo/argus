@@ -373,3 +373,8 @@ func (h *HealthHandler) Startup(w http.ResponseWriter, r *http.Request) {
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	h.Ready(w, r)
 }
+
+func (h *HealthHandler) CheckStatus(ctx context.Context) (state string, httpStatus int, details interface{}) {
+	data, status := h.runReadyCheck(ctx)
+	return data.State, status, data
+}

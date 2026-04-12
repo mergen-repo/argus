@@ -290,6 +290,76 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteSuccess(w, http.StatusOK, toUserResponse(updated))
 }
 
+// Delete handles GDPR erasure of a user's PII. It is gated by the `gdpr=1`
+// query parameter to prevent accidental invocation. Only tenant_admin or
+// higher may call it (router group enforces the role). Scope is the caller's
+// own tenant; cross-tenant deletion is rejected as NOT_FOUND.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	if r.URL.Query().Get("gdpr") != "1" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"GDPR erasure requires the `gdpr=1` query parameter",
+			[]map[string]string{{"field": "gdpr", "message": "must be 1", "code": "required"}})
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	callerID, _ := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if callerID == targetID {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden,
+			"You cannot GDPR-purge your own account; another tenant_admin must do so")
+		return
+	}
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user for purge")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+	if existing.State == "purged" {
+		apierr.WriteError(w, http.StatusConflict, apierr.CodeConflict, "User is already purged")
+		return
+	}
+
+	result, err := h.userStore.DeletePII(r.Context(), targetID, tenantID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("purge user pii")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "user.purge", targetID.String(), existing, map[string]interface{}{
+		"state":            "purged",
+		"sessions_revoked": result.SessionsRevoked,
+		"purged_at":        result.PurgedAt,
+	})
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"user_id":          result.UserID.String(),
+		"sessions_revoked": result.SessionsRevoked,
+		"purged_at":        result.PurgedAt.Format("2006-01-02T15:04:05Z07:00"),
+	})
+}
+
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}) {
 	if h.auditSvc == nil {
 		return

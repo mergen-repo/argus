@@ -297,6 +297,84 @@ func TestValidUserStates(t *testing.T) {
 	}
 }
 
+func TestDelete_RequiresGDPRQueryParam(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, logger)
+
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+targetID.String(), nil)
+
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
+	}
+
+	var resp apierr.ErrorResponse
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeValidationError {
+		t.Errorf("code = %q, want %q", resp.Error.Code, apierr.CodeValidationError)
+	}
+}
+
+func TestDelete_RefusesSelfPurge(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, logger)
+
+	callerID := uuid.New()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+callerID.String()+"?gdpr=1", nil)
+
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, callerID)
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+
+	req = withChiURLParam(req, "id", callerID.String())
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+
+	var resp apierr.ErrorResponse
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeForbidden {
+		t.Errorf("code = %q, want %q", resp.Error.Code, apierr.CodeForbidden)
+	}
+}
+
+func TestDelete_InvalidUUID(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, logger)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/not-a-uuid?gdpr=1", nil)
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", "not-a-uuid")
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
 func TestToUserResponse(t *testing.T) {
 	u := &userResponse{
 		ID:        uuid.New().String(),

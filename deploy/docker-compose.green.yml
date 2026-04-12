@@ -1,0 +1,25 @@
+# Green slot overlay — used with the base docker-compose.yml for blue-green deployments.
+# Usage:
+#   docker compose -p argus-green \
+#     -f deploy/docker-compose.yml \
+#     -f deploy/docker-compose.green.yml \
+#     up -d argus
+#
+# The argus-app-green container joins the shared argus-net network so Nginx
+# can reach it by hostname. Nginx reads infra/nginx/upstream.conf to
+# determine which slot is live; bluegreen-flip.sh rewrites that file atomically.
+
+services:
+  argus:
+    container_name: argus-app-green
+    ports:
+      - "8086:8080"
+    networks:
+      argus-net:
+        aliases:
+          - argus-app-green
+
+networks:
+  argus-net:
+    external: true
+    name: argus_argus-net

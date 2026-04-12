@@ -19,6 +19,7 @@
 | API-006 | GET | /api/v1/users | List users in tenant | JWT (tenant_admin+) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-007 | POST | /api/v1/users | Create user + invite | JWT (tenant_admin+) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-008 | PATCH | /api/v1/users/:id | Update user | JWT (tenant_admin+ or self) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
+| API-195 | DELETE | /api/v1/users/:id?gdpr=1 | GDPR right-to-erasure: nulls PII, sets state=purged, emits system audit event | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (scope addition) |
 | API-186 | GET | /api/v1/auth/sessions | List active portal sessions for current user (cursor-paginated) | JWT (api_user+) | See [STORY-064](../../stories/phase-10/STORY-064-db-hardening.md) |
 
 ## Tenants (5 endpoints)
@@ -167,13 +168,14 @@
 | API-133 | GET | /api/v1/notification-configs | Get notification preferences | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 | API-134 | PUT | /api/v1/notification-configs | Update notification preferences | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 
-## Audit (3 endpoints)
+## Audit (4 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-140 | GET | /api/v1/audit-logs | Search audit logs | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
 | API-141 | GET | /api/v1/audit-logs/verify | Verify hash chain integrity | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
 | API-142 | POST | /api/v1/audit-logs/export | Export audit logs (date range) | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
+| API-194 | POST | /api/v1/audit/system-events | Emit infra-level system event into hash chain (TenantID=uuid.Nil) | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-4, AC-8) |
 
 ## API Keys (5 endpoints)
 
@@ -223,7 +225,7 @@
 |----|--------|------|-------------|------|--------|
 | API-185 | POST | /api/v1/notifications/sms/status | Twilio SMS delivery status callback (HMAC-SHA256 verified) | Twilio Signature | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
 
-## System Health (8 endpoints)
+## System Health (10 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -235,6 +237,8 @@
 | API-189 | GET | /health/startup | Startup probe — 60-second grace period; returns 503 during startup, then delegates to /health/ready | None | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-3) |
 | API-190 | GET | /api/v1/system/backup-status | Backup run history and latest verification result | JWT (super_admin) | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-1, AC-2) |
 | API-191 | GET | /api/v1/system/jwt-rotation-history | JWT key rotation audit log (last 10 detections) | JWT (super_admin) | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-7) |
+| API-192 | GET | /api/v1/status | Aggregate service status (public, no auth) — component health, uptime, version, recent_error_5m | None | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-7) |
+| API-193 | GET | /api/v1/status/details | Detailed service status (auth-gated) — per-dependency latency, disk, queue depth | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-7) |
 
 ## Observability Endpoints (1 endpoint)
 
@@ -265,4 +269,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 114 REST endpoints + 10 WebSocket event types**
+**Total: 118 REST endpoints + 10 WebSocket event types**

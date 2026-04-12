@@ -337,6 +337,34 @@ These variables are only meaningful in development mode (`APP_ENV=development`):
 
 ---
 
+## CI/CD & Ops Tooling (STORY-067)
+
+### Deploy Scripts (bluegreen-flip.sh / rollback.sh)
+
+These variables are consumed by `deploy/scripts/bluegreen-flip.sh` and `deploy/scripts/rollback.sh`. They are **not** read by the Argus binary.
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ARGUS_API_URL` | string | `http://localhost:8084` | No | Base URL used by deploy scripts to post audit events to `POST /api/v1/audit/system-events`. Must be HTTPS in production. |
+| `ARGUS_API_TOKEN` | string | — | **Yes** | Bearer token (super_admin JWT) for deploy/rollback script audit emission. Scripts abort with `die` if unset. |
+
+### argusctl CLI
+
+`argusctl` uses the `ARGUSCTL_` Viper env prefix. Env vars map directly to CLI flags (e.g. `ARGUSCTL_TOKEN` = `--token`).
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ARGUSCTL_API_URL` | string | `http://localhost:8084` | No | Argus API base URL for argusctl commands. |
+| `ARGUSCTL_TOKEN` | string | — | No | Admin JWT or API key. Alternatively passed via `--token`. |
+| `ARGUSCTL_CERT` | string | — | No | mTLS client certificate path. |
+| `ARGUSCTL_KEY` | string | — | No | mTLS client private key path. |
+| `ARGUSCTL_CA` | string | — | No | mTLS CA certificate path. |
+| `ARGUSCTL_FORMAT` | string | `table` | No | Output format: `table` or `json`. |
+
+Config file (optional): `~/.argusctl.yaml` — keys map to flag names without the `ARGUSCTL_` prefix (e.g. `token:`, `api_url:`).
+
+---
+
 ## Complete .env.example
 
 ```bash

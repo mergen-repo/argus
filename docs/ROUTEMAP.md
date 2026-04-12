@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 10/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 11/22 stories
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 10/22
-> Current story: STORY-067
+> Stories completed: 55/55 (100%) — Phase 10: 11/22
+> Current story: STORY-068
 > Current step: Plan
 
 ### Phase 1: Foundation [DONE]
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 10/22
-> Current story: STORY-067
+> Stories completed: 11/22
+> Current story: STORY-068
 > Current step: Plan
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -176,7 +176,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-065 | Observability & Tracing Standardization | L | [x] DONE | — | STORY-063 | 2026-04-12 |
 | STORY-066 | Reliability, Backup, DR & Runtime Hardening | L | [x] DONE | — | STORY-063, STORY-065 | 2026-04-12 |
-| STORY-067 | CI/CD Pipeline, Deployment & Ops Tooling | M-L | [ ] PENDING | — | STORY-065, STORY-066 | — |
+| STORY-067 | CI/CD Pipeline, Deployment & Ops Tooling | M-L | [x] DONE | — | STORY-065, STORY-066 | 2026-04-12 |
 | STORY-068 | Enterprise Auth & Access Control Hardening | L | [ ] PENDING | — | STORY-063 | — |
 
 ### Wave 4 — Business Completeness [parallel]
@@ -220,6 +220,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-12 | DONE | STORY-067 completed — CI/CD Pipeline, Deployment Strategy & Ops Tooling. 9 ACs. GitHub Actions CI pipeline (5 stages: lint/test/security-scan/build/deploy); blue-green deployment (2 Docker Compose stacks, bluegreen-flip.sh, rollback.sh, smoke-test.sh, deploy-snapshot.sh, deploy-tag.sh); digest pinning (all FROM statements @sha256, update-digests.sh); argusctl cobra CLI (tenant/apikey/user/compliance/sim/health/backup, ARGUSCTL_ Viper prefix); GET /api/v1/status (public) + GET /api/v1/status/details (super_admin); POST /api/v1/audit/system-events (super_admin, uuid.Nil tenant, hard-fail on deploy/rollback); argus_build_info gauge; 10 runbooks (cert-rotation, db-full, deploy, dr-pitr, dr-restore, latency-spike, nats-lag, operator-down, rollback, session-loss, tenant-suspend). Scope additions: DELETE /api/v1/users/:id?gdpr=1 (UserStore.DeletePII, state=purged), migration 20260412000010 (users.state CHECK +purged). Gate 2 dispatches (F-1: audit endpoint+script rewiring, F-2: E2E evidence). 2182 tests PASS (+7). Review: api/_index.md +4 endpoints (API-192..195), footer 114→118; db/platform.md TBL-02 users.state +purged; GLOSSARY +3 terms (Blue-Green, argusctl, Digest Pinning); USERTEST +15 scenarios; decisions DEV-186..192; ARCHITECTURE: cmd/argusctl tree, deploy scripts tree, CI/CD section, API count 114→118, Reference Registry 115→119; CONFIG.md CI/CD & Ops section (ARGUS_API_URL, ARGUS_API_TOKEN, ARGUSCTL_*). Zero-deferral. | .github/workflows/ci.yml, deploy/{docker-compose.blue.yml,docker-compose.green.yml,scripts/}, infra/{nginx/upstream.conf,scripts/update-digests.sh}, cmd/argusctl/, internal/api/system/status_handler.go, internal/api/audit/handler.go, internal/gateway/router.go, migrations/20260412000010, docs/runbook/(10 files), docs/e2e-evidence/STORY-067-cicd-test.md, 7 doc files |
 | 2026-04-12 | DONE | STORY-066 completed — Reliability, Backup, DR & Runtime Hardening. 13 ACs, 14 tasks, 6 waves. Automated pg_dump backup pipeline (daily/weekly/monthly, S3 upload, SHA-256 verification, retention sweep); WAL archiving enabled (archive_mode=on, postgres_wal_archive volume); PITR procedure documented and dry-run validated (docs/runbook/dr-pitr.md). Health probe split: /health/live (liveness, always 200), /health/ready (full deps + disk probe), /health/startup (60s grace). Disk space probe (argus_disk_usage_percent gauge, DISK_PROBE_MOUNTS). Graceful shutdown drain order (HTTP→RADIUS→Diameter→SBA→WS→jobs→NATS→Redis→PG, SHUTDOWN_TIMEOUT_SECONDS). Circuit breaker per operator adapter (CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_RECOVERY_SEC). JWT dual-key rotation (JWT_SECRET_CURRENT + JWT_SECRET_PREVIOUS, audit log on detection, /api/v1/system/jwt-rotation-history). HSTS guard (TLS_ENABLED or X-Forwarded-Proto). pprof token guard (PPROF_ENABLED=false default, PPROF_TOKEN 32-char min, constant-time compare). Body size limit middleware (1MB auth, 10MB default, 50MB bulk). Read replica routing via DATABASE_READ_REPLICA_URL. NATS consumer lag metric (argus_nats_consumer_lag). Anomaly batchDetector crash safety (restart+backoff). 2 new tables (TBL-32 backup_runs, TBL-33 backup_verifications). Migration 20260412000009. 2135 tests PASS. Gate 2 dispatches (F-1: AC-4 disk probe wiring, F-2: PITR evidence doc sync). Review: PITR runbook Step 4 critical bugs fixed (pg_restore must run against live server, --dbname=postgres with --create); evidence doc fixed (standby.signal→recovery.signal, audit_log→audit_logs); API index +5 endpoints (API-187..191); DB index +2 tables; GLOSSARY +12 terms; ARCHITECTURE: volume, health check URL, backup section; decisions DEV-178..185; USERTEST +13 scenarios. Zero-deferral. Commit d06d8a0. | cmd/argus/main.go, internal/{job,gateway,health,api/system,store,config,operator,analytics}, migrations/20260412000009, infra/postgres/postgresql.conf, deploy/docker-compose.yml, docs/runbook/dr-pitr.md, docs/e2e-evidence/STORY-066-pitr-test.md, 8 doc files |
 | 2026-04-12 | DONE | STORY-065 completed — Observability & Tracing Standardization. 18 tasks across 4 waves. OpenTelemetry SDK (v1.43.0) wired with OTLP gRPC exporter + noop fallback; otelhttp wraps Chi router; otelpgx v0.10.0 instruments pgx v5 pool with slow-query tracer (100ms threshold) + compositeTracer implementing all 6 pgx tracer interfaces; NATS Publish/Subscribe inject/extract traceparent via natsHeaderCarrier; go-redis metricsHook; Prometheus client_golang with 17 metric vectors (HTTP/AAA/DB/NATS/Redis/jobs/operator health/circuit breaker) + Go runtime + process collectors; legacy custom fmt.Sprintf text-format prometheus.go deleted. PromAAARecorder + CompositeMetricsRecorder preserves Redis-backed Collector for STORY-033 WS dashboard. HealthChecker.SetMetricsRegistry + CircuitBreaker.SetTransitionHook update OperatorHealth + CircuitBreakerState gauges. Runner.SetMetrics records JobRunsTotal + JobDuration. gateway.TenantLabel + ZerologRequestLogger emits tenant_id in all authenticated log lines. 6 Grafana dashboards (32 panels: overview/aaa/database/messaging/tenant/jobs) with provisioning + templated tenant variable. 9 Prometheus alert rules (alerts.yml). docker-compose.obs.yml overlay (prometheus/grafana/otel-collector/node-exporter/redis-exporter). cmd/argus/main.go +60 lines wiring. 9 new env vars (OTEL_*/METRICS_*). 1 //go:build integration end-to-end test using tracetest.InMemoryExporter. 2009 tests PASS (was 1945, +64). Gate PASS first try, 0 fixes. Review: 9 cross-doc fixes FIXED (GLOSSARY, ARCHITECTURE, TESTING, FUTURE, PRODUCT, api/_index, SCR-120). Decisions: DEV-171..177. Documented FUTURE items: DEV-174 (NATS pending poller, API gap), DEV-175 (Diameter/SBA Prom recorders, API gap). Zero-deferral. Commit 0a4dade. | cmd/argus/main.go, internal/{observability,gateway,store,bus,cache,operator,job,config,api}, infra/{grafana,prometheus,otel}, deploy/docker-compose.obs.yml, 9 doc files |
 | 2026-04-12 | DONE | STORY-064 completed — Database Hardening & Partition Automation. 6 migration pairs: enum CHECK constraints (9 tables), operator_grants.supported_rat_types + GIN index, partition bootstrap (18 partitions 2026_07..2027_03 for audit_logs + sim_state_history), RLS policies on 28 tables (ENABLE+FORCE with `app.current_tenant` session variable, BYPASSRLS on app role), FK integrity triggers (check_sim_exists + BEFORE triggers on esim_profiles/ip_addresses/ota_commands), composite indexes (idx_sessions_sim_started, idx_cdrs_sim_timestamp). Go: partition_creator cron job (daily 02:00 UTC, idempotent, regex-sanitized identifiers) wired via scheduler + jobRunner; GetByIMSIScoped added (GetByIMSI unchanged for RADIUS/Diameter hot path); esim.go tenant scoping (GetEnabledProfileForSIM/CountBySIM/Create all take tenantID); cursor pagination on NotificationConfigStore.ListByUser + SessionStore.ListActiveByUserID; new GET /api/v1/auth/sessions endpoint (API-186); SoR engine grant-RAT fallback. Tooling: `make lint-sql` CI guard. Docs: rls.md (new), TBL-28..31 (anomalies, policy_violations, s3_archival_log, tenant_retention_config), ARCHITECTURE.md scale update (31 tables, 114 APIs), GLOSSARY.md (Partition Creator, RLS), TESTING.md (lint-sql), USERTEST.md (15 scenarios). Decisions: DEV-166..170. 1945 tests PASS. Gate PASS (1 fix: TBL numbering gap). Review: 5 findings all FIXED. Zero-deferral. Commit b3c9f7f. | migrations/20260412000003..008, internal/{store,job,operator,api,auth,gateway}, rls.md, 8 doc files |

@@ -7,7 +7,8 @@ export
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
         test test-watch test-coverage typecheck lint lint-fix lint-sql \
         clean docker-clean dev start stop backup web-dev web-build \
-        vuln-check web-audit
+        vuln-check web-audit \
+        test-web security-scan deploy-staging rollback ops-status build-ctl
 
 help:
 	@echo ""
@@ -53,6 +54,15 @@ help:
 	@echo "    make vuln-check      Go vulnerability scan (govulncheck)"
 	@echo "    make web-audit       npm audit (high/critical)"
 	@echo "    make lint-sql        SELECT * yoklama (store katmani)"
+	@echo ""
+	@echo "  CI & Release:"
+	@echo "    make test-web        Web testlerini calistir (npm test --run)"
+	@echo "    make security-scan   Guvenlik taramasi (govulncheck + gosec + npm audit)"
+	@echo "    make deploy-staging  Staging ortamina deploy (snapshot + bluegreen)"
+	@echo "    make deploy-prod     Prod deploy (onay + test + lint + scan + bluegreen)"
+	@echo "    make rollback        Surumu geri al (VERSION=? WITH_DB_RESTORE=false)"
+	@echo "    make ops-status      Argus servis durumunu sorgula"
+	@echo "    make build-ctl       argusctl CLI binary'sini derle"
 	@echo ""
 	@echo "  Temizlik:"
 	@echo "    make clean           Build artifact'larini temizle"
@@ -116,10 +126,13 @@ deploy-dev: build up
 
 deploy-prod:
 	@read -p "PROD deploy yapilacak. Emin misiniz? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
-	@echo "Prod deploy baslatiliyor..."
+	@echo "Prod deploy on kontroller baslatiliyor..."
+	@$(MAKE) test
+	@$(MAKE) lint
+	@$(MAKE) security-scan
 	@$(MAKE) db-backup
-	@$(MAKE) build
-	@$(MAKE) up
+	@echo "On kontroller tamamlandi. Bluegreen deploy baslatiliyor..."
+	@deploy/scripts/bluegreen-flip.sh prod
 	@echo "Prod deploy tamamlandi."
 
 # ── Veritabani ──
@@ -196,6 +209,7 @@ typecheck:
 
 lint:
 	@golangci-lint run ./...
+	@cd web && npm run lint && npm run type-check
 
 lint-fix:
 	@golangci-lint run --fix ./...
@@ -215,6 +229,42 @@ lint-sql:
 	@! grep -rIn "SELECT \*" internal/store/ --include="*.go" --exclude="*_test.go" \
 		|| (echo "FAIL: SELECT * found in store layer" && exit 1)
 	@echo "OK: no SELECT * in store layer"
+
+# ── CI & Release ──
+
+WITH_DB_RESTORE ?= false
+
+test-web:
+	@echo "Web testleri calistiriliyor..."
+	@cd web && npm test -- --run
+	@echo "Web testleri tamamlandi."
+
+security-scan:
+	@echo "Guvenlik taramasi baslatiliyor..."
+	@govulncheck ./...
+	@gosec ./...
+	@cd web && npm audit --audit-level=high
+	@echo "Guvenlik taramasi tamamlandi."
+
+deploy-staging:
+	@echo "Staging deploy baslatiliyor..."
+	@deploy/scripts/deploy-snapshot.sh staging
+	@deploy/scripts/bluegreen-flip.sh staging
+	@echo "Staging deploy tamamlandi."
+
+rollback:
+	@test -n "$(VERSION)" || (echo "Kullanim: VERSION=<surum> make rollback [WITH_DB_RESTORE=true]" && exit 1)
+	@echo "$(VERSION) surumune geri donuluyor (WITH_DB_RESTORE=$(WITH_DB_RESTORE))..."
+	@deploy/scripts/rollback.sh $(VERSION) $(WITH_DB_RESTORE)
+	@echo "Geri alma tamamlandi."
+
+ops-status:
+	@curl -sf http://$${ARGUS_HOST:-localhost:8084}/api/v1/status | jq .
+
+build-ctl:
+	@echo "argusctl derleniyor..."
+	@go build -o bin/argusctl ./cmd/argusctl
+	@echo "Derlendi: bin/argusctl"
 
 # ── Temizlik ──
 

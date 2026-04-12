@@ -51,6 +51,20 @@ type exportRequest struct {
 	To   string `json:"to"`
 }
 
+type systemEventRequest struct {
+	Action     string          `json:"action"`
+	EntityType string          `json:"entity_type"`
+	EntityID   string          `json:"entity_id"`
+	AfterData  json.RawMessage `json:"after_data,omitempty"`
+}
+
+type systemEventResponse struct {
+	Status     string `json:"status"`
+	Action     string `json:"action"`
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+}
+
 func toAuditLogResponse(e audit.Entry) auditLogResponse {
 	return auditLogResponse{
 		ID:         e.ID,
@@ -240,4 +254,61 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			e.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
+}
+
+// EmitSystemEvent writes a system-level audit entry for infrastructure actions
+// (e.g., blue-green flip, rollback) that occur outside tenant context. Uses
+// TenantID = uuid.Nil and no UserID. Gated by super_admin role at the router
+// layer.
+func (h *Handler) EmitSystemEvent(w http.ResponseWriter, r *http.Request) {
+	if h.auditSvc == nil {
+		apierr.WriteError(w, http.StatusServiceUnavailable, apierr.CodeInternalError, "Audit service unavailable")
+		return
+	}
+
+	var req systemEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	var validationErrors []map[string]string
+	if req.Action == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "action", "message": "Action is required", "code": "required"})
+	}
+	if req.EntityType == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "entity_type", "message": "Entity type is required", "code": "required"})
+	}
+	if req.EntityID == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "entity_id", "message": "Entity ID is required", "code": "required"})
+	}
+	if len(validationErrors) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
+		return
+	}
+
+	event := audit.AuditEvent{
+		TenantID:   uuid.Nil,
+		Action:     req.Action,
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+		AfterData:  req.AfterData,
+	}
+
+	if err := h.auditSvc.ProcessEntry(r.Context(), event); err != nil {
+		h.logger.Error().Err(err).
+			Str("action", req.Action).
+			Str("entity_type", req.EntityType).
+			Str("entity_id", req.EntityID).
+			Msg("emit system audit event")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to write audit entry")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusCreated, systemEventResponse{
+		Status:     "recorded",
+		Action:     req.Action,
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+	})
 }

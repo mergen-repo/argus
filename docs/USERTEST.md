@@ -1336,3 +1336,25 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 11. `psql ... -c "\d backup_runs"` -- TBL-32 tablosu mevcut olmali (kind, state, s3_bucket, s3_key, sha256 kolonlari)
 12. `psql ... -c "\d backup_verifications"` -- TBL-33 tablosu mevcut olmali (backup_run_id FK, tenants_count, sims_count kolonlari)
 13. `make test` -- 2135 test gecmeli, hicbir skiplenmis test olmamali
+
+---
+
+## STORY-067: CI/CD Pipeline, Deployment Strategy & Ops Tooling
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make build-ctl` -- `dist/argusctl` binary'si derlenmeli; `./dist/argusctl --help` calistirildiginda alt komutlar listesi (tenant, apikey, user, compliance, sim, health, backup) gorulmeli
+2. `./dist/argusctl tenant list --token $SUPERADMIN_TOKEN` -- JSON veya tablo formatinda tenant listesi donmeli
+3. `./dist/argusctl health --token $SUPERADMIN_TOKEN` -- `{"status":"healthy","checks":{...}}` donmeli
+4. `bash -n deploy/scripts/bluegreen-flip.sh` -- syntax hatasi olmamali
+5. `bash -n deploy/scripts/rollback.sh` -- syntax hatasi olmamali
+6. `bash -n deploy/scripts/smoke-test.sh` -- syntax hatasi olmamali
+7. `curl http://localhost:8084/api/v1/status` -- auth gerekmeden `{"status":"ok","data":{"version":"...","uptime_sec":...,"components":{...}}}` donmeli
+8. `curl -H "Authorization: Bearer $SUPERADMIN_TOKEN" http://localhost:8084/api/v1/status/details` -- per-dependency latency, disk ve queue depth bilgisi icermeli
+9. `curl -s -o /dev/null -w "%{http_code}" http://localhost:8084/api/v1/status` -- 200 donmeli
+10. `curl -X POST http://localhost:8084/api/v1/audit/system-events -d '{"action":"test"}' -H "Content-Type: application/json"` -- 401 donmeli (auth gerekli)
+11. `curl -X POST -H "Authorization: Bearer $SUPERADMIN_TOKEN" http://localhost:8084/api/v1/audit/system-events -H "Content-Type: application/json" -d '{"action":"deploy.blue-green","entity_type":"deployment","entity_id":"test-001"}' ` -- 201 donmeli; `{"status":"recorded","action":"deploy.blue-green","entity_type":"deployment","entity_id":"test-001"}`
+12. `curl -X POST -H "Authorization: Bearer $TENANT_ADMIN_TOKEN" http://localhost:8084/api/v1/audit/system-events -H "Content-Type: application/json" -d '{"action":"test","entity_type":"test","entity_id":"test"}' ` -- 403 donmeli (super_admin gerekli)
+13. `psql ... -c "SELECT state FROM users WHERE id = '$USER_ID'"` -- GDPR silme islemi sonrasi `purged` donmeli
+14. `curl http://localhost:8080/metrics | grep argus_build_info` -- `argus_build_info{version="...",git_sha="...",build_time="..."}` gauge serisi donmeli
+15. `make test` -- 2182 test gecmeli, hicbir skiplenmis test olmamali

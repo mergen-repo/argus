@@ -509,3 +509,74 @@ func (s *UserStore) CountByTenant(ctx context.Context, tenantID uuid.UUID) (int,
 	}
 	return count, nil
 }
+
+// PurgeResult reports the effect of a GDPR PII erasure on a user.
+type PurgeResult struct {
+	UserID          uuid.UUID
+	SessionsRevoked int64
+	PurgedAt        time.Time
+}
+
+// DeletePII erases PII for a single user per GDPR Article 17 (right to
+// erasure). Email/name/password_hash/totp_secret are nulled out, TOTP is
+// disabled, state is set to "purged", and all active user_sessions are
+// revoked. The row remains for referential integrity with audit logs and
+// historical SIM assignments. This operation is irreversible.
+func (s *UserStore) DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*PurgeResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Verify the user exists in this tenant first so we can return a
+	// consistent ErrUserNotFound rather than silently rewriting an
+	// unrelated user.
+	var existingTenant uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT tenant_id FROM users WHERE id = $1`, id).Scan(&existingTenant)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: look up user for purge: %w", err)
+	}
+	if existingTenant != tenantID {
+		return nil, ErrUserNotFound
+	}
+
+	purgedEmail := fmt.Sprintf("purged+%s@purged.invalid", id.String())
+	tag, err := tx.Exec(ctx, `
+		UPDATE users SET
+			email = $2,
+			password_hash = '',
+			name = '',
+			totp_secret = NULL,
+			totp_enabled = false,
+			state = 'purged',
+			updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $3
+	`, id, purgedEmail, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: null user PII: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrUserNotFound
+	}
+
+	sessTag, err := tx.Exec(ctx,
+		`UPDATE user_sessions SET revoked_at = NOW()
+		 WHERE user_id = $1 AND revoked_at IS NULL`, id)
+	if err != nil {
+		return nil, fmt.Errorf("store: revoke user sessions: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit PII purge: %w", err)
+	}
+
+	return &PurgeResult{
+		UserID:          id,
+		SessionsRevoked: sessTag.RowsAffected(),
+		PurgedAt:        time.Now().UTC(),
+	}, nil
+}

@@ -38,7 +38,7 @@ Indexes:
 | role | VARCHAR(30) | NOT NULL | super_admin, tenant_admin, operator_manager, sim_manager, policy_editor, analyst, api_user |
 | totp_secret | VARCHAR(255) | | 2FA TOTP secret (encrypted) |
 | totp_enabled | BOOLEAN | NOT NULL, DEFAULT false | 2FA enabled flag |
-| state | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active, disabled, invited |
+| state | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active, disabled, invited, purged (GDPR-erased; see migration 20260412000010) |
 | last_login_at | TIMESTAMPTZ | | Last successful login |
 | failed_login_count | INTEGER | NOT NULL, DEFAULT 0 | Consecutive failed logins |
 | locked_until | TIMESTAMPTZ | | Account lockout expiry |

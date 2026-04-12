@@ -76,6 +76,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	version   = "dev"
+	gitSHA    = "unknown"
+	buildTime = "unknown"
+)
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -132,6 +138,8 @@ func main() {
 
 	// --- Observability init (STORY-065) ---
 	metricsReg := obsmetrics.NewRegistry()
+	metricsReg.BuildInfo.WithLabelValues(version, gitSHA, buildTime).Set(1)
+	log.Info().Str("version", version).Str("git_sha", gitSHA).Str("build_time", buildTime).Msg("argus build info")
 	auth.JWTVerifyHook = metricsReg.IncJWTVerify
 
 	otelInitCtx, otelInitCancel := context.WithTimeout(appCtx, 10*time.Second)
@@ -861,6 +869,8 @@ func main() {
 	reliabilityBackupStore := store.NewBackupStore(pg.Pool)
 	reliabilityHandler := systemapi.NewReliabilityHandler(reliabilityBackupStore, auditStore, cfg, log.Logger)
 
+	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
+
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
 		AuthHandler:        authHandler,
@@ -891,6 +901,7 @@ func main() {
 		DashboardHandler:    dashboardHandler,
 		SLAHandler:          slaHandler,
 		ReliabilityHandler:  reliabilityHandler,
+		StatusHandler:       statusHandler,
 		APIKeyStore:        apiKeyStore,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
