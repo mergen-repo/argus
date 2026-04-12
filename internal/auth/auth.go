@@ -36,6 +36,7 @@ type SessionRepository interface {
 	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*UserSession, error)
 	GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]UserSession, error)
+	ListActiveByUserID(ctx context.Context, userID uuid.UUID, cursor string, limit int) ([]UserSession, string, error)
 }
 
 type AuditLogger interface {
@@ -258,6 +259,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ipAddr, userAgent s
 		RefreshToken: newRefresh,
 		SessionID:    newSessionID,
 	}, nil
+}
+
+func (s *Service) ListSessions(ctx context.Context, userID uuid.UUID, cursor string, limit int) ([]UserSession, string, error) {
+	return s.sessions.ListActiveByUserID(ctx, userID, cursor, limit)
 }
 
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID, refreshToken string) error {

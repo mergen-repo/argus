@@ -115,7 +115,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 			continue
 		}
 
-		enabledProfile, profErr := p.esimStore.GetEnabledProfileForSIM(ctx, sim.ID)
+		enabledProfile, profErr := p.esimStore.GetEnabledProfileForSIM(ctx, j.TenantID, sim.ID)
 		if profErr != nil {
 			_ = p.distLock.Release(ctx, lockKey, holderID)
 			errors = append(errors, BulkOpError{

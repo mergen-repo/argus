@@ -7,7 +7,7 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
-## Auth & Users (8 endpoints)
+## Auth & Users (9 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -19,6 +19,7 @@
 | API-006 | GET | /api/v1/users | List users in tenant | JWT (tenant_admin+) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-007 | POST | /api/v1/users | Create user + invite | JWT (tenant_admin+) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-008 | PATCH | /api/v1/users/:id | Update user | JWT (tenant_admin+ or self) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
+| API-186 | GET | /api/v1/auth/sessions | List active portal sessions for current user (cursor-paginated) | JWT (api_user+) | See [STORY-064](../../stories/phase-10/STORY-064-db-hardening.md) |
 
 ## Tenants (5 endpoints)
 
@@ -251,4 +252,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 113 REST endpoints + 10 WebSocket event types**
+**Total: 114 REST endpoints + 10 WebSocket event types**

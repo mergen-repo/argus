@@ -214,11 +214,15 @@ func (e *Engine) buildCandidates(grants []store.GrantWithOperator) []CandidateOp
 		if g.CostPerMB != nil {
 			costPerMB = *g.CostPerMB
 		}
+		rats := g.SupportedRATTypes
+		if len(rats) == 0 {
+			rats = g.OperatorSupportedRATTypes
+		}
 		candidates = append(candidates, CandidateOperator{
 			OperatorID:    g.OperatorID,
 			MCC:           g.MCC,
 			MNC:           g.MNC,
-			SupportedRATs: g.SupportedRATTypes,
+			SupportedRATs: rats,
 			SoRPriority:   g.SoRPriority,
 			CostPerMB:     costPerMB,
 			HealthStatus:  g.HealthStatus,

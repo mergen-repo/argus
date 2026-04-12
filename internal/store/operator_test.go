@@ -163,6 +163,50 @@ func TestOperatorSupportedRATTypes(t *testing.T) {
 	}
 }
 
+func TestOperatorGrantSupportedRATTypes(t *testing.T) {
+	g := OperatorGrant{
+		Enabled:           true,
+		SupportedRATTypes: []string{"5G_SA", "LTE"},
+	}
+
+	if len(g.SupportedRATTypes) != 2 {
+		t.Errorf("SupportedRATTypes len = %d, want 2", len(g.SupportedRATTypes))
+	}
+	if g.SupportedRATTypes[0] != "5G_SA" {
+		t.Errorf("SupportedRATTypes[0] = %q, want %q", g.SupportedRATTypes[0], "5G_SA")
+	}
+	if g.SupportedRATTypes[1] != "LTE" {
+		t.Errorf("SupportedRATTypes[1] = %q, want %q", g.SupportedRATTypes[1], "LTE")
+	}
+
+	gEmpty := OperatorGrant{}
+	if len(gEmpty.SupportedRATTypes) != 0 {
+		t.Errorf("SupportedRATTypes should be empty by default, got %d elements", len(gEmpty.SupportedRATTypes))
+	}
+}
+
+func TestGrantWithOperatorRATFields(t *testing.T) {
+	gw := GrantWithOperator{
+		OperatorGrant: OperatorGrant{
+			SupportedRATTypes: []string{"5G_SA", "LTE"},
+		},
+		OperatorSupportedRATTypes: []string{"LTE", "3G"},
+	}
+
+	if len(gw.SupportedRATTypes) != 2 {
+		t.Errorf("grant-level SupportedRATTypes len = %d, want 2", len(gw.SupportedRATTypes))
+	}
+	if gw.SupportedRATTypes[0] != "5G_SA" {
+		t.Errorf("grant-level SupportedRATTypes[0] = %q, want %q", gw.SupportedRATTypes[0], "5G_SA")
+	}
+	if len(gw.OperatorSupportedRATTypes) != 2 {
+		t.Errorf("OperatorSupportedRATTypes len = %d, want 2", len(gw.OperatorSupportedRATTypes))
+	}
+	if gw.OperatorSupportedRATTypes[0] != "LTE" {
+		t.Errorf("OperatorSupportedRATTypes[0] = %q, want %q", gw.OperatorSupportedRATTypes[0], "LTE")
+	}
+}
+
 func TestOperatorSLAUptimeTarget(t *testing.T) {
 	target := 99.90
 	o := Operator{

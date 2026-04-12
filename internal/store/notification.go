@@ -240,15 +240,37 @@ func NewNotificationConfigStore(db *pgxpool.Pool) *NotificationConfigStore {
 	return &NotificationConfigStore{db: db}
 }
 
-func (s *NotificationConfigStore) ListByUser(ctx context.Context, tenantID, userID uuid.UUID) ([]NotificationConfigRow, error) {
-	rows, err := s.db.Query(ctx, `
+func (s *NotificationConfigStore) ListByUser(ctx context.Context, tenantID, userID uuid.UUID, cursor string, limit int) ([]NotificationConfigRow, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{tenantID, userID, limit + 1}
+	conditions := []string{"tenant_id = $1", "user_id = $2"}
+	argIdx := 4
+
+	if cursor != "" {
+		cursorID, parseErr := uuid.Parse(cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	query := fmt.Sprintf(`
 		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
 			channels, threshold_type, threshold_value, enabled, created_at, updated_at
 		FROM notification_configs
-		WHERE tenant_id = $1 AND user_id = $2
-		ORDER BY event_type, scope_type`, tenantID, userID)
+		WHERE %s
+		ORDER BY created_at DESC, id DESC
+		LIMIT $3`, where)
+
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("store: list notification configs: %w", err)
+		return nil, "", fmt.Errorf("store: list notification configs: %w", err)
 	}
 	defer rows.Close()
 
@@ -260,11 +282,18 @@ func (s *NotificationConfigStore) ListByUser(ctx context.Context, tenantID, user
 			&c.Channels, &c.ThresholdType, &c.ThresholdValue, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("store: scan config: %w", err)
+			return nil, "", fmt.Errorf("store: scan config: %w", err)
 		}
 		results = append(results, c)
 	}
-	return results, nil
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
 }
 
 func (s *NotificationConfigStore) Upsert(ctx context.Context, p UpsertNotificationConfigParams) (*NotificationConfigRow, error) {

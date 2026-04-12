@@ -45,33 +45,35 @@ type Operator struct {
 }
 
 type OperatorGrant struct {
-	ID         uuid.UUID  `json:"id"`
-	TenantID   uuid.UUID  `json:"tenant_id"`
-	OperatorID uuid.UUID  `json:"operator_id"`
-	Enabled    bool       `json:"enabled"`
-	SoRPriority int       `json:"sor_priority"`
-	CostPerMB  *float64   `json:"cost_per_mb"`
-	Region     *string    `json:"region"`
-	GrantedAt  time.Time  `json:"granted_at"`
-	GrantedBy  *uuid.UUID `json:"granted_by"`
+	ID                uuid.UUID  `json:"id"`
+	TenantID          uuid.UUID  `json:"tenant_id"`
+	OperatorID        uuid.UUID  `json:"operator_id"`
+	Enabled           bool       `json:"enabled"`
+	SoRPriority       int        `json:"sor_priority"`
+	CostPerMB         *float64   `json:"cost_per_mb"`
+	Region            *string    `json:"region"`
+	SupportedRATTypes []string   `json:"supported_rat_types"`
+	GrantedAt         time.Time  `json:"granted_at"`
+	GrantedBy         *uuid.UUID `json:"granted_by"`
 }
 
 type GrantWithOperator struct {
 	OperatorGrant
-	OperatorName      string   `json:"operator_name"`
-	OperatorCode      string   `json:"operator_code"`
-	MCC               string   `json:"mcc"`
-	MNC               string   `json:"mnc"`
-	SupportedRATTypes []string `json:"supported_rat_types"`
-	HealthStatus      string   `json:"health_status"`
-	OperatorState     string   `json:"operator_state"`
+	OperatorName              string   `json:"operator_name"`
+	OperatorCode              string   `json:"operator_code"`
+	MCC                       string   `json:"mcc"`
+	MNC                       string   `json:"mnc"`
+	OperatorSupportedRATTypes []string `json:"operator_supported_rat_types"`
+	HealthStatus              string   `json:"health_status"`
+	OperatorState             string   `json:"operator_state"`
 }
 
 type UpdateGrantParams struct {
-	SoRPriority *int
-	CostPerMB   *float64
-	Region      *string
-	Enabled     *bool
+	SoRPriority       *int
+	CostPerMB         *float64
+	Region            *string
+	Enabled           *bool
+	SupportedRATTypes []string
 }
 
 type OperatorHealthLog struct {
@@ -426,14 +428,18 @@ func (s *OperatorStore) ListActive(ctx context.Context) ([]Operator, error) {
 	return results, nil
 }
 
-func (s *OperatorStore) CreateGrant(ctx context.Context, tenantID, operatorID uuid.UUID, grantedBy *uuid.UUID) (*OperatorGrant, error) {
+func (s *OperatorStore) CreateGrant(ctx context.Context, tenantID, operatorID uuid.UUID, grantedBy *uuid.UUID, supportedRATTypes []string) (*OperatorGrant, error) {
+	ratTypes := supportedRATTypes
+	if ratTypes == nil {
+		ratTypes = []string{}
+	}
 	var g OperatorGrant
 	err := s.db.QueryRow(ctx, `
-		INSERT INTO operator_grants (tenant_id, operator_id, granted_by)
-		VALUES ($1, $2, $3)
-		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
-	`, tenantID, operatorID, grantedBy).
-		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
+		INSERT INTO operator_grants (tenant_id, operator_id, granted_by, supported_rat_types)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, supported_rat_types, granted_at, granted_by
+	`, tenantID, operatorID, grantedBy, ratTypes).
+		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.SupportedRATTypes, &g.GrantedAt, &g.GrantedBy)
 	if err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, ErrGrantExists
@@ -445,7 +451,7 @@ func (s *OperatorStore) CreateGrant(ctx context.Context, tenantID, operatorID uu
 
 func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]OperatorGrant, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
+		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, supported_rat_types, granted_at, granted_by
 		FROM operator_grants
 		WHERE tenant_id = $1
 		ORDER BY granted_at DESC
@@ -458,7 +464,7 @@ func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]O
 	var results []OperatorGrant
 	for rows.Next() {
 		var g OperatorGrant
-		if err := rows.Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy); err != nil {
+		if err := rows.Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.SupportedRATTypes, &g.GrantedAt, &g.GrantedBy); err != nil {
 			return nil, fmt.Errorf("store: scan operator grant: %w", err)
 		}
 		results = append(results, g)
@@ -469,9 +475,9 @@ func (s *OperatorStore) ListGrants(ctx context.Context, tenantID uuid.UUID) ([]O
 func (s *OperatorStore) GetGrantByID(ctx context.Context, id uuid.UUID) (*OperatorGrant, error) {
 	var g OperatorGrant
 	err := s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by
+		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, supported_rat_types, granted_at, granted_by
 		FROM operator_grants WHERE id = $1
-	`, id).Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
+	`, id).Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.SupportedRATTypes, &g.GrantedAt, &g.GrantedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrGrantNotFound
 	}
@@ -650,7 +656,7 @@ func (s *OperatorStore) LatestHealthByOperator(ctx context.Context) (map[uuid.UU
 func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uuid.UUID) ([]GrantWithOperator, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT g.id, g.tenant_id, g.operator_id, g.enabled, g.sor_priority, g.cost_per_mb, g.region,
-			g.granted_at, g.granted_by,
+			g.supported_rat_types, g.granted_at, g.granted_by,
 			o.name, o.code, o.mcc, o.mnc, o.supported_rat_types, o.health_status, o.state
 		FROM operator_grants g
 		LEFT JOIN operators o ON o.id = g.operator_id
@@ -670,7 +676,7 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 		if err := rows.Scan(
 			&gw.ID, &gw.TenantID, &gw.OperatorID, &gw.Enabled,
 			&gw.SoRPriority, &gw.CostPerMB, &gw.Region,
-			&gw.GrantedAt, &gw.GrantedBy,
+			&gw.SupportedRATTypes, &gw.GrantedAt, &gw.GrantedBy,
 			&opName, &opCode, &opMCC, &opMNC,
 			&opRATTypes, &opHealth, &opState,
 		); err != nil {
@@ -689,7 +695,7 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 			gw.MNC = *opMNC
 		}
 		if opRATTypes != nil {
-			gw.SupportedRATTypes = opRATTypes
+			gw.OperatorSupportedRATTypes = opRATTypes
 		}
 		if opHealth != nil {
 			gw.HealthStatus = *opHealth
@@ -727,18 +733,23 @@ func (s *OperatorStore) UpdateGrant(ctx context.Context, id uuid.UUID, p UpdateG
 		args = append(args, *p.Enabled)
 		argIdx++
 	}
+	if p.SupportedRATTypes != nil {
+		sets = append(sets, fmt.Sprintf("supported_rat_types = $%d", argIdx))
+		args = append(args, p.SupportedRATTypes)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		return s.GetGrantByID(ctx, id)
 	}
 
 	query := fmt.Sprintf(`UPDATE operator_grants SET %s WHERE id = $1
-		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, granted_at, granted_by`,
+		RETURNING id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, supported_rat_types, granted_at, granted_by`,
 		strings.Join(sets, ", "))
 
 	var g OperatorGrant
 	err := s.db.QueryRow(ctx, query, args...).
-		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.GrantedAt, &g.GrantedBy)
+		Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.SupportedRATTypes, &g.GrantedAt, &g.GrantedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrGrantNotFound
 	}

@@ -210,3 +210,20 @@ func TestHandler_UpdateConfigs_InvalidScopeType(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+func TestHandler_GetConfigs_NoUserContext(t *testing.T) {
+	h := NewHandler(nil, nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/notification-configs", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.GetConfigs(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}

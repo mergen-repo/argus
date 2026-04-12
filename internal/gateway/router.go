@@ -140,6 +140,7 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 		r.Use(RequireRole("api_user"))
 		r.Post("/api/v1/auth/logout", deps.AuthHandler.Logout)
 		r.Post("/api/v1/auth/2fa/setup", deps.AuthHandler.Setup2FA)
+		r.Get("/api/v1/auth/sessions", deps.AuthHandler.ListSessions)
 	})
 
 	r.Group(func(r chi.Router) {

@@ -235,7 +235,16 @@ func (h *Handler) GetConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configs, err := h.configStore.ListByUser(r.Context(), tenantID, userID)
+	q := r.URL.Query()
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	configs, nextCursor, err := h.configStore.ListByUser(r.Context(), tenantID, userID, q.Get("cursor"), limit)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("get notification configs")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -273,7 +282,11 @@ func (h *Handler) GetConfigs(w http.ResponseWriter, r *http.Request) {
 		dtos = append(dtos, dto)
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, dtos)
+	apierr.WriteList(w, http.StatusOK, dtos, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
+	})
 }
 
 type updateConfigRequest struct {

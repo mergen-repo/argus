@@ -281,6 +281,61 @@ func (s *SessionStore) GetActiveByUserID(ctx context.Context, userID uuid.UUID) 
 	return sessions, rows.Err()
 }
 
+func (s *SessionStore) ListActiveByUserID(ctx context.Context, userID uuid.UUID, cursor string, limit int) ([]UserSession, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{userID, limit + 1}
+	conditions := []string{"user_id = $1", "revoked_at IS NULL", "expires_at > NOW()"}
+	argIdx := 3
+
+	if cursor != "" {
+		cursorID, parseErr := uuid.Parse(cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	query := fmt.Sprintf(`
+		SELECT id, user_id, refresh_token_hash, ip_address::text, user_agent, expires_at, revoked_at, created_at
+		FROM user_sessions
+		WHERE %s
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2`, where)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []UserSession
+	for rows.Next() {
+		var sess UserSession
+		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.IPAddress,
+			&sess.UserAgent, &sess.ExpiresAt, &sess.RevokedAt, &sess.CreatedAt); err != nil {
+			return nil, "", fmt.Errorf("store: scan session: %w", err)
+		}
+		sessions = append(sessions, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iterate sessions: %w", err)
+	}
+
+	nextCursor := ""
+	if len(sessions) > limit {
+		nextCursor = sessions[limit-1].ID.String()
+		sessions = sessions[:limit]
+	}
+
+	return sessions, nextCursor, nil
+}
+
 type CreateUserParams struct {
 	Email string
 	Name  string

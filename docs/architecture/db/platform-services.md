@@ -143,3 +143,124 @@ Indexes:
 - `idx_notif_configs_tenant_event` on (tenant_id, event_type)
 - `idx_notif_configs_tenant_user` on (tenant_id, user_id)
 - `idx_notif_configs_scope` on (scope_type, scope_ref_id)
+
+---
+
+## TBL-29: policy_violations
+
+Records of policy rule violations for compliance auditing and debugging of policy engine decisions.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Violation identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant |
+| sim_id | UUID | NOT NULL | — | SIM that triggered the violation |
+| policy_id | UUID | NOT NULL | — | Policy that was violated |
+| version_id | UUID | NOT NULL | — | Specific policy version in effect |
+| rule_index | INT | NOT NULL | 0 | Zero-based index of the violated rule within the policy |
+| violation_type | TEXT | NOT NULL | — | Type of violation (e.g., `quota_exceeded`, `throttle_triggered`) |
+| action_taken | TEXT | NOT NULL | — | Engine action applied (e.g., `block`, `throttle`, `alert`) |
+| details | JSONB | NOT NULL | `{}` | Violation payload (threshold, observed value, context) |
+| session_id | UUID | NULL | — | Related session, if applicable |
+| operator_id | UUID | NULL | — | Operator context, if applicable |
+| apn_id | UUID | NULL | — | APN context, if applicable |
+| severity | TEXT | NOT NULL | `info` | `info`, `warning`, `critical` |
+| created_at | TIMESTAMPTZ | NOT NULL | NOW() | Violation timestamp |
+
+### Indexes
+
+- `idx_policy_violations_tenant` on (tenant_id, created_at DESC)
+- `idx_policy_violations_sim` on (sim_id, created_at DESC)
+- `idx_policy_violations_policy` on (policy_id, created_at DESC)
+- `idx_policy_violations_type` on (tenant_id, violation_type, created_at DESC)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-01 tenants (tenant_id)
+- TBL-10 sims (sim_id FK)
+- TBL-13 policies (policy_id FK)
+- TBL-14 policy_versions (version_id FK)
+- TBL-17 sessions (session_id, nullable)
+- SVC-05 policy engine — writes violation records on rule evaluation
+
+---
+
+## TBL-30: s3_archival_log
+
+Tracks S3 archival job history for long-term CDR and audit log retention, recording each chunk exported to object storage.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Log entry identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant that owns the archived data |
+| table_name | TEXT | NOT NULL | — | Source table (e.g., `cdrs`, `audit_logs`) |
+| chunk_name | TEXT | NOT NULL | — | TimescaleDB chunk name (e.g., `_hyper_1_23_chunk`) |
+| chunk_range_start | TIMESTAMPTZ | NOT NULL | — | Time range start of the archived chunk |
+| chunk_range_end | TIMESTAMPTZ | NOT NULL | — | Time range end of the archived chunk |
+| s3_bucket | TEXT | NOT NULL | — | Destination S3 bucket name |
+| s3_key | TEXT | NOT NULL | — | S3 object key path |
+| size_bytes | BIGINT | NOT NULL | 0 | Compressed archive size in bytes |
+| row_count | BIGINT | NOT NULL | 0 | Number of rows archived |
+| status | TEXT | NOT NULL | `pending` | Job status: `pending`, `in_progress`, `completed`, `failed` |
+| error_message | TEXT | NULL | — | Error detail if status = `failed` |
+| archived_at | TIMESTAMPTZ | NULL | — | Completion timestamp |
+| created_at | TIMESTAMPTZ | NOT NULL | NOW() | Record creation time |
+
+### Indexes
+
+- `idx_s3_archival_tenant` on (tenant_id, created_at DESC)
+- `idx_s3_archival_status` on (status) WHERE status != 'completed'
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-01 tenants (tenant_id)
+- TBL-18 cdrs (primary source table for archival)
+- TBL-19 audit_logs (secondary source table for archival)
+- TBL-31 tenant_retention_config — retention settings control when archival is triggered
+- SVC-09 job engine — archival is performed as a background job
+
+---
+
+## TBL-31: tenant_retention_config
+
+Per-tenant data retention windows (in days) for each table type, and S3 archival configuration.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Config identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant (FK → tenants.id, UNIQUE — one config per tenant) |
+| cdr_retention_days | INT | NOT NULL | 365 | Days to retain CDR records before archival/drop |
+| session_retention_days | INT | NOT NULL | 365 | Days to retain session records |
+| audit_retention_days | INT | NOT NULL | 730 | Days to retain audit log entries (2-year default) |
+| s3_archival_enabled | BOOLEAN | NOT NULL | false | Whether S3 archival is enabled for this tenant |
+| s3_archival_bucket | TEXT | NULL | — | Target S3 bucket; required if s3_archival_enabled = true |
+| created_at | TIMESTAMPTZ | NOT NULL | NOW() | Record creation time |
+| updated_at | TIMESTAMPTZ | NOT NULL | NOW() | Last modification time |
+
+### Indexes
+
+- `idx_tenant_retention_tenant` on (tenant_id)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-01 tenants (tenant_id FK, UNIQUE)
+- TBL-30 s3_archival_log — archival jobs reference this config to determine target bucket
+- SVC-09 job engine — purge/archival jobs read retention windows from this table

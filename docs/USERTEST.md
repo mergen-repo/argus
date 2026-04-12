@@ -1271,3 +1271,25 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 6. `SBA_NRF_URL=http://nrf.5g.local` env set edildiginde uygulama baslarken NRF NFRegister log girdisi gorulmeli
 7. `psql ... -c "SELECT id, user_id FROM sessions WHERE id='...';"` -- Oturum DB'ye yazilmali (sadece Redis degil)
 8. `make test` -- 1859 test gecmeli, hicbir skiplenmis test olmamali
+
+---
+
+## STORY-064: Database Hardening & Partition Automation
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `make db-migrate` -- 6 yeni migration temiz uygulanmali (20260412000003..008). Sonra `make db-rollback` ile geri alinabilmeli ve tekrar `make db-migrate` ile ileri gidebilmeli (round-trip).
+2. `psql ... -c "\d sims" | grep chk_sims_state` -- enum CHECK kisitlari aktif olmali (9 kisit toplam: tenants, users, sims, apns, policies, policy_versions, operators)
+3. `psql ... -c "INSERT INTO sims (tenant_id, operator_id, imsi, iccid, msisdn, state) VALUES (..., 'invalid_state');"` -- CHECK violation hatasi donmeli (`chk_sims_state`)
+4. `psql ... -c "\d+ audit_logs" | grep 2027_03` -- bootstrap migration'in 2027_03 partition'ini olusturdugu gorulmeli (toplam 2026_07..2027_03 = 9 ay, hem audit_logs hem sim_state_history)
+5. `psql ... -c "SELECT count(*) FROM pg_policies WHERE policyname LIKE '%_tenant_isolation';"` -- 28 RLS policy gorulmeli
+6. `psql ... -c "SELECT relname, relforcerowsecurity FROM pg_class WHERE relname = 'sims';"` -- `relforcerowsecurity = t` gorulmeli (FORCE RLS)
+7. `psql ... -c "INSERT INTO esim_profiles (sim_id, eid, profile_id, operator_id, profile_state) VALUES ('00000000-0000-0000-0000-000000000000', ..., 'available');"` -- FK trigger `check_sim_exists` exception donmeli (sim_id yok)
+8. `psql ... -c "EXPLAIN SELECT * FROM sessions WHERE sim_id = '...' ORDER BY started_at DESC LIMIT 10;"` -- `Index Scan using idx_sessions_sim_started` gorulmeli (Seq Scan degil)
+9. `curl -H "Authorization: Bearer $TOKEN" "http://localhost:8084/api/v1/auth/sessions?limit=20"` -- API-186: Oturum listesi donmeli, `meta.cursor` alanini icermeli (50+ oturum varsa)
+10. `curl -H "Authorization: Bearer $TOKEN" "http://localhost:8084/api/v1/notifications/configs?limit=20"` -- notification_configs cursor pagination calismasi
+11. `psql ... -c "SELECT supported_rat_types FROM operator_grants LIMIT 5;"` -- `supported_rat_types` kolonu mevcut (TEXT[], default '{}')
+12. `psql ... -c "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_operator_grants_rat_types_gin';"` -- GIN index mevcut
+13. Cron log: `docker compose logs argus | grep partition_creator` -- gunluk 02:00 UTC tick'inde `partition ensured` log girdisi
+14. `make lint-sql` -- `OK: no SELECT * in store layer` ciktisi
+15. `make test` -- tum testler gecmeli (1945+ test)

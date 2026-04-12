@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -216,6 +217,50 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 
 	apierr.WriteSuccess(w, http.StatusOK, verify2FAResponse{
 		Token: result.Token,
+	})
+}
+
+func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	q := r.URL.Query()
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	sessions, nextCursor, err := h.svc.ListSessions(r.Context(), userID, q.Get("cursor"), limit)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
+	type sessionDTO struct {
+		ID        string `json:"id"`
+		ExpiresAt string `json:"expires_at"`
+	}
+
+	dtos := make([]sessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		dtos = append(dtos, sessionDTO{
+			ID:        s.ID.String(),
+			ExpiresAt: s.ExpiresAt.Format(time.RFC3339),
+		})
+	}
+
+	apierr.WriteList(w, http.StatusOK, dtos, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
 	})
 }
 

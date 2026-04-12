@@ -346,6 +346,9 @@ func main() {
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
 
+	partitionCreatorProc := job.NewPartitionCreatorProcessor(pg.Pool, jobStore, eventBus, 3, log.Logger)
+	jobRunner.Register(partitionCreatorProc)
+
 	var s3Uploader job.S3Uploader
 	if cfg.S3Bucket != "" {
 		s3Impl, s3Err := storage.NewS3Uploader(ctx, storage.S3Config{
@@ -415,6 +418,11 @@ func main() {
 			Name:     "s3_archival",
 			Schedule: cfg.CronS3Archival,
 			JobType:  job.JobTypeS3Archival,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "partition_creator",
+			Schedule: "0 2 * * *",
+			JobType:  job.JobTypePartitionCreate,
 		})
 		cronScheduler.Start()
 	}
@@ -947,6 +955,18 @@ func (a *sessionStoreAdapter) GetActiveByUserID(ctx context.Context, userID uuid
 		result[i] = *storeSessionToAuth(&sess)
 	}
 	return result, nil
+}
+
+func (a *sessionStoreAdapter) ListActiveByUserID(ctx context.Context, userID uuid.UUID, cursor string, limit int) ([]auth.UserSession, string, error) {
+	sessions, nextCursor, err := a.s.ListActiveByUserID(ctx, userID, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	result := make([]auth.UserSession, len(sessions))
+	for i, sess := range sessions {
+		result[i] = *storeSessionToAuth(&sess)
+	}
+	return result, nextCursor, nil
 }
 
 func storeSessionToAuth(s *store.UserSession) *auth.UserSession {

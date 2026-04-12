@@ -60,6 +60,10 @@ DATABASE_URL=postgres://argus:SECURE_PASSWORD@db.example.com:5432/argus?sslmode=
 DATABASE_READ_REPLICA_URL=postgres://argus:SECURE_PASSWORD@db-replica.example.com:5432/argus?sslmode=require
 ```
 
+### Row-Level Security (RLS)
+
+Row-Level Security is enabled on all multi-tenant tables as defense-in-depth (migration `20260412000006_rls_policies`). The application role `argus_app` MUST hold `BYPASSRLS` before this migration runs or the platform will see empty result sets. Role grant is configured out-of-band in `deploy/` bootstrap, not in the migration itself. See `docs/architecture/db/rls.md` for deploy checklist, rationale (DEV-167), and how to set up a non-BYPASSRLS reporting role.
+
 ---
 
 ## Redis

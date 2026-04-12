@@ -177,11 +177,12 @@ func (s *ESimProfileStore) List(ctx context.Context, tenantID uuid.UUID, p ListE
 	return results, nextCursor, nil
 }
 
-func (s *ESimProfileStore) GetEnabledProfileForSIM(ctx context.Context, simID uuid.UUID) (*ESimProfile, error) {
+func (s *ESimProfileStore) GetEnabledProfileForSIM(ctx context.Context, tenantID, simID uuid.UUID) (*ESimProfile, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+esimProfileColumns+` FROM esim_profiles ep
-		WHERE ep.sim_id = $1 AND ep.profile_state = 'enabled'`,
-		simID,
+		JOIN sims si ON ep.sim_id = si.id
+		WHERE ep.sim_id = $1 AND si.tenant_id = $2 AND ep.profile_state = 'enabled'`,
+		simID, tenantID,
 	)
 	p, err := scanESimProfile(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -427,7 +428,19 @@ func (s *ESimProfileStore) Switch(ctx context.Context, tenantID, sourceProfileID
 	}, nil
 }
 
-func (s *ESimProfileStore) Create(ctx context.Context, params CreateESimProfileParams) (*ESimProfile, error) {
+func (s *ESimProfileStore) Create(ctx context.Context, tenantID uuid.UUID, params CreateESimProfileParams) (*ESimProfile, error) {
+	var exists int
+	err := s.db.QueryRow(ctx,
+		`SELECT 1 FROM sims WHERE id = $1 AND tenant_id = $2`,
+		params.SimID, tenantID,
+	).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: verify sim tenant ownership for esim create: %w", err)
+	}
+
 	cols := strings.ReplaceAll(esimProfileColumns, "ep.", "")
 	var smdpID *string
 	if params.SMDPPlusID != "" {
@@ -495,11 +508,13 @@ func (s *ESimProfileStore) SoftDelete(ctx context.Context, tenantID, profileID u
 	return p, nil
 }
 
-func (s *ESimProfileStore) CountBySIM(ctx context.Context, simID uuid.UUID) (int, error) {
+func (s *ESimProfileStore) CountBySIM(ctx context.Context, tenantID, simID uuid.UUID) (int, error) {
 	var count int
 	err := s.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM esim_profiles WHERE sim_id = $1 AND profile_state != 'deleted'`,
-		simID,
+		`SELECT COUNT(*) FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		WHERE ep.sim_id = $1 AND si.tenant_id = $2 AND ep.profile_state != 'deleted'`,
+		simID, tenantID,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("store: count esim profiles by sim: %w", err)

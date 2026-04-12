@@ -5,7 +5,7 @@ export
 
 .PHONY: help up down restart status logs build build-fresh deploy-dev deploy-prod \
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
-        test test-watch test-coverage lint lint-fix \
+        test test-watch test-coverage lint lint-fix lint-sql \
         clean docker-clean dev start stop backup web-dev web-build \
         vuln-check web-audit
 
@@ -51,6 +51,7 @@ help:
 	@echo "    make lint-fix        Go lint otomatik duzeltme"
 	@echo "    make vuln-check      Go vulnerability scan (govulncheck)"
 	@echo "    make web-audit       npm audit (high/critical)"
+	@echo "    make lint-sql        SELECT * yoklama (store katmani)"
 	@echo ""
 	@echo "  Temizlik:"
 	@echo "    make clean           Build artifact'larini temizle"
@@ -200,6 +201,12 @@ web-audit:
 	@echo "npm audit calistiriliyor..."
 	@cd web && npm audit --audit-level=high
 	@echo "npm audit tamamlandi."
+
+lint-sql:
+	@echo "Checking for SELECT * in store layer..."
+	@! grep -rIn "SELECT \*" internal/store/ --include="*.go" --exclude="*_test.go" \
+		|| (echo "FAIL: SELECT * found in store layer" && exit 1)
+	@echo "OK: no SELECT * in store layer"
 
 # ── Temizlik ──
 

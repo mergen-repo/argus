@@ -450,7 +450,12 @@ test-e2e:
 	cd e2e && npx playwright test
 
 test-all: test test-integration test-frontend test-e2e
+
+lint-sql:
+	@grep -rn "SELECT \*" internal/store/ && exit 1 || echo "lint-sql: PASS"
 ```
+
+`make lint-sql` is a CI guard (added in STORY-064) that fails the build if any `SELECT *` pattern is found in the store layer (`internal/store/`). Enforces explicit column selection across all DB queries, preventing accidental schema drift exposure and query plan regressions.
 
 ## Test Data Fixtures
 

@@ -574,7 +574,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := h.esimStore.CountBySIM(r.Context(), simID)
+	count, err := h.esimStore.CountBySIM(r.Context(), tenantID, simID)
 	if err != nil {
 		h.logger.Error().Err(err).Str("sim_id", req.SimID).Msg("count esim profiles for sim")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -608,10 +608,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		ProfileID:      req.ProfileID,
 	}
 
-	profile, err := h.esimStore.Create(r.Context(), params)
+	profile, err := h.esimStore.Create(r.Context(), tenantID, params)
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateProfile) {
 			apierr.WriteError(w, http.StatusConflict, apierr.CodeDuplicateProfile, "A profile with this ICCID already exists for this SIM")
+			return
+		}
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
 			return
 		}
 		h.logger.Error().Err(err).Str("sim_id", req.SimID).Msg("create esim profile")

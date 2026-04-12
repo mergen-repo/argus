@@ -767,6 +767,11 @@ func (s *SIMStore) SetIPAndPolicy(ctx context.Context, simID uuid.UUID, ipAddres
 	return nil
 }
 
+// GetByIMSI is INTENTIONALLY UNSCOPED for the RADIUS/Diameter hot path — see
+// DEV-041/DEV-166. The AAA stack authenticates by IMSI before any tenant
+// context exists, so the lookup cannot be tenant-scoped. API callers MUST
+// use GetByIMSIScoped instead; the unscoped variant is reserved for
+// internal/aaa/radius and internal/aaa/diameter.
 func (s *SIMStore) GetByIMSI(ctx context.Context, imsi string) (*SIM, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+simColumns+` FROM sims WHERE imsi = $1 LIMIT 1`,
@@ -778,6 +783,24 @@ func (s *SIMStore) GetByIMSI(ctx context.Context, imsi string) (*SIM, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: get sim by imsi: %w", err)
+	}
+	return sim, nil
+}
+
+// GetByIMSIScoped is the tenant-scoped variant of GetByIMSI and MUST be used
+// by every API caller. The RADIUS/Diameter hot path continues to use the
+// unscoped GetByIMSI per DEV-041/DEV-166.
+func (s *SIMStore) GetByIMSIScoped(ctx context.Context, imsi string, tenantID uuid.UUID) (*SIM, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+simColumns+` FROM sims WHERE imsi = $1 AND tenant_id = $2 LIMIT 1`,
+		imsi, tenantID,
+	)
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get sim by imsi scoped: %w", err)
 	}
 	return sim, nil
 }

@@ -161,8 +161,9 @@ type updateOperatorRequest struct {
 }
 
 type createGrantRequest struct {
-	TenantID   string `json:"tenant_id"`
-	OperatorID string `json:"operator_id"`
+	TenantID          string   `json:"tenant_id"`
+	OperatorID        string   `json:"operator_id"`
+	SupportedRATTypes []string `json:"supported_rat_types"`
 }
 
 func toOperatorResponse(o *store.Operator) operatorResponse {
@@ -629,7 +630,7 @@ func (h *Handler) CreateGrant(w http.ResponseWriter, r *http.Request) {
 
 	userID := userIDFromContext(r)
 
-	g, err := h.operatorStore.CreateGrant(r.Context(), tenantID, operatorID, userID)
+	g, err := h.operatorStore.CreateGrant(r.Context(), tenantID, operatorID, userID, req.SupportedRATTypes)
 	if err != nil {
 		if errors.Is(err, store.ErrGrantExists) {
 			apierr.WriteError(w, http.StatusConflict, apierr.CodeAlreadyExists,

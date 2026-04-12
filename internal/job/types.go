@@ -17,6 +17,7 @@ const (
 	JobTypeS3Archival       = "s3_archival"
 	JobTypeDataRetention    = "data_retention"
 	JobTypeStorageMonitor   = "storage_monitor"
+	JobTypePartitionCreate  = "partition_create"
 )
 
 var AllJobTypes = []string{
@@ -36,4 +37,5 @@ var AllJobTypes = []string{
 	JobTypeS3Archival,
 	JobTypeDataRetention,
 	JobTypeStorageMonitor,
+	JobTypePartitionCreate,
 }

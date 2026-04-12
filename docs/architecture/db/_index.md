@@ -35,6 +35,10 @@
 | TBL-25 | sim_segments | SIM/APN | → TBL-01, → TBL-02 | No |
 | TBL-26 | ota_commands | OTA | → TBL-01, → TBL-10, → TBL-20, → TBL-02 | No |
 | TBL-27 | sla_reports | Analytics/SLA | → TBL-01 (tenant_id), → TBL-05 (operator_id nullable) | No |
+| TBL-28 | anomalies | Analytics/Anomalies | → TBL-01 (tenant_id), → TBL-10 (sim_id nullable) | No |
+| TBL-29 | policy_violations | Policy Engine | → TBL-01, → TBL-10, → TBL-13, → TBL-14 | No |
+| TBL-30 | s3_archival_log | Platform Services | → TBL-01 (tenant_id) | No |
+| TBL-31 | tenant_retention_config | Platform Services | → TBL-01 (tenant_id, UNIQUE) | No |
 
 ## Domain Detail Files
 
@@ -44,8 +48,8 @@
 | Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23 |
 | SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
-| AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27 |
-| Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26 |
+| AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27, TBL-28 |
+| Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26, TBL-29, TBL-30, TBL-31 |
 
 ## Entity Relationship Diagram
 

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 7/22 stories (STORY-064 PENDING)
+> Overall progress: 100% (Dev + E2E) — Phase 10: 8/22 stories (STORY-065 PENDING)
 
 ---
 
@@ -148,7 +148,7 @@
 
 > Stories completed: 7/22
 > Current story: STORY-064
-> Current step: —
+> Current step: Plan
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
@@ -168,7 +168,7 @@
 | STORY-060 | AAA Protocol Correctness | XL | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
 | STORY-061 | eSIM Model Evolution | M | [x] DONE | — | STORY-057, STORY-060, STORY-063 | 2026-04-12 |
 | STORY-063 | Backend Implementation Completeness | XL | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
-| STORY-064 | Database Hardening & Partition Automation | L | [ ] PENDING | — | STORY-056, STORY-063 | — |
+| STORY-064 | Database Hardening & Partition Automation | L | [~] IN PROGRESS | Commit | STORY-056, STORY-063 | — |
 
 ### Wave 3 — Production Operations [parallel]
 

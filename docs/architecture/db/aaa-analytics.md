@@ -139,3 +139,50 @@ GROUP BY bucket, tenant_id, operator_id, apn_id, rat_type;
 ```
 
 All three continuous aggregates have `materialized_only = false` (real-time aggregation) enabled, ensuring queries return current data by combining materialized results with recent un-aggregated rows.
+
+---
+
+## TBL-28: anomalies
+
+Anomaly detection records for fraud, usage spikes, and connectivity issues flagged by the analytics engine.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Anomaly identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant (FK → tenants.id) |
+| sim_id | UUID | NULL | — | Affected SIM (nullable; null for tenant-wide anomalies) |
+| type | TEXT | NOT NULL | — | Anomaly type: `sim_cloning`, `data_spike`, `auth_flood`, `nas_flood` |
+| severity | TEXT | NOT NULL | — | `critical`, `high`, `medium`, `low` |
+| state | TEXT | NOT NULL | `open` | Lifecycle state: `open`, `acknowledged`, `resolved`, `false_positive` |
+| details | JSONB | NOT NULL | `{}` | Structured anomaly payload (thresholds, observed values, evidence) |
+| source | TEXT | NULL | — | Detection source (e.g., rule engine, ML model identifier) |
+| detected_at | TIMESTAMPTZ | NOT NULL | now() | When the anomaly was detected |
+| acknowledged_at | TIMESTAMPTZ | NULL | — | When the anomaly was acknowledged |
+| resolved_at | TIMESTAMPTZ | NULL | — | When the anomaly was resolved or dismissed |
+| created_at | TIMESTAMPTZ | NOT NULL | now() | Record creation time |
+| updated_at | TIMESTAMPTZ | NOT NULL | now() | Last modification time |
+
+CHECK constraints: `type IN ('sim_cloning', 'data_spike', 'auth_flood', 'nas_flood')`, `severity IN ('critical', 'high', 'medium', 'low')`, `state IN ('open', 'acknowledged', 'resolved', 'false_positive')`
+
+### Indexes
+
+- `idx_anomalies_tenant_id` on (tenant_id)
+- `idx_anomalies_sim_id` on (sim_id) WHERE sim_id IS NOT NULL
+- `idx_anomalies_type` on (type)
+- `idx_anomalies_severity` on (severity)
+- `idx_anomalies_state` on (state)
+- `idx_anomalies_detected_at` on (detected_at DESC)
+- `idx_anomalies_tenant_state` on (tenant_id, state)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-01 tenants (tenant_id FK)
+- TBL-10 sims (sim_id, nullable — anomaly may apply to a specific SIM or the entire tenant)
+- SVC-07 analytics — anomaly detection engine writes records here
+- TBL-21 notifications — anomaly events trigger `anomaly_detected` notifications

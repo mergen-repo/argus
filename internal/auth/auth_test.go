@@ -126,6 +126,24 @@ func (m *mockSessionRepo) GetActiveByUserID(_ context.Context, userID uuid.UUID)
 	return result, nil
 }
 
+func (m *mockSessionRepo) ListActiveByUserID(_ context.Context, userID uuid.UUID, _ string, limit int) ([]UserSession, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	var result []UserSession
+	for _, sess := range m.sessions {
+		if sess.UserID == userID && sess.RevokedAt == nil && sess.ExpiresAt.After(time.Now()) {
+			result = append(result, *sess)
+		}
+	}
+	nextCursor := ""
+	if len(result) > limit {
+		nextCursor = result[limit-1].ID.String()
+		result = result[:limit]
+	}
+	return result, nextCursor, nil
+}
+
 type mockAuditLogger struct {
 	entries []string
 }
