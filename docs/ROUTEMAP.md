@@ -146,9 +146,9 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 7/22
-> Current story: STORY-064
-> Current step: Plan
+> Stories completed: 8/22
+> Current story: STORY-065
+> Current step: —
 > Mode: AUTOPILOT
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
@@ -168,7 +168,7 @@
 | STORY-060 | AAA Protocol Correctness | XL | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
 | STORY-061 | eSIM Model Evolution | M | [x] DONE | — | STORY-057, STORY-060, STORY-063 | 2026-04-12 |
 | STORY-063 | Backend Implementation Completeness | XL | [x] DONE | — | STORY-056, STORY-057 | 2026-04-12 |
-| STORY-064 | Database Hardening & Partition Automation | L | [~] IN PROGRESS | Commit | STORY-056, STORY-063 | — |
+| STORY-064 | Database Hardening & Partition Automation | L | [x] DONE | — | STORY-056, STORY-063 | 2026-04-12 |
 
 ### Wave 3 — Production Operations [parallel]
 
@@ -219,6 +219,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-12 | DONE | STORY-064 completed — Database Hardening & Partition Automation. 6 migration pairs: enum CHECK constraints (9 tables), operator_grants.supported_rat_types + GIN index, partition bootstrap (18 partitions 2026_07..2027_03 for audit_logs + sim_state_history), RLS policies on 28 tables (ENABLE+FORCE with `app.current_tenant` session variable, BYPASSRLS on app role), FK integrity triggers (check_sim_exists + BEFORE triggers on esim_profiles/ip_addresses/ota_commands), composite indexes (idx_sessions_sim_started, idx_cdrs_sim_timestamp). Go: partition_creator cron job (daily 02:00 UTC, idempotent, regex-sanitized identifiers) wired via scheduler + jobRunner; GetByIMSIScoped added (GetByIMSI unchanged for RADIUS/Diameter hot path); esim.go tenant scoping (GetEnabledProfileForSIM/CountBySIM/Create all take tenantID); cursor pagination on NotificationConfigStore.ListByUser + SessionStore.ListActiveByUserID; new GET /api/v1/auth/sessions endpoint (API-186); SoR engine grant-RAT fallback. Tooling: `make lint-sql` CI guard. Docs: rls.md (new), TBL-28..31 (anomalies, policy_violations, s3_archival_log, tenant_retention_config), ARCHITECTURE.md scale update (31 tables, 114 APIs), GLOSSARY.md (Partition Creator, RLS), TESTING.md (lint-sql), USERTEST.md (15 scenarios). Decisions: DEV-166..170. 1945 tests PASS. Gate PASS (1 fix: TBL numbering gap). Review: 5 findings all FIXED. Zero-deferral. Commit b3c9f7f. | migrations/20260412000003..008, internal/{store,job,operator,api,auth,gateway}, rls.md, 8 doc files |
 | 2026-04-12 | REVIEW | STORY-061 review completed. 6 cross-doc findings — all fixed (zero-deferral). db/sim-apn.md TBL-12: added profile_id column, changed default to 'available', updated profile_state to 4 states, replaced UNIQUE(sim_id) with 3 new partial/composite indexes + CHECK constraint, added migration reference. api/_index.md: eSIM section expanded 5→7 endpoints (API-075 POST /esim-profiles, API-076 DELETE /esim-profiles/:id), API-072/074 descriptions updated, footer 111→113. ARCHITECTURE.md header: 111→113 APIs. GLOSSARY.md: eSIM Profile State Machine updated (4 states, partial unique, available↔enabled↔disabled), Profile Switch updated (old→available per DEV-164, IP release, policy clear, NATS event). 2 new glossary terms: Profile Load, Multi-profile eSIM. USERTEST.md: STORY-061 section added (14 scenarios — eSIM tab UI + altyapi). ROUTEMAP: STORY-061 marked DONE, counter 7/22. ERROR_CODES.md confirmed (5 new codes present). decisions.md DEV-164/165 confirmed present. No CONFIG.md or CLAUDE.md changes needed. SCR-072/073 stale IDs noted — already tracked as D-003 targeting STORY-062. Report: docs/stories/phase-10/STORY-061-review.md | db/sim-apn.md, api/_index.md, ARCHITECTURE.md, GLOSSARY.md, USERTEST.md |
 | 2026-04-12 | REVIEW | STORY-063 review completed. 5 cross-doc findings — all fixed (zero-deferral). api/_index.md: API-183 (GET /sla-reports), API-184 (GET /sla-reports/{id}), API-185 (POST /notifications/sms/status) added; footer updated 108→111 REST endpoints. db/_index.md: TBL-27 sla_reports added (Analytics/SLA domain). GLOSSARY.md: NRF entry updated (real 3GPP NFRegister/NFUpdate/NFDeregister/NFStatusSubscribe calls, not placeholder); SM-DP+ Adapter entry updated (HTTPSMDPAdapter live for generic provider). ARCHITECTURE.md: header updated 108→111 APIs, 24→27 tables. USERTEST.md: STORY-063 section added (8 backend verification steps). ROUTEMAP: STORY-063 marked DONE, counter 6/22. DEV-158..163 confirmed present. CONFIG.md, decisions.md, WEBSOCKET_EVENTS.md all confirmed correct. Report: docs/stories/phase-10/STORY-063-review.md | api/_index.md, db/_index.md, GLOSSARY.md, ARCHITECTURE.md, USERTEST.md |
 | 2026-04-12 | REVIEW | STORY-060 review completed. 9 cross-doc findings — all fixed in-story (zero-deferral). GLOSSARY.md: WS Server pong 10s→90s+WS_PONG_TIMEOUT, WS Hub drops newest→drops oldest, WS Close Code added 4029. ARCHITECTURE.md: MSK in-memory sync.Map row added to Caching Strategy table. decisions.md: VAL-007 SUPERSEDED by DEV-149, DEV-045 SUPERSEDED by DEV-148, PAT-003 added (AT_MAC HMAC zeroing). api/_index.md: API-074 disconnected_sessions+force+409, API-065 CoA counters added. ROUTEMAP: STORY-060 marked DONE, counter 5/22. USERTEST entry present (14 backend scenarios). 0 tech debt items targeted this story. Report: docs/stories/phase-10/STORY-060-review.md | GLOSSARY.md, ARCHITECTURE.md, decisions.md, api/_index.md, ROUTEMAP.md |
