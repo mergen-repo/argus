@@ -140,7 +140,7 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-110 | GET | /api/v1/analytics/dashboard | Tenant dashboard data | JWT (any) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
+| API-110 | GET | /api/v1/dashboard | Tenant dashboard data (note: implementation uses `/dashboard`, not `/analytics/dashboard`; path corrected by compliance audit 2026-04-12) | JWT (any) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-111 | GET | /api/v1/analytics/usage | Usage analytics (time-series) | JWT (analyst+) | See [STORY-034](../../stories/phase-6/STORY-034-usage-analytics.md) |
 | API-112 | GET | /api/v1/analytics/cost | Cost analytics + optimization | JWT (analyst+) | See [STORY-035](../../stories/phase-6/STORY-035-cost-analytics.md) |
 | API-113 | GET | /api/v1/analytics/anomalies | Anomaly detection results | JWT (analyst+) | See [STORY-036](../../stories/phase-6/STORY-036-anomaly-detection.md) |
