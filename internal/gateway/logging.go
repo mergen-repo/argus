@@ -51,6 +51,7 @@ func ZerologRequestLogger(logger zerolog.Logger) func(http.Handler) http.Handler
 
 			event.
 				Str("correlation_id", correlationID).
+				Str("tenant_id", TenantLabel(r.Context())).
 				Str("method", r.Method).
 				Str("path", r.URL.Path).
 				Int("status", rc.status).

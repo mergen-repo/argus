@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/crypto"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ type HealthChecker struct {
 	slaTracker    *SLATracker
 	healthSubject string
 	alertSubject  string
+	metricsReg    *obsmetrics.Registry
 
 	mu             sync.Mutex
 	breakers       map[uuid.UUID]*CircuitBreaker
@@ -76,6 +78,40 @@ func (hc *HealthChecker) SetSLATracker(tracker *SLATracker) {
 	hc.slaTracker = tracker
 }
 
+// SetMetricsRegistry wires the Prometheus registry used to expose the
+// operator health gauge and circuit breaker state gauge. Safe to call
+// at any time; when nil, metrics updates are silently skipped.
+func (hc *HealthChecker) SetMetricsRegistry(reg *obsmetrics.Registry) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.metricsReg = reg
+	// Attach the transition hook to every breaker already running so
+	// existing loops also publish state changes.
+	for opID, cb := range hc.breakers {
+		hc.attachBreakerHookLocked(opID, cb)
+	}
+}
+
+// attachBreakerHookLocked installs the transition hook for a single
+// breaker. Caller must hold hc.mu.
+func (hc *HealthChecker) attachBreakerHookLocked(opID uuid.UUID, cb *CircuitBreaker) {
+	if cb == nil {
+		return
+	}
+	reg := hc.metricsReg
+	if reg == nil {
+		cb.SetTransitionHook(nil)
+		return
+	}
+	idStr := opID.String()
+	cb.SetTransitionHook(func(state CircuitState) {
+		reg.SetCircuitBreakerState(idStr, string(state))
+	})
+	// Seed the gauge with the breaker's current state so the metric is
+	// non-zero even before the first transition.
+	reg.SetCircuitBreakerState(idStr, string(cb.State()))
+}
+
 func (hc *HealthChecker) Start(ctx context.Context) error {
 	operators, err := hc.store.ListActive(ctx)
 	if err != nil {
@@ -98,6 +134,12 @@ func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
 	hc.breakers[op.ID] = cb
 	hc.operatorNames[op.ID] = op.Name
 	hc.lastStatus[op.ID] = op.HealthStatus
+	// Wire the breaker's transition hook to the Prometheus gauge (if
+	// metrics are enabled). Also publishes the initial health status.
+	hc.attachBreakerHookLocked(op.ID, cb)
+	if hc.metricsReg != nil {
+		hc.metricsReg.SetOperatorHealth(op.ID.String(), op.HealthStatus)
+	}
 
 	stopCh := make(chan struct{})
 	hc.stopChs[op.ID] = stopCh
@@ -165,6 +207,16 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		}
 	default:
 		status = "unknown"
+	}
+
+	// Publish the operator health gauge once the current status is
+	// resolved. Snapshot the registry pointer under the lock to stay
+	// race-free with concurrent SetMetricsRegistry calls.
+	hc.mu.Lock()
+	metricsReg := hc.metricsReg
+	hc.mu.Unlock()
+	if metricsReg != nil {
+		metricsReg.SetOperatorHealth(opID.String(), status)
 	}
 
 	var latencyMs *int

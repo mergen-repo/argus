@@ -62,3 +62,7 @@
 - API-181: GET /api/v1/system/metrics
 - API-182: GET /api/v1/system/config
 - WebSocket: metrics.realtime
+
+## Observability Integration (STORY-065)
+- `GET /metrics` — Prometheus scrape endpoint (17 metric vectors, Go runtime + process collectors). Not shown in UI; consumed by Prometheus.
+- Grafana dashboards (`infra/grafana/dashboards/`) provide extended SRE views complementary to this screen. STORY-072 (Enterprise Observability Screens) will embed Grafana panels or equivalent charts directly in the portal.

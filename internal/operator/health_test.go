@@ -2,9 +2,15 @@ package operator
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -157,4 +163,78 @@ func TestHealthChecker_PublishAlertNilPub(t *testing.T) {
 func TestHealthChecker_CheckSLAViolationNilTracker(t *testing.T) {
 	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
 	hc.checkSLAViolation(context.Background(), [16]byte{}, "test")
+}
+
+// scrapeMetrics fetches the /metrics body from the supplied registry.
+func scrapeMetrics(t *testing.T, reg *obsmetrics.Registry) string {
+	t.Helper()
+	srv := httptest.NewServer(reg.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return string(body)
+}
+
+func TestHealthChecker_SetMetricsRegistry_WiresBreakerHook(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+
+	opID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	cb := NewCircuitBreaker(1, 10)
+
+	// Register the breaker manually — mimicking startOperatorLoop.
+	hc.mu.Lock()
+	hc.breakers[opID] = cb
+	hc.lastStatus[opID] = "healthy"
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	reg := obsmetrics.NewRegistry()
+	hc.SetMetricsRegistry(reg)
+
+	// Seeding should publish closed=1 immediately.
+	text := scrapeMetrics(t, reg)
+	wantClosed := `argus_circuit_breaker_state{operator_id="` + opID.String() + `",state="closed"} 1`
+	if !strings.Contains(text, wantClosed) {
+		t.Errorf("missing seed line %q\n%s", wantClosed, text)
+	}
+
+	// Trip the breaker — hook should update the gauge.
+	cb.RecordFailure()
+	text = scrapeMetrics(t, reg)
+	wantOpen := `argus_circuit_breaker_state{operator_id="` + opID.String() + `",state="open"} 1`
+	if !strings.Contains(text, wantOpen) {
+		t.Errorf("missing open line after failure %q\n%s", wantOpen, text)
+	}
+	wantClosedZero := `argus_circuit_breaker_state{operator_id="` + opID.String() + `",state="closed"} 0`
+	if !strings.Contains(text, wantClosedZero) {
+		t.Errorf("expected closed=0 after open transition, got\n%s", text)
+	}
+}
+
+func TestHealthChecker_SetMetricsRegistry_NilClearsHook(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	cb := NewCircuitBreaker(1, 10)
+	opID := uuid.New()
+
+	hc.mu.Lock()
+	hc.breakers[opID] = cb
+	hc.mu.Unlock()
+
+	reg := obsmetrics.NewRegistry()
+	hc.SetMetricsRegistry(reg)
+	hc.SetMetricsRegistry(nil)
+
+	// After clearing, breaker transitions must not panic or affect
+	// the previously attached registry.
+	cb.RecordFailure()
+}
+
+func TestHealthChecker_SetMetricsRegistry_NoBreakersIsSafe(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	reg := obsmetrics.NewRegistry()
+	hc.SetMetricsRegistry(reg) // no breakers registered — must not panic
 }

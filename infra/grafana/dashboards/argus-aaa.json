@@ -1,0 +1,187 @@
+{
+  "title": "Argus — AAA (Auth)",
+  "uid": "argus-aaa",
+  "tags": ["argus", "aaa"],
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "",
+  "fiscalYearStartMonth": 0,
+  "weekStart": "",
+  "style": "dark",
+  "editable": true,
+  "liveNow": false,
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Auth Requests/sec by Protocol",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (protocol) (rate(argus_aaa_auth_requests_total[1m]))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "{{protocol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    },
+    {
+      "id": 2,
+      "title": "Auth Success Rate (%)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(argus_aaa_auth_requests_total{result=\"success\"}[5m])) / sum(rate(argus_aaa_auth_requests_total[5m])) * 100",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "success %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 90},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Auth p99 Latency by Protocol",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, protocol) (rate(argus_aaa_auth_latency_seconds_bucket[5m])))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "p50 {{protocol}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, protocol) (rate(argus_aaa_auth_latency_seconds_bucket[5m])))",
+          "refId": "B",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "p95 {{protocol}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, protocol) (rate(argus_aaa_auth_latency_seconds_bucket[5m])))",
+          "refId": "C",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "p99 {{protocol}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    },
+    {
+      "id": 4,
+      "title": "Operator Health",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "argus_operator_health",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "{{operator_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}}},
+            {"type": "value", "options": {"1": {"text": "DEGRADED", "color": "yellow"}}},
+            {"type": "value", "options": {"2": {"text": "HEALTHY", "color": "green"}}}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "green", "value": 2}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Circuit Breaker State",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (operator_id, state) (argus_circuit_breaker_state == 1)",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "{{operator_id}} — {{state}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {"id": "labelsToFields", "options": {}},
+        {"id": "organize", "options": {}}
+      ]
+    }
+  ]
+}

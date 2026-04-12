@@ -85,6 +85,9 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 | HTTP Router | chi | v5 | Lightweight, middleware-friendly Go router |
 | WebSocket | gorilla/websocket | Latest | Real-time event streaming |
 | Logging | zerolog | Latest | Structured JSON logging |
+| Tracing | go.opentelemetry.io/otel | v1.43.0 | Distributed tracing — OTLP gRPC export, W3C TraceContext propagation |
+| Metrics | prometheus/client_golang | v1.23.2 | Prometheus registry + `/metrics` scrape endpoint |
+| DB Tracing | otelpgx | v0.10.0 | pgx v5 native OTel tracer (spans per query) |
 | Config | envconfig | Latest | Environment variable configuration |
 | Testing | Go testing + testify | Latest | Unit + integration tests |
 | Container | Docker + Compose | Latest | Deployment |
@@ -150,7 +153,10 @@ argus/
 │   │   ├── cdr/                  # CDR processing
 │   │   ├── anomaly/              # Anomaly detection
 │   │   ├── cost/                 # Cost optimization
-│   │   └── metrics/              # Built-in observability
+│   │   └── metrics/              # Redis-backed realtime metrics (WS dashboard, STORY-033)
+│   ├── observability/            # Cross-cutting OTel + Prometheus infrastructure (STORY-065)
+│   │   ├── otel.go               # OTel tracer provider init (OTLP gRPC, resource attrs, shutdown)
+│   │   └── metrics/              # Prometheus registry, metric descriptors, AAA composite recorder
 │   ├── notification/             # SVC-08: Notification service
 │   ├── job/                      # SVC-09: Job runner
 │   ├── audit/                    # SVC-10: Audit service
@@ -188,6 +194,7 @@ argus/
 ├── deploy/
 │   ├── docker-compose.yml
 │   ├── docker-compose.prod.yml
+│   ├── docker-compose.obs.yml    # Optional observability overlay: Prometheus + Grafana + OTel Collector (STORY-065)
 │   └── nginx/
 │       └── nginx.conf
 ├── infra/
@@ -195,7 +202,14 @@ argus/
 │   │   └── Dockerfile.argus      # Multi-stage Go+React build
 │   ├── monitoring/
 │   │   └── nats-check.sh         # NATS health probe
-│   └── ...                       # postgres, redis, nats config
+│   ├── grafana/
+│   │   ├── dashboards/           # 6 pre-built Grafana dashboard JSONs (STORY-065)
+│   │   └── provisioning/         # Datasource + dashboard provisioning configs
+│   ├── prometheus/
+│   │   ├── prometheus.yml        # Prometheus scrape config (STORY-065)
+│   │   └── alerts.yml            # 9 Prometheus alert rules (STORY-065)
+│   └── otel/
+│       └── otel-collector-config.yaml  # OTel Collector pipeline config (STORY-065)
 ├── .dockerignore
 ├── docs/                         # All planning & architecture docs
 ├── .env.example
@@ -320,6 +334,38 @@ RADIUS Request → UDP listener (goroutine pool)
 | Auth latency window | Redis ZSET | 120s | Auto-expire + 60s sliding prune |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
 | Diagnostic result (per-SIM) | Redis | 1min | Auto-expire (TTL) |
+
+## Observability Architecture
+
+Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross-cutting with zero upward dependencies on business packages.
+
+### Distributed Tracing (OpenTelemetry)
+
+- **Provider init**: `internal/observability/otel.go` — OTLP gRPC exporter to `OTEL_EXPORTER_OTLP_ENDPOINT`. Resource attributes: `service.name`, `service.version`, `deployment.environment`. Graceful shutdown flushes spans.
+- **HTTP**: Chi router wrapped with `otelhttp.NewHandler` (outermost layer). Span attributes include `http.method`, `http.route`, `http.status_code`, `correlation_id`, `tenant_id`, `user_id`.
+- **DB**: pgx pool uses `compositeTracer` (otelpgx v0.10.0 + `SlowQueryTracer`). Every query produces a child span with `db.statement`, `db.operation`, `db.system=postgresql`. Queries >100ms get `db.slow_query=true` attribute.
+- **NATS**: `Publish()` injects `traceparent` W3C header; consumer handlers extract and create child spans. Legacy Subscribe paths preserved.
+- **Context propagation**: W3C TraceContext (`propagation.TraceContext{}`) set as global propagator. `correlation_id` flows from HTTP log middleware → OTel span attributes → NATS headers.
+
+### Metrics (Prometheus)
+
+- **Registry**: Custom `*prometheus.Registry` in `internal/observability/metrics/metrics.go`. Handler: `promhttp.HandlerFor`. Exposed at `GET /metrics` (no auth, Prometheus scrape format).
+- **Core metric set** (17 vectors): HTTP counters/histograms, AAA auth counters/latency, active sessions, DB pool/query histograms, NATS pub/consume counters, Redis ops/cache hit counters, job run counters/duration, operator health gauge, circuit breaker state gauge. See AC-6 in STORY-065 for full label sets.
+- **Tenant labeling**: `tenant_id` label on HTTP and AAA metrics. Kill-switch: `METRICS_TENANT_LABEL_ENABLED=false` drops the label to control cardinality (DEV-173).
+- **AAA wiring**: `CompositeMetricsRecorder` wraps both the legacy Redis `Collector` (WS realtime dashboard, STORY-033) and new `PrometheusRecorder` — both receive every auth event (DEV-172).
+- **Security note**: `tenant_id` is added to labels only after auth middleware extracts it from JWT; unauthenticated requests do not propagate tenant_id into metrics labels.
+
+### Grafana Dashboards & Alert Rules
+
+- **Dashboards** (`infra/grafana/dashboards/`, 6 files, schemaVersion 38):
+  - `argus-overview.json` — request rate, error rate, p95/p99 latency, goroutines, memory
+  - `argus-aaa.json` — auth/s per protocol, latency percentiles, operator health, circuit breaker
+  - `argus-database.json` — pool utilization, query duration, slow queries
+  - `argus-messaging.json` — NATS rates, Redis ops/hit rate
+  - `argus-tenant.json` — per-tenant metrics (templated by `tenant_id`)
+  - `argus-jobs.json` — job throughput, duration, failure rate
+- **Alert rules** (`infra/prometheus/alerts.yml`, 9 rules): `ArgusHighErrorRate`, `ArgusAuthLatencyHigh`, `ArgusOperatorDown`, `ArgusCircuitBreakerOpen`, `ArgusDBPoolExhausted`, `ArgusNATSConsumerLag`, `ArgusJobFailureRate`, `ArgusRedisEvictionStorm`, `ArgusDiskSpaceLow`.
+- **Deployment**: Optional overlay compose file `deploy/docker-compose.obs.yml` starts Prometheus, Grafana, and OTel Collector on `argus_argus-net` (DEV-176). The core Argus binary's `/metrics` endpoint works standalone without the overlay.
 
 ## Extension Points (for FUTURE.md)
 

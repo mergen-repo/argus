@@ -192,6 +192,21 @@
 | Connectivity Diagnostics | Automated 7-step SIM troubleshooting engine: (1) SIM state, (2) last auth/session, (3) operator health, (4) APN config, (5) policy verification, (6) IP pool availability, (7) optional test auth. Per-step results include pass/warn/fail status with remediation suggestions. Overall result: PASS (all pass), DEGRADED (warnings), FAIL (any fail). Cached 1min in Redis (`diag:{tenant}:{sim}:{test_auth}`). | SVC-03, STORY-037, API-049, `internal/diagnostics/` |
 | Diagnostic Step | Individual check within connectivity diagnostics. Each step returns `{step, name, status, message, suggestion}`. Status values: `pass` (check OK), `warn` (degraded/unavailable), `fail` (problem found with remediation suggestion). Steps execute sequentially; nil stores degrade gracefully to warn. | SVC-03, STORY-037 |
 
+## Observability Terms
+
+| Term | Definition | Context |
+|------|-----------|---------|
+| OpenTelemetry (OTel) | CNCF vendor-neutral framework for distributed tracing, metrics, and logs. Argus uses OTel Go SDK v1.43.0 with OTLP gRPC export. Initialized in `internal/observability/otel.go`. | Cross-cutting, STORY-065 |
+| OTLP | OpenTelemetry Protocol — gRPC/HTTP binary protocol for exporting spans, metrics, and logs to a collector (Jaeger, Tempo, OTel Collector). Argus uses gRPC (`otlptracegrpc`) pointed at `OTEL_EXPORTER_OTLP_ENDPOINT`. | STORY-065, `internal/observability/otel.go` |
+| Span | Basic unit of distributed tracing work. Each HTTP request creates a root span; DB queries and NATS publishes create child spans. Argus span attributes include `http.route`, `tenant_id`, `correlation_id`, `db.statement`, `traceparent`. | OTel, STORY-065, `internal/observability/` |
+| Trace Context Propagation | Passing distributed trace identity (`traceparent` W3C header) across process boundaries so child spans link to the same root trace. Argus propagates via HTTP headers (W3C TraceContext) and NATS message headers. | OTel, STORY-065, `internal/bus/nats.go` |
+| Prometheus Registry | In-process registry of all metric descriptors and their current values. Argus uses a custom `*prometheus.Registry` (not the global default) to avoid cross-contamination in tests. Exposed via `GET /metrics` using `promhttp.HandlerFor`. | SVC-01, STORY-065, `internal/observability/metrics/metrics.go` |
+| Metric Cardinality | Total number of unique time-series created by a metric, determined by the product of all label value combinations. High cardinality strains Prometheus memory. Argus limits this via bounded label alphabets and the `METRICS_TENANT_LABEL_ENABLED` kill-switch (DEV-173). | STORY-065, DEV-173 |
+| Histogram Bucket | Upper bound cutoff within a Prometheus Histogram that counts observations falling at or below that value. Argus defines per-domain bucket sets: HTTP (1ms–10s, 12 buckets), AAA (1ms–5s, 11 buckets), DB (0.5ms–2.5s, 11 buckets), Job (0.5s–30m, 10 buckets). | STORY-065, `internal/observability/metrics/metrics.go` |
+| Circuit Breaker State Gauge | `argus_circuit_breaker_state{operator_id, state}` Prometheus Gauge (0 or 1) recording the current circuit breaker state per operator. States: `closed`, `open`, `half_open`. Set by the `SetTransitionHook` callback in `internal/operator/circuit_breaker.go`. | SVC-06, STORY-065, AC-11 |
+| Slow Query Tracer | `internal/store/tracer_slow.go` — pgx tracer implementing all 6 pgx v5 tracer interfaces (Query/Batch/CopyFrom/Prepare/Connect/Acquire). Adds `db.slow_query=true` OTel span attribute when query duration exceeds 100ms threshold. Composed with otelpgx tracer via `compositeTracer`. | SVC-03, STORY-065, DEV-177 |
+| Composite Metrics Recorder | `CompositeMetricsRecorder` in `internal/observability/metrics/aaa_recorder.go` — wraps both the legacy Redis-backed `Collector` (STORY-033 WS realtime dashboard) and the new Prometheus `PrometheusRecorder`. Preserves the WS dashboard while adding OTel-aligned Prometheus metrics. Implements `MetricsRecorder` interface. | SVC-04/SVC-07, STORY-065, DEV-172 |
+
 ## Regulatory Terms
 
 | Term | Definition | Context |

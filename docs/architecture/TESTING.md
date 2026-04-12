@@ -246,7 +246,7 @@ go test ./...
 # Unit tests only (skip integration)
 go test -short ./...
 
-# Integration tests only
+# Integration tests only (name-based)
 go test -run Integration ./internal/store/...
 go test -run Integration ./internal/cache/...
 go test -run Integration ./internal/bus/...
@@ -254,6 +254,31 @@ go test -run Integration ./internal/bus/...
 # Specific package with verbose output
 go test -v -count=1 ./internal/policy/dsl/...
 ```
+
+### Build-Tag-Gated Integration Tests
+
+Some integration tests require external infrastructure (OTel Collector, Prometheus, in-memory exporters) and are gated behind the `integration` build tag to avoid running in standard CI. These tests are **not** skipped by `-short` — they must be explicitly opted in with `-tags integration`.
+
+```bash
+# Run build-tag-gated integration tests
+go test -tags integration ./internal/observability/...
+
+# Run with race detector (recommended)
+go test -tags integration -race ./internal/observability/...
+```
+
+Gate pattern used in test files:
+```go
+//go:build integration
+
+package observability_test
+
+// Tests use tracetest.InMemoryExporter + sdktrace.NewSimpleSpanProcessor
+// to assert span attributes without requiring a live OTLP endpoint.
+```
+
+Files using this pattern (as of STORY-065):
+- `internal/observability/integration_test.go` — end-to-end trace + metrics + correlation_id propagation (19 tests)
 
 ## Benchmark Tests
 

@@ -146,6 +146,16 @@ type Config struct {
 	SBANRFURL          string `envconfig:"SBA_NRF_URL"`
 	SBANFInstanceID    string `envconfig:"SBA_NF_INSTANCE_ID"       default:"argus-sba-01"`
 	SBANRFHeartbeatSec int    `envconfig:"SBA_NRF_HEARTBEAT_SEC"    default:"30"`
+
+	OTELExporterOTLPEndpoint   string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"    default:""`
+	OTELSamplerRatio           float64 `envconfig:"OTEL_SAMPLER_RATIO"             default:"1.0"`
+	OTELServiceName            string  `envconfig:"OTEL_SERVICE_NAME"              default:"argus"`
+	OTELServiceVersion         string  `envconfig:"OTEL_SERVICE_VERSION"           default:"dev"`
+	OTELDeploymentEnvironment  string  `envconfig:"OTEL_DEPLOYMENT_ENVIRONMENT"    default:"development"`
+	MetricsTenantLabelEnabled  bool    `envconfig:"METRICS_TENANT_LABEL_ENABLED"   default:"true"`
+	MetricsEnabled             bool    `envconfig:"METRICS_ENABLED"                default:"true"`
+	MetricsNamespace           string  `envconfig:"METRICS_NAMESPACE"              default:"argus"`
+	OTELBSPExportTimeoutSec    int     `envconfig:"OTEL_BSP_EXPORT_TIMEOUT_SEC"    default:"5"`
 }
 
 func Load() (*Config, error) {
@@ -201,6 +211,10 @@ func (c *Config) Validate() error {
 
 	if c.RedisMaxConns <= 0 {
 		return fmt.Errorf("REDIS_MAX_CONNS must be > 0 (got %d)", c.RedisMaxConns)
+	}
+
+	if c.OTELSamplerRatio < 0.0 || c.OTELSamplerRatio > 1.0 {
+		return fmt.Errorf("OTEL_SAMPLER_RATIO must be in [0.0, 1.0] (got %g)", c.OTELSamplerRatio)
 	}
 
 	return nil

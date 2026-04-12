@@ -309,6 +309,34 @@ These variables are only meaningful in development mode (`APP_ENV=development`):
 
 ---
 
+## Observability
+
+> `/metrics` exposes Prometheus text format (NOT the `/api/v1/system/metrics` JSON envelope — that endpoint remains for admin-UI real-time push).
+> Grafana dashboards: `infra/grafana/dashboards/`
+> Alert rules: `infra/prometheus/alerts.yml`
+> Docker Compose overlay: `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.obs.yml up`
+
+### OpenTelemetry (Tracing)
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | string | `""` | No | OTLP gRPC endpoint for trace export. Empty = noop tracer (tracing disabled). Example: `http://jaeger:4317`. |
+| `OTEL_SAMPLER_RATIO` | float | `1.0` | No | Span sampling ratio (0.0–1.0) via ParentBased/TraceIDRatioBased sampler. Set to `0.1` in high-throughput production. |
+| `OTEL_SERVICE_NAME` | string | `"argus"` | No | `service.name` resource attribute attached to all spans. |
+| `OTEL_SERVICE_VERSION` | string | `"dev"` | No | `service.version` resource attribute. Override to `$(git describe --tags)` in production CI. |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | string | `"development"` | No | `deployment.environment` resource attribute. Use `staging` / `production` in upper environments. |
+| `OTEL_BSP_EXPORT_TIMEOUT_SEC` | int | `5` | No | BatchSpanProcessor export timeout in seconds. Increase if the OTLP collector is remote/slow. |
+
+### Prometheus (Metrics)
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `METRICS_ENABLED` | bool | `true` | No | Global Prometheus registry enable switch. Set to `false` to disable the `/metrics` endpoint entirely. |
+| `METRICS_NAMESPACE` | string | `"argus"` | No | Metric name prefix (e.g. `argus_http_requests_total`). Reserved for future multi-instance disambiguation. |
+| `METRICS_TENANT_LABEL_ENABLED` | bool | `true` | No | Cardinality kill switch for the `tenant_id` label on HTTP and AAA metrics. Set to `false` in emergency to reduce cardinality without redeploy. |
+
+---
+
 ## Complete .env.example
 
 ```bash
@@ -421,4 +449,17 @@ DEFAULT_PURGE_RETENTION_DAYS=90
 
 # === Development ===
 DEV_CORS_ALLOW_ALL=true
+
+# === Observability (OpenTelemetry) ===
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+OTEL_SAMPLER_RATIO=1.0
+OTEL_SERVICE_NAME=argus
+OTEL_SERVICE_VERSION=dev
+OTEL_DEPLOYMENT_ENVIRONMENT=development
+OTEL_BSP_EXPORT_TIMEOUT_SEC=5
+
+# === Observability (Prometheus) ===
+METRICS_ENABLED=true
+METRICS_NAMESPACE=argus
+METRICS_TENANT_LABEL_ENABLED=true
 ```

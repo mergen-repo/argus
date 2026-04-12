@@ -61,6 +61,8 @@ import (
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/observability"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/ota"
 	"github.com/btopcu/argus/internal/operator"
 	"github.com/btopcu/argus/internal/operator/adapter"
@@ -111,15 +113,43 @@ func main() {
 
 	log.Info().Str("env", cfg.AppEnv).Int("port", cfg.AppPort).Msg("starting argus")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// appCtx is a long-lived context for background goroutines (pool gauge,
+	// health pollers) that must outlive one-shot init timeouts. Cancelled in
+	// the graceful shutdown block below before closing infrastructure.
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
+	// --- Observability init (STORY-065) ---
+	metricsReg := obsmetrics.NewRegistry()
+
+	otelInitCtx, otelInitCancel := context.WithTimeout(appCtx, 10*time.Second)
+	otelShutdown, err := observability.Init(otelInitCtx, observability.Config{
+		Endpoint:         cfg.OTELExporterOTLPEndpoint,
+		SamplerRatio:     cfg.OTELSamplerRatio,
+		ServiceName:      cfg.OTELServiceName,
+		ServiceVersion:   cfg.OTELServiceVersion,
+		DeploymentEnv:    cfg.OTELDeploymentEnvironment,
+		ExportTimeoutSec: cfg.OTELBSPExportTimeoutSec,
+	}, log.Logger)
+	otelInitCancel()
+	if err != nil {
+		log.Fatal().Err(err).Msg("otel init failed")
+	}
+	// NOTE: otelShutdown is intentionally NOT deferred — it must run before
+	// NATS/Redis/DB close so in-flight spans flush with infra still alive.
+	// See graceful shutdown block below.
+
+	ctx, cancel := context.WithTimeout(appCtx, 30*time.Second)
 	defer cancel()
 
-	pg, err := store.NewPostgres(ctx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMaxIdleConns, cfg.DatabaseConnMaxLife)
+	pg, err := store.NewPostgresWithMetrics(ctx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMaxIdleConns, cfg.DatabaseConnMaxLife, metricsReg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect postgres")
 	}
 	defer pg.Close()
 	log.Info().Msg("postgres connected")
+
+	store.StartPoolGauge(appCtx, pg.Pool, metricsReg, 10*time.Second)
 
 	var pgReadReplica *store.Postgres
 	if cfg.DatabaseReadReplicaURL != "" {
@@ -138,6 +168,8 @@ func main() {
 	}
 	defer rdb.Close()
 	log.Info().Msg("redis connected")
+
+	cache.RegisterRedisMetrics(rdb.Client, metricsReg)
 
 	ns, err := bus.NewNATS(ctx, cfg.NATSURL, cfg.NATSMaxReconnect, cfg.NATSReconnectWait, log.Logger)
 	if err != nil {
@@ -180,6 +212,7 @@ func main() {
 	tenantStore := store.NewTenantStore(pg.Pool)
 	auditStore := store.NewAuditStore(pg.Pool)
 	eventBus := bus.NewEventBus(ns)
+	eventBus.SetMetrics(metricsReg)
 	auditSvc := audit.NewFullService(auditStore, eventBus, log.Logger)
 
 	if err := auditSvc.Start(ctx, &eventBusSubscriber{eventBus}); err != nil {
@@ -308,6 +341,7 @@ func main() {
 		MaxConcurrentPerTenant: cfg.JobMaxConcurrentPerTenant,
 		LockRenewInterval:     cfg.JobLockRenewInterval,
 	}, log.Logger)
+	jobRunner.SetMetrics(metricsReg)
 	jobRunner.Register(importProcessor)
 	jobRunner.Register(dryRunProcessor)
 	jobRunner.Register(rolloutStageProc)
@@ -429,6 +463,7 @@ func main() {
 
 	healthChecker := operator.NewHealthChecker(operatorStore, adapterRegistry, rdb.Client, cfg.EncryptionKey, log.Logger)
 	healthChecker.SetEventPublisher(eventBus, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered)
+	healthChecker.SetMetricsRegistry(metricsReg)
 
 	slaTracker := operator.NewSLATracker(rdb.Client, log.Logger)
 	healthChecker.SetSLATracker(slaTracker)
@@ -651,9 +686,14 @@ func main() {
 	)
 
 	if radiusServer != nil {
-		radiusServer.SetMetricsRecorder(metricsCollector)
+		promAAARecorder := obsmetrics.NewPromAAARecorder(metricsReg, "radius")
+		compositeRecorder := obsmetrics.NewCompositeRecorder(metricsCollector, promAAARecorder)
+		radiusServer.SetMetricsRecorder(compositeRecorder)
 		radiusServer.SetPolicyEnforcer(policyEnforcer)
 	}
+	// Diameter and SBA servers do not currently expose SetMetricsRecorder —
+	// protocol-labelled Prom metrics for those will be wired when those
+	// servers grow the hook (tracked for a follow-up story).
 
 	activeOps, activeOpsErr := operatorStore.ListActive(context.Background())
 	if activeOpsErr == nil {
@@ -666,6 +706,10 @@ func main() {
 
 	metricsPusher := analyticmetrics.NewPusher(metricsCollector, wsHub, log.Logger)
 	metricsPusher.Start()
+
+	// NATS pending messages gauge (argus_nats_pending_messages) is a no-op
+	// until EventBus exposes a PendingByConsumer-style API. Tracked as a
+	// follow-up; the gauge stays at 0 meanwhile. Intentionally no goroutine.
 
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
@@ -746,6 +790,7 @@ func main() {
 		CORSConfig:           &corsCfg,
 		BruteForceCfg:        &bfCfg,
 		EnableInputSanitizer: true,
+		MetricsReg:           metricsReg,
 	})
 
 	srv := &http.Server{
@@ -843,6 +888,20 @@ func main() {
 
 	log.Info().Msg("stopping audit consumer")
 	auditSvc.Stop()
+
+	// Flush OTel spans BEFORE closing NATS/Redis/DB so any in-flight span
+	// that references those resources still serializes cleanly. Must run
+	// before ns.Close() / rdb.Close() / pg.Close() below.
+	log.Info().Msg("flushing otel spans")
+	otelShutdownCtx, otelShutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := otelShutdown(otelShutdownCtx); err != nil {
+		log.Error().Err(err).Msg("otel shutdown failed")
+	}
+	otelShutdownCancel()
+
+	// Cancel appCtx so long-lived background goroutines (pool gauge etc.)
+	// exit before their underlying resources are torn down.
+	appCancel()
 
 	log.Info().Msg("closing nats connection")
 	ns.Close()

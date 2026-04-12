@@ -151,3 +151,20 @@ func TestValidate_BcryptCostLowAllowedInDevelopment(t *testing.T) {
 		t.Fatalf("expected no error for BCRYPT_COST=10 in development, got: %v", err)
 	}
 }
+
+func TestValidate_OTELSamplerRatio_Valid(t *testing.T) {
+	cfg := validConfig()
+	cfg.OTELSamplerRatio = 0.5
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for OTEL_SAMPLER_RATIO=0.5, got: %v", err)
+	}
+}
+
+func TestValidate_OTELSamplerRatio_OutOfRange(t *testing.T) {
+	cfg := validConfig()
+	cfg.OTELSamplerRatio = 1.5
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for OTEL_SAMPLER_RATIO=1.5")
+	}
+}

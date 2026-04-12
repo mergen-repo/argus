@@ -231,6 +231,14 @@
 | API-181 | GET | /api/v1/system/metrics | Built-in metrics (auth/s, latency, sessions) | JWT (super_admin) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-182 | GET | /api/v1/system/config | System configuration | JWT (super_admin) | See [STORY-001](../../stories/phase-1/STORY-001-project-scaffold.md) |
 
+## Observability Endpoints (1 endpoint)
+
+These endpoints do not follow the standard `{ status, data }` JSON envelope and are not versioned under `/api/v1`. They are technical infrastructure endpoints.
+
+| Path | Method | Format | Auth | Description | Detail |
+|------|--------|--------|------|-------------|--------|
+| `/metrics` | GET | Prometheus text exposition | None (scrape endpoint) | Prometheus metrics registry — all 17 argus_* vectors + Go runtime + process collectors. Added by STORY-065. | See [STORY-065](../../stories/phase-10/STORY-065-observability.md) |
+
 ## WebSocket Events
 
 See [WEBSOCKET_EVENTS.md](../WEBSOCKET_EVENTS.md) for full payload schemas.

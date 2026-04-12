@@ -1293,3 +1293,26 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 13. Cron log: `docker compose logs argus | grep partition_creator` -- gunluk 02:00 UTC tick'inde `partition ensured` log girdisi
 14. `make lint-sql` -- `OK: no SELECT * in store layer` ciktisi
 15. `make test` -- tum testler gecmeli (1945+ test)
+
+---
+
+## STORY-065: Observability & Tracing Standardization
+
+Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.obs.yml up -d` -- prometheus, grafana, otel-collector, node-exporter, redis-exporter calismali
+2. `curl http://localhost:8080/metrics` -- Prometheus text formatinda `# HELP argus_http_requests_total`, `go_goroutines`, `process_resident_memory_bytes` satirlari gorulmeli
+3. `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/sims` -- istek sonrasi `/metrics` ciktisinda `argus_http_requests_total{method="GET",route="/api/v1/sims",status="200",tenant_id="..."}` counter artmali
+4. `docker compose logs argus | grep tenant_id` -- kimligi dogrulanmis her log satirinda `tenant_id=<uuid>` alani olmali
+5. `curl http://localhost:9090/api/v1/targets` -- Prometheus UI'da argus target `UP` gorulmeli
+6. `curl http://localhost:9090/api/v1/rules` -- 9 alert kurali yuklenmis olmali (ArgusHighErrorRate, ArgusAuthLatencyHigh, ArgusOperatorDown, ArgusCircuitBreakerOpen, ArgusDBPoolExhausted, ArgusNATSConsumerLag, ArgusJobFailureRate, ArgusRedisEvictionStorm, ArgusDiskSpaceLow)
+7. Grafana: `http://localhost:3000` (admin/admin) -> Argus klasorunde 6 dashboard (overview, aaa, database, messaging, tenant, jobs)
+8. Tenant dashboard: `$tenant_id` variable dropdown'dan bir tenant sec -- filtreli panel'ler cizilmeli
+9. OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 env ile argus restart -> otel-collector `docker logs` ciktisinda span debug log'lari gorulmeli
+10. RADIUS auth isteği yap -> `argus_aaa_auth_requests_total{protocol="radius",operator_id="...",result="success",tenant_id="..."}` counter artmali
+11. Operator saglik state degistir (adapter mock) -> `argus_operator_health{operator_id="..."}` gauge 2->1->0 gecis gormeli
+12. DB pool metric: `curl /metrics | grep argus_db_pool_connections` -- `state="idle"`, `state="in_use"`, `state="total"`, `state="max"` labels
+13. Slow query test: `psql -c "SELECT pg_sleep(0.15)"` -> span attribute `argus.db.slow=true` (Tempo/Jaeger uzerinde gorulebilir, debug exporter stdout'unda da)
+14. Circuit breaker open simulasyonu (operator failover test) -> `argus_circuit_breaker_state{operator_id="...",state="open"} == 1`
+15. `go test -tags integration ./internal/observability/... -race` -- 1 integration test gecmeli
+16. `go test ./...` -- 2009+ test gecmeli

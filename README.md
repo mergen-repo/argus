@@ -72,6 +72,24 @@ make deploy-dev     # Build + start all containers
 make deploy-prod    # Backup DB + build + start (with confirmation)
 ```
 
+## Observability
+
+Argus ships with full OpenTelemetry tracing (HTTP → DB → NATS) and Prometheus metrics out of the box.
+
+- **Tracing:** spans exported via OTLP gRPC to any compatible backend (Jaeger, Tempo, etc.)
+- **Metrics:** `/metrics` endpoint in Prometheus text format; six pre-built Grafana dashboards covering HTTP, DB, AAA, jobs, operator health, and system resources
+- **Alerts:** nine Prometheus alert rules (latency, error-rate, circuit-breaker, operator down, queue depth) at `infra/prometheus/alerts.yml`
+
+**Start the full observability stack (Prometheus + Grafana + Jaeger):**
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.obs.yml up
+```
+
+Grafana: http://localhost:3000 (admin/admin) — dashboards auto-provisioned from `infra/grafana/dashboards/`
+
+See [`docs/architecture/CONFIG.md`](docs/architecture/CONFIG.md#observability) for all `OTEL_*` and `METRICS_*` environment variables.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)

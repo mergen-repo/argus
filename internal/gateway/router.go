@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"net/http"
+
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
@@ -27,11 +29,14 @@ import (
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
+	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 )
 
 type RouterDeps struct {
@@ -70,6 +75,7 @@ type RouterDeps struct {
 	RateLimitPerHour   int
 	JWTSecret     string
 	Logger        zerolog.Logger
+	MetricsReg    *metrics.Registry
 
 	CORSConfig           *CORSConfig
 	SecurityHeadersCfg   *SecurityHeadersConfig
@@ -77,7 +83,7 @@ type RouterDeps struct {
 	EnableInputSanitizer bool
 }
 
-func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecret string) *chi.Mux {
+func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecret string) http.Handler {
 	return NewRouterWithDeps(RouterDeps{
 		Health:      health,
 		AuthHandler: authHandler,
@@ -86,7 +92,7 @@ func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecre
 	})
 }
 
-func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
+func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(RecoveryWithZerolog(deps.Logger))
@@ -103,8 +109,16 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 
 	r.Use(ZerologRequestLogger(deps.Logger))
 
+	if deps.MetricsReg != nil {
+		r.Use(PrometheusHTTPMetrics(deps.MetricsReg))
+	}
+
 	if deps.EnableInputSanitizer {
 		r.Use(InputSanitizer(deps.Logger))
+	}
+
+	if deps.MetricsReg != nil {
+		r.Handle("/metrics", deps.MetricsReg.Handler())
 	}
 
 	if deps.RedisClient != nil {
@@ -500,7 +514,6 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 			r.Get("/api/v1/system/metrics", deps.MetricsHandler.GetSystemMetrics)
 		})
 
-		r.Get("/metrics", deps.MetricsHandler.Prometheus)
 	}
 
 	if deps.DashboardHandler != nil {
@@ -532,5 +545,9 @@ func NewRouterWithDeps(deps RouterDeps) *chi.Mux {
 		})
 	}
 
-	return r
+	var handler http.Handler = r
+	handler = otelhttp.NewHandler(handler, "argus.http",
+		otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+	)
+	return handler
 }

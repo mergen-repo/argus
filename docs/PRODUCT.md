@@ -84,7 +84,7 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-039: CDR processing & rating engine with carrier cost tracking
 - F-040: RAT-type cost differentiation
 - F-041: Compliance reporting — BTK, KVKK, GDPR report generation
-- F-042: Built-in observability — auth/s, latency percentiles, error rate, session count dashboards
+- F-042: Built-in observability — auth/s, latency percentiles, error rate, session count dashboards. Production-grade implementation (STORY-065): OpenTelemetry distributed tracing (OTLP gRPC), Prometheus `client_golang` metrics at `/metrics` (17 metric vectors, tenant-labeled), 6 Grafana dashboards, 9 Prometheus alert rules, DB/NATS/Redis/Job/Circuit Breaker instrumentation. Tenant isolation: `tenant_id` label added post-auth only.
 
 #### Portal
 - F-043: Tenant dashboard — system health, SIM summary, alert feed, active sessions, top APNs, quick actions

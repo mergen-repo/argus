@@ -1,0 +1,137 @@
+{
+  "title": "Argus — Background Jobs",
+  "uid": "argus-jobs",
+  "tags": ["argus", "jobs"],
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "",
+  "fiscalYearStartMonth": 0,
+  "weekStart": "",
+  "style": "dark",
+  "editable": true,
+  "liveNow": false,
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Job Throughput by Type",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (job_type) (rate(argus_job_runs_total[5m]))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "{{job_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    },
+    {
+      "id": 2,
+      "title": "Job Failure Rate by Type",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (job_type) (rate(argus_job_runs_total{result=\"failure\"}[5m]))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "failures {{job_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "palette-classic"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 0.1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    },
+    {
+      "id": 3,
+      "title": "Job Duration p95 by Type",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, job_type) (rate(argus_job_duration_seconds_bucket[10m])))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "p95 {{job_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    },
+    {
+      "id": 4,
+      "title": "Job Success Count (last 1h) by Type",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (job_type) (increase(argus_job_runs_total{result=\"success\"}[1h]))",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "legendFormat": "{{job_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    }
+  ]
+}

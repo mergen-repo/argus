@@ -72,6 +72,16 @@ These are NOT committed features — they represent directions the product could
 | TCXC eSIM Exchange | Adjacent product | eSIM marketplace concept (rejected for Argus) |
 | Verizon ThingSpace | Adjacent product | Developer portal + SDK + sandbox (rejected for Argus) |
 
+## Observability Extension Points
+
+These items are architectural scope boundaries from STORY-065 — the underlying APIs do not yet exist. They are not deferrals; they are follow-up work pending sibling API evolution.
+
+| Item | Description | Blocked By | Decision |
+|------|-------------|-----------|----------|
+| NATS Pending-Messages Poller | Wire `argus_nats_pending_messages` Gauge to a real consumer lag count. Currently stays 0 because `EventBus` exposes no `PendingByConsumer` API. Requires adding a consumer introspection method to `internal/bus/nats.go`. | `EventBus.PendingByConsumer` API (not yet implemented) | DEV-174 |
+| Diameter/SBA Prometheus Recorders | Wire Prometheus `PrometheusRecorder` into Diameter and 5G SBA AAA servers (analogous to RADIUS wiring in STORY-065). Currently blocked because Diameter and SBA servers expose no `SetMetricsRecorder` method. | `diameter.Server.SetMetricsRecorder` + `sba.Server.SetMetricsRecorder` (not yet implemented) | DEV-175 |
+| `METRICS_TENANT_LABEL_ENABLED` Active Enforcement | The env var is defined and validated but currently passive — it does not dynamically suppress tenant_id labels at runtime. Activating it requires a registry rebuild or label-conditional recording path. Reserved as a cardinality kill-switch for production emergencies. | Implementation complexity, no current cardinality pressure | DEV-173 |
+
 ## Rejected Ideas
 
 | Idea | Reason for Rejection |
