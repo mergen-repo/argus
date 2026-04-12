@@ -79,6 +79,47 @@ func JWTAuthAllowPartial(currentSecret, previousSecret string) func(http.Handler
 	}
 }
 
+func JWTAuthAllowForceChange(currentSecret, previousSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tokenStr := extractBearerToken(r)
+			if tokenStr == "" {
+				apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+					"Missing or invalid authorization header")
+				return
+			}
+
+			claims, err := auth.ValidateTokenMulti(tokenStr, currentSecret, previousSecret)
+			if err != nil {
+				code := apierr.CodeInvalidCredentials
+				msg := "Invalid authentication token"
+				if err == auth.ErrTokenExpired {
+					code = apierr.CodeTokenExpired
+					msg = "Access token has expired. Use refresh token to obtain a new one."
+				}
+				apierr.WriteError(w, http.StatusUnauthorized, code, msg)
+				return
+			}
+
+			if claims.Partial {
+				reason := claims.Reason
+				if reason != auth.ReasonPasswordChangeRequired && reason != auth.ReasonPasswordExpired {
+					apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+						"Token does not have permission to access this resource")
+					return
+				}
+			}
+
+			ctx := r.Context()
+			ctx = context.WithValue(ctx, apierr.TenantIDKey, claims.TenantID)
+			ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func extractBearerToken(r *http.Request) string {
 	header := r.Header.Get("Authorization")
 	if header == "" {

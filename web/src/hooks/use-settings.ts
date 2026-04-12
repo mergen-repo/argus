@@ -1,9 +1,10 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
+import { api, authApi, userApi } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
 import type {
   TenantUser,
+  AuthSessionItem,
   ApiKey,
   ApiKeyCreateResult,
   IpPool,
@@ -21,6 +22,77 @@ const NOTIF_CONFIG_KEY = ['notification-configs'] as const
 const SYSTEM_KEY = ['system'] as const
 const TENANTS_KEY = ['tenants'] as const
 const RELIABILITY_KEY = ['reliability'] as const
+const AUTH_SESSIONS_KEY = ['auth-sessions'] as const
+
+export function useSessions() {
+  return useQuery({
+    queryKey: [...AUTH_SESSIONS_KEY, 'list'],
+    queryFn: async () => {
+      const res = await authApi.listSessions(undefined, 50)
+      return res.data.data as AuthSessionItem[]
+    },
+    staleTime: 15_000,
+  })
+}
+
+export function useRevokeSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await authApi.revokeSession(id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUTH_SESSIONS_KEY })
+    },
+  })
+}
+
+export function useRevokeAllSessions(userId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await userApi.revokeSessions(userId)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUTH_SESSIONS_KEY })
+    },
+  })
+}
+
+export function useUnlockUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await userApi.unlock(id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_KEY })
+    },
+  })
+}
+
+export function useRevokeUserSessions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await userApi.revokeSessions(id)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_KEY })
+    },
+  })
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await userApi.resetPassword(id)
+      return res.data.data
+    },
+  })
+}
 
 export function useUserList() {
   return useQuery({
@@ -76,7 +148,7 @@ export function useApiKeyList() {
 export function useCreateApiKey() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string; scopes: string[]; rate_limit: number; expires_in_days?: number }) => {
+    mutationFn: async (payload: { name: string; scopes: string[]; rate_limit: number; expires_in_days?: number; allowed_ips?: string[] }) => {
       const res = await api.post<ApiResponse<ApiKeyCreateResult>>('/api-keys', payload)
       return res.data.data
     },

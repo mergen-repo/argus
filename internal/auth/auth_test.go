@@ -71,6 +71,30 @@ func (m *mockUserRepo) EnableTOTP(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (m *mockUserRepo) SetPasswordHash(_ context.Context, id uuid.UUID, hash string) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.PasswordHash = hash
+		now := time.Now()
+		u.PasswordChangedAt = &now
+	}
+	return nil
+}
+
+func (m *mockUserRepo) SetPasswordChangeRequired(_ context.Context, id uuid.UUID, required bool) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.PasswordChangeRequired = required
+	}
+	return nil
+}
+
+func (m *mockUserRepo) ClearLockout(_ context.Context, id uuid.UUID) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.FailedLoginCount = 0
+		u.LockedUntil = nil
+	}
+	return nil
+}
+
 type mockSessionRepo struct {
 	sessions map[uuid.UUID]*UserSession
 }

@@ -41,6 +41,16 @@ type Config struct {
 	LoginMaxAttempts int           `envconfig:"LOGIN_MAX_ATTEMPTS" default:"5"`
 	LoginLockoutDur  time.Duration `envconfig:"LOGIN_LOCKOUT_DURATION" default:"15m"`
 
+	// Password policy (STORY-068)
+	PasswordMinLength     int `envconfig:"PASSWORD_MIN_LENGTH"      default:"12"`
+	PasswordRequireUpper  bool `envconfig:"PASSWORD_REQUIRE_UPPER"   default:"true"`
+	PasswordRequireLower  bool `envconfig:"PASSWORD_REQUIRE_LOWER"   default:"true"`
+	PasswordRequireDigit  bool `envconfig:"PASSWORD_REQUIRE_DIGIT"   default:"true"`
+	PasswordRequireSymbol bool `envconfig:"PASSWORD_REQUIRE_SYMBOL"  default:"true"`
+	PasswordMaxRepeating  int  `envconfig:"PASSWORD_MAX_REPEATING"   default:"3"`
+	PasswordHistoryCount  int  `envconfig:"PASSWORD_HISTORY_COUNT"   default:"5"`
+	PasswordMaxAgeDays    int  `envconfig:"PASSWORD_MAX_AGE_DAYS"    default:"0"`
+
 	RadiusAuthPort       int    `envconfig:"RADIUS_AUTH_PORT" default:"1812"`
 	RadiusAcctPort       int    `envconfig:"RADIUS_ACCT_PORT" default:"1813"`
 	RadiusSecret         string `envconfig:"RADIUS_SECRET"`
@@ -292,6 +302,26 @@ func (c *Config) Validate() error {
 
 	if c.DiskDegradedPct >= c.DiskUnhealthyPct || c.DiskUnhealthyPct > 100 {
 		return fmt.Errorf("DISK_DEGRADED_PCT (%d) must be < DISK_UNHEALTHY_PCT (%d) and DISK_UNHEALTHY_PCT must be <= 100", c.DiskDegradedPct, c.DiskUnhealthyPct)
+	}
+
+	if c.PasswordMinLength < 8 {
+		return fmt.Errorf("PASSWORD_MIN_LENGTH must be >= 8 (got %d)", c.PasswordMinLength)
+	}
+
+	if c.PasswordHistoryCount < 0 {
+		return fmt.Errorf("PASSWORD_HISTORY_COUNT must be >= 0 (got %d)", c.PasswordHistoryCount)
+	}
+
+	if c.PasswordMaxRepeating < 2 {
+		return fmt.Errorf("PASSWORD_MAX_REPEATING must be >= 2 (got %d)", c.PasswordMaxRepeating)
+	}
+
+	if c.LoginMaxAttempts < 1 {
+		return fmt.Errorf("LOGIN_MAX_ATTEMPTS must be >= 1 (got %d)", c.LoginMaxAttempts)
+	}
+
+	if c.LoginLockoutDur <= 0 {
+		return fmt.Errorf("LOGIN_LOCKOUT_DURATION must be > 0 (got %v)", c.LoginLockoutDur)
 	}
 
 	return nil

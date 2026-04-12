@@ -17,7 +17,7 @@ import (
 )
 
 func TestHandler_List_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies", nil)
 	w := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestHandler_List_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_Get_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies/"+uuid.New().String(), nil)
 	w := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestHandler_Get_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateState_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	body := `{"state":"acknowledged"}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/analytics/anomalies/"+uuid.New().String(), strings.NewReader(body))
@@ -57,7 +57,7 @@ func TestHandler_UpdateState_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateState_InvalidState(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	anomalyID := uuid.New()
@@ -86,7 +86,7 @@ func TestHandler_UpdateState_InvalidState(t *testing.T) {
 }
 
 func TestHandler_List_InvalidSimID(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -103,7 +103,7 @@ func TestHandler_List_InvalidSimID(t *testing.T) {
 }
 
 func TestHandler_List_InvalidFrom(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -120,7 +120,7 @@ func TestHandler_List_InvalidFrom(t *testing.T) {
 }
 
 func TestHandler_Get_InvalidID(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -153,7 +153,7 @@ func TestToAnomalyDTO(t *testing.T) {
 }
 
 func TestHandler_Get_WithChiContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)

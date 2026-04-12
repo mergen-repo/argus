@@ -27,8 +27,10 @@ import {
   HardDrive,
   Star,
   Clock,
+  Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 
@@ -88,6 +90,7 @@ const navGroups: NavGroup[] = [
       { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
       { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools' },
       { label: 'Notifications', icon: BellRing, path: '/settings/notifications' },
+      { label: 'Security', icon: Lock, path: '/settings/security' },
     ],
   },
   {
@@ -219,9 +222,11 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-border p-3">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
           onClick={toggleSidebar}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          className="flex w-full items-center justify-start gap-3 h-auto px-2 py-1.5 text-sm"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {sidebarCollapsed ? (
@@ -232,7 +237,7 @@ export function Sidebar() {
               <span>Collapse</span>
             </>
           )}
-        </button>
+        </Button>
       </div>
     </aside>
   )

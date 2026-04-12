@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -65,6 +66,28 @@ func APIKeyAuth(apiKeyStore *store.APIKeyStore, logger zerolog.Logger) func(http
 				apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
 					"Invalid API key")
 				return
+			}
+
+			if len(k.AllowedIPs) > 0 {
+				clientIP := extractIP(r)
+				if trustedProxy(r) {
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						clientIP = strings.TrimSpace(strings.Split(xff, ",")[0])
+					}
+				}
+				allowed := false
+				for _, entry := range k.AllowedIPs {
+					if matchIPOrCIDR(clientIP, entry) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					apierr.WriteError(w, http.StatusForbidden, apierr.CodeAPIKeyIPNotAllowed,
+						"client IP not in API key whitelist",
+						map[string]any{"client_ip": clientIP, "allowed_ips": k.AllowedIPs})
+					return
+				}
 			}
 
 			ctx := r.Context()
@@ -150,4 +173,33 @@ func hasScopeAccess(scopes []string, required string) bool {
 		}
 	}
 	return false
+}
+
+func trustedProxy(r *http.Request) bool {
+	ip := extractIP(r)
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	return parsed.IsLoopback() || parsed.IsPrivate()
+}
+
+func matchIPOrCIDR(clientIP, entry string) bool {
+	if strings.Contains(entry, "/") {
+		_, network, err := net.ParseCIDR(entry)
+		if err != nil {
+			return false
+		}
+		parsed := net.ParseIP(clientIP)
+		if parsed == nil {
+			return false
+		}
+		return network.Contains(parsed)
+	}
+	a := net.ParseIP(clientIP)
+	b := net.ParseIP(entry)
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Equal(b)
 }

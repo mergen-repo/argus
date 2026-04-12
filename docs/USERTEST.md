@@ -1358,3 +1358,203 @@ Bu story icin manuel test senaryosu yok (backend/altyapi). Asagidaki komutlar il
 13. `psql ... -c "SELECT state FROM users WHERE id = '$USER_ID'"` -- GDPR silme islemi sonrasi `purged` donmeli
 14. `curl http://localhost:8080/metrics | grep argus_build_info` -- `argus_build_info{version="...",git_sha="...",build_time="..."}` gauge serisi donmeli
 15. `make test` -- 2182 test gecmeli, hicbir skiplenmis test olmamali
+
+---
+
+## STORY-068: Enterprise Auth & Access Control Hardening
+
+Bu story'nin UI bilesenleri vardir. Docker ortaminda calistirmak icin `make up` komutu kullanin.
+
+**On kosul:** `make up` ile ortami baslat. Admin hesabiyla giris yap (`admin@argus.io` / `admin`).
+
+### AC-1: Sifre Politikasi
+
+1. Settings → Users → "Invite User" veya kullanici olustur -- zayif sifre ile dene:
+   - `short1A!` (12 karakden az) -- 422 `PASSWORD_TOO_SHORT` donmeli
+   - `alllowercase1!` (buyuk harf yok) -- 422 `PASSWORD_MISSING_CLASS` donmeli
+   - `ALLUPPERCASE1!` (kucuk harf yok) -- 422 `PASSWORD_MISSING_CLASS` donmeli
+   - `NoDigitHere!!` (rakam yok) -- 422 `PASSWORD_MISSING_CLASS` donmeli
+   - `NoSymbol12345` (ozel karakter yok) -- 422 `PASSWORD_MISSING_CLASS` donmeli
+   - `ValidLong1!ValidLong1!` ancak `aaaa` iceriyorsa (>3 tekrar) -- 422 `PASSWORD_REPEATING_CHARS` donmeli
+   - `ValidLongPass1!` -- 201 kabul edilmeli
+2. API ile kontrol:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/users \
+     -d '{"email":"test@example.com","name":"Test","role":"analyst","password":"weak"}' \
+     -H "Content-Type: application/json"
+   # 422 PASSWORD_TOO_SHORT donmeli
+   ```
+
+### AC-2: Sifre Gecmisi
+
+1. Kullanici olustur ve giris yap. Simdi sifreni degistir (`POST /api/v1/auth/password/change`):
+   - Ayni sifre ile tekrar dene -- 422 `PASSWORD_REUSED` donmeli
+   - 5 farkli sifre ile degistir, ardindan ilk sifreyi tekrar dene -- `PASSWORD_REUSED` donmeli (son 5 sifreye girmemeli)
+   - 6. sifreyi gir, ardindan ilk sifre tekrar gecerli olmali (gecmis penceresi doldu)
+2. DB dogrulamasi:
+   ```bash
+   psql ... -c "SELECT user_id, created_at FROM password_history WHERE user_id = '$USER_ID' ORDER BY created_at DESC LIMIT 5;"
+   # Son 5 kayit gorulmeli
+   ```
+
+### AC-3: Zorunlu Sifre Degisikligi (Force-Change Flow)
+
+1. Admin kullanicisinin `password_change_required` bayragi set et:
+   ```bash
+   psql ... -c "UPDATE users SET password_change_required = true WHERE email = 'testuser@example.com';"
+   ```
+2. Bu kullanici ile giris yap:
+   ```bash
+   curl -X POST http://localhost:8084/api/v1/auth/login \
+     -d '{"email":"testuser@example.com","password":"ValidLongPass1!"}' \
+     -H "Content-Type: application/json"
+   # {"status":"ok","data":{"partial":true,"reason":"password_change_required"},...} donmeli
+   ```
+3. Tarayicida giris yap -- `http://localhost:8084/auth/change-password` sayfasina yonlendirilmeli
+4. Sifre degistirme formunu doldur (mevcut + yeni sifre) -- tam JWT ile basarili giris
+5. Ayni kullanici ile tekrar giris yap -- artik yonlendirme olmamali (bayrak temizlenmeli)
+6. DB dogrulamasi: `psql ... -c "SELECT password_change_required, password_changed_at FROM users WHERE email = 'testuser@example.com';"` -- `false` + timestamp gorulmeli
+
+### AC-4: 2FA Backup/Recovery Kodlari
+
+1. Kullanici olustur ve 2FA'yi aktive et (Settings → Security → Enable 2FA)
+2. 2FA kurulum ekraninda 10 adet tek kullanımlik kod goruntulenmeli; "I have saved these codes" onay kutusu tiklanmali
+3. 2FA aktif bir hesapla giris yap, TOTP kodu yerine backup kod kullan:
+   ```bash
+   curl -X POST http://localhost:8084/api/v1/auth/login \
+     -d '{"email":"2fauser@example.com","password":"ValidLongPass1!","backup_code":"<KOD>"}' \
+     -H "Content-Type: application/json"
+   # Basarili giris; meta.backup_codes_remaining gorunmeli
+   ```
+4. Ayni kodu tekrar kullan -- 401 donmeli (kullanilmis kod)
+5. 2 kod kalindiginda uyari gormeli (`meta.backup_codes_remaining < 3`)
+6. Settings → Security → "Regenerate Backup Codes" -- eski kodlar gecersiz, 10 yeni kod uretilmeli
+7. DB dogrulamasi:
+   ```bash
+   psql ... -c "SELECT id, used_at FROM user_backup_codes WHERE user_id = '$USER_ID' ORDER BY id;"
+   # Kullanilan kodun used_at dolu, kalanlar NULL olmali
+   ```
+
+### AC-5: API Key IP Whitelist
+
+1. Settings → API Keys → Yeni key olustur, "Allowed IPs" alanina `192.168.1.0/24` gir
+2. Bu anahtarla farkli IP'den istek yap (VPN ya da X-Forwarded-For ile):
+   ```bash
+   curl -H "X-API-Key: <KEY>" -H "X-Forwarded-For: 10.0.0.1" http://localhost:8084/api/v1/sims
+   # 403 API_KEY_IP_NOT_ALLOWED donmeli
+   ```
+3. Izin verilen IP araliginden istek yap:
+   ```bash
+   curl -H "X-API-Key: <KEY>" -H "X-Forwarded-For: 192.168.1.55" http://localhost:8084/api/v1/sims
+   # 200 donmeli
+   ```
+4. Bos IP listesi ile olusturulan key -- herhangi bir IP'den calismali (geri uyumluluk)
+5. Gecersiz CIDR girisi -- 422 `VALIDATION_ERROR` donmeli
+
+### AC-6: Oturum Iptal (Session Revoke)
+
+1. Bir kullanici ile birden fazla cihazdan giris yap (birden fazla refresh token olustur)
+2. Admin olarak tum oturumlarini iptal et:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     http://localhost:8084/api/v1/users/$USER_ID/revoke-sessions
+   # 200 donmeli
+   ```
+3. Iptal edilen kullanicinin refresh tokeni ile yenileme dene:
+   ```bash
+   curl -X POST http://localhost:8084/api/v1/auth/refresh -b "refresh_token=<TOKEN>"
+   # 401 INVALID_REFRESH_TOKEN donmeli
+   ```
+4. Active Sessions sayfasinda (`/auth/sessions` veya settings) oturumlar temizlenmeli
+5. `?include_api_keys=true` ile oturumla birlikte API key'leri de iptal et:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     "http://localhost:8084/api/v1/users/$USER_ID/revoke-sessions?include_api_keys=true"
+   ```
+6. Denetim logu olusturuldugunu kontrol et: `GET /api/v1/audit` filtreleyerek `session.revoke` aksiyonu gorunmeli
+
+### AC-7: Toplu Oturum Sonlandirma (Super Admin)
+
+1. Super admin tokenini kullan:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $SUPERADMIN_TOKEN" \
+     "http://localhost:8084/api/v1/system/revoke-all-sessions?tenant=$TENANT_ID"
+   # 200 donmeli; etkilenen kullanici sayisi response'da olmali
+   ```
+2. Tenant_admin ile ayni endpoint'i farkli tenant icin dene -- 403 donmeli
+3. Denetim logu: `system.revoke_all_sessions` aksiyonu gorulmeli
+4. Bildirim konfigurasyonu varsa etkilenen kullanicilara email gitmeli
+
+### AC-8: Kaynak Limiti Zorunlulugu
+
+1. Tenant limit ayarini kucult:
+   ```bash
+   psql ... -c "UPDATE tenants SET max_users = 2 WHERE id = '$TENANT_ID';"
+   ```
+2. 2 kullanici zaten varken yeni kullanici olusturmaya calis:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/users \
+     -d '{"email":"extra@example.com","name":"Extra","role":"analyst","password":"ValidLongPass1!"}' \
+     -H "Content-Type: application/json"
+   # 422 TENANT_LIMIT_EXCEEDED donmeli; details icinde resource=users, current=2, max=2
+   ```
+3. max_api_keys siniri icin ayni testi API key ile tekrarla
+4. Limit 0 ise -- sinirsiz kabul edilmeli (geri uyumluluk)
+
+### AC-9: Denetim Loglama (13 Endpoint)
+
+1. Su islemleri gerceklestir ve ardinda audit log kontrol et (`GET /api/v1/audit`):
+   - `POST /api/v1/cdrs/export` -- `cdr.export` kaydi gorunmeli
+   - `POST /api/v1/compliance/erasure/:sim_id` -- `compliance.erasure` kaydi gorunmeli
+   - `POST /api/v1/msisdn-pool/import` -- `msisdn.import` kaydi gorunmeli
+   - `POST /api/v1/msisdn-pool/:id/assign` -- `msisdn.assign` kaydi gorunmeli
+   - `PATCH /api/v1/analytics/anomalies/:id` -- `anomaly.update` kaydi gorunmeli
+   - `PUT /api/v1/compliance/retention` -- `compliance.retention_update` kaydi gorunmeli
+   - `POST /api/v1/jobs/:id/cancel` -- `job.cancel` kaydi gorunmeli
+   - `POST /api/v1/users/:id/revoke-sessions` -- `session.revoke` kaydi gorunmeli
+   - `POST /api/v1/system/revoke-all-sessions` -- `system.revoke_all_sessions` kaydi gorunmeli
+
+### AC-10: Hesap Kilitleme / Acma
+
+1. Yanlis sifre ile 5 kez giris yap:
+   ```bash
+   for i in {1..6}; do
+     curl -X POST http://localhost:8084/api/v1/auth/login \
+       -d '{"email":"testuser@example.com","password":"wrongpassword"}' \
+       -H "Content-Type: application/json"
+   done
+   # 6. istekte 403 ACCOUNT_LOCKED donmeli; details.retry_after_seconds > 0
+   ```
+2. Doğru sifre ile deneme -- hala kilitli oldugu icin 403 donmeli
+3. Admin ile manuel kilit ac:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     http://localhost:8084/api/v1/users/$USER_ID/unlock
+   # 200 donmeli
+   ```
+4. Simdi dogru sifre ile giris -- basarili olmali
+5. DB dogrulamasi: `psql ... -c "SELECT failed_login_count, locked_until FROM users WHERE id = '$USER_ID';"` -- `0` ve `NULL` olmali
+6. Denetim: `GET /api/v1/audit` -- `user.lock` ve `user.unlock` kayitlari gorunmeli
+
+### UI Sayfasi Kontrolleri
+
+1. **Change Password sayfasi** (`/auth/change-password`):
+   - Mevcut + yeni + yeni (tekrar) alanlar var olmali
+   - Sifre guc gostergesi calismali
+   - Basarili degisimde dashboard'a yonlendirilmeli
+2. **Active Sessions sayfasi** (`/settings/security` > Sessions sekmesi):
+   - Aktif oturumlarin listesi gorunmeli (cihaz, IP, tarih)
+   - "Revoke All" butonu oturumlarini iptal etmeli
+3. **2FA Backup Codes sayfasi** (`/settings/security` > 2FA sekmesi):
+   - Kalan backup kod sayisi gorunmeli
+   - "Regenerate" butonu onay dialog'u ile calismali
+4. **API Keys sayfasi** (`/settings/api-keys`):
+   - Key olusturma formunda "Allowed IPs" CIDR alani mevcut olmali
+   - Gecersiz CIDR girisinde client-side hata mesaji gorunmeli
+
+### Temel Testler
+
+```bash
+make test  # 2329 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+```

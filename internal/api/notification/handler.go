@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -17,13 +18,15 @@ import (
 type Handler struct {
 	notifStore  *store.NotificationStore
 	configStore *store.NotificationConfigStore
+	auditSvc    audit.Auditor
 	logger      zerolog.Logger
 }
 
-func NewHandler(notifStore *store.NotificationStore, configStore *store.NotificationConfigStore, logger zerolog.Logger) *Handler {
+func NewHandler(notifStore *store.NotificationStore, configStore *store.NotificationConfigStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		notifStore:  notifStore,
 		configStore: configStore,
+		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "notification_handler").Logger(),
 	}
 }
@@ -384,6 +387,8 @@ func (h *Handler) UpdateConfigs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "notification_config.update", "notification_config", userID.String(), nil, map[string]interface{}{"config_count": len(req.Configs)})
 
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"updated_at": time.Now().Format(time.RFC3339),

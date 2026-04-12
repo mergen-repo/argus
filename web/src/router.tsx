@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import LoginPage from '@/pages/auth/login'
 import TwoFactorPage from '@/pages/auth/two-factor'
 import OnboardingPage from '@/pages/auth/onboarding'
+import ChangePasswordPage from '@/pages/auth/change-password'
 
 import NotFoundPage from '@/pages/not-found'
 
@@ -44,6 +45,8 @@ const IpPoolDetailPage = lazy(() => import('@/pages/settings/ip-pool-detail'))
 const NotificationConfigPage = lazy(() => import('@/pages/settings/notifications'))
 const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
 const ReliabilityPage = lazy(() => import('@/pages/settings/reliability'))
+const SecurityPage = lazy(() => import('@/pages/settings/security'))
+const ActiveSessionsPage = lazy(() => import('@/pages/settings/sessions'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
 const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
@@ -81,6 +84,7 @@ export const router = createBrowserRouter([
       { path: '/login', element: <LoginPage /> },
       { path: '/login/2fa', element: <TwoFactorPage /> },
       { path: '/setup', element: <OnboardingPage /> },
+      { path: '/auth/change-password', element: <ChangePasswordPage /> },
     ],
   },
   {
@@ -114,6 +118,8 @@ export const router = createBrowserRouter([
           { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
           { path: '/settings/knowledgebase', element: lazySuspense(KnowledgeBasePage) },
           { path: '/settings/reliability', element: lazySuspense(ReliabilityPage) },
+          { path: '/settings/security', element: lazySuspense(SecurityPage) },
+          { path: '/settings/sessions', element: lazySuspense(ActiveSessionsPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
           { path: '/sla', element: lazySuspense(SLADashboardPage) },
           { path: '/topology', element: lazySuspense(TopologyPage) },

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	compliancesvc "github.com/btopcu/argus/internal/compliance"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -17,17 +18,20 @@ import (
 type Handler struct {
 	complianceSvc *compliancesvc.Service
 	tenantStore   *store.TenantStore
+	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
 
 func NewHandler(
 	complianceSvc *compliancesvc.Service,
 	tenantStore *store.TenantStore,
+	auditSvc audit.Auditor,
 	logger zerolog.Logger,
 ) *Handler {
 	return &Handler{
 		complianceSvc: complianceSvc,
 		tenantStore:   tenantStore,
+		auditSvc:      auditSvc,
 		logger:        logger.With().Str("component", "compliance_handler").Logger(),
 	}
 }
@@ -106,6 +110,8 @@ func (h *Handler) RightToErasure(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "sim.erasure", "sim", simID.String(), nil, map[string]string{"status": "purged"})
 
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"sim_id":  simID.String(),
@@ -190,6 +196,8 @@ func (h *Handler) UpdateRetention(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "retention.update", "compliance", tenantID.String(), nil, map[string]int{"retention_days": req.RetentionDays})
 
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"retention_days": req.RetentionDays,

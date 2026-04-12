@@ -34,6 +34,12 @@
 | `INVALID_2FA_CODE` | 401 | TOTP code is incorrect or expired | `{"status":"error","error":{"code":"INVALID_2FA_CODE","message":"Invalid or expired 2FA code"}}` |
 | `TOKEN_EXPIRED` | 401 | JWT access token has expired; client should refresh | `{"status":"error","error":{"code":"TOKEN_EXPIRED","message":"Access token has expired. Use refresh token to obtain a new one."}}` |
 | `INVALID_REFRESH_TOKEN` | 401 | Refresh token is invalid, expired, revoked, or already used | `{"status":"error","error":{"code":"INVALID_REFRESH_TOKEN","message":"Refresh token is invalid or has been revoked"}}` |
+| `PASSWORD_CHANGE_REQUIRED` | 403 | Login succeeded but password change is mandatory; partial JWT issued; only change-password endpoint accessible | `{"status":"ok","data":{"partial":true,"reason":"password_change_required"},"meta":{"code":"PASSWORD_CHANGE_REQUIRED"}}` |
+| `PASSWORD_TOO_SHORT` | 422 | Password does not meet minimum length requirement (`PASSWORD_MIN_LENGTH`) | `{"status":"error","error":{"code":"PASSWORD_TOO_SHORT","message":"Password must be at least 12 characters"}}` |
+| `PASSWORD_MISSING_CLASS` | 422 | Password missing required character class (upper, lower, digit, or symbol) | `{"status":"error","error":{"code":"PASSWORD_MISSING_CLASS","message":"Password must contain uppercase, lowercase, digit, and symbol"}}` |
+| `PASSWORD_REPEATING_CHARS` | 422 | Password has too many consecutive identical characters (`PASSWORD_MAX_REPEATING`) | `{"status":"error","error":{"code":"PASSWORD_REPEATING_CHARS","message":"Password must not have more than 3 consecutive identical characters"}}` |
+| `PASSWORD_REUSED` | 422 | New password matches one of the last N password hashes (`PASSWORD_HISTORY_COUNT`) | `{"status":"error","error":{"code":"PASSWORD_REUSED","message":"Password was used recently. Choose a different password."}}` |
+| `API_KEY_IP_NOT_ALLOWED` | 403 | Request IP is not in the API key's allowed_ips CIDR whitelist | `{"status":"error","error":{"code":"API_KEY_IP_NOT_ALLOWED","message":"Request IP not in API key whitelist"}}` |
 
 ### Auth Error Details
 
@@ -199,7 +205,8 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 
 | Code | HTTP Status | Description | Example Response |
 |------|-------------|-------------|------------------|
-| `RESOURCE_LIMIT_EXCEEDED` | 422 | Tenant has reached a resource limit (max SIMs, APNs, users, etc.) | `{"status":"error","error":{"code":"RESOURCE_LIMIT_EXCEEDED","message":"Tenant resource limit exceeded","details":[{"resource":"sims","current":1000000,"limit":1000000}]}}` |
+| `RESOURCE_LIMIT_EXCEEDED` | 422 | Legacy alias — superseded by `TENANT_LIMIT_EXCEEDED` (retained for backward compatibility on older paths) | `{"status":"error","error":{"code":"RESOURCE_LIMIT_EXCEEDED","message":"Tenant resource limit exceeded","details":[{"resource":"sims","current":1000000,"limit":1000000}]}}` |
+| `TENANT_LIMIT_EXCEEDED` | 422 | Tenant has reached a resource limit (max SIMs, APNs, users, api_keys). Enforced by tenant-limits middleware (STORY-068 AC-8) | `{"status":"error","error":{"code":"TENANT_LIMIT_EXCEEDED","message":"Tenant resource limit exceeded","details":[{"resource":"api_keys","current":20,"max":20}]}}` |
 | `TENANT_SUSPENDED` | 403 | Tenant account is suspended; all API operations blocked except read-only | `{"status":"error","error":{"code":"TENANT_SUSPENDED","message":"Tenant account is suspended. Contact system administrator."}}` |
 
 ---
@@ -257,12 +264,18 @@ package errors
 
 const (
     // Auth
-    CodeInvalidCredentials  = "INVALID_CREDENTIALS"
-    CodeAccountLocked       = "ACCOUNT_LOCKED"
-    CodeAccountDisabled     = "ACCOUNT_DISABLED"
-    CodeInvalid2FACode      = "INVALID_2FA_CODE"
-    CodeTokenExpired        = "TOKEN_EXPIRED"
-    CodeInvalidRefreshToken = "INVALID_REFRESH_TOKEN"
+    CodeInvalidCredentials       = "INVALID_CREDENTIALS"
+    CodeAccountLocked            = "ACCOUNT_LOCKED"
+    CodeAccountDisabled          = "ACCOUNT_DISABLED"
+    CodeInvalid2FACode           = "INVALID_2FA_CODE"
+    CodeTokenExpired             = "TOKEN_EXPIRED"
+    CodeInvalidRefreshToken      = "INVALID_REFRESH_TOKEN"
+    CodePasswordChangeRequired   = "PASSWORD_CHANGE_REQUIRED"
+    CodePasswordTooShort         = "PASSWORD_TOO_SHORT"
+    CodePasswordMissingClass     = "PASSWORD_MISSING_CLASS"
+    CodePasswordRepeatingChars   = "PASSWORD_REPEATING_CHARS"
+    CodePasswordReused           = "PASSWORD_REUSED"
+    CodeAPIKeyIPNotAllowed       = "API_KEY_IP_NOT_ALLOWED"
 
     // Authorization
     CodeForbidden        = "FORBIDDEN"
@@ -329,7 +342,8 @@ const (
     CodeJobCancelled      = "JOB_CANCELLED"
 
     // Tenant
-    CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
+    CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"  // legacy alias
+    CodeTenantLimitExceeded   = "TENANT_LIMIT_EXCEEDED"
     CodeTenantSuspended       = "TENANT_SUSPENDED"
 
     // Rate Limit

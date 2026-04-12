@@ -126,9 +126,35 @@ Row-Level Security is enabled on all multi-tenant tables as defense-in-depth (mi
 | `AUTH_JWT_REMEMBER_ME_TTL` | duration | `168h` | No | Access token TTL when `remember_me=true` on login (168h = 7 days). Enables persistent sessions across browser restarts. |
 | `JWT_ISSUER` | string | `argus` | No | JWT `iss` claim value. |
 | `BCRYPT_COST` | int | `12` | No | bcrypt cost factor for password hashing. Range 10-14. Higher = slower but more secure. 12 is ~250ms on modern hardware. |
-| `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before account lockout. |
-| `LOGIN_LOCKOUT_DURATION` | duration | `15m` | No | Account lockout duration after max failed attempts. |
+| `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before account lockout. Must be >= 1. |
+| `LOGIN_LOCKOUT_DURATION` | duration | `15m` | No | Account lockout duration after max failed attempts. Must be > 0. |
 | `ENCRYPTION_KEY` | string | — | No | 32-byte hex-encoded key for AES-256-GCM encryption of sensitive fields (adapter_config, sm_dp_plus_config, totp_secret). Empty = no encryption (dev mode passthrough). **Keep secret.** |
+
+---
+
+## Password Policy (STORY-068)
+
+Controls server-side password complexity and history enforcement. Applied on registration, password change, and admin-triggered resets. Tenant-level overrides are not supported — these are global platform minimums.
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `PASSWORD_MIN_LENGTH` | int | `12` | No | Minimum password length in characters. Must be >= 8. |
+| `PASSWORD_REQUIRE_UPPER` | bool | `true` | No | Require at least one uppercase letter (A–Z). |
+| `PASSWORD_REQUIRE_LOWER` | bool | `true` | No | Require at least one lowercase letter (a–z). |
+| `PASSWORD_REQUIRE_DIGIT` | bool | `true` | No | Require at least one numeric digit (0–9). |
+| `PASSWORD_REQUIRE_SYMBOL` | bool | `true` | No | Require at least one special character (e.g. `!@#$%^&*`). |
+| `PASSWORD_MAX_REPEATING` | int | `3` | No | Maximum number of consecutive identical characters allowed (e.g. `aaa` violates limit of 3). Must be >= 2. |
+| `PASSWORD_HISTORY_COUNT` | int | `5` | No | Number of previous password hashes stored per user. New password must not match any stored hash. 0 = history disabled. Must be >= 0. |
+| `PASSWORD_MAX_AGE_DAYS` | int | `0` | No | Days before a password expires and user is forced to change it. 0 = expiry disabled. |
+
+---
+
+## Account Lockout
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `LOGIN_MAX_ATTEMPTS` | int | `5` | No | Consecutive failed login attempts before the account is temporarily locked. Must be >= 1. |
+| `LOGIN_LOCKOUT_DURATION` | duration | `15m` | No | How long the account lockout persists before the user can attempt login again. Must be > 0. |
 
 ---
 

@@ -45,20 +45,22 @@ var (
 )
 
 type User struct {
-	ID               uuid.UUID
-	TenantID         uuid.UUID
-	Email            string
-	PasswordHash     string
-	Name             string
-	Role             string
-	TOTPSecret       *string
-	TOTPEnabled      bool
-	State            string
-	LastLoginAt      *time.Time
-	FailedLoginCount int
-	LockedUntil      *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                     uuid.UUID
+	TenantID               uuid.UUID
+	Email                  string
+	PasswordHash           string
+	Name                   string
+	Role                   string
+	TOTPSecret             *string
+	TOTPEnabled            bool
+	State                  string
+	LastLoginAt            *time.Time
+	FailedLoginCount       int
+	LockedUntil            *time.Time
+	PasswordChangeRequired bool
+	PasswordChangedAt      *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type UserSession struct {
@@ -92,11 +94,13 @@ func (s *UserStore) GetByEmail(ctx context.Context, email string) (*User, error)
 	var u User
 	err := s.db.QueryRow(ctx,
 		`SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
-		        state, last_login_at, failed_login_count, locked_until, created_at, updated_at
+		        state, last_login_at, failed_login_count, locked_until,
+		        password_change_required, password_changed_at, created_at, updated_at
 		 FROM users WHERE email = $1 AND state = 'active' LIMIT 1`, email).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
-			&u.FailedLoginCount, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
@@ -110,11 +114,13 @@ func (s *UserStore) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
 		`SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
-		        state, last_login_at, failed_login_count, locked_until, created_at, updated_at
+		        state, last_login_at, failed_login_count, locked_until,
+		        password_change_required, password_changed_at, created_at, updated_at
 		 FROM users WHERE id = $1`, id).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
-			&u.FailedLoginCount, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
@@ -202,6 +208,37 @@ func (s *UserStore) EnableTOTP(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+func (s *UserStore) SetPasswordHash(ctx context.Context, userID uuid.UUID, hash string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2`, hash, userID)
+	return err
+}
+
+func (s *UserStore) SetPasswordChangeRequired(ctx context.Context, userID uuid.UUID, required bool) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET password_change_required = $1 WHERE id = $2`, required, userID)
+	return err
+}
+
+func (s *UserStore) ClearLockout(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = $1`, userID)
+	return err
+}
+
+func (s *UserStore) GetPasswordChangeRequired(ctx context.Context, userID uuid.UUID) (bool, error) {
+	var required bool
+	err := s.db.QueryRow(ctx,
+		`SELECT password_change_required FROM users WHERE id = $1`, userID).Scan(&required)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrUserNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	return required, nil
+}
+
 type SessionStore struct {
 	db *pgxpool.Pool
 }
@@ -241,6 +278,22 @@ func (s *SessionStore) RevokeAllUserSessions(ctx context.Context, userID uuid.UU
 	_, err := s.db.Exec(ctx,
 		`UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
 	return err
+}
+
+// RevokeAllByTenant revokes all active user_sessions for every user belonging to tenantID.
+// It returns the number of distinct affected users and total sessions revoked.
+func (s *SessionStore) RevokeAllByTenant(ctx context.Context, tenantID uuid.UUID) (affectedUsers int64, sessionsRevoked int64, err error) {
+	row := s.db.QueryRow(ctx, `
+		WITH revoked AS (
+			UPDATE user_sessions SET revoked_at = NOW()
+			WHERE user_id IN (SELECT id FROM users WHERE tenant_id = $1)
+			  AND revoked_at IS NULL
+			RETURNING user_id
+		)
+		SELECT COUNT(DISTINCT user_id), COUNT(*) FROM revoked
+	`, tenantID)
+	err = row.Scan(&affectedUsers, &sessionsRevoked)
+	return
 }
 
 func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*UserSession, error) {
@@ -359,11 +412,13 @@ func (s *UserStore) CreateUser(ctx context.Context, p CreateUserParams) (*User, 
 		INSERT INTO users (tenant_id, email, password_hash, name, role, state)
 		VALUES ($1, $2, '', $3, $4, 'invited')
 		RETURNING id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
-			state, last_login_at, failed_login_count, locked_until, created_at, updated_at
+			state, last_login_at, failed_login_count, locked_until,
+			password_change_required, password_changed_at, created_at, updated_at
 	`, tenantID, p.Email, p.Name, p.Role).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
-			&u.FailedLoginCount, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, ErrEmailExists
@@ -415,7 +470,8 @@ func (s *UserStore) ListByTenant(ctx context.Context, cursor string, limit int, 
 
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
-			state, last_login_at, failed_login_count, locked_until, created_at, updated_at
+			state, last_login_at, failed_login_count, locked_until,
+			password_change_required, password_changed_at, created_at, updated_at
 		FROM users
 		%s
 		ORDER BY created_at DESC, id DESC
@@ -433,7 +489,8 @@ func (s *UserStore) ListByTenant(ctx context.Context, cursor string, limit int, 
 		var u User
 		if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
-			&u.FailedLoginCount, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, "", fmt.Errorf("store: scan user: %w", err)
 		}
 		results = append(results, u)
@@ -482,14 +539,16 @@ func (s *UserStore) UpdateUser(ctx context.Context, id uuid.UUID, p UpdateUserPa
 		UPDATE users SET %s
 		WHERE id = $1 AND tenant_id = $2
 		RETURNING id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
-			state, last_login_at, failed_login_count, locked_until, created_at, updated_at
+			state, last_login_at, failed_login_count, locked_until,
+			password_change_required, password_changed_at, created_at, updated_at
 	`, strings.Join(sets, ", "))
 
 	var u User
 	err = s.db.QueryRow(ctx, query, args...).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
-			&u.FailedLoginCount, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}

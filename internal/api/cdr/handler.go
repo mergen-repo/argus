@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -18,14 +19,16 @@ type Handler struct {
 	cdrStore *store.CDRStore
 	jobStore *store.JobStore
 	eventBus *bus.EventBus
+	auditSvc audit.Auditor
 	logger   zerolog.Logger
 }
 
-func NewHandler(cdrStore *store.CDRStore, jobStore *store.JobStore, eventBus *bus.EventBus, logger zerolog.Logger) *Handler {
+func NewHandler(cdrStore *store.CDRStore, jobStore *store.JobStore, eventBus *bus.EventBus, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		cdrStore: cdrStore,
 		jobStore: jobStore,
 		eventBus: eventBus,
+		auditSvc: auditSvc,
 		logger:   logger.With().Str("component", "cdr_handler").Logger(),
 	}
 }
@@ -245,6 +248,13 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			"type":      "cdr_export",
 		})
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "cdr.export", "cdr_export", job.ID.String(), nil, map[string]interface{}{
+		"from":        req.From,
+		"to":          req.To,
+		"operator_id": req.OperatorID,
+		"format":      req.Format,
+	})
 
 	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
 		Status: "success",

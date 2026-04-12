@@ -43,6 +43,17 @@ func validConfig() Config {
 		RequestBodyBulkMB:         50,
 		DiskDegradedPct:           85,
 		DiskUnhealthyPct:          95,
+
+		PasswordMinLength:     12,
+		PasswordRequireUpper:  true,
+		PasswordRequireLower:  true,
+		PasswordRequireDigit:  true,
+		PasswordRequireSymbol: true,
+		PasswordMaxRepeating:  3,
+		PasswordHistoryCount:  5,
+		PasswordMaxAgeDays:    0,
+		LoginMaxAttempts:      5,
+		LoginLockoutDur:       15 * time.Minute,
 	}
 }
 
@@ -472,6 +483,141 @@ func TestTotalShutdownBudget_TimeoutDominates(t *testing.T) {
 	got := cfg.TotalShutdownBudget()
 	if got != 300*time.Second {
 		t.Errorf("TotalShutdownBudget() = %v, want 300s (timeout dominates)", got)
+	}
+}
+
+func TestDefaults_Story068Fields(t *testing.T) {
+	os.Setenv("DATABASE_URL", "postgres://argus:argus_dev@localhost:5432/argus_dev?sslmode=disable")
+	os.Setenv("REDIS_URL", "redis://localhost:6379/0")
+	os.Setenv("NATS_URL", "nats://localhost:4222")
+	os.Setenv("JWT_SECRET", "this-is-a-very-long-secret-key-for-testing-purposes")
+	defer func() {
+		os.Unsetenv("DATABASE_URL")
+		os.Unsetenv("REDIS_URL")
+		os.Unsetenv("NATS_URL")
+		os.Unsetenv("JWT_SECRET")
+	}()
+
+	var cfg Config
+	if err := processEnvconfig(&cfg); err != nil {
+		t.Fatalf("envconfig.Process failed: %v", err)
+	}
+
+	intChecks := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"PasswordMinLength", cfg.PasswordMinLength, 12},
+		{"PasswordMaxRepeating", cfg.PasswordMaxRepeating, 3},
+		{"PasswordHistoryCount", cfg.PasswordHistoryCount, 5},
+		{"PasswordMaxAgeDays", cfg.PasswordMaxAgeDays, 0},
+		{"LoginMaxAttempts", cfg.LoginMaxAttempts, 5},
+	}
+	for _, tc := range intChecks {
+		if tc.got != tc.want {
+			t.Errorf("default %s = %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+
+	boolChecks := []struct {
+		name string
+		got  bool
+		want bool
+	}{
+		{"PasswordRequireUpper", cfg.PasswordRequireUpper, true},
+		{"PasswordRequireLower", cfg.PasswordRequireLower, true},
+		{"PasswordRequireDigit", cfg.PasswordRequireDigit, true},
+		{"PasswordRequireSymbol", cfg.PasswordRequireSymbol, true},
+	}
+	for _, tc := range boolChecks {
+		if tc.got != tc.want {
+			t.Errorf("default %s = %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+
+	if cfg.LoginLockoutDur != 15*time.Minute {
+		t.Errorf("default LoginLockoutDur = %v, want 15m", cfg.LoginLockoutDur)
+	}
+}
+
+func TestValidate_PasswordMinLength_TooShort(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordMinLength = 7
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for PASSWORD_MIN_LENGTH < 8")
+	}
+}
+
+func TestValidate_PasswordMinLength_Valid(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordMinLength = 8
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for PASSWORD_MIN_LENGTH=8, got: %v", err)
+	}
+}
+
+func TestValidate_PasswordHistoryCount_Negative(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordHistoryCount = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for PASSWORD_HISTORY_COUNT < 0")
+	}
+}
+
+func TestValidate_PasswordHistoryCount_Zero(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordHistoryCount = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for PASSWORD_HISTORY_COUNT=0, got: %v", err)
+	}
+}
+
+func TestValidate_PasswordMaxRepeating_TooLow(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordMaxRepeating = 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for PASSWORD_MAX_REPEATING < 2")
+	}
+}
+
+func TestValidate_PasswordMaxRepeating_Valid(t *testing.T) {
+	cfg := validConfig()
+	cfg.PasswordMaxRepeating = 2
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for PASSWORD_MAX_REPEATING=2, got: %v", err)
+	}
+}
+
+func TestValidate_LoginMaxAttempts_Zero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LoginMaxAttempts = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for LOGIN_MAX_ATTEMPTS=0")
+	}
+}
+
+func TestValidate_LoginMaxAttempts_One(t *testing.T) {
+	cfg := validConfig()
+	cfg.LoginMaxAttempts = 1
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for LOGIN_MAX_ATTEMPTS=1, got: %v", err)
+	}
+}
+
+func TestValidate_LoginLockoutDur_Zero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LoginLockoutDur = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for LOGIN_LOCKOUT_DURATION=0")
+	}
+}
+
+func TestValidate_LoginLockoutDur_Valid(t *testing.T) {
+	cfg := validConfig()
+	cfg.LoginLockoutDur = 5 * time.Minute
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error for LOGIN_LOCKOUT_DURATION=5m, got: %v", err)
 	}
 }
 

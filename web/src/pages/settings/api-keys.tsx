@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import {
   Plus,
   AlertCircle,
@@ -11,6 +11,8 @@ import {
   Key,
   Eye,
   EyeOff,
+  X,
+  Shield,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/
+const IPV6_RE = /^[a-fA-F0-9:]+([a-fA-F0-9]*(\/(\d|[1-9]\d|1[01]\d|12[0-8]))?)?$/
+
+function isValidIp(value: string): boolean {
+  const trimmed = value.trim()
+  return IPV4_RE.test(trimmed) || IPV6_RE.test(trimmed)
+}
+
 const SCOPE_OPTIONS = [
   { value: 'sims:read', label: 'SIMs Read' },
   { value: 'sims:write', label: 'SIMs Write' },
@@ -65,12 +75,36 @@ export default function ApiKeysPage() {
     scopes: [] as string[],
     rate_limit: 100,
     expires_in_days: 365,
+    allowed_ips: [] as string[],
   })
+  const [ipInput, setIpInput] = useState('')
+  const [ipError, setIpError] = useState<string | null>(null)
+  const ipInputRef = useRef<HTMLInputElement>(null)
   const [createdKey, setCreatedKey] = useState<string | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'rotate' | 'revoke'; name: string } | null>(null)
   const [rotatedKey, setRotatedKey] = useState<string | null>(null)
+
+  const commitIp = useCallback(() => {
+    const val = ipInput.trim()
+    if (!val) return
+    if (!isValidIp(val)) {
+      setIpError('Invalid IP address or CIDR notation')
+      return
+    }
+    if (createForm.allowed_ips.includes(val)) {
+      setIpError('Already added')
+      return
+    }
+    setCreateForm((f) => ({ ...f, allowed_ips: [...f.allowed_ips, val] }))
+    setIpInput('')
+    setIpError(null)
+  }, [ipInput, createForm.allowed_ips])
+
+  const removeIp = (ip: string) => {
+    setCreateForm((f) => ({ ...f, allowed_ips: f.allowed_ips.filter((x) => x !== ip) }))
+  }
 
   const toggleScope = (scope: string) => {
     setCreateForm((f) => ({
@@ -102,7 +136,9 @@ export default function ApiKeysPage() {
     setShowCreateDialog(false)
     setCreatedKey(null)
     setShowKey(false)
-    setCreateForm({ name: '', scopes: [], rate_limit: 100, expires_in_days: 365 })
+    setCreateForm({ name: '', scopes: [], rate_limit: 100, expires_in_days: 365, allowed_ips: [] })
+    setIpInput('')
+    setIpError(null)
   }
 
   const handleConfirmAction = async () => {
@@ -155,6 +191,7 @@ export default function ApiKeysPage() {
                 <TableHead>Prefix</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Rate Limit</TableHead>
+                <TableHead>IP Whitelist</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
                 <TableHead className="w-24">Actions</TableHead>
@@ -164,7 +201,7 @@ export default function ApiKeysPage() {
               {isLoading &&
                 Array.from({ length: 4 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 8 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
@@ -172,7 +209,7 @@ export default function ApiKeysPage() {
 
               {!isLoading && (!keys || keys.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <div className="flex flex-col items-center justify-center py-16 text-center">
                       <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
                         <Key className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
@@ -208,6 +245,16 @@ export default function ApiKeysPage() {
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-xs text-text-secondary">{key.rate_limit ? `${key.rate_limit}/min` : '-'}</span>
+                  </TableCell>
+                  <TableCell>
+                    {key.allowed_ips && key.allowed_ips.length > 0 ? (
+                      <div className="flex items-center gap-1">
+                        <Shield className="h-3 w-3 text-accent flex-shrink-0" />
+                        <span className="font-mono text-xs text-accent">IP: {key.allowed_ips.length}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-text-tertiary">IP: none</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary">
@@ -368,6 +415,67 @@ export default function ApiKeysPage() {
                   max={3650}
                 />
               </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">
+                  IP Whitelist
+                  <span className="ml-1 text-text-tertiary">(leave empty to allow all IPs)</span>
+                </label>
+                <div className={cn(
+                  'rounded-[var(--radius-sm)] border bg-bg-elevated transition-colors',
+                  ipError ? 'border-danger' : 'border-border',
+                )}>
+                  {createForm.allowed_ips.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                      {createForm.allowed_ips.map((ip) => (
+                        <span
+                          key={ip}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-sm)] bg-accent-dim border border-accent/30 text-accent font-mono text-[11px]"
+                        >
+                          {ip}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeIp(ip)}
+                            className="ml-0.5 h-4 w-4 text-accent/60 hover:text-accent hover:bg-transparent"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={ipInputRef}
+                    type="text"
+                    value={ipInput}
+                    onChange={(e) => {
+                      setIpInput(e.target.value)
+                      if (ipError) setIpError(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        commitIp()
+                      } else if (e.key === 'Backspace' && !ipInput && createForm.allowed_ips.length > 0) {
+                        removeIp(createForm.allowed_ips[createForm.allowed_ips.length - 1])
+                      }
+                    }}
+                    onBlur={() => {
+                      if (ipInput.trim()) commitIp()
+                    }}
+                    placeholder="e.g. 192.168.1.0/24 — press Enter to add"
+                    className="w-full bg-transparent px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary outline-none font-mono"
+                  />
+                </div>
+                {ipError && (
+                  <p className="mt-1 text-xs text-danger flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                    {ipError}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
               <Button variant="outline" onClick={handleCloseCreate}>
@@ -375,7 +483,7 @@ export default function ApiKeysPage() {
               </Button>
               <Button
                 onClick={handleCreate}
-                disabled={!createForm.name || createForm.scopes.length === 0 || createMutation.isPending}
+                disabled={!createForm.name || createForm.scopes.length === 0 || createMutation.isPending || !!ipError || (ipInput.trim().length > 0 && !isValidIp(ipInput))}
                 className="gap-2"
               >
                 {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

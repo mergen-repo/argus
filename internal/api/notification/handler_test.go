@@ -14,7 +14,7 @@ import (
 )
 
 func TestHandler_List_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/notifications", nil)
 	w := httptest.NewRecorder()
@@ -27,7 +27,7 @@ func TestHandler_List_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_List_NoUserContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -44,7 +44,7 @@ func TestHandler_List_NoUserContext(t *testing.T) {
 }
 
 func TestHandler_MarkRead_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/notifications/"+uuid.New().String()+"/read", nil)
 	w := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestHandler_MarkRead_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_MarkRead_InvalidID(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -78,7 +78,7 @@ func TestHandler_MarkRead_InvalidID(t *testing.T) {
 }
 
 func TestHandler_MarkAllRead_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/read-all", nil)
 	w := httptest.NewRecorder()
@@ -91,7 +91,7 @@ func TestHandler_MarkAllRead_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_MarkAllRead_NoUserContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -108,7 +108,7 @@ func TestHandler_MarkAllRead_NoUserContext(t *testing.T) {
 }
 
 func TestHandler_GetConfigs_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/notification-configs", nil)
 	w := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestHandler_GetConfigs_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateConfigs_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/notification-configs", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -134,7 +134,7 @@ func TestHandler_UpdateConfigs_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateConfigs_InvalidBody(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -153,7 +153,7 @@ func TestHandler_UpdateConfigs_InvalidBody(t *testing.T) {
 }
 
 func TestHandler_UpdateConfigs_EmptyConfigs(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -172,7 +172,7 @@ func TestHandler_UpdateConfigs_EmptyConfigs(t *testing.T) {
 }
 
 func TestHandler_UpdateConfigs_InvalidEventType(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -192,7 +192,7 @@ func TestHandler_UpdateConfigs_InvalidEventType(t *testing.T) {
 }
 
 func TestHandler_UpdateConfigs_InvalidScopeType(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -212,7 +212,7 @@ func TestHandler_UpdateConfigs_InvalidScopeType(t *testing.T) {
 }
 
 func TestHandler_GetConfigs_NoUserContext(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)

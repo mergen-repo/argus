@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -17,14 +18,16 @@ import (
 )
 
 type Handler struct {
-	msisdns *store.MSISDNStore
-	logger  zerolog.Logger
+	msisdns  *store.MSISDNStore
+	auditSvc audit.Auditor
+	logger   zerolog.Logger
 }
 
-func NewHandler(msisdns *store.MSISDNStore, logger zerolog.Logger) *Handler {
+func NewHandler(msisdns *store.MSISDNStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
-		msisdns: msisdns,
-		logger:  logger,
+		msisdns:  msisdns,
+		auditSvc: auditSvc,
+		logger:   logger,
 	}
 }
 
@@ -163,6 +166,8 @@ func (h *Handler) importJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "msisdn.import", "msisdn_pool", req.OperatorID.String(), nil, result)
+
 	apierr.WriteSuccess(w, http.StatusOK, result)
 }
 
@@ -245,6 +250,8 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "msisdn.import", "msisdn_pool", operatorID.String(), nil, result)
+
 	apierr.WriteSuccess(w, http.StatusOK, result)
 }
 
@@ -282,6 +289,8 @@ func (h *Handler) Assign(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "msisdn.assign", "msisdn_pool", id.String(), nil, map[string]string{"sim_id": req.SimID.String()})
 
 	apierr.WriteSuccess(w, http.StatusOK, toDTO(m))
 }

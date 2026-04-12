@@ -11,6 +11,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
   const setPartial2FA = useAuthStore((s) => s.setPartial2FA)
+  const setPartialSession = useAuthStore((s) => s.setPartialSession)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,11 +63,14 @@ export default function LoginPage() {
       const res = await authApi.login(email, password, rememberMe)
       const data = res.data.data
 
-      if (data.requires_2fa) {
+      if (data.partial === true && data.reason === 'password_change_required') {
+        setPartialSession(data.token, data.reason)
+        navigate('/auth/change-password')
+      } else if (data.requires_2fa) {
         setPartial2FA(data.token, data.user)
         navigate('/login/2fa')
       } else {
-        setAuth(data.user, data.token)
+        setAuth(data.user, data.token, [], data.session_id)
         if (data.user.onboarding_completed === false) {
           navigate('/setup')
         } else {

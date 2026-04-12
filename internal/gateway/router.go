@@ -70,9 +70,11 @@ type RouterDeps struct {
 	ViolationHandler   *violationapi.Handler
 	DashboardHandler     *dashboardapi.Handler
 	SLAHandler           *slaapi.Handler
-	ReliabilityHandler   *systemapi.ReliabilityHandler
-	StatusHandler        *systemapi.StatusHandler
+	ReliabilityHandler      *systemapi.ReliabilityHandler
+	StatusHandler           *systemapi.StatusHandler
+	RevokeSessionsHandler   *systemapi.RevokeSessionsHandler
 	APIKeyStore      *store.APIKeyStore
+	TenantLimits     *TenantLimitsMiddleware
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
 	RateLimitPerHour   int
@@ -102,6 +104,18 @@ func NewRouter(health *HealthHandler, authHandler *authapi.AuthHandler, jwtSecre
 
 func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
+
+	// limitFor returns the tenant-limits enforcement middleware for a given
+	// resource, or a no-op pass-through when the deps don't include the
+	// middleware (tests and lightweight setups). Wrapping individual POST
+	// routes with r.With(limitFor(...)) keeps the existing GET/PATCH/DELETE
+	// handlers in the same group free of the overhead.
+	limitFor := func(resource LimitKey) func(http.Handler) http.Handler {
+		if deps.TenantLimits == nil {
+			return func(next http.Handler) http.Handler { return next }
+		}
+		return deps.TenantLimits.Enforce(resource)
+	}
 
 	r.Use(RecoveryWithZerolog(deps.Logger))
 	r.Use(CorrelationID())
@@ -181,7 +195,9 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Use(RequireRole("api_user"))
 		r.Post("/api/v1/auth/logout", deps.AuthHandler.Logout)
 		r.Post("/api/v1/auth/2fa/setup", deps.AuthHandler.Setup2FA)
+		r.Post("/api/v1/auth/2fa/backup-codes", deps.AuthHandler.GenerateBackupCodes)
 		r.Get("/api/v1/auth/sessions", deps.AuthHandler.ListSessions)
+		r.Delete("/api/v1/auth/sessions/{id}", deps.AuthHandler.RevokeSession)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -190,6 +206,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		}
 		r.Use(JWTAuthAllowPartial(deps.JWTSecret, deps.JWTSecretPrevious))
 		r.Post("/api/v1/auth/2fa/verify", deps.AuthHandler.Verify2FA)
+	})
+
+	r.Group(func(r chi.Router) {
+		if deps.RequestBodyAuthMB > 0 {
+			r.Use(BodyLimit(deps.RequestBodyAuthMB))
+		}
+		r.Use(JWTAuthAllowForceChange(deps.JWTSecret, deps.JWTSecretPrevious))
+		r.Post("/api/v1/auth/password/change", deps.AuthHandler.ChangePassword)
 	})
 
 	if deps.TenantHandler != nil {
@@ -214,13 +238,15 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/users", deps.UserHandler.List)
-			r.Post("/api/v1/users", deps.UserHandler.Create)
+			r.With(limitFor(LimitUsers)).Post("/api/v1/users", deps.UserHandler.Create)
 		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Patch("/api/v1/users/{id}", deps.UserHandler.Update)
+			// Revoke sessions: self or tenant_admin (self-check enforced in handler).
+			r.Post("/api/v1/users/{id}/revoke-sessions", deps.UserHandler.RevokeSessions)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -228,6 +254,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("tenant_admin"))
 			// GDPR erasure — requires ?gdpr=1 query param (enforced in handler).
 			r.Delete("/api/v1/users/{id}", deps.UserHandler.Delete)
+			r.Post("/api/v1/users/{id}/unlock", deps.UserHandler.Unlock)
+			r.Post("/api/v1/users/{id}/reset-password", deps.UserHandler.ResetPassword)
 		})
 	}
 
@@ -285,7 +313,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
-			r.Post("/api/v1/apns", deps.APNHandler.Create)
+			r.With(limitFor(LimitAPNs)).Post("/api/v1/apns", deps.APNHandler.Create)
 			r.Patch("/api/v1/apns/{id}", deps.APNHandler.Update)
 			r.Delete("/api/v1/apns/{id}", deps.APNHandler.Archive)
 		})
@@ -319,7 +347,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/api-keys", deps.APIKeyHandler.List)
-			r.Post("/api/v1/api-keys", deps.APIKeyHandler.Create)
+			r.With(limitFor(LimitAPIKeys)).Post("/api/v1/api-keys", deps.APIKeyHandler.Create)
 			r.Patch("/api/v1/api-keys/{id}", deps.APIKeyHandler.Update)
 			r.Post("/api/v1/api-keys/{id}/rotate", deps.APIKeyHandler.Rotate)
 			r.Delete("/api/v1/api-keys/{id}", deps.APIKeyHandler.Delete)
@@ -331,7 +359,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sims", deps.SIMHandler.List)
-			r.Post("/api/v1/sims", deps.SIMHandler.Create)
+			r.With(limitFor(LimitSIMs)).Post("/api/v1/sims", deps.SIMHandler.Create)
 			r.Get("/api/v1/sims/{id}", deps.SIMHandler.Get)
 			r.Patch("/api/v1/sims/{id}", deps.SIMHandler.Patch)
 			r.Get("/api/v1/sims/{id}/history", deps.SIMHandler.GetHistory)
@@ -616,6 +644,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/status/details", deps.StatusHandler.ServeDetails)
+		})
+	}
+
+	if deps.RevokeSessionsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/system/revoke-all-sessions", deps.RevokeSessionsHandler.RevokeAll)
 		})
 	}
 

@@ -3,16 +3,130 @@ package user
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+type mockUserStore struct {
+	getByIDFn                   func(ctx context.Context, id uuid.UUID) (*store.User, error)
+	clearLockoutFn              func(ctx context.Context, userID uuid.UUID) error
+	setPasswordHashFn           func(ctx context.Context, userID uuid.UUID, hash string) error
+	setPasswordChangeRequiredFn func(ctx context.Context, userID uuid.UUID, required bool) error
+}
+
+func (m *mockUserStore) GetByID(ctx context.Context, id uuid.UUID) (*store.User, error) {
+	if m.getByIDFn != nil {
+		return m.getByIDFn(ctx, id)
+	}
+	return nil, store.ErrUserNotFound
+}
+
+func (m *mockUserStore) ListByTenant(ctx context.Context, cursor string, limit int, roleFilter string, stateFilter string) ([]store.User, string, error) {
+	return nil, "", nil
+}
+
+func (m *mockUserStore) CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	return 0, nil
+}
+
+func (m *mockUserStore) CreateUser(ctx context.Context, p store.CreateUserParams) (*store.User, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockUserStore) UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockUserStore) DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*store.PurgeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockUserStore) ClearLockout(ctx context.Context, userID uuid.UUID) error {
+	if m.clearLockoutFn != nil {
+		return m.clearLockoutFn(ctx, userID)
+	}
+	return nil
+}
+
+func (m *mockUserStore) SetPasswordHash(ctx context.Context, userID uuid.UUID, hash string) error {
+	if m.setPasswordHashFn != nil {
+		return m.setPasswordHashFn(ctx, userID, hash)
+	}
+	return nil
+}
+
+func (m *mockUserStore) SetPasswordChangeRequired(ctx context.Context, userID uuid.UUID, required bool) error {
+	if m.setPasswordChangeRequiredFn != nil {
+		return m.setPasswordChangeRequiredFn(ctx, userID, required)
+	}
+	return nil
+}
+
+type mockSessionStore struct {
+	revokeAllFn    func(ctx context.Context, userID uuid.UUID) error
+	getActiveFn    func(ctx context.Context, userID uuid.UUID) ([]store.UserSession, error)
+	revokedUserIDs []uuid.UUID
+}
+
+func (m *mockSessionStore) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error {
+	m.revokedUserIDs = append(m.revokedUserIDs, userID)
+	if m.revokeAllFn != nil {
+		return m.revokeAllFn(ctx, userID)
+	}
+	return nil
+}
+
+func (m *mockSessionStore) GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]store.UserSession, error) {
+	if m.getActiveFn != nil {
+		return m.getActiveFn(ctx, userID)
+	}
+	return []store.UserSession{{ID: uuid.New(), UserID: userID, ExpiresAt: time.Now().Add(time.Hour)}}, nil
+}
+
+type mockAPIKeyStore struct {
+	revokeAllFn func(ctx context.Context, userID uuid.UUID) (int64, error)
+	count       int64
+}
+
+func (m *mockAPIKeyStore) RevokeAllByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	if m.revokeAllFn != nil {
+		return m.revokeAllFn(ctx, userID)
+	}
+	return m.count, nil
+}
+
+type mockWSHub struct {
+	droppedUserIDs []uuid.UUID
+}
+
+func (m *mockWSHub) DropUser(userID uuid.UUID) {
+	m.droppedUserIDs = append(m.droppedUserIDs, userID)
+}
+
+func newHandlerForTest(t *testing.T, us userStoreI, opts ...HandlerOption) *Handler {
+	t.Helper()
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := &Handler{
+		userStore:  us,
+		auditSvc:   nil,
+		logger:     logger.With().Str("component", "user_handler").Logger(),
+		bcryptCost: 4,
+	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
+}
 
 func withChiURLParam(r *http.Request, key, val string) *http.Request {
 	rctx := chi.NewRouteContext()
@@ -390,5 +504,346 @@ func TestToUserResponse(t *testing.T) {
 	}
 	if u.LastLoginAt != nil {
 		t.Error("LastLoginAt should be nil for new user")
+	}
+}
+
+func makeUser(tenantID, userID uuid.UUID) *store.User {
+	return &store.User{
+		ID:       userID,
+		TenantID: tenantID,
+		Email:    "user@test.com",
+		Name:     "Test User",
+		Role:     "analyst",
+		State:    "active",
+	}
+}
+
+func TestUnlock_InvalidUUID(t *testing.T) {
+	h := newHandlerForTest(t, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/not-a-uuid/unlock", nil)
+	req = withChiURLParam(req, "id", "not-a-uuid")
+	rr := httptest.NewRecorder()
+	h.Unlock(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestUnlock_UserNotFound(t *testing.T) {
+	us := &mockUserStore{}
+	h := newHandlerForTest(t, us)
+
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/unlock", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.Unlock(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
+func TestUnlock_WrongTenant(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(uuid.New(), targetID), nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/unlock", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.Unlock(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
+func TestUnlock_HappyPath(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+	clearLockoutCalled := false
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(tenantID, targetID), nil
+		},
+		clearLockoutFn: func(ctx context.Context, userID uuid.UUID) error {
+			clearLockoutCalled = true
+			return nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/unlock", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.Unlock(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !clearLockoutCalled {
+		t.Error("ClearLockout was not called")
+	}
+}
+
+func TestRevokeSessions_InvalidUUID(t *testing.T) {
+	h := newHandlerForTest(t, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/not-a-uuid/revoke-sessions", nil)
+	req = withChiURLParam(req, "id", "not-a-uuid")
+	rr := httptest.NewRecorder()
+	h.RevokeSessions(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRevokeSessions_NonAdminCannotRevokeOthers(t *testing.T) {
+	h := newHandlerForTest(t, nil)
+	callerID := uuid.New()
+	targetID := uuid.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/revoke-sessions", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, callerID)
+	ctx = context.WithValue(ctx, apierr.RoleKey, "analyst")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.RevokeSessions(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}
+
+func TestRevokeSessions_SelfAllowed(t *testing.T) {
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	sessionStore := &mockSessionStore{}
+	wsHub := &mockWSHub{}
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(tenantID, callerID), nil
+		},
+	}
+	h := newHandlerForTest(t, us,
+		WithSessionStore(sessionStore),
+		WithWSHub(wsHub),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+callerID.String()+"/revoke-sessions", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, callerID)
+	ctx = context.WithValue(ctx, apierr.RoleKey, "analyst")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", callerID.String())
+
+	rr := httptest.NewRecorder()
+	h.RevokeSessions(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if len(sessionStore.revokedUserIDs) == 0 {
+		t.Error("sessions were not revoked")
+	}
+	if len(wsHub.droppedUserIDs) == 0 {
+		t.Error("ws connections were not dropped")
+	}
+}
+
+func TestRevokeSessions_HappyPathWithAPIKeys(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+	sessionStore := &mockSessionStore{}
+	apiKeyStore := &mockAPIKeyStore{count: 3}
+	wsHub := &mockWSHub{}
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(tenantID, targetID), nil
+		},
+	}
+	h := newHandlerForTest(t, us,
+		WithSessionStore(sessionStore),
+		WithAPIKeyStore(apiKeyStore),
+		WithWSHub(wsHub),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/revoke-sessions?include_api_keys=true", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.RevokeSessions(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp apierr.SuccessResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	data, _ := json.Marshal(resp.Data)
+	var payload map[string]interface{}
+	json.Unmarshal(data, &payload)
+	if payload["apikeys_revoked"] == nil {
+		t.Error("apikeys_revoked missing from response")
+	}
+}
+
+func TestRevokeSessions_UserNotFound(t *testing.T) {
+	us := &mockUserStore{}
+	h := newHandlerForTest(t, us)
+
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/revoke-sessions", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.RevokeSessions(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
+func TestResetPassword_InvalidUUID(t *testing.T) {
+	h := newHandlerForTest(t, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/not-a-uuid/reset-password", nil)
+	req = withChiURLParam(req, "id", "not-a-uuid")
+	rr := httptest.NewRecorder()
+	h.ResetPassword(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestResetPassword_UserNotFound(t *testing.T) {
+	us := &mockUserStore{}
+	h := newHandlerForTest(t, us)
+
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/reset-password", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.ResetPassword(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
+func TestResetPassword_WrongTenant(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(uuid.New(), targetID), nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/reset-password", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.ResetPassword(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
+func TestResetPassword_HappyPath(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+	sessionStore := &mockSessionStore{}
+	wsHub := &mockWSHub{}
+	setPasswordHashCalled := false
+	setPasswordChangedCalled := false
+
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return makeUser(tenantID, targetID), nil
+		},
+		setPasswordHashFn: func(ctx context.Context, userID uuid.UUID, hash string) error {
+			setPasswordHashCalled = true
+			return nil
+		},
+		setPasswordChangeRequiredFn: func(ctx context.Context, userID uuid.UUID, required bool) error {
+			setPasswordChangedCalled = true
+			if !required {
+				t.Error("SetPasswordChangeRequired called with false, want true")
+			}
+			return nil
+		},
+	}
+	h := newHandlerForTest(t, us,
+		WithSessionStore(sessionStore),
+		WithWSHub(wsHub),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+targetID.String()+"/reset-password", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.ResetPassword(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !setPasswordHashCalled {
+		t.Error("SetPasswordHash was not called")
+	}
+	if !setPasswordChangedCalled {
+		t.Error("SetPasswordChangeRequired was not called")
+	}
+	if len(sessionStore.revokedUserIDs) == 0 {
+		t.Error("sessions were not revoked after password reset")
+	}
+
+	var resp apierr.SuccessResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	data, _ := json.Marshal(resp.Data)
+	var payload map[string]interface{}
+	json.Unmarshal(data, &payload)
+	if payload["temp_password"] == "" || payload["temp_password"] == nil {
+		t.Error("temp_password missing from response")
 	}
 }

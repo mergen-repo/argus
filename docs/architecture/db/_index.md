@@ -41,12 +41,14 @@
 | TBL-31 | tenant_retention_config | Platform Services | → TBL-01 (tenant_id, UNIQUE) | No |
 | TBL-32 | backup_runs | Backup | System-level (no tenant_id) | No |
 | TBL-33 | backup_verifications | Backup | → TBL-32 (backup_run_id) | No |
+| TBL-34 | password_history | Auth/Security | → TBL-02 (user_id via JOIN to users.tenant_id for RLS) | No |
+| TBL-35 | user_backup_codes | Auth/Security | → TBL-02 (user_id via JOIN to users.tenant_id for RLS) | No |
 
 ## Domain Detail Files
 
 | Domain | File | Tables |
 |--------|------|--------|
-| Platform (Tenant, User, API Key) | [platform.md](platform.md) | TBL-01, TBL-02, TBL-03, TBL-04 |
+| Platform (Tenant, User, API Key) | [platform.md](platform.md) | TBL-01, TBL-02, TBL-03, TBL-04, TBL-34, TBL-35 |
 | Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23 |
 | SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |

@@ -31,14 +31,18 @@ const (
 	CodeAccountLocked       = "ACCOUNT_LOCKED"
 	CodeAccountDisabled     = "ACCOUNT_DISABLED"
 	CodeInvalid2FACode      = "INVALID_2FA_CODE"
+	CodeInvalidBackupCode   = "INVALID_BACKUP_CODE"
+	CodeTOTPNotEnabled      = "TOTP_NOT_ENABLED"
 	CodeTokenExpired        = "TOKEN_EXPIRED"
 	CodeInvalidRefreshToken = "INVALID_REFRESH_TOKEN"
 
-	CodeForbidden        = "FORBIDDEN"
-	CodeInsufficientRole = "INSUFFICIENT_ROLE"
-	CodeScopeDenied      = "SCOPE_DENIED"
+	CodeForbidden              = "FORBIDDEN"
+	CodeInsufficientRole       = "INSUFFICIENT_ROLE"
+	CodeScopeDenied            = "SCOPE_DENIED"
+	CodeAPIKeyIPNotAllowed     = "API_KEY_IP_NOT_ALLOWED"
 
 	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
+	CodeTenantLimitExceeded   = "TENANT_LIMIT_EXCEEDED"
 	CodeTenantSuspended       = "TENANT_SUSPENDED"
 
 	CodeRateLimited = "RATE_LIMITED"
@@ -65,6 +69,14 @@ const (
 	CodeIPReleaseFailed         = "IP_RELEASE_FAILED"
 
 	CodeOperatorUnavailable = "OPERATOR_UNAVAILABLE"
+
+	CodePasswordTooShort         = "PASSWORD_TOO_SHORT"
+	CodePasswordMissingClass     = "PASSWORD_MISSING_CLASS"
+	CodePasswordRepeatingChars   = "PASSWORD_REPEATING_CHARS"
+	CodePasswordReused           = "PASSWORD_REUSED"
+	CodePasswordChangeRequired   = "PASSWORD_CHANGE_REQUIRED"
+
+	CodeInvalidCIDR = "INVALID_CIDR"
 )
 
 type SuccessResponse struct {

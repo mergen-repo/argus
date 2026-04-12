@@ -11,6 +11,7 @@ func TestTenantStruct(t *testing.T) {
 		MaxSims:      100000,
 		MaxApns:      100,
 		MaxUsers:     50,
+		MaxAPIKeys:   20,
 		State:        "active",
 	}
 
@@ -19,6 +20,16 @@ func TestTenantStruct(t *testing.T) {
 	}
 	if tenant.MaxUsers != 50 {
 		t.Errorf("MaxUsers = %d, want %d", tenant.MaxUsers, 50)
+	}
+	if tenant.MaxAPIKeys != 20 {
+		t.Errorf("MaxAPIKeys = %d, want %d", tenant.MaxAPIKeys, 20)
+	}
+}
+
+func TestTenantMaxAPIKeysDefault(t *testing.T) {
+	tenant := Tenant{}
+	if tenant.MaxAPIKeys != 0 {
+		t.Errorf("MaxAPIKeys zero-value = %d, want 0", tenant.MaxAPIKeys)
 	}
 }
 

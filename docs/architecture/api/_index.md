@@ -7,7 +7,7 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
-## Auth & Users (9 endpoints)
+## Auth & Users (14 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -21,6 +21,11 @@
 | API-008 | PATCH | /api/v1/users/:id | Update user | JWT (tenant_admin+ or self) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-195 | DELETE | /api/v1/users/:id?gdpr=1 | GDPR right-to-erasure: nulls PII, sets state=purged, emits system audit event | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (scope addition) |
 | API-186 | GET | /api/v1/auth/sessions | List active portal sessions for current user (cursor-paginated) | JWT (api_user+) | See [STORY-064](../../stories/phase-10/STORY-064-db-hardening.md) |
+| API-196 | POST | /api/v1/auth/password/change | Change password (current → new) with history/complexity checks; rotates session on success | JWT (partial allowed) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-1, AC-2, AC-3) |
+| API-197 | POST | /api/v1/auth/2fa/backup-codes | Generate/regenerate 10 TOTP backup codes (plaintext returned once, bcrypt-stored) | JWT | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-4) |
+| API-198 | POST | /api/v1/users/:id/unlock | Admin unlock locked account; clears failed_login_count + locked_until | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-10) |
+| API-199 | POST | /api/v1/users/:id/revoke-sessions | Revoke all sessions for user (self or tenant_admin); optional include_api_keys, WS drop | JWT (self or tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-6) |
+| API-200 | POST | /api/v1/users/:id/reset-password | Admin reset: issue temp password (returned once), set force-change flag | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-3) |
 
 ## Tenants (5 endpoints)
 
@@ -225,7 +230,7 @@
 |----|--------|------|-------------|------|--------|
 | API-185 | POST | /api/v1/notifications/sms/status | Twilio SMS delivery status callback (HMAC-SHA256 verified) | Twilio Signature | See [STORY-063](../../stories/phase-10/STORY-063-backend-completeness.md) |
 
-## System Health (10 endpoints)
+## System Health (11 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -239,6 +244,7 @@
 | API-191 | GET | /api/v1/system/jwt-rotation-history | JWT key rotation audit log (last 10 detections) | JWT (super_admin) | See [STORY-066](../../stories/phase-10/STORY-066-reliability.md) (AC-7) |
 | API-192 | GET | /api/v1/status | Aggregate service status (public, no auth) — component health, uptime, version, recent_error_5m | None | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-7) |
 | API-193 | GET | /api/v1/status/details | Detailed service status (auth-gated) — per-dependency latency, disk, queue depth | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-7) |
+| API-201 | POST | /api/v1/system/revoke-all-sessions | Admin tenant-wide force-logout; bulk session revoke + WS disconnect + optional notify | JWT (super_admin or tenant_admin for own tenant) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-7) |
 
 ## Observability Endpoints (1 endpoint)
 
@@ -269,4 +275,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 118 REST endpoints + 10 WebSocket event types**
+**Total: 124 REST endpoints + 10 WebSocket event types**

@@ -15,12 +15,16 @@ interface AuthState {
   permissions: string[]
   isAuthenticated: boolean
   partialToken: string | null
+  partial2faReason?: string
   requires2FA: boolean
+  sessionId: string | null
 
-  setAuth: (user: User, token: string, permissions?: string[]) => void
+  setAuth: (user: User, token: string, permissions?: string[], sessionId?: string) => void
   setToken: (token: string) => void
   setPartial2FA: (token: string, user: User) => void
   clear2FA: () => void
+  setPartialSession: (token: string, reason: string) => void
+  clearPartial: () => void
   logout: () => void
   hasPermission: (permission: string) => boolean
   setOnboardingCompleted: (completed: boolean) => void
@@ -32,9 +36,11 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
   permissions: [],
   isAuthenticated: false,
   partialToken: null,
+  partial2faReason: undefined,
   requires2FA: false,
+  sessionId: null,
 
-  setAuth: (user, token, permissions = []) =>
+  setAuth: (user, token, permissions = [], sessionId) =>
     set({
       user,
       token,
@@ -42,6 +48,7 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
       isAuthenticated: true,
       partialToken: null,
       requires2FA: false,
+      sessionId: sessionId ?? null,
     }),
 
   setToken: (token) => set({ token }),
@@ -56,6 +63,15 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
 
   clear2FA: () => set({ partialToken: null, requires2FA: false }),
 
+  setPartialSession: (token, reason) =>
+    set({
+      partialToken: token,
+      partial2faReason: reason,
+      isAuthenticated: false,
+    }),
+
+  clearPartial: () => set({ partialToken: null, partial2faReason: undefined }),
+
   logout: () =>
     set({
       user: null,
@@ -63,7 +79,9 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
       permissions: [],
       isAuthenticated: false,
       partialToken: null,
+      partial2faReason: undefined,
       requires2FA: false,
+      sessionId: null,
     }),
 
   hasPermission: (permission) => get().permissions.includes(permission),
@@ -79,5 +97,6 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
     token: state.token,
     permissions: state.permissions,
     isAuthenticated: state.isAuthenticated,
+    sessionId: state.sessionId,
   }),
 }))

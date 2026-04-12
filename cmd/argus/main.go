@@ -203,6 +203,8 @@ func main() {
 
 	userStore := store.NewUserStore(pg.Pool)
 	sessionStore := store.NewSessionStore(pg.Pool)
+	passwordHistoryStore := store.NewPasswordHistoryStore(pg.Pool)
+	backupCodeStore := store.NewBackupCodeStore(pg.Pool)
 
 	authSvc := auth.NewService(
 		&userStoreAdapter{userStore},
@@ -218,8 +220,18 @@ func main() {
 			MaxLoginAttempts:    cfg.LoginMaxAttempts,
 			LockoutDuration:     cfg.LoginLockoutDur,
 			EncryptionKey:       cfg.EncryptionKey,
+			Policy: auth.PasswordPolicy{
+				MinLength:     cfg.PasswordMinLength,
+				RequireUpper:  cfg.PasswordRequireUpper,
+				RequireLower:  cfg.PasswordRequireLower,
+				RequireDigit:  cfg.PasswordRequireDigit,
+				RequireSymbol: cfg.PasswordRequireSymbol,
+				MaxRepeating:  cfg.PasswordMaxRepeating,
+			},
+			PasswordHistoryCount: cfg.PasswordHistoryCount,
+			PasswordMaxAgeDays:   cfg.PasswordMaxAgeDays,
 		},
-	)
+	).WithPasswordHistory(passwordHistoryStore).WithBackupCodes(backupCodeStore)
 
 	if migrated, err := userStore.MigrateTOTPSecretsToEncrypted(ctx, cfg.EncryptionKey); err != nil {
 		log.Warn().Err(err).Msg("totp secret encryption migration failed — continuing")
@@ -229,7 +241,7 @@ func main() {
 
 	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
 
-	tenantStore := store.NewTenantStore(pg.Pool)
+	tenantStore := store.NewTenantStore(pg.Pool).WithRedis(rdb.Client)
 	auditStore := store.NewAuditStore(pg.Pool)
 	eventBus := bus.NewEventBus(ns)
 	eventBus.SetMetrics(metricsReg)
@@ -244,8 +256,8 @@ func main() {
 	}
 
 	tenantHandler := tenantapi.NewHandler(tenantStore, auditSvc, log.Logger)
-	userHandler := userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger)
 	auditHandler := auditapi.NewHandler(auditStore, auditSvc, log.Logger)
+	var userHandler *userapi.Handler
 
 	apiKeyStore := store.NewAPIKeyStore(pg.Pool)
 	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
@@ -284,9 +296,9 @@ func main() {
 	esimHandler.SetIPPoolStore(ippoolStore)
 	esimHandler.SetEventBus(eventBus)
 	segmentStore := store.NewSegmentStore(pg.Pool)
-	segmentHandler := segmentapi.NewHandler(segmentStore, log.Logger)
+	segmentHandler := segmentapi.NewHandler(segmentStore, auditSvc, log.Logger)
 	msisdnStore := store.NewMSISDNStore(pg.Pool)
-	msisdnHandler := msisdnapi.NewHandler(msisdnStore, log.Logger)
+	msisdnHandler := msisdnapi.NewHandler(msisdnStore, auditSvc, log.Logger)
 
 	jobStore := store.NewJobStore(pg.Pool)
 
@@ -299,7 +311,7 @@ func main() {
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
 	bulkHandler := simapi.NewBulkHandler(jobStore, segmentStore, eventBus, log.Logger)
-	jobHandler := jobapi.NewHandler(jobStore, eventBus, log.Logger)
+	jobHandler := jobapi.NewHandler(jobStore, eventBus, auditSvc, log.Logger)
 
 	otaStore := store.NewOTAStore(pg.Pool)
 	otaRateLimiter := ota.NewRateLimiter(rdb.Client, ota.DefaultMaxOTAPerSimPerHour)
@@ -324,7 +336,7 @@ func main() {
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
 	}
-	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, log.Logger)
+	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, auditSvc, log.Logger)
 
 	lagPoller := bus.NewLagPoller(
 		bus.NewJSStreamLookup(ns.JetStream),
@@ -355,7 +367,7 @@ func main() {
 	if err := anomalyEngine.Start(&eventBusAnomalySubscriber{eventBus}); err != nil {
 		log.Warn().Err(err).Msg("failed to start anomaly engine")
 	}
-	anomalyHandler := anomalyapi.NewHandler(anomalyStore, log.Logger)
+	anomalyHandler := anomalyapi.NewHandler(anomalyStore, auditSvc, log.Logger)
 
 	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
 	batchDetector := anomalysvc.NewBatchDetector(
@@ -638,6 +650,20 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to start ws server")
 	}
 
+	userHandler = userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger,
+		userapi.WithSessionStore(sessionStore),
+		userapi.WithAPIKeyStore(apiKeyStore),
+		userapi.WithWSHub(wsHub),
+		userapi.WithPasswordPolicy(auth.PasswordPolicy{
+			MinLength:     cfg.PasswordMinLength,
+			RequireUpper:  cfg.PasswordRequireUpper,
+			RequireLower:  cfg.PasswordRequireLower,
+			RequireDigit:  cfg.PasswordRequireDigit,
+			RequireSymbol: cfg.PasswordRequireSymbol,
+			MaxRepeating:  cfg.PasswordMaxRepeating,
+		}, cfg.BcryptCost),
+	)
+
 	var radiusServer *aaaradius.Server
 	var sessionHandler *sessionapi.Handler
 	var sessionSweeper *aaasession.TimeoutSweeper
@@ -819,8 +845,8 @@ func main() {
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
 	slaHandler := slaapi.NewHandler(slaReportStore, log.Logger)
-	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, log.Logger)
-	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, log.Logger)
+	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, auditSvc, log.Logger)
+	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger)
 	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
@@ -871,6 +897,19 @@ func main() {
 
 	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
 
+	tenantLimits := gateway.NewTenantLimitsMiddleware(
+		tenantStore,
+		map[gateway.LimitKey]gateway.CountFn{
+			gateway.LimitSIMs:    simStore.CountByTenant,
+			gateway.LimitAPNs:    apnStore.CountByTenant,
+			gateway.LimitUsers:   userStore.CountByTenant,
+			gateway.LimitAPIKeys: apiKeyStore.CountByTenant,
+		},
+		rdb.Client,
+		5*time.Minute,
+		log.Logger,
+	)
+
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
 		Health:             health,
 		AuthHandler:        authHandler,
@@ -903,6 +942,7 @@ func main() {
 		ReliabilityHandler:  reliabilityHandler,
 		StatusHandler:       statusHandler,
 		APIKeyStore:        apiKeyStore,
+		TenantLimits:       tenantLimits,
 		RedisClient:        rdb.Client,
 		RateLimitPerMinute: cfg.RateLimitPerMinute,
 		RateLimitPerHour:   cfg.RateLimitPerHour,
@@ -1192,20 +1232,34 @@ func (a *userStoreAdapter) EnableTOTP(ctx context.Context, id uuid.UUID) error {
 	return a.s.EnableTOTP(ctx, id)
 }
 
+func (a *userStoreAdapter) SetPasswordHash(ctx context.Context, id uuid.UUID, hash string) error {
+	return a.s.SetPasswordHash(ctx, id, hash)
+}
+
+func (a *userStoreAdapter) SetPasswordChangeRequired(ctx context.Context, id uuid.UUID, required bool) error {
+	return a.s.SetPasswordChangeRequired(ctx, id, required)
+}
+
+func (a *userStoreAdapter) ClearLockout(ctx context.Context, id uuid.UUID) error {
+	return a.s.ClearLockout(ctx, id)
+}
+
 func storeUserToAuth(u *store.User) *auth.User {
 	return &auth.User{
-		ID:               u.ID,
-		TenantID:         u.TenantID,
-		Email:            u.Email,
-		PasswordHash:     u.PasswordHash,
-		Name:             u.Name,
-		Role:             u.Role,
-		TOTPSecret:       u.TOTPSecret,
-		TOTPEnabled:      u.TOTPEnabled,
-		State:            u.State,
-		LastLoginAt:      u.LastLoginAt,
-		FailedLoginCount: u.FailedLoginCount,
-		LockedUntil:      u.LockedUntil,
+		ID:                     u.ID,
+		TenantID:               u.TenantID,
+		Email:                  u.Email,
+		PasswordHash:           u.PasswordHash,
+		Name:                   u.Name,
+		Role:                   u.Role,
+		TOTPSecret:             u.TOTPSecret,
+		TOTPEnabled:            u.TOTPEnabled,
+		State:                  u.State,
+		LastLoginAt:            u.LastLoginAt,
+		FailedLoginCount:       u.FailedLoginCount,
+		LockedUntil:            u.LockedUntil,
+		PasswordChangeRequired: u.PasswordChangeRequired,
+		PasswordChangedAt:      u.PasswordChangedAt,
 	}
 }
 
@@ -1272,6 +1326,9 @@ func storeSessionToAuth(s *store.UserSession) *auth.UserSession {
 		ID:               s.ID,
 		UserID:           s.UserID,
 		RefreshTokenHash: s.RefreshTokenHash,
+		IPAddress:        s.IPAddress,
+		UserAgent:        s.UserAgent,
+		CreatedAt:        s.CreatedAt,
 		ExpiresAt:        s.ExpiresAt,
 		RevokedAt:        s.RevokedAt,
 	}

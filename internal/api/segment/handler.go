@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -15,12 +16,14 @@ import (
 
 type Handler struct {
 	segments *store.SegmentStore
+	auditSvc audit.Auditor
 	logger   zerolog.Logger
 }
 
-func NewHandler(segments *store.SegmentStore, logger zerolog.Logger) *Handler {
+func NewHandler(segments *store.SegmentStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		segments: segments,
+		auditSvc: auditSvc,
 		logger:   logger,
 	}
 }
@@ -138,6 +141,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "segment.create", "segment", seg.ID.String(), nil, seg)
+
 	apierr.WriteSuccess(w, http.StatusCreated, toSegmentDTO(seg))
 }
 
@@ -159,6 +164,8 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "segment.delete", "segment", id.String(), nil, nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }

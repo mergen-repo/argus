@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -27,6 +28,7 @@ type Tenant struct {
 	MaxSims            int             `json:"max_sims"`
 	MaxApns            int             `json:"max_apns"`
 	MaxUsers           int             `json:"max_users"`
+	MaxAPIKeys         int             `json:"max_api_keys"`
 	PurgeRetentionDays int             `json:"purge_retention_days"`
 	Settings           json.RawMessage `json:"settings"`
 	State              string          `json:"state"`
@@ -68,11 +70,20 @@ type UpdateTenantParams struct {
 }
 
 type TenantStore struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	rdb *redis.Client
 }
 
 func NewTenantStore(db *pgxpool.Pool) *TenantStore {
 	return &TenantStore{db: db}
+}
+
+// WithRedis attaches a Redis client used for limits-cache invalidation on
+// Update. The store remains usable without Redis; callers that care about
+// cache coherence with the gateway tenant-limits middleware should wire it.
+func (s *TenantStore) WithRedis(rdb *redis.Client) *TenantStore {
+	s.rdb = rdb
+	return s
 }
 
 func (s *TenantStore) Create(ctx context.Context, p CreateTenantParams) (*Tenant, error) {
@@ -93,11 +104,11 @@ func (s *TenantStore) Create(ctx context.Context, p CreateTenantParams) (*Tenant
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users,
+		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
 			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
 	`, p.Name, p.Domain, p.ContactEmail, p.ContactPhone, maxSims, maxApns, maxUsers, p.CreatedBy).
 		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
-			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.PurgeRetentionDays,
+			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
 			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if err != nil {
 		if isDuplicateKeyError(err) {
@@ -111,12 +122,12 @@ func (s *TenantStore) Create(ctx context.Context, p CreateTenantParams) (*Tenant
 func (s *TenantStore) GetByID(ctx context.Context, id uuid.UUID) (*Tenant, error) {
 	var t Tenant
 	err := s.db.QueryRow(ctx, `
-		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users,
+		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
 			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
 		FROM tenants
 		WHERE id = $1
 	`, id).Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
-		&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.PurgeRetentionDays,
+		&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
 		&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantNotFound
@@ -160,7 +171,7 @@ func (s *TenantStore) List(ctx context.Context, cursor string, limit int, stateF
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
 	query := fmt.Sprintf(`
-		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users,
+		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
 			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
 		FROM tenants
 		%s
@@ -178,7 +189,7 @@ func (s *TenantStore) List(ctx context.Context, cursor string, limit int, stateF
 	for rows.Next() {
 		var t Tenant
 		if err := rows.Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
-			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.PurgeRetentionDays,
+			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
 			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy); err != nil {
 			return nil, "", fmt.Errorf("store: scan tenant: %w", err)
 		}
@@ -252,20 +263,28 @@ func (s *TenantStore) Update(ctx context.Context, id uuid.UUID, p UpdateTenantPa
 	query := fmt.Sprintf(`
 		UPDATE tenants SET %s
 		WHERE id = $1
-		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users,
+		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
 			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
 	`, strings.Join(sets, ", "))
 
 	var t Tenant
 	err := s.db.QueryRow(ctx, query, args...).
 		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
-			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.PurgeRetentionDays,
+			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
 			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: update tenant: %w", err)
+	}
+	// Invalidate the gateway tenant-limits cache so that updates to
+	// max_sims/max_apns/max_users/max_api_keys take effect on the next
+	// request rather than being held for the full TTL. Best-effort; if
+	// Redis is unavailable we silently skip — the cache entry will
+	// expire naturally.
+	if s.rdb != nil {
+		_ = s.rdb.Del(ctx, "tenant:limits:"+id.String()).Err()
 	}
 	return &t, nil
 }

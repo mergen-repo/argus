@@ -71,7 +71,7 @@ Current state: bcrypt cost is enforced but no password complexity policy, no pas
   - `POST /api/v1/system/revoke-all-sessions` (new from AC-7)
   - Each creates audit entry via `auditor.Record(ctx, action, entityType, entityID, before, after)`
 - [ ] AC-10: **Account lockout + unlock workflow.**
-  - After N failed logins (configurable `AUTH_MAX_FAILED_ATTEMPTS=5`), account locked for `AUTH_LOCKOUT_DURATION=15m`
+  - After N failed logins (configurable `LOGIN_MAX_ATTEMPTS=5`), account locked for `LOGIN_LOCKOUT_DURATION=15m`
   - Locked accounts get clear error code `ACCOUNT_LOCKED` with retry-after
   - Tenant admin can manually unlock via `POST /api/v1/users/:id/unlock`
   - Auto-unlock on lockout expiry

@@ -272,9 +272,14 @@ argus/
 
 ### Authentication Flow
 ```
-Login: POST /api/v1/auth/login → validate credentials → check 2FA
+Login: POST /api/v1/auth/login → validate credentials → check account lockout
+    → check 2FA (TOTP or backup code)
+    → if password_change_required=true: return partial JWT + PASSWORD_CHANGE_REQUIRED
     → issue JWT (15min) + refresh token (7d, stored in TBL-03)
     → set refresh token as httpOnly cookie
+
+Force-Change Flow: partial JWT → POST /api/v1/auth/password/change
+    → validate current password + policy + history → clear flag → issue full JWT
 
 API Request: Authorization: Bearer <jwt>
     → gateway middleware validates JWT
@@ -288,8 +293,20 @@ Token Refresh: POST /api/v1/auth/refresh (httpOnly cookie)
 API Key: X-API-Key: argus_<prefix>_<secret>
     → gateway looks up key_prefix in TBL-04
     → validates SHA-256(secret) == key_hash
-    → checks scopes, rate limits, expiry
+    → checks scopes, rate limits, expiry, IP whitelist (allowed_ips CIDR match)
 ```
+
+### Enterprise Auth Hardening (STORY-068)
+
+- **Password Policy**: Configurable complexity (length, upper/lower/digit/symbol, max-repeating) enforced at user create, password change, admin reset, invite-complete. Error codes: `PASSWORD_TOO_SHORT`, `PASSWORD_MISSING_CLASS`, `PASSWORD_REPEATING_CHARS`.
+- **Password History**: TBL-34 (`password_history`) stores last N bcrypt hashes (default 5). Reuse rejected with `PASSWORD_REUSED`. Trimmed to N entries post-insert.
+- **Force Password Change (AC-3)**: `users.password_change_required` BOOLEAN. Set true on: admin-triggered reset, invite activation, password expiry. Login returns `partial: true` + `reason: password_change_required` → frontend navigates to change-password screen; full JWT issued only after successful change.
+- **2FA Backup Codes (AC-4)**: TBL-35 (`user_backup_codes`) — 10 bcrypt-hashed single-use codes per user (crypto/rand). Login accepts TOTP OR backup code. Used codes marked; regenerate invalidates all prior. Warning in meta when <3 remaining.
+- **API Key IP Whitelist (AC-5)**: `api_keys.allowed_ips TEXT[]` (CIDR notation). GIN-indexed. Empty array = any IP allowed (backwards compat). Middleware rejects non-whitelisted IPs with `API_KEY_IP_NOT_ALLOWED`.
+- **Session Revoke (AC-6)**: `POST /api/v1/users/:id/revoke-sessions` — tenant_admin or self. Invalidates all refresh tokens; optional `?include_api_keys=true`. WS connections dropped.
+- **Force-Logout All (AC-7)**: `POST /api/v1/system/revoke-all-sessions?tenant=X` — super_admin (or tenant_admin scoped). Sends notifications if email configured.
+- **Tenant Resource Limits (AC-8)**: Middleware reads tenants.max_sims/apns/users/max_api_keys (cached 5min Redis). Rejects create operations with `TENANT_LIMIT_EXCEEDED` + resource/current/max payload.
+- **Account Lockout (AC-10)**: After N failed logins (`LOGIN_MAX_ATTEMPTS=5`), locked for `LOGIN_LOCKOUT_DURATION=15m`. Error code `ACCOUNT_LOCKED` with retry-after. Tenant admin can manually unlock via `POST /api/v1/users/:id/unlock`. Auto-unlock on expiry.
 
 ### RBAC Matrix
 
@@ -310,7 +327,7 @@ API Key: X-API-Key: argus_<prefix>_<secret>
 
 ### Database-Level Tenant Isolation (Defense-in-Depth)
 
-Row-Level Security (RLS) is enabled with `FORCE ROW LEVEL SECURITY` on all 28 tenant-scoped tables (TBL-01 to TBL-31, excluding system tables). Policies use `current_setting('app.current_tenant', true)::uuid` to validate tenant context. The app database role uses `BYPASSRLS` — RLS operates as a defense-in-depth layer, not as the primary isolation boundary. Per-request transaction-scoped RLS enforcement is future work (DEV-167). See [docs/architecture/db/rls.md](architecture/db/rls.md) for full policy definitions.
+Row-Level Security (RLS) is enabled with `FORCE ROW LEVEL SECURITY` on all 30 tenant-scoped tables (TBL-01 to TBL-31 + TBL-34 password_history + TBL-35 user_backup_codes, excluding system tables). Policies use `current_setting('app.current_tenant', true)::uuid` to validate tenant context. The app database role uses `BYPASSRLS` — RLS operates as a defense-in-depth layer, not as the primary isolation boundary. Per-request transaction-scoped RLS enforcement is future work (DEV-167). See [docs/architecture/db/rls.md](architecture/db/rls.md) for full policy definitions.
 
 ## Performance Architecture
 
@@ -437,8 +454,8 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 119 | API-001 to API-195 |
-| TBL-NN | 33 | TBL-01 to TBL-33 |
+| API-NNN | 124 | API-001 to API-201 |
+| TBL-NN | 35 | TBL-01 to TBL-35 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |
 
@@ -469,8 +486,8 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (120 endpoints + story links) |
-| [architecture/db/](architecture/db/_index.md) | Database schema (33 tables) |
+| [architecture/api/](architecture/api/_index.md) | API surface (124 endpoints + story links) |
+| [architecture/db/](architecture/db/_index.md) | Database schema (35 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
 

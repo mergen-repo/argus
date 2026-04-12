@@ -313,6 +313,55 @@ func (h *Hub) BroadcastReconnect(reason string, afterMs int) {
 	}
 }
 
+func (h *Hub) DropUser(userID uuid.UUID) {
+	h.mu.RLock()
+	var toClose []*Connection
+	for _, conns := range h.conns {
+		for conn := range conns {
+			if conn.UserID == userID {
+				toClose = append(toClose, conn)
+			}
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, conn := range toClose {
+		conn.ws.Close()
+		h.Unregister(conn)
+		h.logger.Debug().
+			Str("user_id", userID.String()).
+			Msg("ws connection dropped for user session revocation")
+	}
+}
+
+// DisconnectTenant forcibly closes all WebSocket connections belonging to tenantID
+// and removes them from the hub. Returns the unique user IDs that were disconnected.
+func (h *Hub) DisconnectTenant(tenantID uuid.UUID) []uuid.UUID {
+	h.mu.Lock()
+	tenantConns := h.conns[tenantID]
+	toClose := make([]*Connection, 0, len(tenantConns))
+	for conn := range tenantConns {
+		toClose = append(toClose, conn)
+	}
+	delete(h.conns, tenantID)
+	h.mu.Unlock()
+
+	seen := make(map[uuid.UUID]struct{})
+	var userIDs []uuid.UUID
+	for _, conn := range toClose {
+		conn.ws.Close()
+		if _, ok := seen[conn.UserID]; !ok {
+			seen[conn.UserID] = struct{}{}
+			userIDs = append(userIDs, conn.UserID)
+		}
+		h.logger.Debug().
+			Str("tenant_id", tenantID.String()).
+			Str("user_id", conn.UserID.String()).
+			Msg("ws connection dropped for tenant session revocation")
+	}
+	return userIDs
+}
+
 func (h *Hub) Stop() {
 	for _, sub := range h.subs {
 		sub.Unsubscribe()

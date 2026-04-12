@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	jobtypes "github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/store"
@@ -32,13 +33,15 @@ type Handler struct {
 	jobs      *store.JobStore
 	eventBus  *bus.EventBus
 	canceller JobCanceller
+	auditSvc  audit.Auditor
 	logger    zerolog.Logger
 }
 
-func NewHandler(jobs *store.JobStore, eventBus *bus.EventBus, logger zerolog.Logger) *Handler {
+func NewHandler(jobs *store.JobStore, eventBus *bus.EventBus, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		jobs:     jobs,
 		eventBus: eventBus,
+		auditSvc: auditSvc,
 		logger:   logger,
 	}
 }
@@ -200,6 +203,8 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		h.canceller.CancelJob(id)
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "job.cancel", "job", id.String(), nil, map[string]string{"state": "cancelled"})
+
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"id":    id.String(),
 		"state": "cancelled",
@@ -259,6 +264,8 @@ func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
 		TenantID: newJob.TenantID,
 		Type:     newJob.Type,
 	})
+
+	audit.Emit(r, h.logger, h.auditSvc, "job.retry", "job", newJob.ID.String(), nil, map[string]interface{}{"original_job_id": id.String(), "retry_count": newJob.RetryCount})
 
 	apierr.WriteJSON(w, http.StatusCreated, apierr.SuccessResponse{
 		Status: "success",

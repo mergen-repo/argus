@@ -96,6 +96,9 @@ export interface AuthLoginResponse {
   }
   token: string
   requires_2fa: boolean
+  session_id?: string
+  partial?: boolean
+  reason?: string
 }
 
 export interface AuthRefreshResponse {
@@ -106,6 +109,19 @@ export interface Auth2FAResponse {
   token: string
 }
 
+export interface AuthChangePasswordResponse {
+  message: string
+}
+
+export interface BackupCodesResponse {
+  codes: string[]
+}
+
+export interface BackupCodesRemainingResponse {
+  remaining: number
+  totp_enabled: boolean
+}
+
 export const authApi = {
   login: (email: string, password: string, rememberMe?: boolean) =>
     api.post<{ status: string; data: AuthLoginResponse }>('/auth/login', {
@@ -114,17 +130,60 @@ export const authApi = {
       remember_me: rememberMe,
     }),
 
-  verify2FA: (code: string) => {
+  verify2FA: (code?: string, backupCode?: string) => {
     const partialToken = useAuthStore.getState().partialToken
-    return api.post<{ status: string; data: Auth2FAResponse }>(
+    const body = backupCode !== undefined ? { backup_code: backupCode } : { code }
+    return api.post<{ status: string; data: Auth2FAResponse; meta?: { backup_codes_remaining?: number } }>(
       '/auth/2fa/verify',
-      { code },
+      body,
       { headers: { Authorization: `Bearer ${partialToken}` } },
     )
   },
+
+  changePassword: (currentPassword: string, newPassword: string) => {
+    const partialToken = useAuthStore.getState().partialToken
+    const headers: Record<string, string> = {}
+    if (partialToken) {
+      headers.Authorization = `Bearer ${partialToken}`
+    }
+    return api.post<{ status: string; data: AuthChangePasswordResponse }>(
+      '/auth/password/change',
+      { current_password: currentPassword, new_password: newPassword },
+      { headers },
+    )
+  },
+
+  generateBackupCodes: () =>
+    api.post<{ status: string; data: BackupCodesResponse }>('/auth/2fa/backup-codes'),
+
+  backupCodesRemaining: () =>
+    api.get<{ status: string; data: BackupCodesRemainingResponse }>('/auth/2fa/backup-codes/remaining'),
 
   refresh: () =>
     api.post<{ status: string; data: AuthRefreshResponse }>('/auth/refresh'),
 
   logout: () => api.post('/auth/logout'),
+
+  listSessions: (cursor?: string, limit = 50) => {
+    const params = new URLSearchParams()
+    if (cursor) params.set('cursor', cursor)
+    params.set('limit', String(limit))
+    return api.get<{ status: string; data: Array<{ id: string; ip_address: string | null; user_agent: string | null; created_at: string; expires_at: string }>; meta: { cursor: string; has_more: boolean; limit: number } }>(`/auth/sessions?${params.toString()}`)
+  },
+
+  revokeSession: (id: string) =>
+    api.delete<{ status: string; data: { revoked: boolean } }>(`/auth/sessions/${id}`),
+}
+
+export const userApi = {
+  unlock: (id: string) =>
+    api.post<{ status: string; data: Record<string, unknown> }>(`/users/${id}/unlock`),
+
+  revokeSessions: (id: string, includeApiKeys?: boolean) => {
+    const params = includeApiKeys ? '?include_api_keys=true' : ''
+    return api.post<{ status: string; data: { sessions_revoked: number; apikeys_revoked: number } }>(`/users/${id}/revoke-sessions${params}`)
+  },
+
+  resetPassword: (id: string) =>
+    api.post<{ status: string; data: { temp_password: string } }>(`/users/${id}/reset-password`),
 }

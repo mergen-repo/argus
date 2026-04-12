@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,10 +10,12 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var validRoles = map[string]bool{
@@ -24,20 +27,76 @@ var validRoles = map[string]bool{
 	"tenant_admin":     true,
 }
 
-type Handler struct {
-	userStore   *store.UserStore
-	tenantStore *store.TenantStore
-	auditSvc    audit.Auditor
-	logger      zerolog.Logger
+type userStoreI interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*store.User, error)
+	ListByTenant(ctx context.Context, cursor string, limit int, roleFilter string, stateFilter string) ([]store.User, string, error)
+	CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error)
+	CreateUser(ctx context.Context, p store.CreateUserParams) (*store.User, error)
+	UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error)
+	DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*store.PurgeResult, error)
+	ClearLockout(ctx context.Context, userID uuid.UUID) error
+	SetPasswordHash(ctx context.Context, userID uuid.UUID, hash string) error
+	SetPasswordChangeRequired(ctx context.Context, userID uuid.UUID, required bool) error
 }
 
-func NewHandler(userStore *store.UserStore, tenantStore *store.TenantStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
-	return &Handler{
+type sessionRevoker interface {
+	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
+	GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]store.UserSession, error)
+}
+
+type apiKeyRevoker interface {
+	RevokeAllByUser(ctx context.Context, userID uuid.UUID) (int64, error)
+}
+
+type wsDropper interface {
+	DropUser(userID uuid.UUID)
+}
+
+type Handler struct {
+	userStore      userStoreI
+	tenantStore    *store.TenantStore
+	auditSvc       audit.Auditor
+	logger         zerolog.Logger
+	sessionStore   sessionRevoker
+	apiKeyStore    apiKeyRevoker
+	wsHub          wsDropper
+	passwordPolicy auth.PasswordPolicy
+	bcryptCost     int
+}
+
+type HandlerOption func(*Handler)
+
+func WithSessionStore(s sessionRevoker) HandlerOption {
+	return func(h *Handler) { h.sessionStore = s }
+}
+
+func WithAPIKeyStore(s apiKeyRevoker) HandlerOption {
+	return func(h *Handler) { h.apiKeyStore = s }
+}
+
+func WithWSHub(hub wsDropper) HandlerOption {
+	return func(h *Handler) { h.wsHub = hub }
+}
+
+func WithPasswordPolicy(policy auth.PasswordPolicy, bcryptCost int) HandlerOption {
+	return func(h *Handler) {
+		h.passwordPolicy = policy
+		h.bcryptCost = bcryptCost
+	}
+}
+
+func NewHandler(userStore *store.UserStore, tenantStore *store.TenantStore, auditSvc audit.Auditor, logger zerolog.Logger, opts ...HandlerOption) *Handler {
+	h := &Handler{
 		userStore:   userStore,
 		tenantStore: tenantStore,
 		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "user_handler").Logger(),
+		bcryptCost:  12,
 	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 type userResponse struct {
@@ -47,6 +106,7 @@ type userResponse struct {
 	Role        string  `json:"role"`
 	State       string  `json:"state"`
 	LastLoginAt *string `json:"last_login_at,omitempty"`
+	LockedUntil *string `json:"locked_until,omitempty"`
 	CreatedAt   string  `json:"created_at"`
 }
 
@@ -74,6 +134,10 @@ func toUserResponse(u *store.User) userResponse {
 	if u.LastLoginAt != nil {
 		s := u.LastLoginAt.Format("2006-01-02T15:04:05Z07:00")
 		resp.LastLoginAt = &s
+	}
+	if u.LockedUntil != nil {
+		s := u.LockedUntil.Format("2006-01-02T15:04:05Z07:00")
+		resp.LockedUntil = &s
 	}
 	return resp
 }
@@ -165,7 +229,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if currentCount >= tenant.MaxUsers {
-		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeResourceLimitExceeded,
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeTenantLimitExceeded,
 			"Tenant resource limit exceeded",
 			[]map[string]interface{}{
 				{"resource": "users", "current": currentCount, "limit": tenant.MaxUsers},
@@ -357,6 +421,195 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		"user_id":          result.UserID.String(),
 		"sessions_revoked": result.SessionsRevoked,
 		"purged_at":        result.PurgedAt.Format("2006-01-02T15:04:05Z07:00"),
+	})
+}
+
+func (h *Handler) Unlock(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user for unlock")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+
+	if err := h.userStore.ClearLockout(r.Context(), targetID); err != nil {
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("clear lockout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	h.createAuditEntry(r, "user.unlock", targetID.String(), nil, nil)
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (h *Handler) RevokeSessions(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	callerID, _ := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	callerRole, _ := r.Context().Value(apierr.RoleKey).(string)
+	isSelf := callerID == targetID
+
+	if !isSelf && !apierr.HasRole(callerRole, "tenant_admin") {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeInsufficientRole,
+			"This action requires tenant_admin role or higher or must be performed on your own account",
+			[]map[string]string{{"required_role": "tenant_admin", "current_role": callerRole}})
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user for revoke sessions")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+
+	includeAPIKeys := r.URL.Query().Get("include_api_keys") == "true"
+
+	var sessionsCount int
+	if h.sessionStore != nil {
+		active, aErr := h.sessionStore.GetActiveByUserID(r.Context(), targetID)
+		if aErr != nil {
+			h.logger.Error().Err(aErr).Str("user_id", idStr).Msg("count active sessions")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+		sessionsCount = len(active)
+		if rErr := h.sessionStore.RevokeAllUserSessions(r.Context(), targetID); rErr != nil {
+			h.logger.Error().Err(rErr).Str("user_id", idStr).Msg("revoke user sessions")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+	}
+
+	var apiKeysCount int64
+	if includeAPIKeys && h.apiKeyStore != nil {
+		n, kErr := h.apiKeyStore.RevokeAllByUser(r.Context(), targetID)
+		if kErr != nil {
+			h.logger.Error().Err(kErr).Str("user_id", idStr).Msg("revoke user api keys")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+		apiKeysCount = n
+	}
+
+	if h.wsHub != nil {
+		h.wsHub.DropUser(targetID)
+	}
+
+	h.createAuditEntry(r, "user.sessions_revoked", targetID.String(), nil, map[string]interface{}{
+		"include_api_keys": includeAPIKeys,
+		"sessions_count":   sessionsCount,
+		"apikeys_count":    apiKeysCount,
+	})
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"sessions_revoked": sessionsCount,
+		"apikeys_revoked":  apiKeysCount,
+	})
+}
+
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user for password reset")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+
+	tempPassword, err := auth.GenerateRandomPolicyCompliant(h.passwordPolicy)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("generate temp password")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	cost := h.bcryptCost
+	if cost <= 0 {
+		cost = 12
+	}
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(tempPassword), cost)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("hash temp password")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if err := h.userStore.SetPasswordHash(r.Context(), targetID, string(hashBytes)); err != nil {
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("set password hash")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if err := h.userStore.SetPasswordChangeRequired(r.Context(), targetID, true); err != nil {
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("set password change required")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.sessionStore != nil {
+		if err := h.sessionStore.RevokeAllUserSessions(r.Context(), targetID); err != nil {
+			h.logger.Error().Err(err).Str("user_id", idStr).Msg("revoke sessions after password reset")
+		}
+	}
+
+	if h.wsHub != nil {
+		h.wsHub.DropUser(targetID)
+	}
+
+	h.createAuditEntry(r, "user.password_reset", targetID.String(), nil, nil)
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"temp_password": tempPassword,
 	})
 }
 

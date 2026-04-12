@@ -6,7 +6,16 @@ export interface TenantUser {
   role: string
   status: 'active' | 'invited' | 'deactivated'
   last_login_at?: string
+  locked_until?: string
   created_at: string
+}
+
+export interface AuthSessionItem {
+  id: string
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+  expires_at: string
 }
 
 export interface ApiKey {
@@ -16,6 +25,7 @@ export interface ApiKey {
   prefix: string
   scopes: string[]
   rate_limit: number
+  allowed_ips: string[]
   expires_at?: string
   last_used_at?: string
   created_at: string
@@ -28,6 +38,7 @@ export interface ApiKeyCreateResult {
   prefix: string
   scopes: string[]
   rate_limit: number
+  allowed_ips: string[]
   expires_at?: string
   created_at: string
 }

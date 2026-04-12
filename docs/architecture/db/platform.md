@@ -12,6 +12,7 @@
 | max_sims | INTEGER | NOT NULL, DEFAULT 100000 | Resource limit: max SIMs |
 | max_apns | INTEGER | NOT NULL, DEFAULT 100 | Resource limit: max APNs |
 | max_users | INTEGER | NOT NULL, DEFAULT 50 | Resource limit: max users |
+| max_api_keys | INTEGER | NOT NULL, DEFAULT 20 | Resource limit: max API keys (STORY-068 AC-8) |
 | purge_retention_days | INTEGER | NOT NULL, DEFAULT 90 | KVKK/GDPR purge delay |
 | settings | JSONB | NOT NULL, DEFAULT '{}' | Tenant-level config (rate limits, notification prefs) |
 | state | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active, suspended, terminated |
@@ -42,6 +43,8 @@ Indexes:
 | last_login_at | TIMESTAMPTZ | | Last successful login |
 | failed_login_count | INTEGER | NOT NULL, DEFAULT 0 | Consecutive failed logins |
 | locked_until | TIMESTAMPTZ | | Account lockout expiry |
+| password_change_required | BOOLEAN | NOT NULL, DEFAULT false | Force password change on next login (STORY-068 AC-3) |
+| password_changed_at | TIMESTAMPTZ | | Timestamp of last password change (STORY-068 AC-3) |
 | created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Creation time |
 | updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Last update |
 
@@ -87,6 +90,7 @@ Indexes:
 | revoked_at | TIMESTAMPTZ | | Revocation time |
 | last_used_at | TIMESTAMPTZ | | Last usage time |
 | usage_count | BIGINT | NOT NULL, DEFAULT 0 | Total usage count |
+| allowed_ips | TEXT[] | NOT NULL, DEFAULT '{}' | IP/CIDR whitelist; empty array = any IP allowed (STORY-068 AC-5) |
 | created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Creation time |
 | created_by | UUID | FK → users.id | Creator |
 
@@ -94,3 +98,41 @@ Indexes:
 - `idx_api_keys_tenant` on (tenant_id)
 - `idx_api_keys_prefix` on (key_prefix)
 - `idx_api_keys_active` on (tenant_id) WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
+- `idx_api_keys_allowed_ips_gin` USING GIN on (allowed_ips)
+
+---
+
+## TBL-34: password_history
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| id | BIGSERIAL | PK | Row identifier |
+| user_id | UUID | FK → users.id, NOT NULL | User whose password was changed |
+| password_hash | TEXT | NOT NULL | Bcrypt hash of previous password |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Time of password change |
+
+Security:
+- ENABLE ROW LEVEL SECURITY + FORCE ROW LEVEL SECURITY
+- Policy: tenant isolation via JOIN users u ON u.id = password_history.user_id WHERE u.tenant_id = current_setting('app.tenant_id')::UUID
+
+Indexes:
+- `idx_password_history_user_time` on (user_id, created_at DESC)
+
+---
+
+## TBL-35: user_backup_codes
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| id | BIGSERIAL | PK | Row identifier |
+| user_id | UUID | FK → users.id, NOT NULL | User who owns the codes |
+| code_hash | TEXT | NOT NULL | Bcrypt hash of the one-time backup code |
+| used_at | TIMESTAMPTZ | | Timestamp when code was consumed; NULL = unused |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Generation time |
+
+Security:
+- ENABLE ROW LEVEL SECURITY + FORCE ROW LEVEL SECURITY
+- Policy: tenant isolation via JOIN users u ON u.id = user_backup_codes.user_id WHERE u.tenant_id = current_setting('app.tenant_id')::UUID
+
+Indexes:
+- `idx_user_backup_codes_user_unused` on (user_id) WHERE used_at IS NULL

@@ -10,6 +10,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	authpkg "github.com/btopcu/argus/internal/auth"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -45,6 +46,9 @@ type loginResponse struct {
 	User        authpkg.UserInfo `json:"user"`
 	Token       string           `json:"token"`
 	Requires2FA bool             `json:"requires_2fa"`
+	Partial     bool             `json:"partial,omitempty"`
+	Reason      string           `json:"reason,omitempty"`
+	SessionID   string           `json:"session_id,omitempty"`
 }
 
 type refreshResponse struct {
@@ -57,7 +61,12 @@ type setup2FAResponse struct {
 }
 
 type verify2FARequest struct {
-	Code string `json:"code"`
+	Code       string `json:"code"`
+	BackupCode string `json:"backup_code"`
+}
+
+type generateBackupCodesResponse struct {
+	Codes []string `json:"codes"`
 }
 
 type verify2FAResponse struct {
@@ -105,11 +114,29 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.setRefreshCookie(w, result.RefreshToken)
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, loginResponse{
+	resp := loginResponse{
 		User:        result.User,
 		Token:       result.Token,
 		Requires2FA: result.Requires2FA,
-	})
+		Reason:      result.Reason,
+	}
+	if result.Reason != "" || result.Requires2FA {
+		resp.Partial = true
+	}
+	if result.SessionID != (uuid.UUID{}) {
+		resp.SessionID = result.SessionID.String()
+	}
+	if result.Reason == "password_change_required" {
+		apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+			Status: "success",
+			Data:   resp,
+			Meta: map[string]string{
+				"code": apierr.CodePasswordChangeRequired,
+			},
+		})
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -193,19 +220,66 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Code == "" {
-		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "2FA code is required")
+	if req.Code == "" && req.BackupCode == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "code or backup_code is required")
 		return
 	}
 
 	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
-	result, err := h.svc.Verify2FA(r.Context(), userID, req.Code, ipAddr, userAgent)
+	result, err := h.svc.Verify2FAWithInput(r.Context(), userID, authpkg.Verify2FAInput{
+		Code:       req.Code,
+		BackupCode: req.BackupCode,
+		IPAddress:  ipAddr,
+		UserAgent:  userAgent,
+	})
 	if err != nil {
-		if errors.Is(err, authpkg.ErrInvalid2FACode) {
+		switch {
+		case errors.Is(err, authpkg.ErrInvalidBackupCode):
+			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidBackupCode,
+				"Invalid backup code")
+		case errors.Is(err, authpkg.ErrInvalid2FACode):
 			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalid2FACode,
 				"Invalid or expired 2FA code")
+		default:
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+				"An unexpected error occurred")
+		}
+		return
+	}
+
+	h.setRefreshCookie(w, result.RefreshToken)
+
+	data := verify2FAResponse{Token: result.Token}
+	if result.UsedBackupCode && result.BackupCodesRemaining <= 3 {
+		type backupMeta struct {
+			BackupCodesRemaining int `json:"backup_codes_remaining"`
+		}
+		apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+			Status: "success",
+			Data:   data,
+			Meta:   backupMeta{BackupCodesRemaining: result.BackupCodesRemaining},
+		})
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, data)
+}
+
+func (h *AuthHandler) GenerateBackupCodes(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	codes, err := h.svc.GenerateBackupCodes(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, authpkg.ErrTOTPNotEnabled) {
+			apierr.WriteError(w, http.StatusConflict, apierr.CodeTOTPNotEnabled,
+				"TOTP must be enabled before generating backup codes")
 			return
 		}
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
@@ -213,11 +287,7 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setRefreshCookie(w, result.RefreshToken)
-
-	apierr.WriteSuccess(w, http.StatusOK, verify2FAResponse{
-		Token: result.Token,
-	})
+	apierr.WriteSuccess(w, http.StatusOK, generateBackupCodesResponse{Codes: codes})
 }
 
 func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
@@ -245,14 +315,20 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type sessionDTO struct {
-		ID        string `json:"id"`
-		ExpiresAt string `json:"expires_at"`
+		ID        string  `json:"id"`
+		IPAddress *string `json:"ip_address"`
+		UserAgent *string `json:"user_agent"`
+		CreatedAt string  `json:"created_at"`
+		ExpiresAt string  `json:"expires_at"`
 	}
 
 	dtos := make([]sessionDTO, 0, len(sessions))
 	for _, s := range sessions {
 		dtos = append(dtos, sessionDTO{
 			ID:        s.ID.String(),
+			IPAddress: s.IPAddress,
+			UserAgent: s.UserAgent,
+			CreatedAt: s.CreatedAt.Format(time.RFC3339),
 			ExpiresAt: s.ExpiresAt.Format(time.RFC3339),
 		})
 	}
@@ -261,6 +337,112 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		Cursor:  nextCursor,
 		HasMore: nextCursor != "",
 		Limit:   limit,
+	})
+}
+
+func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	sessionIDStr := chi.URLParam(r, "id")
+	if sessionIDStr == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Session ID is required")
+		return
+	}
+	sessionID, err := uuid.Parse(sessionIDStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid session ID format")
+		return
+	}
+
+	if err := h.svc.RevokeSessionForUser(r.Context(), userID, sessionID); err != nil {
+		if errors.Is(err, authpkg.ErrSessionNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Session not found")
+			return
+		}
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]bool{"revoked": true})
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type changePasswordResponse struct {
+	AccessToken  string           `json:"access_token"`
+	RefreshToken string           `json:"refresh_token"`
+	User         authpkg.UserInfo `json:"user"`
+}
+
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"current_password and new_password are required")
+		return
+	}
+
+	if err := h.svc.ChangePassword(r.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, authpkg.ErrInvalidCredentials):
+			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+				"Current password is incorrect")
+		case errors.Is(err, authpkg.ErrPasswordTooShort):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordTooShort,
+				"Password does not meet minimum length requirement")
+		case errors.Is(err, authpkg.ErrPasswordMissingClass):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordMissingClass,
+				"Password must contain uppercase, lowercase, digit, and symbol characters")
+		case errors.Is(err, authpkg.ErrPasswordRepeatingChars):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordRepeatingChars,
+				"Password contains too many repeating characters")
+		case errors.Is(err, authpkg.ErrPasswordReused):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordReused,
+				"Password was recently used. Please choose a different password")
+		default:
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+				"An unexpected error occurred")
+		}
+		return
+	}
+
+	ipAddr := extractIP(r.RemoteAddr)
+	userAgent := r.UserAgent()
+
+	result, err := h.svc.CreateSessionForUser(r.Context(), userID, ipAddr, userAgent)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
+	h.setRefreshCookie(w, result.RefreshToken)
+
+	apierr.WriteSuccess(w, http.StatusOK, changePasswordResponse{
+		AccessToken:  result.Token,
+		RefreshToken: result.RefreshToken,
+		User:         result.User,
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,12 +17,14 @@ import (
 
 type Handler struct {
 	anomalyStore *store.AnomalyStore
+	auditSvc     audit.Auditor
 	logger       zerolog.Logger
 }
 
-func NewHandler(anomalyStore *store.AnomalyStore, logger zerolog.Logger) *Handler {
+func NewHandler(anomalyStore *store.AnomalyStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		anomalyStore: anomalyStore,
+		auditSvc:     auditSvc,
 		logger:       logger.With().Str("component", "anomaly_handler").Logger(),
 	}
 }
@@ -223,6 +226,8 @@ func (h *Handler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
+
+	audit.Emit(r, h.logger, h.auditSvc, "anomaly.update", "anomaly", id.String(), nil, map[string]string{"state": req.State})
 
 	var iccid string
 	if a.SimID != nil {

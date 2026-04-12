@@ -95,7 +95,7 @@ func TestToJobDTONilOptionals(t *testing.T) {
 }
 
 func TestWriteErrorReportCSV(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, zerolog.Nop())
 
 	errors := []jobtypes.ImportRowError{
 		{Row: 2, ICCID: "8990111234567890123", ErrorMessage: "ICCID already exists"},

@@ -20,16 +20,22 @@ type Claims struct {
 	TenantID uuid.UUID `json:"tenant_id"`
 	Role     string    `json:"role"`
 	Partial  bool      `json:"partial,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
 	jwt.RegisteredClaims
 }
 
 func GenerateToken(secret string, userID, tenantID uuid.UUID, role string, expiry time.Duration, partial bool) (string, error) {
+	return GeneratePartialToken(secret, userID, tenantID, role, expiry, partial, "")
+}
+
+func GeneratePartialToken(secret string, userID, tenantID uuid.UUID, role string, expiry time.Duration, partial bool, reason string) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserID:   userID,
 		TenantID: tenantID,
 		Role:     role,
 		Partial:  partial,
+		Reason:   reason,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "argus",
 			Subject:   userID.String(),

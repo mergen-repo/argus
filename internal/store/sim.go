@@ -1046,6 +1046,17 @@ func (s *SIMStore) CountByOperator(ctx context.Context, tenantID uuid.UUID) (map
 	return result, nil
 }
 
+func (s *SIMStore) CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sims WHERE tenant_id = $1 AND state != 'purged'`, tenantID).
+		Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count sims by tenant: %w", err)
+	}
+	return count, nil
+}
+
 func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT state, COUNT(*) FROM sims

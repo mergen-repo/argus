@@ -14,7 +14,7 @@ import (
 )
 
 func TestHandler_List_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cdrs", nil)
 	w := httptest.NewRecorder()
@@ -31,7 +31,7 @@ func TestHandler_List_WithTenantContext(t *testing.T) {
 }
 
 func TestHandler_Export_InvalidJSON(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -48,7 +48,7 @@ func TestHandler_Export_InvalidJSON(t *testing.T) {
 }
 
 func TestHandler_Export_MissingDates(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -66,7 +66,7 @@ func TestHandler_Export_MissingDates(t *testing.T) {
 }
 
 func TestHandler_Export_InvalidFormat(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -84,7 +84,7 @@ func TestHandler_Export_InvalidFormat(t *testing.T) {
 }
 
 func TestHandler_Export_FromAfterTo(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -102,7 +102,7 @@ func TestHandler_Export_FromAfterTo(t *testing.T) {
 }
 
 func TestHandler_Export_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	body := `{"from":"2026-03-01T00:00:00Z","to":"2026-03-22T00:00:00Z","format":"csv"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cdrs/export", strings.NewReader(body))
@@ -116,7 +116,7 @@ func TestHandler_Export_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_List_InvalidFromDate(t *testing.T) {
-	h := NewHandler(nil, nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)

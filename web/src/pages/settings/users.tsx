@@ -7,6 +7,12 @@ import {
   Search,
   X,
   Shield,
+  MoreHorizontal,
+  LockOpen,
+  LogOut,
+  KeyRound,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,10 +35,25 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { SlidePanel } from '@/components/ui/slide-panel'
-import { useUserList, useInviteUser, useUpdateUser } from '@/hooks/use-settings'
+import {
+  useUserList,
+  useInviteUser,
+  useUpdateUser,
+  useUnlockUser,
+  useRevokeUserSessions,
+  useResetUserPassword,
+} from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import type { TenantUser } from '@/types/settings'
 
 const ROLE_OPTIONS = [
@@ -58,6 +79,11 @@ function roleLabel(role: string): string {
   return opt?.label ?? role
 }
 
+function isLocked(u: TenantUser): boolean {
+  if (!u.locked_until) return false
+  return new Date(u.locked_until) > new Date()
+}
+
 export default function UsersPage() {
   const user = useAuthStore((s) => s.user)
   const isTenantAdmin = user?.role === 'tenant_admin' || user?.role === 'super_admin'
@@ -65,12 +91,19 @@ export default function UsersPage() {
   const { data: users, isLoading, isError, refetch } = useUserList()
   const inviteMutation = useInviteUser()
   const updateMutation = useUpdateUser()
+  const unlockMutation = useUnlockUser()
+  const revokeSessionsMutation = useRevokeUserSessions()
+  const resetPasswordMutation = useResetUserPassword()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showInviteDialog, setShowInviteDialog] = useState(false)
   const [inviteForm, setInviteForm] = useState({ email: '', name: '', role: 'viewer' })
   const [editingRole, setEditingRole] = useState<{ userId: string; role: string } | null>(null)
   const [confirmDeactivate, setConfirmDeactivate] = useState<TenantUser | null>(null)
+  const [confirmRevokeSessions, setConfirmRevokeSessions] = useState<TenantUser | null>(null)
+  const [confirmResetPassword, setConfirmResetPassword] = useState<TenantUser | null>(null)
+  const [tempPasswordModal, setTempPasswordModal] = useState<{ name: string; password: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   if (!isTenantAdmin) {
     return (
@@ -96,7 +129,6 @@ export default function UsersPage() {
       setShowInviteDialog(false)
       setInviteForm({ email: '', name: '', role: 'viewer' })
     } catch {
-      // handled by api interceptor
     }
   }
 
@@ -105,7 +137,6 @@ export default function UsersPage() {
       await updateMutation.mutateAsync({ id: userId, role: newRole })
       setEditingRole(null)
     } catch {
-      // handled by api interceptor
     }
   }
 
@@ -115,7 +146,42 @@ export default function UsersPage() {
       await updateMutation.mutateAsync({ id: confirmDeactivate.id, status: 'deactivated' })
       setConfirmDeactivate(null)
     } catch {
-      // handled by api interceptor
+    }
+  }
+
+  const handleUnlock = async (u: TenantUser) => {
+    try {
+      await unlockMutation.mutateAsync(u.id)
+    } catch {
+    }
+  }
+
+  const handleRevokeSessions = async () => {
+    if (!confirmRevokeSessions) return
+    try {
+      await revokeSessionsMutation.mutateAsync(confirmRevokeSessions.id)
+      setConfirmRevokeSessions(null)
+    } catch {
+    }
+  }
+
+  const handleResetPassword = async () => {
+    if (!confirmResetPassword) return
+    try {
+      const result = await resetPasswordMutation.mutateAsync(confirmResetPassword.id)
+      setConfirmResetPassword(null)
+      setTempPasswordModal({ name: confirmResetPassword.name, password: result.temp_password })
+    } catch {
+    }
+  }
+
+  const handleCopyPassword = async () => {
+    if (!tempPasswordModal) return
+    try {
+      await navigator.clipboard.writeText(tempPasswordModal.password)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
     }
   }
 
@@ -206,57 +272,103 @@ export default function UsersPage() {
                 </TableRow>
               )}
 
-              {filtered.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    <span className="text-sm font-medium text-text-primary">{u.name}</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-xs text-text-secondary">{u.email}</span>
-                  </TableCell>
-                  <TableCell>
-                    {editingRole?.userId === u.id ? (
-                      <Select
-                        options={ROLE_OPTIONS}
-                        value={editingRole.role}
-                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                        className="h-7 text-xs w-40"
-                      />
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingRole({ userId: u.id, role: u.role })}
-                        className="text-xs text-text-secondary hover:text-accent transition-colors h-auto p-0"
-                      >
-                        {roleLabel(u.role)}
-                      </Button>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(u.status)} className="text-[10px]">
-                      {u.status.toUpperCase()}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-xs text-text-secondary">
-                      {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Never'}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {u.status !== 'deactivated' && u.id !== user?.id && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs text-danger hover:text-danger h-7"
-                        onClick={() => setConfirmDeactivate(u)}
-                      >
-                        Deactivate
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filtered.map((u) => {
+                const locked = isLocked(u)
+                return (
+                  <TableRow key={u.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-primary">{u.name}</span>
+                        {locked && (
+                          <Badge variant="warning" className="text-[9px] px-1 py-0">LOCKED</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-text-secondary">{u.email}</span>
+                    </TableCell>
+                    <TableCell>
+                      {editingRole?.userId === u.id ? (
+                        <Select
+                          options={ROLE_OPTIONS}
+                          value={editingRole.role}
+                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                          className="h-7 text-xs w-40"
+                        />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingRole({ userId: u.id, role: u.role })}
+                          className="text-xs text-text-secondary hover:text-accent transition-colors h-auto p-0"
+                        >
+                          {roleLabel(u.role)}
+                        </Button>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant(u.status)} className="text-[10px]">
+                        {u.status.toUpperCase()}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-text-secondary">
+                        {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Never'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {u.status !== 'deactivated' && u.id !== user?.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-danger hover:text-danger h-7"
+                            onClick={() => setConfirmDeactivate(u)}
+                          >
+                            Deactivate
+                          </Button>
+                        )}
+                        {u.id !== user?.id && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              className={cn(
+                                'inline-flex items-center justify-center h-7 w-7 rounded-[4px]',
+                                'text-text-tertiary hover:text-text-primary hover:bg-bg-hover',
+                                'transition-colors focus:outline-none',
+                              )}
+                              aria-label="More actions"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {locked && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => handleUnlock(u)}
+                                    disabled={unlockMutation.isPending}
+                                  >
+                                    <LockOpen className="h-3.5 w-3.5 text-success" />
+                                    <span>Unlock account</span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                </>
+                              )}
+                              <DropdownMenuItem onClick={() => setConfirmRevokeSessions(u)}>
+                                <LogOut className="h-3.5 w-3.5 text-warning" />
+                                <span>Revoke sessions</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setConfirmResetPassword(u)}>
+                                <KeyRound className="h-3.5 w-3.5 text-accent" />
+                                <span>Reset password</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>
@@ -336,6 +448,97 @@ export default function UsersPage() {
               {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Deactivate
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Sessions Confirmation */}
+      <Dialog open={!!confirmRevokeSessions} onOpenChange={() => setConfirmRevokeSessions(null)}>
+        <DialogContent onClose={() => setConfirmRevokeSessions(null)}>
+          <DialogHeader>
+            <DialogTitle>Revoke All Sessions?</DialogTitle>
+            <DialogDescription>
+              This will immediately sign out all active sessions for{' '}
+              <strong>{confirmRevokeSessions?.name}</strong>. They will need to log in again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmRevokeSessions(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRevokeSessions}
+              disabled={revokeSessionsMutation.isPending}
+              className="gap-2"
+            >
+              {revokeSessionsMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Revoke Sessions
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Confirmation */}
+      <Dialog open={!!confirmResetPassword} onOpenChange={() => setConfirmResetPassword(null)}>
+        <DialogContent onClose={() => setConfirmResetPassword(null)}>
+          <DialogHeader>
+            <DialogTitle>Reset Password?</DialogTitle>
+            <DialogDescription>
+              A new temporary password will be generated for{' '}
+              <strong>{confirmResetPassword?.name}</strong>. All their active sessions will be
+              revoked. They will be required to change their password on next login.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmResetPassword(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleResetPassword}
+              disabled={resetPasswordMutation.isPending}
+              className="gap-2"
+            >
+              {resetPasswordMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Temp Password Modal */}
+      <Dialog open={!!tempPasswordModal} onOpenChange={() => setTempPasswordModal(null)}>
+        <DialogContent onClose={() => setTempPasswordModal(null)}>
+          <DialogHeader>
+            <DialogTitle>Temporary Password</DialogTitle>
+            <DialogDescription>
+              Password reset successful for <strong>{tempPasswordModal?.name}</strong>. Share this
+              temporary password securely — it will not be shown again after you close this dialog.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2 rounded-lg border border-border bg-bg-surface p-3 flex items-center justify-between gap-3">
+            <span className="font-mono text-sm text-text-primary tracking-wider select-all">
+              {tempPasswordModal?.password}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-8 w-8 shrink-0 transition-colors',
+                copied ? 'text-success' : 'text-text-tertiary hover:text-text-primary',
+              )}
+              onClick={handleCopyPassword}
+              aria-label="Copy password"
+            >
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+          <p className="text-xs text-text-tertiary mt-2">
+            An email notification has been sent to the user.
+          </p>
+          <DialogFooter>
+            <Button onClick={() => setTempPasswordModal(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
