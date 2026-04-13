@@ -42,3 +42,5 @@ STEP_5 DURABILITY_COMMIT: EXECUTED | commit=fac87b0 | files=95 | result=PASS | n
 STEP_3 GATE: NOT_YET_DISPATCHED | resume_from=Gate | commit=fac87b0 | reason=session_handoff_for_fresh_context
 STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
 STEP_4 REVIEW: EXECUTED | items=10 | evidence=review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=633e9f4 | files=21 | result=PASS | note=post_gate_finalization
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS
