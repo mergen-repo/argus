@@ -32,6 +32,7 @@ type userStoreI interface {
 	ListByTenant(ctx context.Context, cursor string, limit int, roleFilter string, stateFilter string) ([]store.User, string, error)
 	CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error)
 	CreateUser(ctx context.Context, p store.CreateUserParams) (*store.User, error)
+	CreateUserWithPassword(ctx context.Context, p store.CreateUserParams, passwordHash string) (*store.User, error)
 	UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error)
 	DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*store.PurgeResult, error)
 	ClearLockout(ctx context.Context, userID uuid.UUID) error
@@ -375,11 +376,29 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.userStore.CreateUser(r.Context(), store.CreateUserParams{
+	tempPassword, err := auth.GenerateRandomPolicyCompliant(h.passwordPolicy)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("generate temp password for new user")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	cost := h.bcryptCost
+	if cost <= 0 {
+		cost = 12
+	}
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(tempPassword), cost)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("hash temp password for new user")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	u, err := h.userStore.CreateUserWithPassword(r.Context(), store.CreateUserParams{
 		Email: req.Email,
 		Name:  req.Name,
 		Role:  req.Role,
-	})
+	}, string(hashBytes))
 	if err != nil {
 		if errors.Is(err, store.ErrEmailExists) {
 			apierr.WriteError(w, http.StatusConflict, apierr.CodeAlreadyExists,
@@ -394,7 +413,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "user.create", u.ID.String(), nil, u)
 
-	apierr.WriteSuccess(w, http.StatusCreated, toUserResponse(u))
+	resp := toUserResponse(u)
+	apierr.WriteSuccess(w, http.StatusCreated, map[string]interface{}{
+		"user":          resp,
+		"temp_password": tempPassword,
+	})
 }
 
 var validUserStates = map[string]bool{

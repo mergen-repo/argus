@@ -112,7 +112,7 @@ export function useInviteUser() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (payload: { email: string; name: string; role: string }) => {
-      const res = await api.post<ApiResponse<TenantUser>>('/users', payload)
+      const res = await api.post<ApiResponse<{ user: TenantUser; temp_password: string }>>('/users', payload)
       return res.data.data
     },
     onSuccess: () => {

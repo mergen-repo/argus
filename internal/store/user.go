@@ -402,19 +402,29 @@ type UpdateUserParams struct {
 }
 
 func (s *UserStore) CreateUser(ctx context.Context, p CreateUserParams) (*User, error) {
+	return s.CreateUserWithPassword(ctx, p, "")
+}
+
+func (s *UserStore) CreateUserWithPassword(ctx context.Context, p CreateUserParams, passwordHash string) (*User, error) {
 	tenantID, err := TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	state := "invited"
+	pwChangeRequired := true
+	if passwordHash != "" {
+		state = "active"
+	}
+
 	var u User
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO users (tenant_id, email, password_hash, name, role, state)
-		VALUES ($1, $2, '', $3, $4, 'invited')
+		INSERT INTO users (tenant_id, email, password_hash, name, role, state, password_change_required)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
 			state, last_login_at, failed_login_count, locked_until,
 			password_change_required, password_changed_at, created_at, updated_at
-	`, tenantID, p.Email, p.Name, p.Role).
+	`, tenantID, p.Email, passwordHash, p.Name, p.Role, state, pwChangeRequired).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
 			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
 			&u.FailedLoginCount, &u.LockedUntil,

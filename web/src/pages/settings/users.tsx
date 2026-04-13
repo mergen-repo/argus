@@ -44,6 +44,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { SlidePanel } from '@/components/ui/slide-panel'
+import { toast } from 'sonner'
 import {
   useUserList,
   useInviteUser,
@@ -105,6 +106,7 @@ export default function UsersPage() {
   const [editingRole, setEditingRole] = useState<{ userId: string; role: string } | null>(null)
   const [confirmDeactivate, setConfirmDeactivate] = useState<TenantUser | null>(null)
   const [confirmRevokeSessions, setConfirmRevokeSessions] = useState<TenantUser | null>(null)
+  const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null)
   const [confirmResetPassword, setConfirmResetPassword] = useState<TenantUser | null>(null)
   const [tempPasswordModal, setTempPasswordModal] = useState<{ name: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
@@ -129,8 +131,12 @@ export default function UsersPage() {
 
   const handleInvite = async () => {
     try {
-      await inviteMutation.mutateAsync(inviteForm)
+      const result = await inviteMutation.mutateAsync(inviteForm)
       setShowInviteDialog(false)
+      const tempPw = (result as any)?.temp_password
+      if (tempPw) {
+        setCreatedCredentials({ email: inviteForm.email, password: tempPw })
+      }
       setInviteForm({ email: '', name: '', role: 'viewer' })
     } catch {
     }
@@ -440,6 +446,47 @@ export default function UsersPage() {
           </Button>
         </div>
       </SlidePanel>
+
+      {/* Created Credentials Dialog */}
+      <Dialog open={!!createdCredentials} onOpenChange={() => setCreatedCredentials(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>User Created</DialogTitle>
+            <DialogDescription>
+              Share these credentials with the new user. The password will not be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          {createdCredentials && (
+            <div className="space-y-3">
+              <div className="rounded-[var(--radius-md)] border border-border bg-bg-elevated p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-tertiary">Email</span>
+                  <span className="font-mono text-sm text-text-primary">{createdCredentials.email}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-tertiary">Temporary Password</span>
+                  <span className="font-mono text-sm text-accent">{createdCredentials.password}</span>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-2"
+                onClick={() => {
+                  navigator.clipboard.writeText(`Email: ${createdCredentials.email}\nPassword: ${createdCredentials.password}`)
+                  toast.success('Credentials copied to clipboard')
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy Credentials
+              </Button>
+              <p className="text-[11px] text-text-tertiary text-center">
+                The user will be required to change their password on first login.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Deactivate Confirmation Dialog */}
       <Dialog open={!!confirmDeactivate} onOpenChange={() => setConfirmDeactivate(null)}>
