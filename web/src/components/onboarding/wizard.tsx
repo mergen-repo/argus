@@ -118,8 +118,8 @@ function Step1TenantProfile({
   data,
   onChange,
 }: {
-  data: { companyName: string; timezone: string; retentionDays: string }
-  onChange: (data: { companyName: string; timezone: string; retentionDays: string }) => void
+  data: { companyName: string; timezone: string; retentionDays: string; contactEmail: string; locale: string }
+  onChange: (data: { companyName: string; timezone: string; retentionDays: string; contactEmail: string; locale: string }) => void
 }) {
   return (
     <div className="space-y-4">
@@ -133,12 +133,31 @@ function Step1TenantProfile({
         />
       </div>
       <div className="space-y-1.5">
-        <label className="block text-xs font-medium text-text-secondary">Timezone</label>
-        <Select
-          value={data.timezone}
-          onChange={(e) => onChange({ ...data, timezone: e.target.value })}
-          options={TIMEZONES}
+        <label className="block text-xs font-medium text-text-secondary">Contact Email *</label>
+        <Input
+          type="email"
+          value={data.contactEmail}
+          onChange={(e) => onChange({ ...data, contactEmail: e.target.value })}
+          placeholder="admin@company.com"
         />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-text-secondary">Language</label>
+          <Select
+            value={data.locale}
+            onChange={(e) => onChange({ ...data, locale: e.target.value })}
+            options={[{ value: 'en', label: 'English' }, { value: 'tr', label: 'Türkçe' }]}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-text-secondary">Timezone</label>
+          <Select
+            value={data.timezone}
+            onChange={(e) => onChange({ ...data, timezone: e.target.value })}
+            options={TIMEZONES}
+          />
+        </div>
       </div>
       <div className="space-y-1.5">
         <label className="block text-xs font-medium text-text-secondary">Data Retention</label>
@@ -428,7 +447,7 @@ export function OnboardingWizard() {
     }
   }, [session.data])
 
-  const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90' })
+  const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90', contactEmail: '', locale: 'en' })
   const [step2, setStep2] = useState<{ operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }>({ operatorId: '', testResult: 'idle' })
   const [step3, setStep3] = useState({ apnName: '', apnType: 'internet', ipCidr: '' })
   const [step4, setStep4] = useState<{ importMode: 'csv' | 'manual'; csvFile: File | null; manualICCIDs: string }>({ importMode: 'csv', csvFile: null, manualICCIDs: '' })
@@ -437,7 +456,7 @@ export function OnboardingWizard() {
   function canProceed(): boolean {
     switch (currentStep) {
       case 1:
-        return step1.companyName.trim().length > 0
+        return step1.companyName.trim().length > 0 && step1.contactEmail.trim().length > 0 && step1.contactEmail.includes('@')
       case 2:
         return step2.operatorId.length > 0 && step2.testResult === 'success'
       case 3:
@@ -460,8 +479,10 @@ export function OnboardingWizard() {
       case 1:
         return {
           company_name: step1.companyName,
-          contact_email: '',
-          locale: step1.timezone,
+          contact_email: step1.contactEmail,
+          locale: step1.locale,
+          timezone: step1.timezone,
+          data_retention_days: parseInt(step1.retentionDays, 10),
         }
       case 2:
         return {
