@@ -757,6 +757,13 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if existing.State != "active" {
+		activeState := "active"
+		if _, err := h.userStore.UpdateUser(r.Context(), targetID, store.UpdateUserParams{State: &activeState}); err != nil {
+			h.logger.Error().Err(err).Str("user_id", idStr).Msg("activate user after password reset")
+		}
+	}
+
 	if h.sessionStore != nil {
 		if err := h.sessionStore.RevokeAllUserSessions(r.Context(), targetID); err != nil {
 			h.logger.Error().Err(err).Str("user_id", idStr).Msg("revoke sessions after password reset")
