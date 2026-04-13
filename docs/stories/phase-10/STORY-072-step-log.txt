@@ -27,3 +27,5 @@ STEP_2.5 LINT: npx tsc --noEmit=0 errors | npm run build=success 3.77s | hex-lit
 STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
 
 STEP_4 REVIEW: EXECUTED | items=14 | evidence=STORY-072-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=1d76745 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS
