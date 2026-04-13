@@ -1596,3 +1596,41 @@ make test  # tum testler gecmeli
 go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali
 ```
+
+## STORY-070: Frontend Real-Data Wiring
+
+### Backend / Altyapi (8 senaryo)
+
+1. **AC-9 Violation acknowledgment**: `POST /api/v1/policy-violations/:id/acknowledge {note:"resolved"}` 200 OK donmeli; `policy_violations` satiri `acknowledged_at`, `acknowledged_by`, `acknowledged_note` dolu olmali. Audit log `action=violation.acknowledge` kaydi olmali. Ayni ID ile ikinci istek 409 Conflict + `ALREADY_ACKNOWLEDGED` donmeli. Yanlış ID 404 + `VIOLATION_NOT_FOUND` donmeli.
+2. **AC-3 APN traffic**: `GET /api/v1/apns/:id/traffic?period=24h` APN icin hourly traffic bucket'lari (`bytes_in`, `bytes_out`) dolu donmeli. Bos donemde `[]` degil `data:[]` response envelope donmeli.
+3. **AC-5 Operator metrics**: `GET /api/v1/operators/:id/metrics` metrikleri (`auth_rate`, `latency_p95`, `bytes`) hourly bucket'larla donmeli. `GET /api/v1/operators/:id/health-history` son N sonucu cursor-paginated donmeli.
+4. **AC-4 APN list enrichment**: `GET /api/v1/apns` response'inda her APN objesinde `sim_count`, `traffic_24h_bytes`, `pool_used`, `pool_total` alanlari dolu olmali (sifir dahi olsa).
+5. **AC-6 Capacity endpoint**: `GET /api/v1/system/capacity` (super_admin) `{sim_capacity, session_capacity, auth_per_sec, monthly_growth, current_sims, current_sessions}` donmeli. `ARGUS_CAPACITY_SIM` env yokken default `15000000` kullanilmali.
+6. **AC-8 Report definitions**: `GET /api/v1/reports/definitions` 8 tanim donmeli; her tanim `{id, label, description, formats[]}` alanlarina sahip olmali.
+7. **AC-1 Dashboard heatmap**: `GET /api/v1/dashboard/summary` response `traffic_heatmap` alanini icermeli (168 eleman array, hour×weekday). WS `dashboard.realtime` event envelope'unun `id` alani UUID donmeli.
+8. **AC-7 SLA metrics**: `GET /api/v1/sla-reports` satirlari `uptime_pct`, `avg_latency_ms`, `incident_count` alanlari ile donmeli; `uptime_pct < target` olan satir SLA violation sayisi olarak sayilmali.
+
+### Frontend (9 senaryo)
+
+9. **AC-3 APN detail traffic**: `/apns/:id` sayfasini ac → Traffic sekmesinde grafik yuklemeli (spinner sonra chart); grafik degerlerinde `NaN` veya `0.00` olmamali (gercek CDR varsa). Network sekmesinde `/apns/:id/traffic` cagrisi olmali.
+10. **AC-4 APN list stats**: `/apns` listesi: SIM Count, Traffic 24h, Pool Used/Total sutunlari gercek veri gostermeli; mock `---` placeholder'lar olmamali.
+11. **AC-5 Operator detail**: `/operators/:id` sayfasinda Health History tablosunda gercek satir gorulmeli; Metrics sekmesinde gercek latency/auth-rate grafigi yuklemeli.
+12. **AC-6 Capacity**: `/capacity` sayfasinda Progress bar'larin percentage degerleri `Math.random` varyasyonu gostermemeli; sayfayi yenileyince degerler degismemeli.
+13. **AC-9 Violations DropdownMenu**: `/violations` sayfasinda her satirda uc nokta menu acilmali; "Dismiss" secilince `POST .../acknowledge` cagrisi olmali; basariliysa satir `acknowledged` filter altina tasinmali.
+14. **AC-11 URL filter persistence**: `/sims?state=active` URL'ine git → state filter secili gelmeli; geri/ileri navigasyon filter'i korumali. `/apns?search=iot`, `/sessions?state=active`, `/jobs?type=bulk_sim_import`, `/audit?action=violation.acknowledge`, `/violations?acknowledged=false`, `/esim?operator_id=xxx` hepsinde ayni davranis olmali.
+15. **AC-12 SIM reserve IPs error**: SIM listesinde birden fazla SIM sec → "Reserve IPs" butonu → hata durumunda bulk toast `"N succeeded, M failed"` gostermeli.
+16. **AC-13 WS indicator**: Topbar'da WS durum rozeti gorulmeli; sunucu WebSocket portuna erisim kesilince rozet `disconnected` gostermeli; yeniden baglaninca `connected` donmeli.
+17. **AC-14 Dead code**: `web/src/pages/placeholder.tsx` dosyasi mevcut olmamali; `grep -r "Math.random" web/src` sifir sonuc vermeli.
+
+### Operations
+
+18. **Yeni envler**: `ARGUS_CAPACITY_SIM` env set edilmeden calistirildiginda `/system/capacity` default `15000000` dondurulmeli; env set edildiginde (`ARGUS_CAPACITY_SIM=20000000`) yeni deger yansiyor olmali.
+19. **Migration reversibility**: `migrate -path migrations down 1` komutu `20260413000003_violation_acknowledgment.down.sql` calismali; `acknowledged_at/by/note` sutunlari ve partial index kalkmali.
+
+### Test command
+```bash
+make test   # 2576 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (Vite ~4s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

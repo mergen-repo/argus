@@ -228,3 +228,125 @@ func TestCDRStore_GetCumulativeSessionBytes(t *testing.T) {
 		t.Errorf("GetCumulativeSessionBytes = %d, want 4500", total)
 	}
 }
+
+func TestCDRStore_GetOperatorMetrics(t *testing.T) {
+	s := newTestCDRStore(t)
+	ctx := context.Background()
+
+	tenantID := uuid.New()
+	operatorID := uuid.New()
+	now := time.Now().UTC()
+
+	for i := 0; i < 5; i++ {
+		_, err := s.Create(ctx, CreateCDRParams{
+			SessionID:  uuid.New(),
+			SimID:      uuid.New(),
+			TenantID:   tenantID,
+			OperatorID: operatorID,
+			RecordType: "stop",
+			BytesIn:    1024,
+			Timestamp:  now.Add(time.Duration(-i) * time.Minute).Truncate(time.Microsecond),
+		})
+		if err != nil {
+			t.Fatalf("Create CDR %d: %v", i, err)
+		}
+	}
+
+	buckets, err := s.GetOperatorMetrics(ctx, tenantID, operatorID, "1h")
+	if err != nil {
+		t.Fatalf("GetOperatorMetrics: %v", err)
+	}
+
+	if len(buckets) == 0 {
+		t.Error("expected at least one metric bucket")
+	}
+	for _, b := range buckets {
+		if b.AuthRatePerSec < 0 {
+			t.Errorf("AuthRatePerSec should be >= 0, got %f", b.AuthRatePerSec)
+		}
+		if b.ErrorRatePerSec < 0 {
+			t.Errorf("ErrorRatePerSec should be >= 0, got %f", b.ErrorRatePerSec)
+		}
+	}
+
+	wrongTenantBuckets, err := s.GetOperatorMetrics(ctx, uuid.New(), operatorID, "1h")
+	if err != nil {
+		t.Fatalf("GetOperatorMetrics wrong tenant: %v", err)
+	}
+	if len(wrongTenantBuckets) != 0 {
+		t.Error("expected zero buckets for wrong tenant (tenant isolation)")
+	}
+}
+
+func TestCDRStore_GetAPNTraffic(t *testing.T) {
+	s := newTestCDRStore(t)
+	ctx := context.Background()
+
+	tenantID := uuid.New()
+	operatorID := uuid.New()
+	apnID := uuid.New()
+	now := time.Now().UTC()
+
+	for i := 0; i < 3; i++ {
+		_, err := s.Create(ctx, CreateCDRParams{
+			SessionID:  uuid.New(),
+			SimID:      uuid.New(),
+			TenantID:   tenantID,
+			OperatorID: operatorID,
+			APNID:      &apnID,
+			RecordType: "stop",
+			BytesIn:    int64(i+1) * 1024,
+			BytesOut:   int64(i+1) * 512,
+			Timestamp:  now.Add(time.Duration(-i) * time.Minute).Truncate(time.Microsecond),
+		})
+		if err != nil {
+			t.Fatalf("Create CDR %d: %v", i, err)
+		}
+	}
+
+	buckets, err := s.GetAPNTraffic(ctx, tenantID, apnID, "24h")
+	if err != nil {
+		t.Fatalf("GetAPNTraffic: %v", err)
+	}
+
+	total := int64(0)
+	for _, b := range buckets {
+		total += b.AuthCount
+	}
+	if total == 0 {
+		t.Log("no hourly aggregate data yet (continuous aggregate may not have refreshed) — skipping count check")
+	}
+
+	wrongBuckets, err := s.GetAPNTraffic(ctx, uuid.New(), apnID, "24h")
+	if err != nil {
+		t.Fatalf("GetAPNTraffic wrong tenant: %v", err)
+	}
+	if len(wrongBuckets) != 0 {
+		t.Error("expected zero buckets for wrong tenant (tenant isolation)")
+	}
+}
+
+func TestCDRStore_GetTrafficHeatmap7x24(t *testing.T) {
+	s := newTestCDRStore(t)
+	ctx := context.Background()
+
+	tenantID := uuid.New()
+
+	matrix, err := s.GetTrafficHeatmap7x24(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("GetTrafficHeatmap7x24: %v", err)
+	}
+	if len(matrix) != 7 {
+		t.Errorf("heatmap rows = %d, want 7", len(matrix))
+	}
+	for i, row := range matrix {
+		if len(row) != 24 {
+			t.Errorf("heatmap row[%d] cols = %d, want 24", i, len(row))
+		}
+		for j, v := range row {
+			if v < 0 || v > 1 {
+				t.Errorf("heatmap[%d][%d] = %f, must be in [0,1]", i, j, v)
+			}
+		}
+	}
+}

@@ -472,6 +472,210 @@ func (s *CDRStore) GetMonthlyCostForTenant(ctx context.Context, tenantID uuid.UU
 	return total, nil
 }
 
+type OperatorMetricBucket struct {
+	Ts             time.Time `json:"ts"`
+	AuthRatePerSec float64   `json:"auth_rate_per_sec"`
+	ErrorRatePerSec float64  `json:"error_rate_per_sec"`
+}
+
+type APNTrafficBucket struct {
+	Ts        time.Time `json:"ts"`
+	BytesIn   int64     `json:"bytes_in"`
+	BytesOut  int64     `json:"bytes_out"`
+	AuthCount int64     `json:"auth_count"`
+}
+
+func (s *CDRStore) GetOperatorMetrics(ctx context.Context, tenantID, operatorID uuid.UUID, window string) ([]OperatorMetricBucket, error) {
+	var truncInterval string
+	var bucketSec float64
+	var since time.Time
+	now := time.Now().UTC()
+
+	switch window {
+	case "15m":
+		truncInterval = "1 minute"
+		bucketSec = 60
+		since = now.Add(-15 * time.Minute)
+	case "6h":
+		truncInterval = "30 minutes"
+		bucketSec = 1800
+		since = now.Add(-6 * time.Hour)
+	case "24h":
+		truncInterval = "1 hour"
+		bucketSec = 3600
+		since = now.Add(-24 * time.Hour)
+	default:
+		truncInterval = "5 minutes"
+		bucketSec = 300
+		since = now.Add(-1 * time.Hour)
+	}
+
+	rows, err := s.db.Query(ctx, fmt.Sprintf(`
+		SELECT
+			date_trunc('%s', timestamp) AS bucket,
+			COUNT(*)::float8 / $4 AS auth_rate,
+			COUNT(*) FILTER (WHERE record_type IN ('auth_fail', 'reject'))::float8 / $4 AS error_rate
+		FROM cdrs
+		WHERE tenant_id = $1
+		  AND operator_id = $2
+		  AND timestamp >= $3
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, truncInterval), tenantID, operatorID, since, bucketSec)
+	if err != nil {
+		return nil, fmt.Errorf("store: get operator metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []OperatorMetricBucket
+	for rows.Next() {
+		var b OperatorMetricBucket
+		if err := rows.Scan(&b.Ts, &b.AuthRatePerSec, &b.ErrorRatePerSec); err != nil {
+			return nil, fmt.Errorf("store: scan operator metric bucket: %w", err)
+		}
+		results = append(results, b)
+	}
+	return results, nil
+}
+
+func (s *CDRStore) GetAPNTraffic(ctx context.Context, tenantID, apnID uuid.UUID, period string) ([]APNTrafficBucket, error) {
+	var since time.Time
+	now := time.Now().UTC()
+
+	switch period {
+	case "15m":
+		since = now.Add(-15 * time.Minute)
+	case "1h":
+		since = now.Add(-1 * time.Hour)
+	case "6h":
+		since = now.Add(-6 * time.Hour)
+	case "7d":
+		since = now.AddDate(0, 0, -7)
+	case "30d":
+		since = now.AddDate(0, 0, -30)
+	default:
+		since = now.Add(-24 * time.Hour)
+	}
+
+	useHourly := period == "15m" || period == "1h" || period == "6h" || period == "24h" || period == ""
+
+	if useHourly {
+		r, err := s.db.Query(ctx, `
+			SELECT bucket, COALESCE(SUM(total_bytes_in),0), COALESCE(SUM(total_bytes_out),0), COALESCE(SUM(record_count),0)
+			FROM cdrs_hourly
+			WHERE tenant_id = $1 AND apn_id = $2 AND bucket >= $3
+			GROUP BY bucket
+			ORDER BY bucket ASC
+		`, tenantID, apnID, since)
+		if err != nil {
+			return nil, fmt.Errorf("store: get apn traffic (hourly): %w", err)
+		}
+		defer r.Close()
+
+		var results []APNTrafficBucket
+		for r.Next() {
+			var b APNTrafficBucket
+			if err := r.Scan(&b.Ts, &b.BytesIn, &b.BytesOut, &b.AuthCount); err != nil {
+				return nil, fmt.Errorf("store: scan apn traffic bucket: %w", err)
+			}
+			results = append(results, b)
+		}
+		return results, nil
+	}
+
+	r, err := s.db.Query(ctx, `
+		SELECT date_trunc('day', timestamp) AS bucket,
+			COALESCE(SUM(bytes_in),0), COALESCE(SUM(bytes_out),0), COUNT(*)
+		FROM cdrs
+		WHERE tenant_id = $1 AND apn_id = $2 AND timestamp >= $3
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, tenantID, apnID, since)
+	if err != nil {
+		return nil, fmt.Errorf("store: get apn traffic (daily): %w", err)
+	}
+	defer r.Close()
+
+	var results []APNTrafficBucket
+	for r.Next() {
+		var b APNTrafficBucket
+		if err := r.Scan(&b.Ts, &b.BytesIn, &b.BytesOut, &b.AuthCount); err != nil {
+			return nil, fmt.Errorf("store: scan apn traffic daily bucket: %w", err)
+		}
+		results = append(results, b)
+	}
+	return results, nil
+}
+
+func (s *CDRStore) GetTrafficHeatmap7x24(ctx context.Context, tenantID uuid.UUID) ([][]float64, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			EXTRACT(DOW FROM bucket)::int AS dow,
+			EXTRACT(HOUR FROM bucket)::int AS hour,
+			COALESCE(SUM(total_bytes_in + total_bytes_out), 0) AS total_bytes
+		FROM cdrs_hourly
+		WHERE tenant_id = $1
+		  AND bucket >= NOW() - INTERVAL '7 days'
+		GROUP BY dow, hour
+		ORDER BY dow, hour
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: get traffic heatmap: %w", err)
+	}
+	defer rows.Close()
+
+	matrix := make([][]float64, 7)
+	for i := range matrix {
+		matrix[i] = make([]float64, 24)
+	}
+	var maxVal float64
+	type cell struct{ dow, hour int; val float64 }
+	var cells []cell
+
+	for rows.Next() {
+		var dow, hour int
+		var total float64
+		if err := rows.Scan(&dow, &hour, &total); err != nil {
+			return nil, fmt.Errorf("store: scan heatmap row: %w", err)
+		}
+		cells = append(cells, cell{dow, hour, total})
+		if total > maxVal {
+			maxVal = total
+		}
+	}
+
+	for _, c := range cells {
+		if maxVal > 0 {
+			matrix[c.dow][c.hour] = c.val / maxVal
+		}
+	}
+	return matrix, nil
+}
+
+func (s *CDRStore) SumBytesByAPN24h(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]int64, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT apn_id, COALESCE(SUM(total_bytes_in + total_bytes_out), 0)
+		FROM cdrs_hourly
+		WHERE tenant_id = $1 AND apn_id IS NOT NULL AND bucket >= NOW() - INTERVAL '24 hours'
+		GROUP BY apn_id
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: sum bytes by apn 24h: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int64)
+	for rows.Next() {
+		var apnID uuid.UUID
+		var total int64
+		if err := rows.Scan(&apnID, &total); err != nil {
+			return nil, fmt.Errorf("store: scan apn bytes row: %w", err)
+		}
+		result[apnID] = total
+	}
+	return result, nil
+}
+
 func (s *CDRStore) GetDailyKPISparklines(ctx context.Context, tenantID uuid.UUID, days int) (map[string][]float64, error) {
 	if days <= 0 {
 		days = 7

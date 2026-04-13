@@ -21,8 +21,9 @@ import {
   Play,
   Pause,
   Trash2,
+  AlertCircle,
 } from 'lucide-react'
-import { useScheduledReports, useGenerateReport, useDeleteScheduledReport, useUpdateScheduledReport, type ScheduledReport as ApiScheduledReport } from '@/hooks/use-reports'
+import { useScheduledReports, useGenerateReport, useDeleteScheduledReport, useUpdateScheduledReport, useReportDefinitions, type ScheduledReport as ApiScheduledReport, type ReportDefinition as ApiReportDefinition } from '@/hooks/use-reports'
 import type { LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -36,6 +37,7 @@ import {
   TableCell,
 } from '@/components/ui/table'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
@@ -51,6 +53,33 @@ interface ReportDefinition {
   lastGenerated: string | null
 }
 
+function toLocalDef(d: ApiReportDefinition): ReportDefinition {
+  const categoryMap: Record<string, 'COMPLIANCE' | 'OPERATIONS' | 'INVENTORY'> = {
+    compliance: 'COMPLIANCE',
+    operations: 'OPERATIONS',
+    inventory: 'INVENTORY',
+  }
+  const iconMap: Record<string, string> = {
+    compliance_btk: 'Shield',
+    compliance_kvkk: 'Lock',
+    compliance_gdpr: 'FileText',
+    sla_monthly: 'ShieldCheck',
+    usage_summary: 'Activity',
+    cost_analysis: 'TrendingDown',
+    sim_inventory: 'Cpu',
+    audit_log_export: 'FileText',
+  }
+  return {
+    id: d.id,
+    category: categoryMap[d.category?.toLowerCase()] ?? 'OPERATIONS',
+    name: d.name,
+    description: d.description,
+    icon: iconMap[d.id] ?? 'FileBarChart',
+    format: d.format_options?.[0]?.toUpperCase() ?? 'PDF',
+    lastGenerated: null,
+  }
+}
+
 const ICON_MAP: Record<string, LucideIcon> = {
   Shield,
   Lock,
@@ -61,17 +90,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Cpu,
   Globe,
 }
-
-const REPORT_DEFINITIONS: ReportDefinition[] = [
-  { id: 'compliance_btk', category: 'COMPLIANCE', name: 'BTK Monthly Report', description: 'Regulatory compliance report for BTK submission', icon: 'Shield', format: 'PDF', lastGenerated: null },
-  { id: 'compliance_kvkk', category: 'COMPLIANCE', name: 'KVKK Data Inventory', description: 'Personal data inventory per KVKK requirements', icon: 'Lock', format: 'PDF', lastGenerated: null },
-  { id: 'compliance_gdpr', category: 'COMPLIANCE', name: 'GDPR Data Processing', description: 'Data processing activities report', icon: 'FileText', format: 'PDF', lastGenerated: null },
-  { id: 'sla_monthly', category: 'OPERATIONS', name: 'SLA Compliance Report', description: 'Per-operator SLA compliance and breach analysis', icon: 'ShieldCheck', format: 'PDF', lastGenerated: null },
-  { id: 'usage_summary', category: 'OPERATIONS', name: 'Usage Summary', description: 'Aggregate usage by tenant, operator, and APN', icon: 'Activity', format: 'CSV', lastGenerated: null },
-  { id: 'cost_analysis', category: 'OPERATIONS', name: 'Cost Analysis', description: 'Cost breakdown with optimization recommendations', icon: 'TrendingDown', format: 'PDF', lastGenerated: null },
-  { id: 'sim_inventory', category: 'INVENTORY', name: 'SIM Inventory', description: 'Complete SIM inventory grouped by lifecycle state', icon: 'Cpu', format: 'CSV', lastGenerated: null },
-  { id: 'audit_log_export', category: 'INVENTORY', name: 'Audit Log Export', description: 'Audit log export for compliance review', icon: 'FileText', format: 'CSV', lastGenerated: null },
-]
 
 const CATEGORY_META: Record<string, { label: string; color: string; border: string }> = {
   COMPLIANCE: { label: 'Compliance', color: 'text-accent', border: 'border-accent/20' },
@@ -251,10 +269,12 @@ function GenerateReportPanel({
   open,
   onClose,
   preselectedReport,
+  definitions,
 }: {
   open: boolean
   onClose: () => void
   preselectedReport: ReportDefinition | null
+  definitions: ReportDefinition[]
 }) {
   const generateMutation = useGenerateReport()
   const [form, setForm] = useState({
@@ -279,24 +299,23 @@ function GenerateReportPanel({
         format: form.format,
         filters,
       })
-      toast.success(`Report queued (job ${res.job_id.slice(0, 8)}). Check Jobs page for status.`)
+      toast.success(`Report queued (job ${res?.job_id?.slice(0, 8)}). Check Jobs page for status.`)
       setGenerated(true)
       setTimeout(() => {
         setGenerated(false)
         onClose()
       }, 1500)
-    } catch (err) {
-      toast.error('Failed to queue report')
+    } catch {
+      toast.error('Failed to queue report. Please try again.')
       setGenerated(false)
-      console.error(err)
     } finally {
       setGenerating(false)
     }
   }
 
   const reportOptions = useMemo(
-    () => REPORT_DEFINITIONS.map((r: ReportDefinition) => ({ value: r.id, label: r.name })),
-    [],
+    () => definitions.map((r: ReportDefinition) => ({ value: r.id, label: r.name })),
+    [definitions],
   )
 
   return (
@@ -399,9 +418,14 @@ export default function ReportsPage() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportDefinition | null>(null)
   const scheduledQuery = useScheduledReports()
+  const definitionsQuery = useReportDefinitions()
   const updateMutation = useUpdateScheduledReport()
   const deleteMutation = useDeleteScheduledReport()
   const scheduledReports: ApiScheduledReport[] = scheduledQuery.data?.data ?? []
+  const reportDefinitions: ReportDefinition[] = useMemo(
+    () => (definitionsQuery.data ?? []).map(toLocalDef),
+    [definitionsQuery.data],
+  )
 
   const handleToggleState = async (report: ApiScheduledReport) => {
     const newState = report.state === 'active' ? 'paused' : 'active'
@@ -425,12 +449,12 @@ export default function ReportsPage() {
 
   const grouped = useMemo(() => {
     const map: Record<string, ReportDefinition[]> = {}
-    for (const r of REPORT_DEFINITIONS) {
+    for (const r of reportDefinitions) {
       if (!map[r.category]) map[r.category] = []
       map[r.category].push(r)
     }
     return map
-  }, [])
+  }, [reportDefinitions])
 
   const handleGenerate = (report: ReportDefinition) => {
     setSelectedReport(report)
@@ -465,6 +489,16 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {definitionsQuery.isError && (
+        <div className="rounded-lg border border-danger/30 bg-danger-dim p-4 flex items-center gap-3">
+          <AlertCircle className="h-4 w-4 text-danger flex-shrink-0" />
+          <span className="text-sm text-danger">Failed to load report definitions.</span>
+          <Button size="sm" variant="ghost" onClick={() => definitionsQuery.refetch()} className="ml-auto text-xs">
+            Retry
+          </Button>
+        </div>
+      )}
+
       {(['COMPLIANCE', 'OPERATIONS', 'INVENTORY'] as const).map((category) => {
         const meta = CATEGORY_META[category]
         const reports = grouped[category] || []
@@ -478,17 +512,29 @@ export default function ReportsPage() {
               </h2>
               <Badge variant="outline" className="text-[10px]">{reports.length}</Badge>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {reports.map((report, i) => (
-                <div
-                  key={report.id}
-                  className="animate-in fade-in slide-in-from-bottom-1"
-                  style={{ animationDelay: `${i * 50}ms` }}
-                >
-                  <ReportCard report={report} onGenerate={handleGenerate} />
-                </div>
-              ))}
-            </div>
+            {definitionsQuery.isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Card key={i} className="p-5 space-y-3 animate-pulse">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reports.map((report, i) => (
+                  <div
+                    key={report.id}
+                    className="animate-in fade-in slide-in-from-bottom-1"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
+                    <ReportCard report={report} onGenerate={handleGenerate} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )
       })}
@@ -514,6 +560,7 @@ export default function ReportsPage() {
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         preselectedReport={selectedReport}
+        definitions={reportDefinitions}
       />
     </div>
   )

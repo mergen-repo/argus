@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -46,6 +46,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
+import { toast } from 'sonner'
 import { useSIMList, useSegments, useSegmentCount, useBulkStateChange, useBulkPolicyAssign, useImportSIMs } from '@/hooks/use-sims'
 import { usePolicyList } from '@/hooks/use-policies'
 import {
@@ -84,7 +85,30 @@ function detectSearchType(q: string): { field: string; label: string } | null {
 
 export default function SimListPage() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<SIMListFilters>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<SIMListFilters>(() => ({
+    state: searchParams.get('state') ?? undefined,
+    operator_id: searchParams.get('operator_id') ?? undefined,
+    apn_id: searchParams.get('apn_id') ?? undefined,
+    rat_type: searchParams.get('rat_type') ?? undefined,
+    q: searchParams.get('q') ?? undefined,
+    iccid: searchParams.get('iccid') ?? undefined,
+    imsi: searchParams.get('imsi') ?? undefined,
+    msisdn: searchParams.get('msisdn') ?? undefined,
+    ip: searchParams.get('ip') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: SIMListFilters | ((prev: SIMListFilters) => SIMListFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof SIMListFilters)[] = ['state', 'operator_id', 'apn_id', 'rat_type', 'q', 'iccid', 'imsi', 'msisdn', 'ip']
+      keys.forEach((k) => {
+        const v = next[k]
+        if (v) { p.set(k, v) } else { p.delete(k) }
+      })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkDialog, setBulkDialog] = useState<{ action: string; label: string } | null>(null)
@@ -668,10 +692,13 @@ export default function SimListPage() {
                               try {
                                 const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
                                 const pool = poolsRes.data.data?.[0]
-                                if (!pool) return
+                                if (!pool) { toast.error('No IP pool found for this APN'); return }
                                 await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
+                                toast.success('Static IP reserved')
                                 refetch()
-                              } catch { /* handled */ }
+                              } catch (err) {
+                                toast.error(err instanceof Error ? err.message : 'Failed to reserve static IP')
+                              }
                             }}>
                               Reserve Static IP
                             </DropdownMenuItem>
@@ -727,6 +754,8 @@ export default function SimListPage() {
                   const sims = allSims.filter((s) => selectedIds.has(s.id) && s.state === 'active' && !s.ip_address && s.apn_id)
                   if (sims.length === 0) return
                   const poolCache: Record<string, string> = {}
+                  let succeeded = 0
+                  const failed: { iccid: string; error: string }[] = []
                   for (const sim of sims) {
                     try {
                       if (!poolCache[sim.apn_id!]) {
@@ -734,8 +763,21 @@ export default function SimListPage() {
                         poolCache[sim.apn_id!] = res.data.data?.[0]?.id ?? ''
                       }
                       const poolId = poolCache[sim.apn_id!]
-                      if (poolId) await api.post(`/ip-pools/${poolId}/addresses/reserve`, { sim_id: sim.id })
-                    } catch { /* skip */ }
+                      if (poolId) {
+                        await api.post(`/ip-pools/${poolId}/addresses/reserve`, { sim_id: sim.id })
+                        succeeded++
+                      } else {
+                        failed.push({ iccid: sim.iccid, error: 'No IP pool found for APN' })
+                      }
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : 'Reserve failed'
+                      failed.push({ iccid: sim.iccid, error: msg })
+                    }
+                  }
+                  if (failed.length === 0) {
+                    toast.success(`Reserved IPs for ${succeeded} SIM${succeeded !== 1 ? 's' : ''}`)
+                  } else {
+                    toast.error(`${succeeded} succeeded, ${failed.length} failed — check each SIM's APN pool`)
                   }
                   setSelectedIds(new Set())
                   refetch()

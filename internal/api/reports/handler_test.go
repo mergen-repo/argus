@@ -463,3 +463,54 @@ func TestDeleteScheduled_WrongTenant_Returns404(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }
+
+func TestListDefinitions_ReturnsAll8Types(t *testing.T) {
+	h := newHandler(nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/definitions", nil)
+	w := httptest.NewRecorder()
+
+	h.ListDefinitions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp struct {
+		Status string             `json:"status"`
+		Data   []reportDefinition `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(resp.Data) != 8 {
+		t.Errorf("definitions count = %d, want 8", len(resp.Data))
+	}
+
+	expectedIDs := []string{
+		"compliance_btk", "compliance_kvkk", "compliance_gdpr",
+		"sla_monthly", "usage_summary", "cost_analysis",
+		"audit_log_export", "sim_inventory",
+	}
+
+	idSet := make(map[string]bool)
+	for _, d := range resp.Data {
+		if d.Name == "" {
+			t.Errorf("definition %q has empty name", d.ID)
+		}
+		if d.Description == "" {
+			t.Errorf("definition %q has empty description", d.ID)
+		}
+		if len(d.FormatOptions) == 0 {
+			t.Errorf("definition %q has no format_options", d.ID)
+		}
+		idSet[d.ID] = true
+	}
+
+	for _, id := range expectedIDs {
+		if !idSet[id] {
+			t.Errorf("missing report definition %q", id)
+		}
+	}
+}

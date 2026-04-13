@@ -49,6 +49,7 @@ import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool } from '@/hooks/use-apns'
+import { useAPNTraffic } from '@/hooks/use-apn-traffic'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useIpPoolAddresses } from '@/hooks/use-settings'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -561,40 +562,19 @@ function SIMsTab({ apnId }: { apnId: string }) {
   )
 }
 
-const TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
-  '15m': { count: 15, labelFn: (i) => `${i}m` },
-  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
-  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
-  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
-  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
-  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
-}
-
-function generateMockTraffic(timeframe: string) {
-  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
-  const scale = timeframe === '15m' ? 0.1 : timeframe === '1h' ? 0.3 : timeframe === '6h' ? 0.6 : timeframe === '7d' ? 3 : timeframe === '30d' ? 10 : 1
-  return Array.from({ length: cfg.count }, (_, i) => ({
-    label: cfg.labelFn(i),
-    bytes_in: Math.floor((Math.random() * 200_000_000 + 10_000_000) * scale),
-    bytes_out: Math.floor((Math.random() * 100_000_000 + 5_000_000) * scale),
-  }))
-}
-
-function generateMockFrequency(timeframe: string, base: number) {
-  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
-  const scale = timeframe === '15m' ? 0.2 : timeframe === '1h' ? 0.5 : timeframe === '6h' ? 0.8 : timeframe === '7d' ? 2 : timeframe === '30d' ? 5 : 1
-  return Array.from({ length: cfg.count }, (_, i) => ({
-    label: cfg.labelFn(i),
-    count: Math.floor((Math.random() * base + base * 0.2) * scale),
-  }))
-}
-
-function TrafficTab() {
+function TrafficTab({ apnId }: { apnId: string }) {
   const [timeframe, setTimeframe] = useState('24h')
+  const { data: trafficData, isLoading: trafficLoading, isError: trafficError } = useAPNTraffic(apnId, timeframe)
 
-  const mockData = useMemo(() => generateMockTraffic(timeframe), [timeframe])
-  const mockAuthData = useMemo(() => generateMockFrequency(timeframe, 400), [timeframe])
-  const mockAcctData = useMemo(() => generateMockFrequency(timeframe, 250), [timeframe])
+  const series = useMemo(() => {
+    if (!trafficData?.series) return []
+    return trafficData.series.map((b) => ({
+      label: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      bytes_in: b.bytes_in,
+      bytes_out: b.bytes_out,
+      auth_count: b.auth_count,
+    }))
+  }, [trafficData])
 
   const tooltipStyle = {
     backgroundColor: 'var(--color-bg-elevated)',
@@ -602,6 +582,15 @@ function TrafficTab() {
     borderRadius: 'var(--radius-sm)',
     color: 'var(--color-text-primary)',
     fontSize: '12px',
+  }
+
+  if (trafficError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load traffic data.</p>
+      </div>
+    )
   }
 
   return (
@@ -616,46 +605,50 @@ function TrafficTab() {
           <CardTitle>Traffic Trend</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockData}>
-                <defs>
-                  <linearGradient id="apnGradIn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="apnGradOut" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockData.length / 8) - 1)} />
-                <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={65} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatBytes(Number(value))]} />
-                <Area type="monotone" dataKey="bytes_in" stroke="var(--color-accent)" fill="url(#apnGradIn)" strokeWidth={2} name="Bytes In" />
-                <Area type="monotone" dataKey="bytes_out" stroke="var(--color-purple)" fill="url(#apnGradOut)" strokeWidth={2} name="Bytes Out" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {trafficLoading ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series}>
+                  <defs>
+                    <linearGradient id="apnGradIn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="apnGradOut" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={65} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatBytes(Number(value))]} />
+                  <Area type="monotone" dataKey="bytes_in" stroke="var(--color-accent)" fill="url(#apnGradIn)" strokeWidth={2} name="Bytes In" />
+                  <Area type="monotone" dataKey="bytes_out" stroke="var(--color-purple)" fill="url(#apnGradOut)" strokeWidth={2} name="Bytes Out" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in, 0))}</div>
+            <div className="font-mono text-xl font-bold text-accent">{formatBytes(series.reduce((a, d) => a + d.bytes_in, 0))}</div>
             <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-purple">{formatBytes(mockData.reduce((a, d) => a + d.bytes_out, 0))}</div>
+            <div className="font-mono text-xl font-bold text-purple">{formatBytes(series.reduce((a, d) => a + d.bytes_out, 0))}</div>
             <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}</div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(series.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}</div>
             <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
           </CardContent>
         </Card>
@@ -670,25 +663,31 @@ function TrafficTab() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockAuthData}>
-                  <defs>
-                    <linearGradient id="apnGradAuth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAuthData.length / 6) - 1)} />
-                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Requests']} />
-                  <Area type="monotone" dataKey="count" stroke="var(--color-success)" fill="url(#apnGradAuth)" strokeWidth={2} name="Auth Requests" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center mt-2">
-              <span className="font-mono text-sm font-semibold text-success">{Math.round(mockAuthData.reduce((a, d) => a + d.count, 0) / mockAuthData.length)}/interval avg</span>
-            </div>
+            {trafficLoading ? (
+              <Skeleton className="h-[200px] w-full" />
+            ) : (
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={series}>
+                    <defs>
+                      <linearGradient id="apnGradAuth" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 6) - 1)} />
+                    <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Requests']} />
+                    <Area type="monotone" dataKey="auth_count" stroke="var(--color-success)" fill="url(#apnGradAuth)" strokeWidth={2} name="Auth Requests" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {!trafficLoading && series.length > 0 && (
+              <div className="text-center mt-2">
+                <span className="font-mono text-sm font-semibold text-success">{Math.round(series.reduce((a, d) => a + d.auth_count, 0) / series.length)}/interval avg</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -700,24 +699,8 @@ function TrafficTab() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockAcctData}>
-                  <defs>
-                    <linearGradient id="apnGradAcct" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-warning)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAcctData.length / 6) - 1)} />
-                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Updates']} />
-                  <Area type="monotone" dataKey="count" stroke="var(--color-warning)" fill="url(#apnGradAcct)" strokeWidth={2} name="Acct Updates" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center mt-2">
-              <span className="font-mono text-sm font-semibold text-warning">{Math.round(mockAcctData.reduce((a, d) => a + d.count, 0) / mockAcctData.length)}/interval avg</span>
+            <div className="flex items-center justify-center h-[200px] text-text-tertiary text-xs">
+              Accounting data not available in current CDR schema.
             </div>
           </CardContent>
         </Card>
@@ -971,7 +954,7 @@ export default function ApnDetailPage() {
           <SIMsTab apnId={apn.id} />
         </TabsContent>
         <TabsContent value="traffic">
-          <TrafficTab />
+          <TrafficTab apnId={apn.id} />
         </TabsContent>
       </Tabs>
 

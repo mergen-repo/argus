@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Filter,
   Check,
@@ -69,7 +70,25 @@ function stateVariant(state: ESimProfileState): 'success' | 'warning' | 'danger'
 }
 
 export default function EsimListPage() {
-  const [filters, setFilters] = useState<{ operator_id?: string; state?: string }>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<{ operator_id?: string; state?: string }>(() => ({
+    state: searchParams.get('state') || undefined,
+    operator_id: searchParams.get('operator_id') || undefined,
+  }), [searchParams])
+  const setFilters = useCallback(
+    (next: { operator_id?: string; state?: string } | ((prev: { operator_id?: string; state?: string }) => { operator_id?: string; state?: string })) => {
+      const current = {
+        state: searchParams.get('state') || undefined,
+        operator_id: searchParams.get('operator_id') || undefined,
+      }
+      const resolved = typeof next === 'function' ? next(current) : next
+      const params = new URLSearchParams(searchParams)
+      if (resolved.state) params.set('state', resolved.state); else params.delete('state')
+      if (resolved.operator_id) params.set('operator_id', resolved.operator_id); else params.delete('operator_id')
+      setSearchParams(params, { replace: false })
+    },
+    [searchParams, setSearchParams],
+  )
   const [actionDialog, setActionDialog] = useState<{
     profile: ESimProfile
     action: 'enable' | 'disable' | 'switch' | 'delete'

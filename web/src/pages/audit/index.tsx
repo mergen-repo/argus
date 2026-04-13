@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -172,10 +173,27 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
 }
 
 export default function AuditLogPage() {
-  const [filters, setFilters] = useState<AuditFilters>({})
-  const [searchInput, setSearchInput] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<AuditFilters>(() => ({
+    action: searchParams.get('action') ?? undefined,
+    entity_type: searchParams.get('entity_type') ?? undefined,
+    entity_id: searchParams.get('entity_id') ?? undefined,
+    user_id: searchParams.get('user_id') ?? undefined,
+    from: searchParams.get('from') ?? undefined,
+    to: searchParams.get('to') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: AuditFilters | ((prev: AuditFilters) => AuditFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof AuditFilters)[] = ['action', 'entity_type', 'entity_id', 'user_id', 'from', 'to']
+      keys.forEach((k) => { const v = next[k]; if (v) p.set(k, v); else p.delete(k) })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
+  const [searchInput, setSearchInput] = useState(searchParams.get('entity_id') ?? '')
+  const [dateFrom, setDateFrom] = useState(searchParams.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(searchParams.get('to') ?? '')
   const [verifying, setVerifying] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -193,7 +211,7 @@ export default function AuditLogPage() {
     isFetchingNextPage,
   } = useAuditList(filters)
 
-  const { data: verifyResult, isLoading: isVerifying, refetch: runVerify } = useVerifyAuditChain(verifying)
+  const { data: verifyResult, isLoading: isVerifying, refetch: runVerify, isError: isVerifyError, error: verifyError } = useVerifyAuditChain(verifying)
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -273,6 +291,28 @@ export default function AuditLogPage() {
           Verify Integrity
         </Button>
       </div>
+
+      {/* Verify Error Banner */}
+      {verifying && isVerifyError && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-md)] border bg-danger-dim border-danger/30">
+          <ShieldAlert className="h-5 w-5 text-danger flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-danger">Verification failed</p>
+            <p className="text-xs text-text-secondary">
+              {verifyError instanceof Error ? verifyError.message : 'Unable to verify audit chain. Please try again.'}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Dismiss"
+            onClick={() => setVerifying(false)}
+            className="ml-auto text-text-tertiary hover:text-text-primary transition-colors h-6 w-6"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Verify Result Banner */}
       {verifying && verifyResult && (

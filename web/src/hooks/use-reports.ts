@@ -4,6 +4,25 @@ import type { ApiResponse, ListResponse } from '@/types/sim'
 
 const REPORTS_KEY = ['reports'] as const
 
+export interface ReportDefinition {
+  id: string
+  category: string
+  name: string
+  description: string
+  format_options: string[]
+}
+
+export function useReportDefinitions() {
+  return useQuery({
+    queryKey: [...REPORTS_KEY, 'definitions'],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<ReportDefinition[]>>('/reports/definitions')
+      return res.data.data ?? []
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
 export interface ScheduledReport {
   id: string
   tenant_id: string

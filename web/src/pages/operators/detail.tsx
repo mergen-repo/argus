@@ -15,6 +15,7 @@ import {
   Clock,
   Pencil,
   Trash2,
+  Signal,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -48,6 +49,7 @@ import {
   useRealtimeOperatorHealth,
   useUpdateOperator,
 } from '@/hooks/use-operators'
+import { useOperatorHealthHistory, useOperatorMetrics } from '@/hooks/use-operator-detail'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { cn } from '@/lib/utils'
@@ -259,61 +261,96 @@ function OverviewTab({
   )
 }
 
-function HealthTimelineTab() {
-  const mockTimeline = useMemo(() => {
-    const entries = []
-    const statuses = ['healthy', 'degraded', 'down', 'healthy']
-    const now = Date.now()
-    for (let i = 0; i < 20; i++) {
-      const status = statuses[Math.floor(Math.random() * (i < 15 ? 1 : statuses.length))]
-      entries.push({
-        id: i,
-        status,
-        latency_ms: status === 'down' ? null : Math.floor(Math.random() * 200) + 10,
-        circuit_state: status === 'down' ? 'open' : status === 'degraded' ? 'half_open' : 'closed',
-        checked_at: new Date(now - i * 300_000).toISOString(),
-        error: status === 'down' ? 'Connection timeout' : undefined,
-      })
-    }
-    return entries
-  }, [])
+const HOURS_OPTIONS = [
+  { value: '6', label: 'Last 6h' },
+  { value: '24', label: 'Last 24h' },
+  { value: '72', label: 'Last 3d' },
+  { value: '168', label: 'Last 7d' },
+]
+
+function HealthTimelineTab({ operatorId }: { operatorId: string }) {
+  const [hours, setHours] = useState(24)
+  const { data: history, isLoading, isError, refetch } = useOperatorHealthHistory(operatorId, hours)
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="space-y-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+            <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+            <p className="text-sm text-danger mb-3">Failed to load health history.</p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Health Check History</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>Health Check History</CardTitle>
+          <Select
+            options={HOURS_OPTIONS}
+            value={String(hours)}
+            onChange={(e) => setHours(Number(e.target.value))}
+            className="w-32 h-7 text-xs"
+          />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="relative pl-6">
-          <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
-          {mockTimeline.map((entry) => (
-            <div key={entry.id} className="relative pb-4 last:pb-0">
-              <div
-                className="absolute left-[-13px] top-1 h-3 w-3 rounded-full border-2 border-bg-surface"
-                style={{ backgroundColor: healthColor(entry.status) }}
-              />
-              <div className="ml-4">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <Badge variant={healthVariant(entry.status)} className="text-[10px]">
-                    {entry.status.toUpperCase()}
-                  </Badge>
-                  {entry.latency_ms != null && (
-                    <span className="font-mono text-[10px] text-text-tertiary">{entry.latency_ms}ms</span>
-                  )}
-                  <span className={cn('text-[10px]', circuitColor(entry.circuit_state))}>
-                    CB: {entry.circuit_state.replace('_', '-')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-secondary">
-                  <span>{new Date(entry.checked_at).toLocaleString()}</span>
-                </div>
-                {entry.error && (
-                  <p className="text-xs text-danger mt-1">{entry.error}</p>
-                )}
-              </div>
+        {(!history || history.length === 0) ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <div className="h-12 w-12 rounded-xl bg-bg-hover border border-border flex items-center justify-center">
+              <Activity className="h-6 w-6 text-text-tertiary" />
             </div>
-          ))}
-        </div>
+            <p className="text-sm text-text-secondary">No health checks recorded for this window.</p>
+          </div>
+        ) : (
+          <div className="relative pl-6">
+            <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
+            {history.map((entry, i) => (
+              <div key={i} className="relative pb-4 last:pb-0">
+                <div
+                  className="absolute left-[-13px] top-1 h-3 w-3 rounded-full border-2 border-bg-surface"
+                  style={{ backgroundColor: healthColor(entry.status) }}
+                />
+                <div className="ml-4">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Badge variant={healthVariant(entry.status)} className="text-[10px]">
+                      {entry.status.toUpperCase()}
+                    </Badge>
+                    {entry.latency_ms != null && (
+                      <span className="font-mono text-[10px] text-text-tertiary">{entry.latency_ms}ms</span>
+                    )}
+                    <span className={cn('text-[10px]', circuitColor(entry.circuit_state))}>
+                      CB: {entry.circuit_state.replace('_', '-')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-text-secondary">
+                    <span>{new Date(entry.checked_at).toLocaleString()}</span>
+                  </div>
+                  {entry.error_message && (
+                    <p className="text-xs text-danger mt-1">{entry.error_message}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -424,128 +461,151 @@ function CircuitBreakerTab({
   )
 }
 
-function TrafficTab() {
-  const mockAuthData = useMemo(() => {
-    return Array.from({ length: 24 }, (_, i) => ({
-      hour: `${String(i).padStart(2, '0')}:00`,
-      auth_rate: Math.floor(Math.random() * 500) + 50,
-      error_rate: Math.floor(Math.random() * 20),
+const WINDOW_OPTIONS = [
+  { value: '15m', label: 'Last 15m' },
+  { value: '1h', label: 'Last 1h' },
+  { value: '6h', label: 'Last 6h' },
+  { value: '24h', label: 'Last 24h' },
+]
+
+const tooltipStyle = {
+  backgroundColor: 'var(--color-bg-elevated)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--color-text-primary)',
+  fontSize: '12px',
+}
+
+function TrafficTab({ operatorId }: { operatorId: string }) {
+  const [window, setWindow] = useState('1h')
+  const { data: metricsData, isLoading, isError } = useOperatorMetrics(operatorId, window)
+
+  const series = useMemo(() => {
+    if (!metricsData?.buckets) return []
+    return metricsData.buckets.map((b) => ({
+      ts: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      auth_rate: parseFloat(b.auth_rate_per_sec.toFixed(2)),
+      error_rate: parseFloat(b.error_rate_per_sec.toFixed(2)),
     }))
-  }, [])
+  }, [metricsData])
+
+  const avgAuth = useMemo(() => series.length > 0
+    ? parseFloat((series.reduce((a, d) => a + d.auth_rate, 0) / series.length).toFixed(1))
+    : 0, [series])
+
+  const avgError = useMemo(() => series.length > 0
+    ? parseFloat((series.reduce((a, d) => a + d.error_rate, 0) / series.length).toFixed(2))
+    : 0, [series])
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load traffic metrics.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Select
+          options={WINDOW_OPTIONS}
+          value={window}
+          onChange={(e) => setWindow(e.target.value)}
+          className="w-32 h-7 text-xs"
+        />
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Authentication Rate (24h)</CardTitle>
+          <CardTitle>Authentication Rate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockAuthData}>
-                <defs>
-                  <linearGradient id="opGradAuth" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value, name) => [value, name === 'auth_rate' ? 'Auth/s' : 'Errors/s']}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="auth_rate"
-                  stroke="var(--color-accent)"
-                  fill="url(#opGradAuth)"
-                  strokeWidth={2}
-                  name="auth_rate"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series}>
+                  <defs>
+                    <linearGradient id="opGradAuth" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="ts"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(series.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={40}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [value, name === 'auth_rate' ? 'Auth/s' : 'Errors/s']} />
+                  <Area type="monotone" dataKey="auth_rate" stroke="var(--color-accent)" fill="url(#opGradAuth)" strokeWidth={2} name="auth_rate" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Error Rate (24h)</CardTitle>
+          <CardTitle>Error Rate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mockAuthData}>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value) => [value, 'Errors/s']}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="error_rate"
-                  stroke="var(--color-danger)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="error_rate"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {isLoading ? (
+            <Skeleton className="h-[200px] w-full" />
+          ) : (
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={series}>
+                  <XAxis
+                    dataKey="ts"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(series.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={40}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Errors/s']} />
+                  <Line type="monotone" dataKey="error_rate" stroke="var(--color-danger)" strokeWidth={2} dot={false} name="error_rate" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">
-              {Math.round(mockAuthData.reduce((a, d) => a + d.auth_rate, 0) / mockAuthData.length)}/s
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Signal className="h-4 w-4 text-accent" />
+              <div className="font-mono text-xl font-bold text-accent">{avgAuth}/s</div>
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Avg Auth Rate</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Avg Auth Rate</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-danger">
-              {Math.round(mockAuthData.reduce((a, d) => a + d.error_rate, 0) / mockAuthData.length)}/s
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <AlertCircle className="h-4 w-4 text-danger" />
+              <div className="font-mono text-xl font-bold text-danger">{avgError}/s</div>
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Avg Error Rate</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Avg Error Rate</div>
           </CardContent>
         </Card>
       </div>
@@ -826,13 +886,13 @@ export default function OperatorDetailPage() {
           />
         </TabsContent>
         <TabsContent value="health">
-          <HealthTimelineTab />
+          <HealthTimelineTab operatorId={operator.id} />
         </TabsContent>
         <TabsContent value="circuit">
           <CircuitBreakerTab operator={operator} health={health} />
         </TabsContent>
         <TabsContent value="traffic">
-          <TrafficTab />
+          <TrafficTab operatorId={operator.id} />
         </TabsContent>
       </Tabs>
 

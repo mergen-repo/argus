@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -187,10 +187,18 @@ function IPPoolBar({ used, total }: { used: number; total: number }) {
 }
 
 function APNCard({ apn, operatorName, onClick }: { apn: APN; operatorName: string; onClick: () => void }) {
-  const mockSimCount = useMemo(() => Math.floor(Math.random() * 5000) + 100, [])
-  const mockTrafficMB = useMemo(() => Math.floor(Math.random() * 50000) + 500, [])
-  const mockPoolUsed = useMemo(() => Math.floor(Math.random() * 200) + 10, [])
-  const mockPoolTotal = useMemo(() => mockPoolUsed + Math.floor(Math.random() * 100) + 20, [mockPoolUsed])
+  const simCount = apn.sim_count ?? null
+  const trafficBytes = apn.traffic_24h_bytes ?? null
+  const poolUsed = apn.pool_used ?? 0
+  const poolTotal = apn.pool_total ?? 0
+
+  const trafficLabel = trafficBytes === null
+    ? '—'
+    : trafficBytes >= 1_000_000_000
+      ? `${(trafficBytes / 1_000_000_000).toFixed(1)} GB`
+      : trafficBytes >= 1_000_000
+        ? `${(trafficBytes / 1_000_000).toFixed(1)} MB`
+        : `${(trafficBytes / 1_000).toFixed(0)} KB`
 
   return (
     <Card
@@ -211,17 +219,17 @@ function APNCard({ apn, operatorName, onClick }: { apn: APN; operatorName: strin
       <div className="grid grid-cols-2 gap-3">
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary">SIM Count</span>
-          <div className="font-mono text-sm font-semibold text-text-primary">{mockSimCount.toLocaleString()}</div>
+          <div className="font-mono text-sm font-semibold text-text-primary">
+            {simCount !== null ? simCount.toLocaleString() : '—'}
+          </div>
         </div>
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Traffic</span>
-          <div className="font-mono text-sm font-semibold text-text-primary">
-            {mockTrafficMB >= 1000 ? `${(mockTrafficMB / 1000).toFixed(1)} GB` : `${mockTrafficMB} MB`}
-          </div>
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Traffic 24h</span>
+          <div className="font-mono text-sm font-semibold text-text-primary">{trafficLabel}</div>
         </div>
       </div>
 
-      <IPPoolBar used={mockPoolUsed} total={mockPoolTotal} />
+      <IPPoolBar used={poolUsed} total={poolTotal} />
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <Badge variant={apn.apn_type === 'private_managed' ? 'default' : apn.apn_type === 'operator_managed' ? 'secondary' : 'warning'} className="text-[10px]">
@@ -271,7 +279,21 @@ function APNCardSkeleton() {
 
 export default function ApnListPage() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<APNListFilters>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<APNListFilters>(() => ({
+    operator_id: searchParams.get('operator_id') ?? undefined,
+    state: searchParams.get('state') ?? undefined,
+    q: searchParams.get('q') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: APNListFilters | ((prev: APNListFilters) => APNListFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof APNListFilters)[] = ['operator_id', 'state', 'q']
+      keys.forEach((k) => { const v = next[k]; if (v) p.set(k, v); else p.delete(k) })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
 

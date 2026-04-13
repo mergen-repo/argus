@@ -232,6 +232,19 @@ Controls server-side password complexity and history enforcement. Applied on reg
 
 ---
 
+## Capacity Targets (SVC-01) — STORY-070
+
+These variables set the expected platform-wide capacity targets shown in the System Capacity dashboard (`GET /api/v1/system/capacity`). They do not enforce hard limits — they are display targets only.
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ARGUS_CAPACITY_SIM` | int | `15000000` | No | Total SIM capacity target (across all tenants). Used as denominator in capacity utilisation gauge. |
+| `ARGUS_CAPACITY_SESSION` | int | `2000000` | No | Maximum concurrent active session target. |
+| `ARGUS_CAPACITY_AUTH` | int | `5000` | No | Target maximum authentications per second. |
+| `ARGUS_CAPACITY_GROWTH_SIMS_MONTHLY` | int | `72000` | No | Expected net new SIM activations per month (growth forecast for trend line). |
+
+---
+
 ## Notifications
 
 ### Email (SMTP)

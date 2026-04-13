@@ -1057,6 +1057,30 @@ func (s *SIMStore) CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, 
 	return count, nil
 }
 
+func (s *SIMStore) CountByAPN(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]int64, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT apn_id, COUNT(*)
+		FROM sims
+		WHERE tenant_id = $1 AND apn_id IS NOT NULL AND state != 'purged'
+		GROUP BY apn_id
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: count sims by apn: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int64)
+	for rows.Next() {
+		var apnID uuid.UUID
+		var count int64
+		if err := rows.Scan(&apnID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan sim apn count: %w", err)
+		}
+		result[apnID] = count
+	}
+	return result, nil
+}
+
 func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT state, COUNT(*) FROM sims

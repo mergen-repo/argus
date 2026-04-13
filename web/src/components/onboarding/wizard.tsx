@@ -563,9 +563,19 @@ export function OnboardingWizard() {
         </div>
 
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-[var(--radius-sm)] border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
+          <div className="mb-4 flex items-start gap-2 rounded-[var(--radius-sm)] border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={submitting}
+                className="mt-1.5 text-xs underline underline-offset-2 hover:no-underline disabled:opacity-50"
+              >
+                Retry this step
+              </button>
+            </div>
           </div>
         )}
 

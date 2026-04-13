@@ -8,6 +8,7 @@ import { useEventStore } from '@/stores/events'
 import { useUnreadCount, useRealtimeNotifications } from '@/hooks/use-notifications'
 import { useLogout } from '@/hooks/use-logout'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { WSIndicator } from '@/components/layout/ws-indicator'
 import { cn } from '@/lib/utils'
 
 function ActivitySparkline({ onClick }: { onClick: () => void }) {
@@ -85,6 +86,8 @@ export function Topbar() {
       </button>
 
       <div className="flex items-center gap-1">
+        <WSIndicator />
+
         <button
           onClick={toggleDarkMode}
           className="rounded-md p-2 text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"

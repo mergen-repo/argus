@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity,
   Clock,
@@ -167,9 +167,17 @@ function SessionRow({
 
 export default function SessionListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [disconnectTarget, setDisconnectTarget] = useState<Session | null>(null)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
-  const [filterText, setFilterText] = useState('')
+  const filterText = searchParams.get('q') ?? ''
+  const setFilterText = useCallback((val: string) => {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (val) p.set('q', val); else p.delete('q')
+      return p
+    }, { replace: true })
+  }, [setSearchParams])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 

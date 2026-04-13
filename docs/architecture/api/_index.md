@@ -320,6 +320,37 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 |----|--------|------|-------------|------|-------|
 | API-223 | POST | /api/v1/compliance/data-portability/:user_id | Enqueue user data export (zip = data.json + summary.pdf) | JWT (self OR tenant_admin+) | 202 `{job_id, status:"queued"}`; signed URL emailed when ready (7d TTL) |
 
+## Operator Detail Analytics (2 endpoints) — STORY-070
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-224 | GET | /api/v1/operators/:id/health-history | Operator health check history (last N results, cursor) | JWT (api_user) | — |
+| API-225 | GET | /api/v1/operators/:id/metrics | CDR-based operator metrics (auth rate, latency, bytes) in hourly buckets | JWT (api_user) | Sourced from `cdrs_hourly` materialized view |
+
+## APN Detail Analytics (1 endpoint) — STORY-070
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-226 | GET | /api/v1/apns/:id/traffic | APN CDR traffic series (bytes in/out by hour, configurable period) | JWT (api_user) | Sourced from `cdrs_hourly`/`cdrs_daily` materialized views |
+
+## Violation Remediation (1 endpoint) — STORY-070
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-227 | POST | /api/v1/policy-violations/:id/acknowledge | Acknowledge a policy violation with optional note | JWT (operator+) | Adds `acknowledged_at`, `acknowledged_by`, `acknowledged_note` columns; audited |
+
+## Report Definitions (1 endpoint) — STORY-070
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-228 | GET | /api/v1/reports/definitions | List available report type definitions (id, label, formats) | JWT (api_user) | Returns 8 hardcoded definitions; staleTime 5min on client |
+
+## System Capacity (1 endpoint) — STORY-070
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-229 | GET | /api/v1/system/capacity | Platform capacity targets and current utilisation (SIMs, sessions, auth/s, monthly growth) | JWT (super_admin) | Targets from `ARGUS_CAPACITY_*` env vars; current counts from DB |
+
 ---
 
-**Total: 166 REST endpoints + 10 WebSocket event types**
+**Total: 172 REST endpoints + 10 WebSocket event types**

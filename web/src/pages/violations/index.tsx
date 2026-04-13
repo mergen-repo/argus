@@ -1,19 +1,27 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
 import {
   Shield, AlertCircle, AlertTriangle, Search, RefreshCw,
   ExternalLink, Clock, ChevronDown, ChevronUp,
-  Activity, Ban, Tag, Bell, FileText,
+  Activity, Ban, Tag, Bell, FileText, MoreHorizontal, CheckCircle2, BookOpen, ArrowUpRight,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -42,6 +50,24 @@ interface PolicyViolation {
   apn_name?: string
   severity: string
   created_at: string
+  acknowledged_at?: string | null
+  acknowledged_by?: string | null
+}
+
+function useAcknowledgeViolation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: string; note?: string }) => {
+      const res = await api.post<{ status: string; data: { id: string; acknowledged_at: string; acknowledged_by: string; note?: string } }>(
+        `/policy-violations/${id}/acknowledge`,
+        { note },
+      )
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['violations'] })
+    },
+  })
 }
 
 interface Filters {
@@ -150,13 +176,40 @@ function formatDetailValue(key: string, val: unknown): string {
 }
 
 export default function ViolationsPage() {
-  const [filters, setFilters] = useState<Filters>({ violation_type: '', severity: '' })
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<Filters>(() => ({
+    violation_type: searchParams.get('violation_type') ?? '',
+    severity: searchParams.get('severity') ?? '',
+  }), [searchParams])
+  const setFilters = useCallback((updater: Filters | ((prev: Filters) => Filters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next.violation_type) p.set('violation_type', next.violation_type); else p.delete('violation_type')
+      if (next.severity) p.set('severity', next.severity); else p.delete('severity')
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const { data, isLoading, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useViolations(filters)
   const { data: counts } = useViolationCounts()
+  const acknowledgeMutation = useAcknowledgeViolation()
+
+  const handleDismiss = useCallback(async (v: PolicyViolation) => {
+    setDismissedIds((prev) => new Set([...prev, v.id]))
+    try {
+      await acknowledgeMutation.mutateAsync({ id: v.id })
+      toast.success('Violation dismissed')
+    } catch {
+      setDismissedIds((prev) => { const n = new Set(prev); n.delete(v.id); return n })
+      toast.error('Failed to dismiss violation')
+    }
+  }, [acknowledgeMutation])
 
   const violations = useMemo(() => data?.pages.flatMap((p) => p.data ?? []) ?? [], [data])
 
@@ -355,7 +408,7 @@ export default function ViolationsPage() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {filtered.map((v) => {
+          {filtered.filter((v) => !dismissedIds.has(v.id) && !v.acknowledged_at).map((v) => {
             const expanded = expandedIds.has(v.id)
             return (
               <div key={v.id} className={cn(
@@ -374,6 +427,45 @@ export default function ViolationsPage() {
                   {v.operator_name && <span className="hidden lg:block text-[10px] text-text-tertiary">{v.operator_name}</span>}
                   <span className="hidden md:flex items-center gap-1 text-[10px] text-text-tertiary font-mono shrink-0 ml-auto"><Clock className="h-3 w-3" />{timeAgo(v.created_at)}</span>
                   <div className="shrink-0 text-text-tertiary">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className="h-6 w-6 p-0 shrink-0 text-text-tertiary hover:text-text-primary inline-flex items-center justify-center rounded transition-colors hover:bg-bg-hover"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        className="text-xs gap-2"
+                        onSelect={() => navigate(`/sims/${v.sim_id}?action=suspend`)}
+                      >
+                        <Ban className="h-3.5 w-3.5 text-danger" />
+                        Suspend SIM
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-xs gap-2"
+                        onSelect={() => navigate(`/policies/${v.policy_id}?rule=${v.rule_index}`)}
+                      >
+                        <BookOpen className="h-3.5 w-3.5 text-accent" />
+                        Review Policy
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-xs gap-2"
+                        onSelect={() => handleDismiss(v)}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                        Dismiss
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-xs gap-2"
+                        onSelect={() => navigate('/notifications')}
+                      >
+                        <ArrowUpRight className="h-3.5 w-3.5 text-warning" />
+                        Escalate
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 {expanded && (

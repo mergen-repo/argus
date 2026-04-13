@@ -26,7 +26,7 @@ import { api } from '@/lib/api'
 import { timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { Operator } from '@/types/operator'
-import type { ListResponse } from '@/types/sim'
+import type { ListResponse, ApiResponse } from '@/types/sim'
 
 type SLAStatus = 'on_track' | 'at_risk' | 'breached'
 
@@ -66,66 +66,123 @@ const PERIOD_OPTIONS = [
   { value: 'this_year', label: 'This Year' },
 ]
 
+interface SLAReportRow {
+  id: string
+  operator_id: string | null
+  window_start: string
+  window_end: string
+  uptime_pct: number
+  latency_p95_ms: number
+  incident_count: number
+  mttr_sec: number
+  error_count: number
+  sessions_total: number
+  generated_at: string
+}
+
+function periodToRange(period: string): { from: string; to: string } {
+  const now = new Date()
+  const to = now.toISOString()
+  let from: string
+  switch (period) {
+    case 'last_month': {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - 1)
+      d.setDate(1)
+      d.setHours(0, 0, 0, 0)
+      from = d.toISOString()
+      break
+    }
+    case 'last_90d': {
+      const d = new Date(now)
+      d.setDate(d.getDate() - 90)
+      from = d.toISOString()
+      break
+    }
+    case 'this_year': {
+      const d = new Date(now.getFullYear(), 0, 1)
+      from = d.toISOString()
+      break
+    }
+    default: {
+      const d = new Date(now)
+      d.setDate(1)
+      d.setHours(0, 0, 0, 0)
+      from = d.toISOString()
+    }
+  }
+  return { from, to }
+}
+
 function useSLAData(period: string) {
   return useQuery<SLAData>({
     queryKey: ['sla', period],
     queryFn: async () => {
-      const res = await api.get<ListResponse<Operator>>('/operators?limit=100')
-      const operators = res.data.data || []
+      const { from, to } = periodToRange(period)
+      const [opRes, slaRes] = await Promise.all([
+        api.get<ListResponse<Operator>>('/operators?limit=100'),
+        api.get<ApiResponse<SLAReportRow[]>>(`/sla-reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=200`),
+      ])
+      const operators = opRes.data.data || []
+      const rows: SLAReportRow[] = slaRes.data.data || []
+
+      const opMap = new Map(operators.map((o) => [o.id, o]))
+      const byOp = new Map<string, SLAReportRow[]>()
+      rows.forEach((r) => {
+        if (!r.operator_id) return
+        if (!byOp.has(r.operator_id)) byOp.set(r.operator_id, [])
+        byOp.get(r.operator_id)!.push(r)
+      })
 
       const operatorSLAs: OperatorSLA[] = operators.map((op) => {
-        const isHealthy = op.health_status === 'healthy'
-        const uptime = isHealthy ? 99.5 + Math.random() * 0.5 : 90 + Math.random() * 9
+        const opRows = byOp.get(op.id) || []
+        const latestRow = opRows[0]
+        const target = op.sla_uptime_target || 99.95
+        const uptime_pct = latestRow ? latestRow.uptime_pct : (op.health_status === 'healthy' ? 100 : 0)
+        const latency_p95 = latestRow ? latestRow.latency_p95_ms : 0
+        const incidents = opRows.reduce((s, r) => s + r.incident_count, 0)
+        const downtime_minutes = opRows.reduce((s, r) => {
+          const windowMs = new Date(r.window_end).getTime() - new Date(r.window_start).getTime()
+          return s + Math.round((windowMs / 60_000) * (1 - r.uptime_pct / 100))
+        }, 0)
         return {
           id: op.id,
           name: op.name,
           code: op.code,
-          uptime_pct: parseFloat(uptime.toFixed(2)),
-          target: op.sla_uptime_target || 99.95,
+          uptime_pct: parseFloat(uptime_pct.toFixed(2)),
+          target,
           status: op.health_status,
-          latency_p95: Math.round(10 + Math.random() * 40),
-          downtime_minutes: Math.round(Math.random() * 60),
-          incidents: Math.floor(Math.random() * 3),
+          latency_p95,
+          downtime_minutes,
+          incidents,
           last_check: op.last_health_check || new Date().toISOString(),
         }
       })
 
       const avgSLA = operatorSLAs.length > 0
         ? operatorSLAs.reduce((sum, o) => sum + o.uptime_pct, 0) / operatorSLAs.length
-        : 99.87
+        : 100
 
       let status: SLAStatus = 'on_track'
       if (avgSLA < 99.5) status = 'breached'
       else if (avgSLA < 99.95) status = 'at_risk'
+
+      const breaches: SLABreach[] = operatorSLAs
+        .filter((o) => operatorSLAStatus(o.uptime_pct, o.target) === 'breached')
+        .map((o) => ({
+          date: o.last_check,
+          operator: o.name,
+          duration_min: o.downtime_minutes,
+          affected_sims: 0,
+          cause: `Uptime ${o.uptime_pct.toFixed(2)}% below target ${o.target}%`,
+        }))
 
       return {
         overall_sla: parseFloat(avgSLA.toFixed(2)),
         target: 99.95,
         status,
         operators: operatorSLAs,
-        breaches: [
-          {
-            date: '2024-03-24T14:30:00Z',
-            operator: '1NCE',
-            duration_min: 330,
-            affected_sims: 45000,
-            cause: 'Circuit breaker tripped due to auth failures',
-          },
-          {
-            date: '2024-03-18T09:15:00Z',
-            operator: 'Vodafone',
-            duration_min: 45,
-            affected_sims: 12000,
-            cause: 'High latency during maintenance window',
-          },
-          {
-            date: '2024-02-28T22:00:00Z',
-            operator: '1NCE',
-            duration_min: 120,
-            affected_sims: 45000,
-            cause: 'Upstream provider connectivity issue',
-          },
-        ],
+        breaches,
       }
     },
     staleTime: 60_000,

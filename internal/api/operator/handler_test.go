@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -466,4 +467,66 @@ func TestTestResponseStructure(t *testing.T) {
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func TestGetHealthHistory_InvalidID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/health-history", h.GetHealthHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/not-a-uuid/health-history", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestGetHealthHistory_ValidHoursParam(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/health-history", h.GetHealthHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/health-history?hours=invalid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status for invalid hours = %d, want 400", w.Code)
+	}
+}
+
+func TestGetMetrics_MissingTenant(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/metrics", h.GetMetrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/metrics", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestGetMetrics_InvalidWindow(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/metrics", h.GetMetrics)
+
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, uuid.New())
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/metrics?window=invalid", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
 }

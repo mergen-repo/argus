@@ -3,21 +3,24 @@ import { WifiOff, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
-import { wsClient } from '@/lib/ws'
+import { wsClient, type WSStatus } from '@/lib/ws'
 
 function StatusBar() {
-  const [wsConnected, setWsConnected] = useState(true)
+  const [wsStatus, setWsStatus] = useState<WSStatus>(wsClient.getStatus())
   const [lastSync, setLastSync] = useState<Date>(new Date())
   const user = useAuthStore((s) => s.user)
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setWsConnected((wsClient as unknown as { isConnected?: () => boolean }).isConnected?.() ?? true)
-      setLastSync(new Date())
-    }, 5000)
-    return () => clearInterval(interval)
+    const unsub = wsClient.onStatus((s) => {
+      setWsStatus(s)
+      if (s === 'connected') setLastSync(new Date())
+    })
+    const interval = setInterval(() => setLastSync(new Date()), 5000)
+    return () => { unsub(); clearInterval(interval) }
   }, [])
+
+  const wsConnected = wsStatus === 'connected'
 
   const syncAgo = Math.round((Date.now() - lastSync.getTime()) / 1000)
 

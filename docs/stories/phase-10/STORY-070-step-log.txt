@@ -1,0 +1,34 @@
+STEP_1 PLAN: EXECUTED | items=23 | evidence=STORY-070-plan.md | result=PASS
+STEP_2 DEV TASK 1: EXECUTED | files=2 | migrations/20260413000003_violation_acknowledgment.up.sql + .down.sql | result=PASS
+STEP_2 DEV TASK 4: EXECUTED | files=2 | internal/store/cdr.go (GetOperatorMetrics+GetAPNTraffic+GetTrafficHeatmap7x24+SumBytesByAPN24h), internal/store/cdr_test.go | result=PASS
+STEP_2 DEV TASK 7: EXECUTED | files=4 | internal/api/system/capacity_handler.go + _test.go, internal/config/config.go (4 new envs), internal/store/ippool.go (SumByAPN+GetCapacitySummary), internal/store/sim.go (CountByAPN) | result=PASS
+STEP_2 DEV TASK 8: EXECUTED | files=2 | internal/api/reports/handler.go (ListDefinitions+8 definitions), internal/api/reports/handler_test.go (TestListDefinitions) | result=PASS
+STEP_2 INTER_WAVE_BUILD: EXECUTED | after=Wave_1 | result=PASS | all_packages_compile=true | tests=2498/0
+STEP_2 DEV TASK 2: EXECUTED | files=2 | internal/store/policy_violation.go (Acknowledge+AcknowledgedAt/By/Note fields+Acknowledged filter), internal/store/policy_violation_acknowledge_test.go | result=PASS
+STEP_2 DEV TASK 3: EXECUTED | files=4 | internal/api/violation/handler.go (Acknowledge+WithAuditSvc), internal/api/violation/handler_test.go, internal/gateway/router.go (new route), cmd/argus/main.go (auditSvc wire) | result=PASS
+STEP_2 DEV TASK 5: EXECUTED | files=3 | internal/api/operator/handler.go (GetHealthHistory+GetMetrics+WithCDRStore), internal/api/operator/handler_test.go (new tests), internal/gateway/router.go (2 new routes) | result=PASS
+STEP_2 DEV TASK 6: EXECUTED | files=5 | internal/api/apn/handler.go (GetTraffic+enriched List+WithCDRStore+WithIPPoolStore), internal/api/apn/handler_test.go (4 new tests), internal/store/ippool.go (SumByAPN+GetCapacitySummary), cmd/argus/main.go, internal/gateway/router.go | result=PASS
+STEP_2 DEV TASK 9: EXECUTED | files=2 | internal/api/dashboard/handler.go (TrafficHeatmap field+6th goroutine), internal/api/dashboard/handler_test.go | result=PASS
+STEP_2 INTER_WAVE_BUILD: EXECUTED | after=Wave_2 | result=PASS | all_packages_compile=true | tests=2514/0
+STEP_2 DEV TASK 10: EXECUTED | files=2 | web/src/hooks/use-reports.ts (useReportDefinitions), web/src/pages/reports/index.tsx (REPORT_DEFINITIONS retired, real generate mutation + job_id toast) | result=PASS
+STEP_2 DEV TASK 11: EXECUTED | files=2 | web/src/hooks/use-apn-traffic.ts (created), web/src/pages/apns/detail.tsx (generateMockTraffic/Frequency removed, useAPNTraffic wired to /apns/:id/traffic) | result=PASS
+STEP_2 DEV TASK 12: EXECUTED | files=2 | web/src/pages/apns/index.tsx (mockSimCount/mockTrafficMB/mockPoolUsed/mockPoolTotal removed, apn.sim_count/traffic_24h_bytes/pool_used/pool_total bound), web/src/types/apn.ts (optional fields added) | result=PASS
+STEP_2 DEV TASK 13: EXECUTED | files=2 | web/src/hooks/use-operator-detail.ts (created: useOperatorHealthHistory+useOperatorMetrics), web/src/pages/operators/detail.tsx (mockTimeline+mockAuthData removed, real hooks wired) | result=PASS
+STEP_2 DEV TASK 14: EXECUTED | files=1 | web/src/pages/sla/index.tsx (useSLAData rewired to /sla-reports API, Math.random removed, real uptime/latency/incidents computed from rows) | result=PASS
+STEP_2 DEV TASK 15: EXECUTED | files=2 | web/src/hooks/use-capacity.ts (created), web/src/pages/capacity/index.tsx (Math.random allocation removed, useCapacity hook wired to /system/capacity) | result=PASS
+STEP_2 DEV TASK 16: EXECUTED | files=4 | web/src/lib/ws.ts (getStatus+reconnectNow+onStatus added, WSEnvelope exposed), web/src/pages/dashboard/index.tsx (event.id from envelope, traffic_heatmap from API), web/src/components/layout/dashboard-layout.tsx (Math.random removed), web/src/types/dashboard.ts (traffic_heatmap field) | result=PASS
+STEP_2 DEV TASK 17: EXECUTED | files=1 | web/src/pages/violations/index.tsx (useAcknowledgeViolation mutation, DropdownMenu per row: Suspend/Review/Dismiss/Escalate, acknowledged filter) | result=PASS
+STEP_2 INTER_WAVE_BUILD: EXECUTED | after=Wave_3 | result=PASS | all_packages_compile=true
+STEP_2 DEV TASK 18: EXECUTED | files=6 | URL filters on sims/apns/sessions/jobs/audit/violations (useSearchParams) | operators skipped=no filter UI | result=PASS
+STEP_2 DEV TASK 19: EXECUTED | files=3 | sims reserve IPs surfaced (bulk toast+count, single toast), audit verify error banner, onboarding wizard Retry button | result=PASS
+STEP_2 DEV TASK 22: EXECUTED | files=0 | placeholder.tsx absent, zero TODO STORY-070 found, dead code clear | result=PASS
+STEP_2 INTER_WAVE_BUILD: EXECUTED | after=Wave_4 | result=PASS
+STEP_2 DEV TASK 20: EXECUTED | files=0 | WSIndicator already in topbar (from Task 16), status-bar uses wsClient.getStatus()+onStatus | result=PASS
+STEP_2 DEV TASK 21: EXECUTED | files=1 | topology/index.tsx: apnSevered=(isDown||apn.state!='active'), per-APN traffic from sim_count, refetchInterval=30s | result=PASS
+STEP_2 DEV TASK 23: EXECUTED | grep_guard_clean=true | Math.random=0, mockUsageData=0, generateMockTraffic=0, TODO_STORY-070=0 | result=PASS
+STEP_2 FULL_TEST: EXECUTED | tests=2576/0 | build=ok | tsc=clean | result=PASS
+STEP_2.5 LINT: EXECUTED | hex_count=0 | math_random=0 | placeholder=0 | result=PASS
+STEP_3 FIX sessions/index.tsx: replace:false→replace:true in setFilterText (live-typed input history spam fix) | result=PASS
+STEP_3 FINAL_GATES: EXECUTED | tsc=clean | npm_build=ok (✓ built in 3.71s) | result=PASS
+STEP_3 GATE: EXECUTED | passes=6 | fixes=3 | result=PASS
+STEP_4 REVIEW: EXECUTED | items=11 | evidence=STORY-070-review.md | result=PASS

@@ -287,3 +287,90 @@ func TestGetAPNInvalidID(t *testing.T) {
 		t.Errorf("Get(invalid id) status = %d, want 400", w.Code)
 	}
 }
+
+func TestGetTraffic_MissingTenant(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/apns/{id}/traffic", h.GetTraffic)
+
+	req := httptest.NewRequest(http.MethodGet, "/apns/"+uuid.New().String()+"/traffic", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestGetTraffic_InvalidID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/apns/{id}/traffic", h.GetTraffic)
+
+	req := httptest.NewRequest(http.MethodGet, "/apns/not-uuid/traffic", nil)
+	ctx := withTenantCtx(req.Context())
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestGetTraffic_InvalidPeriod(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/apns/{id}/traffic", h.GetTraffic)
+
+	req := httptest.NewRequest(http.MethodGet, "/apns/"+uuid.New().String()+"/traffic?period=invalid", nil)
+	ctx := withTenantCtx(req.Context())
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestAPNResponse_EnrichedFields(t *testing.T) {
+	simCount := int64(42)
+	traffic := int64(1024000)
+	poolUsed := int64(10)
+	poolTotal := int64(100)
+
+	resp := apnResponse{
+		ID:              uuid.New().String(),
+		SIMCount:        &simCount,
+		Traffic24hBytes: &traffic,
+		PoolUsed:        &poolUsed,
+		PoolTotal:       &poolTotal,
+	}
+
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if out["sim_count"] == nil {
+		t.Error("sim_count missing from response")
+	}
+	if out["traffic_24h_bytes"] == nil {
+		t.Error("traffic_24h_bytes missing from response")
+	}
+	if out["pool_used"] == nil {
+		t.Error("pool_used missing from response")
+	}
+	if out["pool_total"] == nil {
+		t.Error("pool_total missing from response")
+	}
+}

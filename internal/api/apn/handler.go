@@ -34,12 +34,22 @@ type Handler struct {
 	apnStore      *store.APNStore
 	operatorStore *store.OperatorStore
 	simStore      *store.SIMStore
+	cdrStore      *store.CDRStore
+	ipPoolStore   *store.IPPoolStore
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
 
 func WithSIMStore(s *store.SIMStore) HandlerOption {
 	return func(h *Handler) { h.simStore = s }
+}
+
+func WithCDRStore(cs *store.CDRStore) HandlerOption {
+	return func(h *Handler) { h.cdrStore = cs }
+}
+
+func WithIPPoolStore(ip *store.IPPoolStore) HandlerOption {
+	return func(h *Handler) { h.ipPoolStore = ip }
 }
 
 func NewHandler(
@@ -76,6 +86,10 @@ type apnResponse struct {
 	UpdatedAt         string          `json:"updated_at"`
 	CreatedBy         *string         `json:"created_by,omitempty"`
 	UpdatedBy         *string         `json:"updated_by,omitempty"`
+	SIMCount          *int64          `json:"sim_count,omitempty"`
+	Traffic24hBytes   *int64          `json:"traffic_24h_bytes,omitempty"`
+	PoolUsed          *int64          `json:"pool_used,omitempty"`
+	PoolTotal         *int64          `json:"pool_total,omitempty"`
 }
 
 type createAPNRequest struct {
@@ -164,9 +178,45 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var simCountByAPN map[uuid.UUID]int64
+	var bytesByAPN map[uuid.UUID]int64
+	var poolStatsByAPN []store.PoolAPNStats
+
+	if h.simStore != nil {
+		simCountByAPN, _ = h.simStore.CountByAPN(r.Context(), tenantID)
+	}
+	if h.cdrStore != nil {
+		bytesByAPN, _ = h.cdrStore.SumBytesByAPN24h(r.Context(), tenantID)
+	}
+	if h.ipPoolStore != nil {
+		poolStatsByAPN, _ = h.ipPoolStore.SumByAPN(r.Context(), tenantID)
+	}
+
+	poolByAPN := make(map[uuid.UUID]store.PoolAPNStats)
+	for _, ps := range poolStatsByAPN {
+		poolByAPN[ps.APNID] = ps
+	}
+
 	items := make([]apnResponse, 0, len(apns))
 	for _, a := range apns {
-		items = append(items, toAPNResponse(&a))
+		resp := toAPNResponse(&a)
+		if simCountByAPN != nil {
+			c := simCountByAPN[a.ID]
+			resp.SIMCount = &c
+		}
+		if bytesByAPN != nil {
+			b := bytesByAPN[a.ID]
+			resp.Traffic24hBytes = &b
+		}
+		if poolByAPN != nil {
+			if ps, ok := poolByAPN[a.ID]; ok {
+				used := int64(ps.Used)
+				total := int64(ps.Total)
+				resp.PoolUsed = &used
+				resp.PoolTotal = &total
+			}
+		}
+		items = append(items, resp)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
@@ -569,6 +619,67 @@ func (h *Handler) ListSIMs(w http.ResponseWriter, r *http.Request) {
 		Cursor:  nextCursor,
 		HasMore: nextCursor != "",
 		Limit:   limit,
+	})
+}
+
+func (h *Handler) GetTraffic(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid APN ID format")
+		return
+	}
+
+	validPeriods := map[string]bool{"15m": true, "1h": true, "6h": true, "24h": true, "7d": true, "30d": true}
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "24h"
+	}
+	if !validPeriods[period] {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "period must be one of: 15m, 1h, 6h, 24h, 7d, 30d")
+		return
+	}
+
+	apn, err := h.apnStore.GetByID(r.Context(), tenantID, id)
+	if err != nil {
+		if errors.Is(err, store.ErrAPNNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "APN not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("apn_id", idStr).Msg("get apn for traffic")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	_ = apn
+
+	if h.cdrStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"period": period,
+			"series": []store.APNTrafficBucket{},
+		})
+		return
+	}
+
+	series, err := h.cdrStore.GetAPNTraffic(r.Context(), tenantID, id, period)
+	if err != nil {
+		h.logger.Error().Err(err).Str("apn_id", idStr).Msg("get apn traffic")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to retrieve APN traffic")
+		return
+	}
+
+	if series == nil {
+		series = []store.APNTrafficBucket{}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"period": period,
+		"series": series,
 	})
 }
 

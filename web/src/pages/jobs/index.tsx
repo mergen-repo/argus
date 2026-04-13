@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Filter,
   Check,
@@ -97,7 +98,20 @@ function ProgressBar({ pct, state }: { pct: number; state: string }) {
 }
 
 export default function JobListPage() {
-  const [filters, setFilters] = useState<{ type?: string; state?: string }>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => ({
+    type: searchParams.get('type') ?? undefined,
+    state: searchParams.get('state') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: { type?: string; state?: string } | ((prev: { type?: string; state?: string }) => { type?: string; state?: string })) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next.type) p.set('type', next.type); else p.delete('type')
+      if (next.state) p.set('state', next.state); else p.delete('state')
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [selectedJobId, setSelectedJobId] = useState<string>('')
   const [confirmAction, setConfirmAction] = useState<{ jobId: string; action: 'retry' | 'cancel' } | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)

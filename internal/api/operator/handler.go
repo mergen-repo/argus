@@ -40,6 +40,7 @@ type Handler struct {
 	tenantStore     *store.TenantStore
 	simStore        *store.SIMStore
 	sessionStore    *store.RadiusSessionStore
+	cdrStore        *store.CDRStore
 	auditSvc        audit.Auditor
 	encryptionKey   string
 	adapterRegistry *adapter.Registry
@@ -54,6 +55,10 @@ func WithSIMStore(s *store.SIMStore) HandlerOption {
 
 func WithSessionStore(s *store.RadiusSessionStore) HandlerOption {
 	return func(h *Handler) { h.sessionStore = s }
+}
+
+func WithCDRStore(cs *store.CDRStore) HandlerOption {
+	return func(h *Handler) { h.cdrStore = cs }
 }
 
 func NewHandler(
@@ -761,6 +766,125 @@ func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, bef
 	if auditErr != nil {
 		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
 	}
+}
+
+func (h *Handler) GetHealthHistory(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator ID format")
+		return
+	}
+
+	q := r.URL.Query()
+	hours := 24
+	if v := q.Get("hours"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 168 {
+			hours = n
+		} else if err != nil || n <= 0 {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "hours must be between 1 and 168")
+			return
+		}
+	}
+	limit := 100
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			limit = n
+		} else if err != nil || n <= 0 {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "limit must be between 1 and 500")
+			return
+		}
+	}
+
+	op, err := h.operatorStore.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrOperatorNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Operator not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator for health history")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	_ = op
+
+	logs, err := h.operatorStore.GetHealthLogs(r.Context(), id, limit)
+	if err != nil {
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get health logs")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to retrieve health history")
+		return
+	}
+
+	window := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	filtered := make([]store.OperatorHealthLog, 0, len(logs))
+	for _, l := range logs {
+		if l.CheckedAt.After(window) {
+			filtered = append(filtered, l)
+		}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, filtered)
+}
+
+func (h *Handler) GetMetrics(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator ID format")
+		return
+	}
+
+	window := r.URL.Query().Get("window")
+	validWindows := map[string]bool{"15m": true, "1h": true, "6h": true, "24h": true}
+	if window == "" {
+		window = "1h"
+	}
+	if !validWindows[window] {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "window must be one of: 15m, 1h, 6h, 24h")
+		return
+	}
+
+	op, err := h.operatorStore.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrOperatorNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Operator not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator for metrics")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	_ = op
+
+	if h.cdrStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"window":  window,
+			"buckets": []store.OperatorMetricBucket{},
+		})
+		return
+	}
+
+	buckets, err := h.cdrStore.GetOperatorMetrics(r.Context(), tenantID, id, window)
+	if err != nil {
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator metrics")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to retrieve operator metrics")
+		return
+	}
+
+	if buckets == nil {
+		buckets = []store.OperatorMetricBucket{}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"window":  window,
+		"buckets": buckets,
+	})
 }
 
 func userIDFromContext(r *http.Request) *uuid.UUID {

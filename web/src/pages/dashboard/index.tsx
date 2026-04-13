@@ -643,8 +643,9 @@ function LiveEventStream() {
       if (!msg.type) return
 
       const evtData = msg.data || {}
+      const envelope = rawMsg as { id?: string; type?: string; data?: Record<string, unknown> }
       const newEvent: LiveEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: envelope.id || `fallback-${Date.now()}`,
         type: msg.type,
         message: (evtData.message as string) || msg.type.replace(/\./g, ' '),
         severity: (evtData.severity as LiveEvent['severity']) || 'info',

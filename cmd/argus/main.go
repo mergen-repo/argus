@@ -273,11 +273,18 @@ func main() {
 	adapterRegistry := adapter.NewRegistry()
 	simStore := store.NewSIMStore(pg.Pool)
 	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	operatorMetricsCDRStore := store.NewCDRStore(pg.Pool)
 	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger,
 		operatorapi.WithSIMStore(simStore),
 		operatorapi.WithSessionStore(operatorMetricsSessionStore),
+		operatorapi.WithCDRStore(operatorMetricsCDRStore),
 	)
-	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger, apnapi.WithSIMStore(simStore))
+	apnCDRStore := store.NewCDRStore(pg.Pool)
+	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger,
+		apnapi.WithSIMStore(simStore),
+		apnapi.WithCDRStore(apnCDRStore),
+		apnapi.WithIPPoolStore(ippoolStore),
+	)
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	esimStore := store.NewESimProfileStore(pg.Pool)
 	var smdpAdapter esimpkg.SMDPAdapter
@@ -855,7 +862,7 @@ func main() {
 		complianceapi.WithJobStore(jobStore),
 		complianceapi.WithEventBus(eventBus),
 	)
-	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
+	violationHandler := violationapi.NewHandler(violationStore, log.Logger, violationapi.WithAuditSvc(auditSvc))
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client), dashboardapi.WithCDRStore(cdrStore))
@@ -977,6 +984,23 @@ func main() {
 
 	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
 
+	capacitySimStore := store.NewSIMStore(pg.Pool)
+	capacitySessionStore := store.NewRadiusSessionStore(pg.Pool)
+	capacityIPPoolStore := store.NewIPPoolStore(pg.Pool)
+	capacityCDRStore := store.NewCDRStore(pg.Pool)
+	capacityHandler := systemapi.NewCapacityHandler(
+		systemapi.CapacityConfig{
+			SIMs:          cfg.CapacitySIMs,
+			Sessions:      cfg.CapacitySessions,
+			AuthPerSec:    cfg.CapacityAuthPerSec,
+			MonthlyGrowth: cfg.CapacityMonthlyGrowth,
+		},
+		capacitySimStore,
+		capacitySessionStore,
+		capacityIPPoolStore,
+		capacityCDRStore,
+	)
+
 	tenantLimits := gateway.NewTenantLimitsMiddleware(
 		tenantStore,
 		map[gateway.LimitKey]gateway.CountFn{
@@ -1022,6 +1046,7 @@ func main() {
 		ReportsHandler:      reportsHandler,
 		ReliabilityHandler:  reliabilityHandler,
 		StatusHandler:       statusHandler,
+		CapacityHandler:     capacityHandler,
 		OnboardingHandler:   onboardingHandler,
 		WebhookHandler:      webhookHandler,
 		SMSHandler:          smsHandler,

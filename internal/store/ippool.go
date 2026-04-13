@@ -891,3 +891,89 @@ func GenerateIPv6Addresses(cidr string) ([]string, int, error) {
 
 	return addresses, total, nil
 }
+
+type PoolAPNStats struct {
+	APNID uuid.UUID
+	Used  int
+	Total int
+}
+
+func (s *IPPoolStore) SumByAPN(ctx context.Context, tenantID uuid.UUID) ([]PoolAPNStats, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT apn_id, COALESCE(SUM(used_addresses),0), COALESCE(SUM(total_addresses),0)
+		FROM ip_pools
+		WHERE tenant_id = $1
+		GROUP BY apn_id
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: sum ip pools by apn: %w", err)
+	}
+	defer rows.Close()
+
+	var results []PoolAPNStats
+	for rows.Next() {
+		var s PoolAPNStats
+		if err := rows.Scan(&s.APNID, &s.Used, &s.Total); err != nil {
+			return nil, fmt.Errorf("store: scan pool apn stats: %w", err)
+		}
+		results = append(results, s)
+	}
+	return results, nil
+}
+
+type PoolCapacityRow struct {
+	ID                uuid.UUID `json:"id"`
+	Name              string    `json:"name"`
+	CIDR              string    `json:"cidr"`
+	Total             int       `json:"total"`
+	Used              int       `json:"used"`
+	Available         int       `json:"available"`
+	UtilizationPct    float64   `json:"utilization_pct"`
+	AllocationRate    float64   `json:"allocation_rate"`
+	ExhaustionHours   *float64  `json:"exhaustion_hours"`
+	UsedYesterday     int       `json:"-"`
+}
+
+func (s *IPPoolStore) GetCapacitySummary(ctx context.Context, tenantID uuid.UUID) ([]PoolCapacityRow, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			p.id,
+			p.name,
+			COALESCE(p.cidr_v4::text, p.cidr_v6::text, '') AS cidr,
+			p.total_addresses,
+			p.used_addresses,
+			COALESCE(
+				(SELECT COUNT(*) FROM ip_addresses ia
+				 WHERE ia.pool_id = p.id AND ia.state = 'allocated'
+				   AND ia.allocated_at < NOW() - INTERVAL '24 hours'),
+				0
+			) AS used_yesterday
+		FROM ip_pools p
+		WHERE p.tenant_id = $1
+		ORDER BY p.name
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: get capacity summary: %w", err)
+	}
+	defer rows.Close()
+
+	var results []PoolCapacityRow
+	for rows.Next() {
+		var r PoolCapacityRow
+		if err := rows.Scan(&r.ID, &r.Name, &r.CIDR, &r.Total, &r.Used, &r.UsedYesterday); err != nil {
+			return nil, fmt.Errorf("store: scan capacity row: %w", err)
+		}
+		r.Available = r.Total - r.Used
+		if r.Total > 0 {
+			r.UtilizationPct = float64(r.Used) / float64(r.Total) * 100
+		}
+		delta := float64(r.Used - r.UsedYesterday)
+		r.AllocationRate = delta / 86400.0
+		if r.AllocationRate > 0 && r.Available > 0 {
+			hours := float64(r.Available) / r.AllocationRate / 3600.0
+			r.ExhaustionHours = &hours
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}

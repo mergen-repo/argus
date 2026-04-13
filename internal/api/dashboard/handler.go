@@ -89,17 +89,24 @@ type alertDTO struct {
 	DetectedAt string `json:"detected_at"`
 }
 
+type trafficHeatmapCell struct {
+	Day   int     `json:"day"`
+	Hour  int     `json:"hour"`
+	Value float64 `json:"value"`
+}
+
 type dashboardDTO struct {
-	TotalSIMs      int                 `json:"total_sims"`
-	ActiveSessions int64               `json:"active_sessions"`
-	AuthPerSec     float64             `json:"auth_per_sec"`
-	MonthlyCost    float64             `json:"monthly_cost"`
-	SIMByState     []simByStateDTO     `json:"sim_by_state"`
-	OperatorHealth []operatorHealthDTO  `json:"operator_health"`
-	TopAPNs        []topAPNDTO         `json:"top_apns"`
-	RecentAlerts   []alertDTO          `json:"recent_alerts"`
-	Sparklines     map[string][]float64 `json:"sparklines"`
-	Deltas         map[string]float64   `json:"deltas"`
+	TotalSIMs      int                   `json:"total_sims"`
+	ActiveSessions int64                 `json:"active_sessions"`
+	AuthPerSec     float64               `json:"auth_per_sec"`
+	MonthlyCost    float64               `json:"monthly_cost"`
+	SIMByState     []simByStateDTO       `json:"sim_by_state"`
+	OperatorHealth []operatorHealthDTO   `json:"operator_health"`
+	TopAPNs        []topAPNDTO           `json:"top_apns"`
+	RecentAlerts   []alertDTO            `json:"recent_alerts"`
+	Sparklines     map[string][]float64  `json:"sparklines"`
+	Deltas         map[string]float64    `json:"deltas"`
+	TrafficHeatmap []trafficHeatmapCell  `json:"traffic_heatmap"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +132,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	wg.Add(5)
+	wg.Add(6)
 
 	go func() {
 		defer wg.Done()
@@ -276,6 +283,27 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		mu.Unlock()
 	}()
 
+	go func() {
+		defer wg.Done()
+		if h.cdrStore == nil {
+			return
+		}
+		matrix, err := h.cdrStore.GetTrafficHeatmap7x24(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get traffic heatmap")
+			return
+		}
+		cells := make([]trafficHeatmapCell, 0, 168)
+		for day, hours := range matrix {
+			for hour, val := range hours {
+				cells = append(cells, trafficHeatmapCell{Day: day, Hour: hour, Value: val})
+			}
+		}
+		mu.Lock()
+		resp.TrafficHeatmap = cells
+		mu.Unlock()
+	}()
+
 	wg.Wait()
 
 	if resp.SIMByState == nil {
@@ -295,6 +323,9 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.Deltas == nil {
 		resp.Deltas = map[string]float64{}
+	}
+	if resp.TrafficHeatmap == nil {
+		resp.TrafficHeatmap = []trafficHeatmapCell{}
 	}
 
 	if h.redisClient != nil {

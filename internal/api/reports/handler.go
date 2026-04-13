@@ -455,3 +455,75 @@ func splitFields(expr string) []string {
 	}
 	return fields
 }
+
+type reportDefinition struct {
+	ID            string   `json:"id"`
+	Category      string   `json:"category"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	FormatOptions []string `json:"format_options"`
+}
+
+var reportDefinitions = []reportDefinition{
+	{
+		ID:            string(report.ReportBTK),
+		Category:      "compliance",
+		Name:          "BTK Compliance Report",
+		Description:   "Turkish telecommunications authority (BTK) compliance report with subscriber data and traffic statistics.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportKVKK),
+		Category:      "compliance",
+		Name:          "KVKK Data Protection Report",
+		Description:   "Turkish Personal Data Protection Law (KVKK) compliance report for data processing activities.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportGDPR),
+		Category:      "compliance",
+		Name:          "GDPR Compliance Report",
+		Description:   "EU General Data Protection Regulation compliance report for cross-border data transfers.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportSLAMonthly),
+		Category:      "operational",
+		Name:          "Monthly SLA Report",
+		Description:   "Operator uptime, latency, and incident summary for the selected month.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportUsageSummary),
+		Category:      "analytics",
+		Name:          "Usage Summary",
+		Description:   "SIM activation, data consumption, and session counts aggregated by operator and APN.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportCostAnalysis),
+		Category:      "analytics",
+		Name:          "Cost Analysis",
+		Description:   "Carrier costs, usage costs, and per-SIM billing analysis for the selected period.",
+		FormatOptions: []string{"pdf", "csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportAuditExport),
+		Category:      "security",
+		Name:          "Audit Log Export",
+		Description:   "Full audit trail export of administrative and user actions within the selected period.",
+		FormatOptions: []string{"csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportSIMInventory),
+		Category:      "operational",
+		Name:          "SIM Inventory Report",
+		Description:   "Complete SIM card inventory with state, operator assignment, APN, and metadata.",
+		FormatOptions: []string{"csv", "xlsx"},
+	},
+}
+
+// ListDefinitions handles GET /api/v1/reports/definitions.
+func (h *Handler) ListDefinitions(w http.ResponseWriter, r *http.Request) {
+	apierr.WriteSuccess(w, http.StatusOK, reportDefinitions)
+}

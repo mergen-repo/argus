@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-04-12
+> Last updated: 2026-04-13
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 13/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 14/22 stories
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 13/22
-> Current story: STORY-070
-> Current step: Planning
+> Stories completed: 55/55 (100%) — Phase 10: 14/22
+> Current story: STORY-071
+> Current step: —
 
 ### Phase 1: Foundation [DONE]
 
@@ -146,9 +146,9 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 13/22
-> Current story: STORY-070
-> Current step: Planning
+> Stories completed: 14/22
+> Current story: STORY-071
+> Current step: —
 > Mode: AUTOPILOT
 > Started: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -185,7 +185,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-069 | Onboarding, Reporting & Notification Completeness | L | [x] DONE | — | STORY-059, STORY-063, STORY-065 | 2026-04-13 |
-| STORY-070 | Frontend Real-Data Wiring | L | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-069 | — |
+| STORY-070 | Frontend Real-Data Wiring | L | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-069 | 2026-04-13 |
 | STORY-071 | Roaming Agreement Management | M | [ ] PENDING | — | STORY-063 | — |
 | STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |
 | STORY-073 | Multi-Tenant Admin & Compliance Screens | L | [ ] PENDING | — | STORY-068, STORY-069 | — |
@@ -221,6 +221,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-13 | REVIEW | STORY-070 review completed. 11 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale line 166→172 APIs. api/_index.md: API-224..229 added (operator health-history, operator metrics, APN traffic, violation acknowledge, report definitions, system capacity); footer 166→172 REST endpoints. CONFIG.md: Capacity Targets section added (ARGUS_CAPACITY_SIM/SESSION/AUTH/GROWTH_SIMS_MONTHLY, defaults 15M/2M/5000/72000). .env.example: 4 ARGUS_CAPACITY_* entries added. GLOSSARY.md: 2 new terms (Traffic Heatmap, Violation Acknowledgment). USERTEST.md: STORY-070 section added (19 scenarios — backend verification, frontend walkthroughs, operations). decisions.md: DEV-206 (operators URL filter exclusion), DEV-207 (topology sim_count approximation), DEV-208 (report definitions hardcoded in handler) all ACCEPTED. ROUTEMAP: counter 13/22→14/22, STORY-070 marked DONE. Check #1 (next-story impact): DEV-201 constraint preserved; STORY-071 unblocked; STORY-072 hooks compatible; WS public API compatible. Zero-deferral. Report: docs/stories/phase-10/STORY-070-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/CONFIG.md, .env.example, docs/GLOSSARY.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
+| 2026-04-13 | DONE | STORY-070 completed — Frontend Real-Data Wiring. 14 ACs. Eliminated all Math.random(), mock data constants (mockTimeline, mockAuthData, mockSimCount, mockTrafficMB, mockPoolUsed, mockPoolTotal, generateMockTraffic, generateMockFrequency, REPORT_DEFINITIONS, SCHEDULED_REPORTS, placeholder.tsx). 6 new backend endpoints (GET /operators/:id/health-history, GET /operators/:id/metrics, GET /apns/:id/traffic, POST /policy-violations/:id/acknowledge, GET /reports/definitions, GET /system/capacity). 1 migration (20260413000003: acknowledged_at/by/note + partial index on policy_violations). 5 new frontend hooks (use-apn-traffic, use-operator-detail, use-capacity, useReportDefinitions, useAcknowledgeViolation). WS indicator (ws-indicator.tsx, wsClient.getStatus/onStatus/reconnectNow). URL filter persistence via useSearchParams on 7 pages (sims, apns, sessions, jobs, audit, violations, esim). APN list enrichment via 3 GROUP BY queries (no N+1). CDR aggregations from cdrs_hourly/cdrs_daily materialized views. Gate 3 fixes: ErrViolationNotFound sentinel, errors.Is comparison, esim useSearchParams. 2576 tests PASS. | internal/store/{cdr,policy_violation,ippool,sim}.go, internal/api/{operator,apn,violation,reports,system/capacity}_handler.go, migrations/20260413000003, web/src/{hooks,pages,components,types,lib/ws.ts}, internal/config/config.go |
 | 2026-04-13 | REVIEW | STORY-069 review completed. 10 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale line 144→166 APIs, 31→42 tables; internal/api/ tree +onboarding/, reports/, webhooks/, sms/. SCREENS.md: header 26→33 screens; SCR-003/SCR-113 updated (STORY-069 enhancements); SCR-130..134 added (Reports, Webhooks, SMS, Data Portability, Notification Preferences). db/_index.md: TBL-36..42 added (onboarding_sessions, scheduled_reports, webhook_configs, webhook_deliveries, notification_preferences, notification_templates, sms_outbound). api/_index.md: API-170/171 story reference STORY-029→STORY-069; footer 144→166 REST endpoints. PRODUCT.md: F-055 marked COVERED. GLOSSARY.md: 5 new terms (Onboarding Session, Scheduled Report, Webhook Delivery, Data Portability Export, KVKK Auto-Purge Scheduler). .env.example: RATE_LIMIT_SMS_PER_MINUTE added. ROUTEMAP: counter 12/22→13/22. Check #1 (next-story impact): DEV-201 emptyReportProvider constraint for STORY-070; STORY-073 now unblocked. Decisions DEV-198..205+DEC-205 all ACCEPTED. USERTEST 21 scenarios PASS. Zero-deferral. Report: docs/stories/phase-10/STORY-069-review.md | docs/ARCHITECTURE.md, docs/SCREENS.md, docs/architecture/db/_index.md, docs/architecture/api/_index.md, docs/PRODUCT.md, docs/GLOSSARY.md, .env.example |
 | 2026-04-12 | DONE | STORY-069 completed — Onboarding, Reporting & Notification Completeness. 12 ACs. Onboarding wizard (5-step, localStorage resume, onboarding_sessions store); on-demand + scheduled reports (PDF/CSV/XLSX, `emptyReportProvider` stub per DEV-201); webhook delivery tracking + HMAC-SHA-256 signing (AES-GCM encrypted secrets, dead-letter on max retries); per-tenant notification preferences matrix + locale-aware templates (TR/EN, 28 seed rows); GDPR data portability export (ZIP+signed URL, 7d TTL); KVKK auto-purge cron @daily; IP grace release @hourly; SMS Gateway outbound + history (AC-12, F-055 COVERED). 22 new API endpoints (API-202..223), 7 new tables (TBL-36..42), RLS on 6 tenant-scoped tables, 4 new cron jobs, 6 new job processors. Gate 9 fixes (shadcn Textarea, xlsx format, setTimeout removal, TODO scrubs, audit instrumentation for webhooks+reports, main.go wiring). 2556 tests PASS. | internal/api/{onboarding,reports,webhooks,sms,notification}, internal/job/{kvkk_purge,ip_grace_release,webhook_retry,scheduled_report,sms_gateway,data_portability}, migrations/20260413000001..002, web/src/pages/{reports,webhooks,sms,compliance}, web/src/components/onboarding/wizard.tsx, docs/brainstorming/decisions.md (DEV-198..205) |
 | 2026-04-12 | DONE | STORY-067 completed — CI/CD Pipeline, Deployment Strategy & Ops Tooling. 9 ACs. GitHub Actions CI pipeline (5 stages: lint/test/security-scan/build/deploy); blue-green deployment (2 Docker Compose stacks, bluegreen-flip.sh, rollback.sh, smoke-test.sh, deploy-snapshot.sh, deploy-tag.sh); digest pinning (all FROM statements @sha256, update-digests.sh); argusctl cobra CLI (tenant/apikey/user/compliance/sim/health/backup, ARGUSCTL_ Viper prefix); GET /api/v1/status (public) + GET /api/v1/status/details (super_admin); POST /api/v1/audit/system-events (super_admin, uuid.Nil tenant, hard-fail on deploy/rollback); argus_build_info gauge; 10 runbooks (cert-rotation, db-full, deploy, dr-pitr, dr-restore, latency-spike, nats-lag, operator-down, rollback, session-loss, tenant-suspend). Scope additions: DELETE /api/v1/users/:id?gdpr=1 (UserStore.DeletePII, state=purged), migration 20260412000010 (users.state CHECK +purged). Gate 2 dispatches (F-1: audit endpoint+script rewiring, F-2: E2E evidence). 2182 tests PASS (+7). Review: api/_index.md +4 endpoints (API-192..195), footer 114→118; db/platform.md TBL-02 users.state +purged; GLOSSARY +3 terms (Blue-Green, argusctl, Digest Pinning); USERTEST +15 scenarios; decisions DEV-186..192; ARCHITECTURE: cmd/argusctl tree, deploy scripts tree, CI/CD section, API count 114→118, Reference Registry 115→119; CONFIG.md CI/CD & Ops section (ARGUS_API_URL, ARGUS_API_TOKEN, ARGUSCTL_*). Zero-deferral. | .github/workflows/ci.yml, deploy/{docker-compose.blue.yml,docker-compose.green.yml,scripts/}, infra/{nginx/upstream.conf,scripts/update-digests.sh}, cmd/argusctl/, internal/api/system/status_handler.go, internal/api/audit/handler.go, internal/gateway/router.go, migrations/20260412000010, docs/runbook/(10 files), docs/e2e-evidence/STORY-067-cicd-test.md, 7 doc files |

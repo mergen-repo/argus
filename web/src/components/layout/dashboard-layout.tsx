@@ -22,8 +22,9 @@ function useGlobalEventListener() {
       const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
       if (!msg.type) return
       const d = msg.data || {}
+      const envelope = rawMsg as { id?: string; type?: string; data?: Record<string, unknown> }
       const evt: LiveEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: envelope.id || `fallback-${Date.now()}`,
         type: msg.type,
         message: (d.message as string) || msg.type.replace(/\./g, ' '),
         severity: (d.severity as LiveEvent['severity']) || 'info',

@@ -207,6 +207,11 @@ type Config struct {
 
 	NATSConsumerLagAlertThreshold int `envconfig:"NATS_CONSUMER_LAG_ALERT_THRESHOLD" default:"10000"`
 	NATSConsumerLagPollSec        int `envconfig:"NATS_CONSUMER_LAG_POLL_SECONDS"    default:"30"`
+
+	CapacitySIMs          int `envconfig:"ARGUS_CAPACITY_SIM"                  default:"15000000"`
+	CapacitySessions      int `envconfig:"ARGUS_CAPACITY_SESSION"              default:"2000000"`
+	CapacityAuthPerSec    int `envconfig:"ARGUS_CAPACITY_AUTH"                 default:"5000"`
+	CapacityMonthlyGrowth int `envconfig:"ARGUS_CAPACITY_GROWTH_SIMS_MONTHLY"  default:"72000"`
 }
 
 func Load() (*Config, error) {

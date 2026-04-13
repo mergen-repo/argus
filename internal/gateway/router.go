@@ -78,6 +78,7 @@ type RouterDeps struct {
 	ReliabilityHandler      *systemapi.ReliabilityHandler
 	StatusHandler           *systemapi.StatusHandler
 	RevokeSessionsHandler   *systemapi.RevokeSessionsHandler
+	CapacityHandler         *systemapi.CapacityHandler
 	OnboardingHandler       *onboardingapi.Handler
 	WebhookHandler          *webhookapi.Handler
 	SMSHandler              *smsapi.Handler
@@ -300,6 +301,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("operator_manager"))
 			r.Get("/api/v1/operators/{id}/health", deps.OperatorHandler.GetHealth)
+			r.Get("/api/v1/operators/{id}/health-history", deps.OperatorHandler.GetHealthHistory)
+			r.Get("/api/v1/operators/{id}/metrics", deps.OperatorHandler.GetMetrics)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -316,6 +319,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/apns", deps.APNHandler.List)
 			r.Get("/api/v1/apns/{id}", deps.APNHandler.Get)
 			r.Get("/api/v1/apns/{id}/sims", deps.APNHandler.ListSIMs)
+			r.Get("/api/v1/apns/{id}/traffic", deps.APNHandler.GetTraffic)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -559,6 +563,12 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/policy-violations", deps.ViolationHandler.List)
 			r.Get("/api/v1/policy-violations/counts", deps.ViolationHandler.CountByType)
 		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("policy_editor"))
+			r.Post("/api/v1/policy-violations/{id}/acknowledge", deps.ViolationHandler.Acknowledge)
+		})
 	}
 
 	if deps.SessionHandler != nil {
@@ -656,6 +666,12 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	if deps.ReportsHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("api_user"))
+			r.Get("/api/v1/reports/definitions", deps.ReportsHandler.ListDefinitions)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Post("/api/v1/reports/generate", deps.ReportsHandler.Generate)
 			r.Get("/api/v1/reports/scheduled", deps.ReportsHandler.ListScheduled)
@@ -697,6 +713,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/system/revoke-all-sessions", deps.RevokeSessionsHandler.RevokeAll)
+		})
+	}
+
+	if deps.CapacityHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/system/capacity", deps.CapacityHandler.Get)
 		})
 	}
 

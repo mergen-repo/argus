@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,21 +14,29 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var (
+	ErrAlreadyAcknowledged = errors.New("store: violation already acknowledged")
+	ErrViolationNotFound   = errors.New("store: violation not found")
+)
+
 type PolicyViolation struct {
-	ID            uuid.UUID       `json:"id"`
-	TenantID      uuid.UUID       `json:"tenant_id"`
-	SimID         uuid.UUID       `json:"sim_id"`
-	PolicyID      uuid.UUID       `json:"policy_id"`
-	VersionID     uuid.UUID       `json:"version_id"`
-	RuleIndex     int             `json:"rule_index"`
-	ViolationType string          `json:"violation_type"`
-	ActionTaken   string          `json:"action_taken"`
-	Details       json.RawMessage `json:"details"`
-	SessionID     *uuid.UUID      `json:"session_id,omitempty"`
-	OperatorID    *uuid.UUID      `json:"operator_id,omitempty"`
-	APNID         *uuid.UUID      `json:"apn_id,omitempty"`
-	Severity      string          `json:"severity"`
-	CreatedAt     time.Time       `json:"created_at"`
+	ID                  uuid.UUID       `json:"id"`
+	TenantID            uuid.UUID       `json:"tenant_id"`
+	SimID               uuid.UUID       `json:"sim_id"`
+	PolicyID            uuid.UUID       `json:"policy_id"`
+	VersionID           uuid.UUID       `json:"version_id"`
+	RuleIndex           int             `json:"rule_index"`
+	ViolationType       string          `json:"violation_type"`
+	ActionTaken         string          `json:"action_taken"`
+	Details             json.RawMessage `json:"details"`
+	SessionID           *uuid.UUID      `json:"session_id,omitempty"`
+	OperatorID          *uuid.UUID      `json:"operator_id,omitempty"`
+	APNID               *uuid.UUID      `json:"apn_id,omitempty"`
+	Severity            string          `json:"severity"`
+	CreatedAt           time.Time       `json:"created_at"`
+	AcknowledgedAt      *time.Time      `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy      *uuid.UUID      `json:"acknowledged_by,omitempty"`
+	AcknowledgmentNote  *string         `json:"acknowledgment_note,omitempty"`
 }
 
 type CreateViolationParams struct {
@@ -52,6 +61,7 @@ type ListViolationsParams struct {
 	Severity      string
 	SimID         *uuid.UUID
 	PolicyID      *uuid.UUID
+	Acknowledged  *bool
 }
 
 type PolicyViolationStore struct {
@@ -130,12 +140,19 @@ func (s *PolicyViolationStore) List(ctx context.Context, tenantID uuid.UUID, par
 		args = append(args, *params.PolicyID)
 		argIdx++
 	}
+	if params.Acknowledged != nil {
+		if *params.Acknowledged {
+			conditions = append(conditions, "acknowledged_at IS NOT NULL")
+		} else {
+			conditions = append(conditions, "acknowledged_at IS NULL")
+		}
+	}
 
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 	args = append(args, params.Limit+1)
 
 	query := fmt.Sprintf(
-		`SELECT id, tenant_id, sim_id, policy_id, version_id, rule_index, violation_type, action_taken, details, session_id, operator_id, apn_id, severity, created_at
+		`SELECT id, tenant_id, sim_id, policy_id, version_id, rule_index, violation_type, action_taken, details, session_id, operator_id, apn_id, severity, created_at, acknowledged_at, acknowledged_by, acknowledgment_note
 		 FROM policy_violations WHERE %s ORDER BY created_at DESC LIMIT %s`,
 		strings.Join(conditions, " AND "), limitPlaceholder,
 	)
@@ -153,6 +170,7 @@ func (s *PolicyViolationStore) List(ctx context.Context, tenantID uuid.UUID, par
 			&v.ID, &v.TenantID, &v.SimID, &v.PolicyID, &v.VersionID,
 			&v.RuleIndex, &v.ViolationType, &v.ActionTaken, &v.Details,
 			&v.SessionID, &v.OperatorID, &v.APNID, &v.Severity, &v.CreatedAt,
+			&v.AcknowledgedAt, &v.AcknowledgedBy, &v.AcknowledgmentNote,
 		); err != nil {
 			return nil, "", fmt.Errorf("store: scan policy violation: %w", err)
 		}
@@ -193,19 +211,56 @@ func (s *PolicyViolationStore) CountByType(ctx context.Context, tenantID uuid.UU
 func (s *PolicyViolationStore) GetByID(ctx context.Context, id uuid.UUID) (*PolicyViolation, error) {
 	var v PolicyViolation
 	err := s.db.QueryRow(ctx,
-		`SELECT id, tenant_id, sim_id, policy_id, version_id, rule_index, violation_type, action_taken, details, session_id, operator_id, apn_id, severity, created_at
+		`SELECT id, tenant_id, sim_id, policy_id, version_id, rule_index, violation_type, action_taken, details, session_id, operator_id, apn_id, severity, created_at, acknowledged_at, acknowledged_by, acknowledgment_note
 		 FROM policy_violations WHERE id = $1`,
 		id,
 	).Scan(
 		&v.ID, &v.TenantID, &v.SimID, &v.PolicyID, &v.VersionID,
 		&v.RuleIndex, &v.ViolationType, &v.ActionTaken, &v.Details,
 		&v.SessionID, &v.OperatorID, &v.APNID, &v.Severity, &v.CreatedAt,
+		&v.AcknowledgedAt, &v.AcknowledgedBy, &v.AcknowledgmentNote,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("violation not found")
+			return nil, ErrViolationNotFound
 		}
 		return nil, fmt.Errorf("store: get policy violation: %w", err)
+	}
+	return &v, nil
+}
+
+func (s *PolicyViolationStore) Acknowledge(ctx context.Context, id, tenantID, userID uuid.UUID, note string) (*PolicyViolation, error) {
+	var notePtr *string
+	if note != "" {
+		notePtr = &note
+	}
+
+	var v PolicyViolation
+	err := s.db.QueryRow(ctx,
+		`UPDATE policy_violations
+		 SET acknowledged_at = NOW(), acknowledged_by = $3, acknowledgment_note = $4
+		 WHERE id = $1 AND tenant_id = $2 AND acknowledged_at IS NULL
+		 RETURNING id, tenant_id, sim_id, policy_id, version_id, rule_index, violation_type, action_taken, details, session_id, operator_id, apn_id, severity, created_at, acknowledged_at, acknowledged_by, acknowledgment_note`,
+		id, tenantID, userID, notePtr,
+	).Scan(
+		&v.ID, &v.TenantID, &v.SimID, &v.PolicyID, &v.VersionID,
+		&v.RuleIndex, &v.ViolationType, &v.ActionTaken, &v.Details,
+		&v.SessionID, &v.OperatorID, &v.APNID, &v.Severity, &v.CreatedAt,
+		&v.AcknowledgedAt, &v.AcknowledgedBy, &v.AcknowledgmentNote,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		checkErr := s.db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM policy_violations WHERE id = $1 AND tenant_id = $2)`,
+			id, tenantID,
+		).Scan(&exists)
+		if checkErr != nil || !exists {
+			return nil, ErrViolationNotFound
+		}
+		return nil, ErrAlreadyAcknowledged
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: acknowledge violation: %w", err)
 	}
 	return &v, nil
 }
