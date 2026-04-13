@@ -32,3 +32,5 @@ STEP_3 FIX sessions/index.tsx: replace:false→replace:true in setFilterText (li
 STEP_3 FINAL_GATES: EXECUTED | tsc=clean | npm_build=ok (✓ built in 3.71s) | result=PASS
 STEP_3 GATE: EXECUTED | passes=6 | fixes=3 | result=PASS
 STEP_4 REVIEW: EXECUTED | items=11 | evidence=STORY-070-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=e5178a0 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS
