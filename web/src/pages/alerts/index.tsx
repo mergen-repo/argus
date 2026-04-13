@@ -1,13 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle, AlertTriangle, Info, CheckCircle, Clock, Shield,
   ChevronDown, ChevronUp, Search, BellOff, ExternalLink, BookOpen,
   RefreshCw, Eye, Radio, Zap, Wifi, WifiOff, Database, Lock,
-  Activity, TrendingUp,
+  Activity, TrendingUp, MessageSquare,
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +20,8 @@ import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
 import type { Anomaly } from '@/types/analytics'
 import type { ListResponse } from '@/types/sim'
+import { AlertActionButtons } from './_partials/alert-actions'
+import { CommentThread } from './_partials/comment-thread'
 
 interface AlertFilters {
   severity: string
@@ -241,26 +242,6 @@ function useAlerts(filters: AlertFilters) {
   })
 }
 
-function useAcknowledgeAlert() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => {
-      return api.patch(`/analytics/anomalies/${id}`, { state: 'acknowledged' })
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
-  })
-}
-
-function useResolveAlert() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => {
-      return api.patch(`/analytics/anomalies/${id}`, { state: 'resolved' })
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
-  })
-}
-
 function useRealtimeAlertUpdates() {
   const qc = useQueryClient()
 
@@ -465,23 +446,32 @@ function AlertCardExpanded({ anomaly }: { anomaly: Anomaly }) {
   )
 }
 
+function statePill(state: string) {
+  switch (state) {
+    case 'open':
+      return <Badge className="bg-danger-dim text-danger border-0 text-[10px] flex-shrink-0">open</Badge>
+    case 'acknowledged':
+      return <Badge className="bg-warning-dim text-warning border-0 text-[10px] flex-shrink-0">ack</Badge>
+    case 'resolved':
+      return <Badge className="bg-success-dim text-success border-0 text-[10px] flex-shrink-0">resolved</Badge>
+    case 'false_positive':
+      return <Badge className="bg-bg-elevated text-text-tertiary border border-border text-[10px] flex-shrink-0">false+</Badge>
+    default:
+      return null
+  }
+}
+
 function AlertCard({
   anomaly,
   isExpanded,
   onToggle,
-  onAcknowledge,
-  onResolve,
-  isAcking,
-  isResolving,
+  onCommentOpen,
   delay,
 }: {
   anomaly: Anomaly
   isExpanded: boolean
   onToggle: () => void
-  onAcknowledge: () => void
-  onResolve: () => void
-  isAcking: boolean
-  isResolving: boolean
+  onCommentOpen: () => void
   delay: number
 }) {
   const navigate = useNavigate()
@@ -511,6 +501,8 @@ function AlertCard({
         <Badge variant={severityBadgeVariant(anomaly.severity)} className="text-[10px] flex-shrink-0">
           {anomaly.severity}
         </Badge>
+
+        {statePill(anomaly.state)}
 
         <div className="flex-1 min-w-0">
           <p className={cn(
@@ -542,36 +534,17 @@ function AlertCard({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          {anomaly.state === 'open' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[11px] gap-1 text-info hover:text-info"
-              onClick={onAcknowledge}
-              disabled={isAcking}
-            >
-              {isAcking ? <Spinner className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              <span className="hidden lg:inline">ACK</span>
-            </Button>
-          )}
-          {(anomaly.state === 'open' || anomaly.state === 'acknowledged') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[11px] gap-1 text-success hover:text-success"
-              onClick={onResolve}
-              disabled={isResolving}
-            >
-              {isResolving ? <Spinner className="h-3 w-3" /> : <CheckCircle className="h-3 w-3" />}
-              <span className="hidden lg:inline">Resolve</span>
-            </Button>
-          )}
-          {anomaly.state === 'resolved' && (
-            <Badge variant="success" className="text-[10px]">Resolved</Badge>
-          )}
-          {anomaly.state === 'acknowledged' && (
-            <Badge variant="secondary" className="text-[10px]">ACK</Badge>
-          )}
+          <AlertActionButtons anomaly={anomaly} />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCommentOpen}
+            className="h-7 w-7 p-0 text-text-tertiary hover:text-accent"
+            aria-label="Investigation thread"
+            title="Investigation thread"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </Button>
         </div>
 
         <div className="flex-shrink-0 text-text-tertiary">
@@ -656,7 +629,7 @@ export default function AlertsPage() {
   })
   const [searchInput, setSearchInput] = useState('')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [mutatingIds, setMutatingIds] = useState<Record<string, 'ack' | 'resolve'>>({})
+  const [commentAnomalyId, setCommentAnomalyId] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -664,9 +637,6 @@ export default function AlertsPage() {
   const {
     data, isLoading, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage,
   } = useAlerts(filters)
-
-  const ackMutation = useAcknowledgeAlert()
-  const resolveMutation = useResolveAlert()
 
   useRealtimeAlertUpdates()
 
@@ -701,32 +671,6 @@ export default function AlertsPage() {
       return next
     })
   }, [])
-
-  const handleAcknowledge = useCallback(async (id: string) => {
-    setMutatingIds((prev) => ({ ...prev, [id]: 'ack' }))
-    try {
-      await ackMutation.mutateAsync(id)
-    } finally {
-      setMutatingIds((prev) => {
-        const next = { ...prev }
-        delete next[id]
-        return next
-      })
-    }
-  }, [ackMutation])
-
-  const handleResolve = useCallback(async (id: string) => {
-    setMutatingIds((prev) => ({ ...prev, [id]: 'resolve' }))
-    try {
-      await resolveMutation.mutateAsync(id)
-    } finally {
-      setMutatingIds((prev) => {
-        const next = { ...prev }
-        delete next[id]
-        return next
-      })
-    }
-  }, [resolveMutation])
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -884,10 +828,7 @@ export default function AlertsPage() {
               anomaly={anomaly}
               isExpanded={expandedIds.has(anomaly.id)}
               onToggle={() => toggleExpanded(anomaly.id)}
-              onAcknowledge={() => handleAcknowledge(anomaly.id)}
-              onResolve={() => handleResolve(anomaly.id)}
-              isAcking={mutatingIds[anomaly.id] === 'ack'}
-              isResolving={mutatingIds[anomaly.id] === 'resolve'}
+              onCommentOpen={() => setCommentAnomalyId(anomaly.id)}
               delay={300 + Math.min(idx, 10) * 40}
             />
           ))}
@@ -908,6 +849,14 @@ export default function AlertsPage() {
             Showing all {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
           </p>
         </div>
+      )}
+
+      {commentAnomalyId && (
+        <CommentThread
+          anomalyId={commentAnomalyId}
+          open={!!commentAnomalyId}
+          onClose={() => setCommentAnomalyId(null)}
+        />
       )}
     </div>
   )

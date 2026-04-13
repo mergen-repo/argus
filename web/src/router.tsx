@@ -65,6 +65,15 @@ const DataPortabilityPage = lazy(() => import('@/pages/compliance/data-portabili
 const RoamingAgreementsPage = lazy(() => import('@/pages/roaming/index'))
 const RoamingAgreementDetailPage = lazy(() => import('@/pages/roaming/detail'))
 
+const OpsPerformancePage = lazy(() => import('@/pages/ops/performance'))
+const OpsErrorsPage = lazy(() => import('@/pages/ops/errors'))
+const OpsAAATrafficPage = lazy(() => import('@/pages/ops/aaa-traffic'))
+const OpsInfraPage = lazy(() => import('@/pages/ops/infra'))
+const OpsJobsPage = lazy(() => import('@/pages/ops/jobs'))
+const OpsBackupPage = lazy(() => import('@/pages/ops/backup'))
+const OpsDeploysPage = lazy(() => import('@/pages/ops/deploys'))
+const OpsIncidentsPage = lazy(() => import('@/pages/ops/incidents'))
+
 function LazyFallback() {
   return (
     <div className="flex items-center justify-center h-full min-h-[200px]">
@@ -139,6 +148,14 @@ export const router = createBrowserRouter([
           { path: '/roaming-agreements/:id', element: lazySuspense(RoamingAgreementDetailPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
+          { path: '/ops/performance', element: lazySuspense(OpsPerformancePage) },
+          { path: '/ops/errors', element: lazySuspense(OpsErrorsPage) },
+          { path: '/ops/aaa-traffic', element: lazySuspense(OpsAAATrafficPage) },
+          { path: '/ops/infra', element: lazySuspense(OpsInfraPage) },
+          { path: '/ops/jobs', element: lazySuspense(OpsJobsPage) },
+          { path: '/ops/backup', element: lazySuspense(OpsBackupPage) },
+          { path: '/ops/deploys', element: lazySuspense(OpsDeploysPage) },
+          { path: '/ops/incidents', element: lazySuspense(OpsIncidentsPage) },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

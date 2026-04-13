@@ -1674,3 +1674,35 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-072: Enterprise Observability Screens
+
+### Backend / Altyapi (8 senaryo)
+
+1. **Ops Snapshot (API-236)**: `super_admin` JWT ile `GET /api/v1/ops/metrics/snapshot` → `{status:"success", data:{http_p50, http_p95, http_p99, aaa_auth_rate, active_sessions, error_rate, memory_bytes, goroutines}}` dönmeli. `tenant_admin` JWT ile → 403 Forbidden dönmeli.
+2. **Snapshot cache**: 5 saniye içinde iki kez `GET /api/v1/ops/metrics/snapshot` → ikinci yanıt birinciyle identik `data` dönmeli (aynı timestamp; cache hit). 6 saniye bekleyip tekrar → farklı değerler (cache miss).
+3. **Infra Health (API-237)**: `GET /api/v1/ops/infra-health` → `{db:{open_conns, idle_conns}, nats:{stream_bytes, consumers, pending, consumer_lag:[...]}, redis:{memory_used, hit_ratio}}` dönmeli. Redis bölümü `redisCachedAt.IsZero()` durumunda bile boş struct döndürmemeli (ilk çağrı cache miss → gerçek Redis sorgusu).
+4. **Infra Health — NATS consumer lag**: `nats.consumer_lag` listesinin en az 1 entry içermesi için NATS'te aktif bir consumer'ın bulunması gerekir; `go test ./internal/api/ops/...` → `TestInfraHealth_NATSConsumerLag` geçmeli.
+5. **Incidents (API-238)**: `GET /api/v1/ops/incidents` → anomalies + audit_logs merged liste dönmeli; `source` alanı `"anomaly"` veya `"audit"`, `severity` alanı mevcut; satırlar severity DESC + created_at DESC sırasında olmali. 200 satır limiti aşılırsa LIMIT kesilmeli.
+6. **Anomaly Comments (API-239/240)**: `POST /api/v1/analytics/anomalies/{id}/comments` body `{"body":"test comment"}` → 201 Created + `{status:"success", data:{id, body, author_email, created_at}}` dönmeli. `GET .../comments` → listedeki ilk satır en yeni yorum olmali (created_at DESC). 2001 karakter body → 422 dönmeli.
+7. **Anomaly Escalate (API-241)**: `POST /api/v1/analytics/anomalies/{id}/escalate` body `{"note":"urgent"}` → 200 + anomaly `state:"escalated"` dönmeli; `GET .../comments` listesinde escalation note'u içeren yorum görülmeli. `note` boş gönderilirse yorum satırı oluşturulmamalı.
+8. **Migration reversibility**: `migrate -path migrations down 1` → `20260415000001_anomaly_comments.down.sql` çalışmalı; `anomaly_comments` tablosu ve RLS policy kalkmalı.
+
+### Frontend (6 senaryo)
+
+9. **Sidebar OPERATIONS grubu**: Giriş yapıldığında sol sidebar'da `OPERATIONS — SRE` başlığı altında 8 menü ögesi görülmeli: Performance, Errors, AAA Traffic, Infrastructure, Job Queue, Backup, Deploys, Incidents. `tenant_admin` rolündeyken bu grup görünmemeli (minRole: super_admin).
+10. **SCR-160 Performance (SCR-130 alias)**: `/ops/performance` → HTTP p50/p95/p99 sparkline'ları ve AAA auth rate görülmeli; 15 saniyede bir otomatik yenilenmeli. WebSocket `metrics.realtime` eventi geldiğinde sparkline'lar aralarındaki interval beklemeksizin güncellenmeli (AAA Traffic sayfasında da aynı davranış).
+11. **SCR-163/164/165 Infra sekmeleri**: `/ops/infra` → NATS / DB / Redis sekmeleri; her sekme ilgili `infra-health` bölümünü göstermeli. Redis sekmesindeki `hit_ratio` değeri `%` ile formatlanmali.
+12. **SCR-169 Incidents timeline**: `/ops/incidents` → olaylar severity badgeleri (critical/high/medium/low) ve `source` ikonu (anomaly vs audit) ile listelenmeli; severity DESC sıralı görünmeli. Sayfa boşsa "No incidents" empty state görülmeli.
+13. **Alert ack/resolve/escalate UX (AC-11)**: `/alerts` → bir uyarı satırına tıkla → Acknowledge, Resolve, Escalate butonları görülmeli. Acknowledge dialog'u → not gir → submit → uyarı listesi güncellenmeli; not girildiğinde anomaly comment olarak kaydedilmeli (API-239/240 ile doğrulanabilir). Escalate → state "escalated" olmalı.
+14. **WS indicator (AC-12)**: `/ops/performance` ekranında topbar WS rozeti yeşil/sarı/kırmızı durumda görülmeli; rozete tıklanınca yeniden bağlantı denemesi başlatılmalı (click-to-reconnect).
+
+### Test command
+```bash
+make test   # 2682 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (~3.8s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

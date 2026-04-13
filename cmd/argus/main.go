@@ -36,6 +36,7 @@ import (
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	notifapi "github.com/btopcu/argus/internal/api/notification"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
+	opsapi "github.com/btopcu/argus/internal/api/ops"
 	reportsapi "github.com/btopcu/argus/internal/api/reports"
 	roamingapi "github.com/btopcu/argus/internal/api/roaming"
 	smsapi "github.com/btopcu/argus/internal/api/sms"
@@ -380,7 +381,11 @@ func main() {
 	if err := anomalyEngine.Start(&eventBusAnomalySubscriber{eventBus}); err != nil {
 		log.Warn().Err(err).Msg("failed to start anomaly engine")
 	}
-	anomalyHandler := anomalyapi.NewHandler(anomalyStore, auditSvc, log.Logger)
+	anomalyCommentStore := store.NewAnomalyCommentStore(pg.Pool)
+	anomalyHandler := anomalyapi.NewHandler(anomalyStore, auditSvc, log.Logger,
+		anomalyapi.WithCommentStore(anomalyCommentStore),
+		anomalyapi.WithUserStore(userStore),
+	)
 
 	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
 	batchDetector := anomalysvc.NewBatchDetector(
@@ -999,6 +1004,16 @@ func main() {
 	reliabilityBackupStore := store.NewBackupStore(pg.Pool)
 	reliabilityHandler := systemapi.NewReliabilityHandler(reliabilityBackupStore, auditStore, cfg, log.Logger)
 
+	opsHandler := opsapi.NewHandler(
+		metricsReg,
+		pg.Pool,
+		rdb.Client,
+		ns.JetStream,
+		auditStore,
+		anomalyStore,
+		log.Logger,
+	)
+
 	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
 
 	capacitySimStore := store.NewSIMStore(pg.Pool)
@@ -1068,6 +1083,7 @@ func main() {
 		RoamingHandler:      roamingHandler,
 		WebhookHandler:      webhookHandler,
 		SMSHandler:          smsHandler,
+		OpsHandler:          opsHandler,
 		APIKeyStore:        apiKeyStore,
 		TenantLimits:       tenantLimits,
 		RedisClient:        rdb.Client,

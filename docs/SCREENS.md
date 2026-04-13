@@ -1,6 +1,7 @@
 # Screen Index — Argus
 
-> Total: 35 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071
+> Total: 47 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072
+> Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169.
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
 
@@ -47,3 +48,13 @@
 | SCR-134 | Notification Preferences | Settings | /settings/notifications#preferences | JWT (tenant_admin+) | STORY-069 AC-7/8: preferences matrix + templates editor (tabs on SCR-113) |
 | SCR-150 | Roaming Agreements List | Operator | /roaming-agreements | JWT (api_user+) | STORY-071: list with state/type badges, operator column, cursor pagination, empty state; New Agreement slide-panel; operator_manager can create |
 | SCR-151 | Roaming Agreement Detail | Operator | /roaming-agreements/:id | JWT (api_user+) | STORY-071: SLA terms, cost terms, validity timeline progress bar, auto-renew checkbox, notes; operator_manager can update/terminate |
+| SCR-160 | Ops Performance | Operations (SRE) | /ops/performance | JWT (super_admin) | STORY-072 SCR-130 alias: HTTP p50/p95/p99 latency trend, AAA auth rate, error rate sparklines; 15s polling + WS realtime invalidation |
+| SCR-161 | Ops Errors | Operations (SRE) | /ops/errors | JWT (super_admin) | STORY-072 SCR-131 alias: Error rate histogram, top error codes table, 4xx/5xx breakdown; sourced from Ops Snapshot |
+| SCR-162 | Ops AAA Traffic | Operations (SRE) | /ops/aaa-traffic | JWT (super_admin) | STORY-072 SCR-132 alias: AAA auth volume, active sessions gauge, success/failure ratio ring chart; WebSocket-fed realtime + 5s poll |
+| SCR-163 | Ops Infra — NATS Panel | Operations (SRE) | /ops/infra#nats | JWT (super_admin) | STORY-072 SCR-133 alias: NATS stream bytes/consumers/pending; per-consumer lag list; sourced from Infra Health |
+| SCR-164 | Ops Infra — DB Panel | Operations (SRE) | /ops/infra#db | JWT (super_admin) | STORY-072 SCR-134 alias: PG pool open/idle connections, acquired/wait duration counters; sourced from Infra Health |
+| SCR-165 | Ops Infra — Redis Panel | Operations (SRE) | /ops/infra#redis | JWT (super_admin) | STORY-072 SCR-135 alias: Redis memory used, hit ratio, key-count; sourced from Infra Health |
+| SCR-166 | Ops Job Queue | Operations (SRE) | /ops/jobs | JWT (super_admin) | STORY-072 SCR-136 alias: Job queue depth, running/queued/failed counts, recent job rows; sourced from /api/v1/jobs |
+| SCR-167 | Ops Backup | Operations (SRE) | /ops/backup | JWT (super_admin) | STORY-072 SCR-137 alias: Last backup run status, size, checksum, S3 key; backup_runs table summary; sourced from /api/v1/system/backups |
+| SCR-168 | Ops Deploys | Operations (SRE) | /ops/deploys | JWT (super_admin) | STORY-072 SCR-138 alias: Deployment history list (color/version/timestamp/initiator); sourced from /api/v1/system/deploys |
+| SCR-169 | Ops Incidents Timeline | Operations (SRE) | /ops/incidents | JWT (super_admin) | STORY-072 SCR-139 alias: Severity-sorted merged anomaly+audit incident feed (LIMIT 200); sourced from API-238 |

@@ -29,6 +29,13 @@ import {
   Clock,
   Lock,
   Handshake,
+  Gauge,
+  XCircle,
+  Antenna,
+  Server,
+  Archive,
+  Rocket,
+  History,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -101,6 +108,20 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Health', icon: HeartPulse, path: '/system/health' },
       { label: 'Tenants', icon: Building, path: '/system/tenants' },
+    ],
+  },
+  {
+    title: 'OPERATIONS — SRE',
+    minRole: 'super_admin',
+    items: [
+      { label: 'Performance', icon: Gauge, path: '/ops/performance' },
+      { label: 'Errors', icon: XCircle, path: '/ops/errors' },
+      { label: 'AAA Live', icon: Antenna, path: '/ops/aaa-traffic' },
+      { label: 'Infra', icon: Server, path: '/ops/infra' },
+      { label: 'Job Queue', icon: ListTodo, path: '/ops/jobs' },
+      { label: 'Backups', icon: Archive, path: '/ops/backup' },
+      { label: 'Deploys', icon: Rocket, path: '/ops/deploys' },
+      { label: 'Incidents', icon: History, path: '/ops/incidents' },
     ],
   },
 ]

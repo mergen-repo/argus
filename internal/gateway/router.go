@@ -6,6 +6,7 @@ import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
+	opsapi "github.com/btopcu/argus/internal/api/ops"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
 	roamingapi "github.com/btopcu/argus/internal/api/roaming"
@@ -84,6 +85,7 @@ type RouterDeps struct {
 	RoamingHandler          *roamingapi.Handler
 	WebhookHandler          *webhookapi.Handler
 	SMSHandler              *smsapi.Handler
+	OpsHandler              *opsapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
 	RedisClient      *redis.Client
@@ -782,6 +784,26 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	}
 
 	})
+
+	if deps.OpsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/ops/metrics/snapshot", deps.OpsHandler.Snapshot)
+			r.Get("/api/v1/ops/infra-health", deps.OpsHandler.InfraHealth)
+			r.Get("/api/v1/ops/incidents", deps.OpsHandler.Incidents)
+		})
+	}
+
+	if deps.AnomalyHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/analytics/anomalies/{id}/comments", deps.AnomalyHandler.ListComments)
+			r.Post("/api/v1/analytics/anomalies/{id}/comments", deps.AnomalyHandler.AddComment)
+			r.Post("/api/v1/analytics/anomalies/{id}/escalate", deps.AnomalyHandler.Escalate)
+		})
+	}
 
 	var handler http.Handler = r
 	handler = otelhttp.NewHandler(handler, "argus.http",

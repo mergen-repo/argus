@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-13
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 15/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 16/22 stories
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 15/22
-> Current story: STORY-072
+> Stories completed: 55/55 (100%) — Phase 10: 16/22
+> Current story: STORY-073
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 15/22
-> Current story: STORY-072
+> Stories completed: 16/22
+> Current story: STORY-073
 > Current step: —
 > Mode: AUTOPILOT
 > Started: 2026-04-13
@@ -187,7 +187,7 @@
 | STORY-069 | Onboarding, Reporting & Notification Completeness | L | [x] DONE | — | STORY-059, STORY-063, STORY-065 | 2026-04-13 |
 | STORY-070 | Frontend Real-Data Wiring | L | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-069 | 2026-04-13 |
 | STORY-071 | Roaming Agreement Management | M | [x] DONE | — | STORY-063 | 2026-04-13 |
-| STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |
+| STORY-072 | Enterprise Observability Screens | XL | [x] DONE | — | STORY-065, STORY-066, STORY-067 | 2026-04-13 |
 | STORY-073 | Multi-Tenant Admin & Compliance Screens | L | [ ] PENDING | — | STORY-068, STORY-069 | — |
 
 ### Wave 5 — Cross-Entity UX & Final Polish [parallel]

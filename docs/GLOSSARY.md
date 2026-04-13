@@ -252,6 +252,16 @@
 | Tenant Resource Limits | Enforced ceiling on per-tenant resource counts: `max_sims`, `max_apns`, `max_users`, `max_api_keys` columns in TBL-01. A middleware layer intercepts create operations (SIM, APN, user, api_key), reads current counts from store via `CountByTenant` methods, and compares against cached (5min Redis TTL) limit values. Exceeded limits return `TENANT_LIMIT_EXCEEDED` with `resource/current/max` payload. Limit value 0 = unlimited (backwards compat). | STORY-068 AC-8, TBL-01 |
 | Audit Helper (httpaudit) | `internal/audit/httpaudit.go` — DRY utility providing `RecordFromRequest(ctx, r, action, entityType, entityID, before, after)` for HTTP handlers. Extracts tenant_id, user_id, IP, user_agent from request context and delegates to `auditor.Record()`. All 13 STORY-068 mutation endpoints use this helper. | STORY-068 AC-9, `internal/audit/httpaudit.go` |
 
+## SRE Operations Terms
+
+| Term | Definition | Context |
+|------|-----------|---------|
+| Ops Snapshot | A point-in-time summary of platform health metrics sourced from the Prometheus registry: HTTP p50/p95/p99 latency, AAA authentication rate, active session count, error rate, memory in-use, and goroutine count. Served by `GET /api/v1/ops/metrics/snapshot` with a 5s in-memory TTL cache to avoid redundant `prometheus.Registry.Gather()` calls during multi-tab SRE dashboard polling. | SVC-01, STORY-072, API-236, `internal/api/ops/snapshot.go` |
+| Infra Health | A structured view of internal infrastructure component status: DB pool (open/idle connections, acquired/query duration), NATS JetStream (stream bytes/consumers/pending, per-consumer lag), and Redis (memory used, hit ratio). Served by `GET /api/v1/ops/infra-health` (super_admin only); Redis section has 5s TTL; DB/NATS sections are queried live. | SVC-01, STORY-072, API-237, `internal/api/ops/infra_health.go` |
+| Incident Timeline | A merged, severity-sorted list of anomaly detection events and critical audit log entries for a given tenant, bounded to 200 entries. Served by `GET /api/v1/ops/incidents`. Items carry a `source` field (`anomaly` or `audit`), severity, and timestamp. Sorting: severity DESC then timestamp DESC. Used for the SCR-169 Incidents page. | SVC-07/SVC-10, STORY-072, API-238, `internal/api/ops/incidents.go`, TBL-28 |
+| Anomaly Comment | A user-authored note attached to an anomaly record (TBL-44). Comments are append-only (no edit/delete), author-attributed via `LEFT JOIN users`, and paginated chronologically. Body limited to 2000 characters. Created via `POST /api/v1/analytics/anomalies/{id}/comments`. State-transition notes (Ack/Resolve/Escalate) are also persisted as comments when a `note` field is provided. | SVC-07, STORY-072, API-239/240, TBL-44, `internal/store/anomaly_comment.go` |
+| Anomaly Escalation | An anomaly lifecycle transition (`state → escalated`) initiated by a tenant admin with an optional note (≤500 chars). The escalation note is persisted as an Anomaly Comment. Served by `POST /api/v1/analytics/anomalies/{id}/escalate`. Complements the existing Acknowledge (`state → acknowledged`) and Resolve (`state → resolved`) transitions. All three transitions accept a `note` field that is persisted as a comment. | SVC-07, STORY-072, API-241, `internal/api/anomaly/handler.go` |
+
 ## Regulatory Terms
 
 | Term | Definition | Context |

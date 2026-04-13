@@ -366,4 +366,22 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 178 REST endpoints + 10 WebSocket event types**
+## Ops Endpoints (3 endpoints) — STORY-072
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-236 | GET | /api/v1/ops/metrics/snapshot | Platform metrics snapshot (HTTP p50/p95/p99, AAA auth rate, active sessions, error rate, memory/goroutines) | JWT (super_admin) | 5s in-memory TTL cache; sources Prometheus Registry + Redis counters |
+| API-237 | GET | /api/v1/ops/infra-health | Infrastructure health detail (DB pool stats, NATS stream info + per-consumer lag, Redis memory/hit rate) | JWT (super_admin) | Sub-5s TTL on Redis section; DB/NATS info queried live |
+| API-238 | GET | /api/v1/ops/incidents | Tenant incident timeline (anomalies + audit events merged, sorted by severity+time, LIMIT 200) | JWT (super_admin) | Per-tenant scoping via store layer; cursor pagination |
+
+## Anomaly Lifecycle Endpoints (3 endpoints) — STORY-072
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-239 | GET | /api/v1/analytics/anomalies/{id}/comments | List comments on an anomaly (chronological, LEFT JOIN users for email) | JWT (tenant_admin) | Indexed on (anomaly_id, created_at DESC); no N+1 |
+| API-240 | POST | /api/v1/analytics/anomalies/{id}/comments | Add comment to an anomaly (body 1..2000 chars) | JWT (tenant_admin) | Writes to TBL-44; RLS via app.current_tenant |
+| API-241 | POST | /api/v1/analytics/anomalies/{id}/escalate | Escalate anomaly with note (≤500 chars); sets state=escalated | JWT (tenant_admin) | State-transition note persisted as comment; audited |
+
+---
+
+**Total: 184 REST endpoints + 10 WebSocket event types**
