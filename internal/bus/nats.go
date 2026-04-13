@@ -35,6 +35,7 @@ const (
 	SubjectAnomalyDetected       = "argus.events.anomaly.detected"
 	SubjectAuthAttempt           = "argus.events.auth.attempt"
 	SubjectIPReclaimed           = "argus.events.ip.reclaimed"
+	SubjectIPReleased            = "argus.events.ip.released"
 	SubjectSLAReportGenerated    = "argus.events.sla.report.generated"
 	SubjectBackupCompleted       = "argus.events.backup.completed"
 	SubjectBackupVerified        = "argus.events.backup.verified"

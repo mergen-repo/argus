@@ -1,10 +1,14 @@
 package notification
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	htmltemplate "html/template"
 	"sync"
+	texttemplate "text/template"
 	"time"
 
 	"github.com/google/uuid"
@@ -111,6 +115,58 @@ type SMSDispatcher interface {
 	SendSMS(ctx context.Context, phoneNumber, message string) error
 }
 
+// PreferenceStore is the read interface for notification_preferences.
+type PreferenceStore interface {
+	Get(ctx context.Context, tenantID uuid.UUID, eventType string) (*Preference, error)
+}
+
+// Preference mirrors store.NotificationPreference for loose coupling.
+type Preference struct {
+	Channels          []string
+	SeverityThreshold string
+	Enabled           bool
+}
+
+// TemplateStore is the read interface for notification_templates.
+type TemplateStore interface {
+	Get(ctx context.Context, eventType, locale string) (*Template, error)
+}
+
+// Template mirrors store.NotificationTemplate for loose coupling.
+type Template struct {
+	Subject  string
+	BodyText string
+	BodyHTML string
+}
+
+// TemplatePayload is the sanitized data struct passed to Go templates.
+// Only whitelisted fields are exposed — no raw event data.
+type TemplatePayload struct {
+	TenantName  string
+	UserName    string
+	EventTime   string
+	EntityID    string
+	ExtraFields map[string]string
+}
+
+// ErrTemplateNotFound is returned by TemplateStore.Get when no template exists.
+var ErrTemplateNotFound = errors.New("notification: template not found")
+
+// severityOrdinal maps severity string to a comparable integer (AC-8 filtering).
+func severityOrdinal(s string) int {
+	switch s {
+	case "info":
+		return 1
+	case "warning":
+		return 2
+	case "error":
+		return 3
+	case "critical":
+		return 4
+	}
+	return 0
+}
+
 type Config struct {
 	Channels      []Channel
 	HealthSubject string
@@ -133,6 +189,9 @@ type Service struct {
 	eventPublisher EventPublisher
 	delivery       *DeliveryTracker
 	notifSubject   string
+
+	prefStore     PreferenceStore
+	templateStore TemplateStore
 
 	mu   sync.Mutex
 	subs []Subscription
@@ -200,6 +259,14 @@ func (s *Service) SetDeliveryTracker(dt *DeliveryTracker) {
 	s.delivery = dt
 }
 
+func (s *Service) SetPrefStore(ps PreferenceStore) {
+	s.prefStore = ps
+}
+
+func (s *Service) SetTemplateStore(ts TemplateStore) {
+	s.templateStore = ts
+}
+
 func (s *Service) Start(subscriber Subscriber, healthSubject, alertSubject string) error {
 	sub1, err := subscriber.QueueSubscribe(healthSubject, "notification-svc", func(subject string, data []byte) {
 		s.handleHealthChanged(data)
@@ -258,7 +325,39 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 		}
 	}
 
-	channelsSent := s.dispatchToChannels(ctx, req.Severity, req.Title, req.Body)
+	// Preference-aware dispatch: look up (tenant, event_type) preference row.
+	// Falls back to legacy s.channels when prefStore is nil or row is absent.
+	activeChannels := s.channels
+	if s.prefStore != nil {
+		pref, err := s.prefStore.Get(ctx, req.TenantID, string(req.EventType))
+		if err != nil {
+			s.logger.Warn().Err(err).Str("event_type", string(req.EventType)).Msg("preference lookup failed, using defaults")
+		} else if pref != nil {
+			if !pref.Enabled {
+				s.logger.Debug().
+					Str("event_type", string(req.EventType)).
+					Msg("notification suppressed by preference (enabled=false)")
+				return nil
+			}
+			if severityOrdinal(req.Severity) < severityOrdinal(pref.SeverityThreshold) {
+				s.logger.Debug().
+					Str("event_type", string(req.EventType)).
+					Str("severity", req.Severity).
+					Str("threshold", pref.SeverityThreshold).
+					Msg("notification suppressed by severity threshold")
+				return nil
+			}
+			prefChannels := make([]Channel, 0, len(pref.Channels))
+			for _, ch := range pref.Channels {
+				prefChannels = append(prefChannels, Channel(ch))
+			}
+			activeChannels = prefChannels
+		}
+	}
+
+	title, bodyText := s.renderContent(ctx, req)
+
+	channelsSent := s.dispatchToActiveChannels(ctx, activeChannels, req.Severity, title, bodyText)
 
 	if s.notifStore != nil {
 		created, err := s.notifStore.Create(ctx, NotifCreateParams{
@@ -267,8 +366,8 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 			EventType:    string(req.EventType),
 			ScopeType:    string(req.ScopeType),
 			ScopeRefID:   req.ScopeRefID,
-			Title:        req.Title,
-			Body:         req.Body,
+			Title:        title,
+			Body:         bodyText,
 			Severity:     req.Severity,
 			ChannelsSent: channelsSent,
 		})
@@ -283,7 +382,7 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 					"id":         created.ID.String(),
 					"tenant_id":  created.TenantID.String(),
 					"event_type": string(req.EventType),
-					"title":      req.Title,
+					"title":      title,
 					"severity":   req.Severity,
 					"created_at": created.CreatedAt.Format(time.RFC3339),
 				}
@@ -301,6 +400,162 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 		Msg("notification dispatched")
 
 	return nil
+}
+
+// renderContent looks up a template for the notification event, renders it with
+// a sanitized TemplatePayload, and returns subject+body. Falls back to a simple
+// fmt.Sprintf default when no template is configured or found.
+func (s *Service) renderContent(ctx context.Context, req NotifyRequest) (subject, bodyText string) {
+	subject = req.Title
+	bodyText = req.Body
+
+	if s.templateStore == nil {
+		return
+	}
+
+	locale := "en"
+	if req.Locale != "" {
+		locale = req.Locale
+	}
+
+	tmpl, err := s.templateStore.Get(ctx, string(req.EventType), locale)
+	if err != nil {
+		if !errors.Is(err, ErrTemplateNotFound) {
+			s.logger.Warn().Err(err).Str("event_type", string(req.EventType)).Msg("template lookup failed, using default")
+		}
+		subject = fmt.Sprintf("Argus: %s event", string(req.EventType))
+		bodyText = req.Body
+		return
+	}
+
+	payload := TemplatePayload{
+		TenantName:  req.TenantName,
+		UserName:    req.UserName,
+		EventTime:   time.Now().Format(time.RFC3339),
+		ExtraFields: req.ExtraFields,
+	}
+	if req.ScopeRefID != nil {
+		payload.EntityID = req.ScopeRefID.String()
+	}
+
+	if parsed, err := texttemplate.New("subject").Parse(tmpl.Subject); err == nil {
+		var buf bytes.Buffer
+		if execErr := parsed.Execute(&buf, payload); execErr == nil {
+			subject = buf.String()
+		}
+	}
+
+	if parsed, err := texttemplate.New("body_text").Parse(tmpl.BodyText); err == nil {
+		var buf bytes.Buffer
+		if execErr := parsed.Execute(&buf, payload); execErr == nil {
+			bodyText = buf.String()
+		}
+	}
+
+	return
+}
+
+// renderHTMLBody renders body_html via html/template for safe HTML output.
+func renderHTMLBody(rawHTML string, payload TemplatePayload) string {
+	parsed, err := htmltemplate.New("body_html").Parse(rawHTML)
+	if err != nil {
+		return rawHTML
+	}
+	var buf bytes.Buffer
+	if err := parsed.Execute(&buf, payload); err != nil {
+		return rawHTML
+	}
+	return buf.String()
+}
+
+// dispatchToActiveChannels dispatches to the provided channel list without mutating s.channels.
+// This keeps the preference-resolved path thread-safe alongside the legacy path.
+func (s *Service) dispatchToActiveChannels(ctx context.Context, channels []Channel, severity, title, body string) []string {
+	var sent []string
+	for _, ch := range channels {
+		switch ch {
+		case ChannelEmail:
+			if s.email != nil {
+				if err := s.email.SendAlert(ctx, title, body); err != nil {
+					s.logger.Error().Err(err).Msg("send email notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.email.SendAlert(retryCtx, title, body)
+					})
+				} else {
+					sent = append(sent, string(ChannelEmail))
+				}
+			}
+		case ChannelTelegram:
+			if s.telegram != nil {
+				msg := fmt.Sprintf("*%s*\n\n%s", title, body)
+				if err := s.telegram.SendMessage(ctx, msg); err != nil {
+					s.logger.Error().Err(err).Msg("send telegram notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.telegram.SendMessage(retryCtx, msg)
+					})
+				} else {
+					sent = append(sent, string(ChannelTelegram))
+				}
+			}
+		case ChannelInApp:
+			if s.inApp != nil {
+				n := InAppNotification{
+					ID:           uuid.New(),
+					AlertType:    severity,
+					Severity:     severity,
+					Title:        title,
+					Body:         body,
+					ChannelsSent: sent,
+					CreatedAt:    time.Now(),
+				}
+				if err := s.inApp.CreateNotification(ctx, n); err != nil {
+					s.logger.Error().Err(err).Msg("create in-app notification")
+				} else {
+					sent = append(sent, string(ChannelInApp))
+				}
+			}
+		case ChannelWebhook:
+			if s.webhook != nil {
+				if err := ValidateWebhookConfig(s.webhookURL, s.webhookSecret); err != nil {
+					s.logger.Error().
+						Err(err).
+						Str("channel", string(ChannelWebhook)).
+						Msg("webhook config invalid, skipping dispatch")
+					continue
+				}
+				p, _ := json.Marshal(map[string]string{
+					"title":    title,
+					"body":     body,
+					"severity": severity,
+				})
+				webhookURL := s.webhookURL
+				webhookSecret := s.webhookSecret
+				if err := s.webhook.SendWebhook(ctx, webhookURL, webhookSecret, string(p)); err != nil {
+					s.logger.Error().Err(err).Msg("send webhook notification")
+					s.scheduleRetry(func() error {
+						retryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						return s.webhook.SendWebhook(retryCtx, webhookURL, webhookSecret, string(p))
+					})
+				} else {
+					sent = append(sent, string(ChannelWebhook))
+				}
+			}
+		case ChannelSMS:
+			if s.sms != nil {
+				if err := s.sms.SendSMS(ctx, "", fmt.Sprintf("%s: %s", title, body)); err != nil {
+					s.logger.Error().Err(err).Msg("send sms notification")
+				} else {
+					sent = append(sent, string(ChannelSMS))
+				}
+			}
+		}
+	}
+	return sent
 }
 
 func (s *Service) handleHealthChanged(data []byte) {

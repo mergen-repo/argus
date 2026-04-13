@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (118 APIs, 31 tables, 10 services)
+> Scale: Large (144 APIs, 31 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -454,7 +454,7 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 124 | API-001 to API-201 |
+| API-NNN | 144 | API-001 to API-223 |
 | TBL-NN | 35 | TBL-01 to TBL-35 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |
@@ -486,7 +486,7 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (124 endpoints + story links) |
+| [architecture/api/](architecture/api/_index.md) | API surface (144 endpoints + story links) |
 | [architecture/db/](architecture/db/_index.md) | Database schema (35 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |

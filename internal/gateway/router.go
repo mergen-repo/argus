@@ -7,6 +7,8 @@ import (
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
+	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
+	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
@@ -16,6 +18,7 @@ import (
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	notifapi "github.com/btopcu/argus/internal/api/notification"
+	smsapi "github.com/btopcu/argus/internal/api/sms"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
@@ -23,6 +26,7 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
+	reportsapi "github.com/btopcu/argus/internal/api/reports"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
 	systemapi "github.com/btopcu/argus/internal/api/system"
 	violationapi "github.com/btopcu/argus/internal/api/violation"
@@ -70,9 +74,13 @@ type RouterDeps struct {
 	ViolationHandler   *violationapi.Handler
 	DashboardHandler     *dashboardapi.Handler
 	SLAHandler           *slaapi.Handler
+	ReportsHandler       *reportsapi.Handler
 	ReliabilityHandler      *systemapi.ReliabilityHandler
 	StatusHandler           *systemapi.StatusHandler
 	RevokeSessionsHandler   *systemapi.RevokeSessionsHandler
+	OnboardingHandler       *onboardingapi.Handler
+	WebhookHandler          *webhookapi.Handler
+	SMSHandler              *smsapi.Handler
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
 	RedisClient      *redis.Client
@@ -584,6 +592,20 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Post("/api/v1/notifications/read-all", deps.NotificationHandler.MarkAllRead)
 			r.Get("/api/v1/notification-configs", deps.NotificationHandler.GetConfigs)
 			r.Put("/api/v1/notification-configs", deps.NotificationHandler.UpdateConfigs)
+			r.Get("/api/v1/notification-templates", deps.NotificationHandler.ListTemplates)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/notification-preferences", deps.NotificationHandler.GetPreferences)
+			r.Put("/api/v1/notification-preferences", deps.NotificationHandler.UpdatePreferences)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Put("/api/v1/notification-templates/{event_type}/{locale}", deps.NotificationHandler.UpsertTemplate)
 		})
 	}
 
@@ -614,6 +636,12 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/compliance/dsar/{simId}", deps.ComplianceHandler.DataSubjectAccess)
 			r.Post("/api/v1/compliance/erasure/{simId}", deps.ComplianceHandler.RightToErasure)
 		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("api_user"))
+			r.Post("/api/v1/compliance/data-portability/{user_id}", deps.ComplianceHandler.RequestDataPortability)
+		})
 	}
 
 	if deps.SLAHandler != nil {
@@ -622,6 +650,23 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/sla-reports", deps.SLAHandler.List)
 			r.Get("/api/v1/sla-reports/{id}", deps.SLAHandler.Get)
+		})
+	}
+
+	if deps.ReportsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("analyst"))
+			r.Post("/api/v1/reports/generate", deps.ReportsHandler.Generate)
+			r.Get("/api/v1/reports/scheduled", deps.ReportsHandler.ListScheduled)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/reports/scheduled", deps.ReportsHandler.CreateScheduled)
+			r.Patch("/api/v1/reports/scheduled/{id}", deps.ReportsHandler.PatchScheduled)
+			r.Delete("/api/v1/reports/scheduled/{id}", deps.ReportsHandler.DeleteScheduled)
 		})
 	}
 
@@ -652,6 +697,36 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Post("/api/v1/system/revoke-all-sessions", deps.RevokeSessionsHandler.RevokeAll)
+		})
+	}
+
+	if deps.OnboardingHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Route("/api/v1", deps.OnboardingHandler.Mount)
+		})
+	}
+
+	if deps.WebhookHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/webhooks", deps.WebhookHandler.List)
+			r.Post("/api/v1/webhooks", deps.WebhookHandler.Create)
+			r.Patch("/api/v1/webhooks/{id}", deps.WebhookHandler.Update)
+			r.Delete("/api/v1/webhooks/{id}", deps.WebhookHandler.Delete)
+			r.Get("/api/v1/webhooks/{id}/deliveries", deps.WebhookHandler.ListDeliveries)
+			r.Post("/api/v1/webhooks/{id}/deliveries/{delivery_id}/retry", deps.WebhookHandler.RetryDelivery)
+		})
+	}
+
+	if deps.SMSHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("sim_manager"))
+			r.Post("/api/v1/sms/send", deps.SMSHandler.Send)
+			r.Get("/api/v1/sms/history", deps.SMSHandler.History)
 		})
 	}
 

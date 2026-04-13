@@ -1,5 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  getStoredSessionID,
+  setStoredSessionID,
+  useStartOnboarding,
+  useSubmitOnboardingStep,
+  useCompleteOnboarding,
+  useOnboardingSession,
+} from '@/hooks/use-onboarding'
 import {
   Building2,
   Network,
@@ -19,8 +27,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { FileInput } from '@/components/ui/file-input'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { useOperatorList, useTestConnection } from '@/hooks/use-operators'
 
@@ -305,8 +313,7 @@ function Step4SIMImport({
               <Upload className="mx-auto mb-2 h-8 w-8 text-text-tertiary" />
               <label className="cursor-pointer text-sm text-accent hover:underline">
                 Choose file
-                <input
-                  type="file"
+                <FileInput
                   accept=".csv"
                   className="hidden"
                   onChange={(e) => onChange({ ...data, csvFile: e.target.files?.[0] || null })}
@@ -382,10 +389,43 @@ export function OnboardingWizard() {
   const navigate = useNavigate()
   const setOnboardingCompleted = useAuthStore((s) => s.setOnboardingCompleted)
 
+  const [sessionID, setSessionID] = useState<string | null>(() => getStoredSessionID())
+  const start = useStartOnboarding()
+  const session = useOnboardingSession(sessionID)
+  const submitStep = useSubmitOnboardingStep(sessionID)
+  const completeOnboarding = useCompleteOnboarding(sessionID)
+
   const [currentStep, setCurrentStep] = useState(1)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Bootstrap: create or resume an onboarding session on mount.
+  useEffect(() => {
+    if (sessionID) return
+    start
+      .mutateAsync()
+      .then((res) => {
+        setSessionID(res.session_id)
+        setCurrentStep(res.current_step || 1)
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Failed to start onboarding session'
+        setError(msg)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Resume: when the session loads, jump to its current step.
+  useEffect(() => {
+    if (!session.data) return
+    if (session.data.current_step) {
+      setCurrentStep(session.data.current_step)
+    }
+    if (session.data.current_step && session.data.current_step > 1) {
+      setCompletedSteps(new Set(Array.from({ length: session.data.current_step - 1 }, (_, i) => i + 1)))
+    }
+  }, [session.data])
 
   const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90' })
   const [step2, setStep2] = useState<{ operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }>({ operatorId: '', testResult: 'idle' })
@@ -414,62 +454,54 @@ export function OnboardingWizard() {
     return !STEPS[currentStep - 1].mandatory
   }
 
+  function payloadForStep(step: number): Record<string, unknown> {
+    switch (step) {
+      case 1:
+        return {
+          company_name: step1.companyName,
+          contact_email: '',
+          locale: step1.timezone,
+        }
+      case 2:
+        return {
+          operator_grants: step2.operatorId
+            ? [{ operator_id: step2.operatorId, rat_types: [] }]
+            : [],
+        }
+      case 3:
+        return {
+          apn_name: step3.apnName,
+          apn_type: step3.apnType,
+          ip_cidr: step3.ipCidr,
+        }
+      case 4:
+        return {
+          import_mode: step4.importMode,
+          iccids: step4.importMode === 'manual'
+            ? step4.manualICCIDs.trim().split('\n').filter(Boolean)
+            : [],
+          csv_s3_key: '',
+        }
+      case 5:
+        return {
+          policy_name: step5.policyName,
+          dsl_source: step5.dslSource,
+        }
+      default:
+        return {}
+    }
+  }
+
   async function handleNext() {
+    if (!sessionID) {
+      setError('Onboarding session is not ready')
+      return
+    }
     setError(null)
     setSubmitting(true)
 
     try {
-      switch (currentStep) {
-        case 1:
-          await api.patch('/tenants/current', {
-            name: step1.companyName,
-            timezone: step1.timezone,
-            retention_days: parseInt(step1.retentionDays),
-          })
-          break
-        case 2:
-          break
-        case 3:
-          await api.post('/apns', {
-            name: step3.apnName,
-            apn_type: step3.apnType,
-            operator_id: step2.operatorId,
-            settings: {},
-          })
-          if (step3.ipCidr) {
-            await api.post('/ip-pools', {
-              name: `${step3.apnName}-pool`,
-              cidr: step3.ipCidr,
-            })
-          }
-          break
-        case 4:
-          if (step4.importMode === 'csv' && step4.csvFile) {
-            const formData = new FormData()
-            formData.append('file', step4.csvFile)
-            await api.post('/sims/import', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            })
-          } else if (step4.importMode === 'manual' && step4.manualICCIDs.trim()) {
-            const iccids = step4.manualICCIDs.trim().split('\n').filter(Boolean)
-            if (iccids.length > 0) {
-              await api.post('/sims/import', {
-                sims: iccids.map((iccid) => ({ iccid: iccid.trim() })),
-              })
-            }
-          }
-          break
-        case 5:
-          if (step5.policyName.trim() && step5.dslSource.trim()) {
-            await api.post('/policies', {
-              name: step5.policyName,
-              scope: 'global',
-              dsl_source: step5.dslSource,
-            })
-          }
-          break
-      }
-
+      await submitStep.mutateAsync({ step: currentStep, payload: payloadForStep(currentStep) })
       setCompletedSteps((prev) => new Set([...prev, currentStep]))
 
       if (currentStep < 5) {
@@ -503,10 +535,11 @@ export function OnboardingWizard() {
 
   async function completeSetup() {
     try {
-      await api.post('/onboarding/complete')
+      await completeOnboarding.mutateAsync()
     } catch {
-      // not critical
+      // even on completion error we navigate — server-side state may have advanced
     }
+    setStoredSessionID(null)
     setOnboardingCompleted(true)
     navigate('/', { replace: true })
   }

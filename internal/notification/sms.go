@@ -71,3 +71,21 @@ func (s *SMSGatewaySender) sendViaTwilio(ctx context.Context, phoneNumber, messa
 func (s *SMSGatewaySender) sendViaVonage() error {
 	return ErrSMSProviderNotSupported
 }
+
+// SendSMSWithResult sends an SMS via the configured provider and returns
+// the provider message ID (e.g. Twilio SID) on success.
+func (s *SMSGatewaySender) SendSMSWithResult(ctx context.Context, phoneNumber, message string) (string, error) {
+	switch s.cfg.Provider {
+	case "twilio":
+		return s.twilio.SendWithResult(ctx, phoneNumber, message)
+	case "vonage":
+		return "", ErrSMSProviderNotSupported
+	default:
+		s.logger.Info().
+			Str("phone", phoneNumber).
+			Str("provider", s.cfg.Provider).
+			Int("message_len", len(message)).
+			Msg("SMS send skipped; no provider configured")
+		return "", nil
+	}
+}

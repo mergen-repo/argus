@@ -112,3 +112,46 @@ func (c *twilioClient) VerifyStatusSignature(fullURL string, form url.Values, he
 
 	return hmac.Equal([]byte(computed), []byte(headerSig))
 }
+
+// SendWithResult sends an SMS and returns the Twilio SID on success.
+func (c *twilioClient) SendWithResult(ctx context.Context, to, body string) (string, error) {
+	endpoint := fmt.Sprintf("%s/Accounts/%s/Messages.json", twilioBaseURL, c.accountID)
+
+	form := url.Values{}
+	form.Set("To", to)
+	form.Set("From", c.fromPhone)
+	form.Set("Body", body)
+	if c.statusCallback != "" {
+		form.Set("StatusCallback", c.statusCallback)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("notification: twilio request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(c.accountID, c.authToken)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("notification: twilio send: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	var twilioResp twilioResponse
+	_ = json.Unmarshal(respBody, &twilioResp)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("notification: twilio status %d sid=%s status=%s", resp.StatusCode, twilioResp.SID, twilioResp.Status)
+	}
+
+	c.logger.Info().
+		Str("sid", twilioResp.SID).
+		Str("status", twilioResp.Status).
+		Str("to", to).
+		Msg("twilio SMS sent")
+
+	return twilioResp.SID, nil
+}

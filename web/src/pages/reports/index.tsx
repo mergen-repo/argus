@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import {
   Shield,
   Lock,
@@ -19,7 +20,9 @@ import {
   CalendarClock,
   Play,
   Pause,
+  Trash2,
 } from 'lucide-react'
+import { useScheduledReports, useGenerateReport, useDeleteScheduledReport, useUpdateScheduledReport, type ScheduledReport as ApiScheduledReport } from '@/hooks/use-reports'
 import type { LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -48,15 +51,6 @@ interface ReportDefinition {
   lastGenerated: string | null
 }
 
-interface ScheduledReport {
-  id: string
-  reportName: string
-  schedule: string
-  recipient: string
-  nextRun: string
-  status: 'active' | 'paused'
-}
-
 const ICON_MAP: Record<string, LucideIcon> = {
   Shield,
   Lock,
@@ -69,23 +63,14 @@ const ICON_MAP: Record<string, LucideIcon> = {
 }
 
 const REPORT_DEFINITIONS: ReportDefinition[] = [
-  { id: 'btk-monthly', category: 'COMPLIANCE', name: 'BTK Monthly Report', description: 'Regulatory compliance report for BTK submission', icon: 'Shield', format: 'PDF', lastGenerated: '2024-03-01T09:00:00Z' },
-  { id: 'kvkk-inventory', category: 'COMPLIANCE', name: 'KVKK Data Inventory', description: 'Personal data inventory per KVKK requirements', icon: 'Lock', format: 'PDF', lastGenerated: '2024-02-15T09:00:00Z' },
-  { id: 'gdpr-processing', category: 'COMPLIANCE', name: 'GDPR Data Processing', description: 'Data processing activities report', icon: 'FileText', format: 'PDF', lastGenerated: '2024-02-15T09:00:00Z' },
-  { id: 'sla-compliance', category: 'OPERATIONS', name: 'SLA Compliance Report', description: 'Per-operator SLA compliance and breach analysis', icon: 'ShieldCheck', format: 'PDF', lastGenerated: '2024-03-01T09:00:00Z' },
-  { id: 'operator-perf', category: 'OPERATIONS', name: 'Operator Performance', description: 'Operator latency, auth rates, and health trends', icon: 'Activity', format: 'CSV', lastGenerated: '2024-03-15T09:00:00Z' },
-  { id: 'cost-optimization', category: 'OPERATIONS', name: 'Cost Optimization', description: 'Cost breakdown with optimization recommendations', icon: 'TrendingDown', format: 'PDF', lastGenerated: '2024-03-20T09:00:00Z' },
-  { id: 'sim-inventory', category: 'INVENTORY', name: 'SIM Inventory by State', description: 'Complete SIM inventory grouped by lifecycle state', icon: 'Cpu', format: 'CSV', lastGenerated: null },
-  { id: 'ip-utilization', category: 'INVENTORY', name: 'IP Pool Utilization', description: 'IP address allocation and utilization report', icon: 'Globe', format: 'CSV', lastGenerated: '2024-03-22T09:00:00Z' },
-  { id: 'policy-coverage', category: 'INVENTORY', name: 'Policy Coverage', description: 'Policy assignment coverage across SIM inventory', icon: 'Shield', format: 'PDF', lastGenerated: '2024-03-18T09:00:00Z' },
-]
-
-const SCHEDULED_REPORTS: ScheduledReport[] = [
-  { id: '1', reportName: 'BTK Monthly Report', schedule: 'Monthly (1st)', recipient: 'compliance@argus.io', nextRun: '2024-04-01T09:00:00Z', status: 'active' },
-  { id: '2', reportName: 'SLA Compliance Report', schedule: 'Weekly (Monday)', recipient: 'ops-team@argus.io', nextRun: '2024-03-25T09:00:00Z', status: 'active' },
-  { id: '3', reportName: 'Operator Performance', schedule: 'Daily', recipient: 'noc@argus.io', nextRun: '2024-03-25T06:00:00Z', status: 'active' },
-  { id: '4', reportName: 'KVKK Data Inventory', schedule: 'Monthly (15th)', recipient: 'legal@argus.io', nextRun: '2024-04-15T09:00:00Z', status: 'paused' },
-  { id: '5', reportName: 'Cost Optimization', schedule: 'Weekly (Friday)', recipient: 'finance@argus.io', nextRun: '2024-03-29T09:00:00Z', status: 'active' },
+  { id: 'compliance_btk', category: 'COMPLIANCE', name: 'BTK Monthly Report', description: 'Regulatory compliance report for BTK submission', icon: 'Shield', format: 'PDF', lastGenerated: null },
+  { id: 'compliance_kvkk', category: 'COMPLIANCE', name: 'KVKK Data Inventory', description: 'Personal data inventory per KVKK requirements', icon: 'Lock', format: 'PDF', lastGenerated: null },
+  { id: 'compliance_gdpr', category: 'COMPLIANCE', name: 'GDPR Data Processing', description: 'Data processing activities report', icon: 'FileText', format: 'PDF', lastGenerated: null },
+  { id: 'sla_monthly', category: 'OPERATIONS', name: 'SLA Compliance Report', description: 'Per-operator SLA compliance and breach analysis', icon: 'ShieldCheck', format: 'PDF', lastGenerated: null },
+  { id: 'usage_summary', category: 'OPERATIONS', name: 'Usage Summary', description: 'Aggregate usage by tenant, operator, and APN', icon: 'Activity', format: 'CSV', lastGenerated: null },
+  { id: 'cost_analysis', category: 'OPERATIONS', name: 'Cost Analysis', description: 'Cost breakdown with optimization recommendations', icon: 'TrendingDown', format: 'PDF', lastGenerated: null },
+  { id: 'sim_inventory', category: 'INVENTORY', name: 'SIM Inventory', description: 'Complete SIM inventory grouped by lifecycle state', icon: 'Cpu', format: 'CSV', lastGenerated: null },
+  { id: 'audit_log_export', category: 'INVENTORY', name: 'Audit Log Export', description: 'Audit log export for compliance review', icon: 'FileText', format: 'CSV', lastGenerated: null },
 ]
 
 const CATEGORY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -181,17 +166,33 @@ function ReportCard({
   )
 }
 
-function ScheduledReportsTable({ reports }: { reports: ScheduledReport[] }) {
+function ScheduledReportsTable({
+  reports,
+  onToggleState,
+  onDelete,
+}: {
+  reports: ApiScheduledReport[]
+  onToggleState: (r: ApiScheduledReport) => void
+  onDelete: (id: string) => void
+}) {
+  if (reports.length === 0) {
+    return (
+      <div className="border border-border rounded-[var(--radius-md)] p-8 text-center text-text-tertiary text-sm">
+        No scheduled reports yet. Create one from the Generate Report panel.
+      </div>
+    )
+  }
   return (
     <div className="border border-border rounded-[var(--radius-md)] overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="border-b border-border bg-bg-elevated/50 hover:bg-bg-elevated/50">
-            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Name</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Type</TableHead>
             <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Schedule</TableHead>
-            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipient</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipients</TableHead>
             <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Next Run</TableHead>
             <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Status</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider w-[120px]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -205,25 +206,26 @@ function ScheduledReportsTable({ reports }: { reports: ScheduledReport[] }) {
               style={{ animationDelay: `${i * 40}ms` }}
             >
               <TableCell>
-                <span className="text-sm font-medium text-text-primary">{report.reportName}</span>
+                <span className="text-sm font-medium text-text-primary">{report.report_type}</span>
+                <Badge variant="outline" className="ml-2 text-[10px]">{report.format.toUpperCase()}</Badge>
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1.5">
                   <Clock className="h-3 w-3 text-text-tertiary" />
-                  <span className="text-xs text-text-secondary font-mono">{report.schedule}</span>
+                  <span className="text-xs text-text-secondary font-mono">{report.schedule_cron}</span>
                 </div>
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1.5">
                   <Mail className="h-3 w-3 text-text-tertiary" />
-                  <span className="text-xs text-text-secondary font-mono">{report.recipient}</span>
+                  <span className="text-xs text-text-secondary font-mono truncate max-w-[180px]">{report.recipients.join(', ') || '—'}</span>
                 </div>
               </TableCell>
               <TableCell>
-                <span className="text-xs text-text-secondary font-mono">{formatDate(report.nextRun)}</span>
+                <span className="text-xs text-text-secondary font-mono">{formatDate(report.next_run_at)}</span>
               </TableCell>
               <TableCell>
-                {report.status === 'active' ? (
+                {report.state === 'active' ? (
                   <Badge variant="success" className="text-[10px] gap-1">
                     <Play className="h-2.5 w-2.5" />
                     Active
@@ -234,6 +236,16 @@ function ScheduledReportsTable({ reports }: { reports: ScheduledReport[] }) {
                     Paused
                   </Badge>
                 )}
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => onToggleState(report)} className="h-7 w-7 p-0">
+                    {report.state === 'active' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => onDelete(report.id)} className="h-7 w-7 p-0 text-error hover:text-error">
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -252,46 +264,46 @@ function GenerateReportPanel({
   onClose: () => void
   preselectedReport: ReportDefinition | null
 }) {
+  const generateMutation = useGenerateReport()
   const [form, setForm] = useState({
     reportType: preselectedReport?.id || '',
     dateFrom: '',
     dateTo: '',
-    format: 'json',
+    format: 'pdf',
     recipients: '',
   })
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
 
   const handleGenerate = async () => {
+    if (!form.reportType) return
     setGenerating(true)
     try {
-      if (form.reportType === 'btk-monthly' && (form.format === 'csv' || form.format === 'pdf')) {
-        const res = await fetch(`/api/v1/compliance/btk-report?format=${form.format}`)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const blob = await res.blob()
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        const now = new Date()
-        const month = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
-        a.download = `btk_report_${month}.${form.format}`
-        a.click()
-        URL.revokeObjectURL(url)
-      }
+      const filters: Record<string, unknown> = {}
+      if (form.dateFrom) filters.date_from = form.dateFrom
+      if (form.dateTo) filters.date_to = form.dateTo
+      const res = await generateMutation.mutateAsync({
+        report_type: form.reportType,
+        format: form.format,
+        filters,
+      })
+      toast.success(`Report queued (job ${res.job_id.slice(0, 8)}). Check Jobs page for status.`)
       setGenerated(true)
       setTimeout(() => {
         setGenerated(false)
         onClose()
       }, 1500)
-    } catch {
+    } catch (err) {
+      toast.error('Failed to queue report')
       setGenerated(false)
+      console.error(err)
     } finally {
       setGenerating(false)
     }
   }
 
   const reportOptions = useMemo(
-    () => REPORT_DEFINITIONS.map((r) => ({ value: r.id, label: r.name })),
+    () => REPORT_DEFINITIONS.map((r: ReportDefinition) => ({ value: r.id, label: r.name })),
     [],
   )
 
@@ -394,6 +406,30 @@ function GenerateReportPanel({
 export default function ReportsPage() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportDefinition | null>(null)
+  const scheduledQuery = useScheduledReports()
+  const updateMutation = useUpdateScheduledReport()
+  const deleteMutation = useDeleteScheduledReport()
+  const scheduledReports: ApiScheduledReport[] = scheduledQuery.data?.data ?? []
+
+  const handleToggleState = async (report: ApiScheduledReport) => {
+    const newState = report.state === 'active' ? 'paused' : 'active'
+    try {
+      await updateMutation.mutateAsync({ id: report.id, patch: { state: newState } })
+      toast.success(`Report ${newState}`)
+    } catch {
+      toast.error('Failed to update report')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this scheduled report?')) return
+    try {
+      await deleteMutation.mutateAsync(id)
+      toast.success('Scheduled report deleted')
+    } catch {
+      toast.error('Failed to delete report')
+    }
+  }
 
   const grouped = useMemo(() => {
     const map: Record<string, ReportDefinition[]> = {}
@@ -472,10 +508,14 @@ export default function ReportsPage() {
             <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
               Scheduled Reports
             </h2>
-            <Badge variant="outline" className="text-[10px]">{SCHEDULED_REPORTS.length}</Badge>
+            <Badge variant="outline" className="text-[10px]">{scheduledReports.length}</Badge>
           </div>
         </div>
-        <ScheduledReportsTable reports={SCHEDULED_REPORTS} />
+        <ScheduledReportsTable
+          reports={scheduledReports}
+          onToggleState={handleToggleState}
+          onDelete={handleDelete}
+        />
       </div>
 
       <GenerateReportPanel

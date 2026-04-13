@@ -22,7 +22,14 @@ const (
 	JobTypeBackupWeekly     = "backup_weekly"
 	JobTypeBackupMonthly    = "backup_monthly"
 	JobTypeBackupVerify     = "backup_verify"
-	JobTypeBackupCleanup    = "backup_cleanup"
+	JobTypeBackupCleanup             = "backup_cleanup"
+	JobTypeScheduledReportRun        = "scheduled_report_run"
+	JobTypeIPGraceRelease            = "ip_grace_release"
+	JobTypeKVKKPurgeDaily            = "kvkk_purge_daily"
+	JobTypeDataPortabilityExport     = "data_portability_export"
+	JobTypeSMSOutboundSend           = "sms_outbound_send"
+	JobTypeWebhookRetry              = "webhook_retry"
+	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
 )
 
 var AllJobTypes = []string{
@@ -48,4 +55,11 @@ var AllJobTypes = []string{
 	JobTypeBackupMonthly,
 	JobTypeBackupVerify,
 	JobTypeBackupCleanup,
+	JobTypeScheduledReportRun,
+	JobTypeIPGraceRelease,
+	JobTypeKVKKPurgeDaily,
+	JobTypeDataPortabilityExport,
+	JobTypeSMSOutboundSend,
+	JobTypeWebhookRetry,
+	JobTypeScheduledReportSweeper,
 }

@@ -195,6 +195,7 @@ Controls server-side password complexity and history enforcement. Applied on reg
 | `RATE_LIMIT_AUTH_PER_MINUTE` | int | `10` | No | Login attempts per minute per IP (brute force protection). |
 | `RATE_LIMIT_ENABLED` | bool | `true` | No | Master switch to disable rate limiting (useful in development). |
 | `NOTIFICATION_RATE_LIMIT_PER_MINUTE` | int | `60` | No | Maximum notification deliveries per minute per tenant. Enforced via Redis sliding window (`notif:rl:` namespace, ZADD/ZREMRANGEBYSCORE/ZCARD). Applied by `DeliveryTracker` in `internal/notification/`. |
+| `RATE_LIMIT_SMS_PER_MINUTE` | int | `60` | No | Maximum outbound SMS messages per minute per tenant via `POST /api/v1/sms/send`. Enforced via Redis sliding window (key `sms:rate:{tenant_id}`). Exceeding the limit returns 429 with error code `RATE_LIMITED`. |
 
 ---
 
@@ -211,6 +212,15 @@ Controls server-side password complexity and history enforcement. Applied on reg
 | `CRON_PURGE_SWEEP` | string | `@daily` | No | Cron schedule for the purge sweep job (KVKK/GDPR auto-purge of terminated SIMs). Supports `@daily`, `@hourly`, `@weekly`, `@monthly`, or 5-field cron expressions. |
 | `CRON_IP_RECLAIM` | string | `@hourly` | No | Cron schedule for the IP reclaim job (returns terminated SIM IPs to pool after grace period). |
 | `CRON_SLA_REPORT` | string | `@daily` | No | Cron schedule for the SLA report generation job. |
+
+#### STORY-069 Cron Entries (hard-coded schedules — no env vars)
+
+| Cron name | Schedule | Job type | Purpose |
+|-----------|----------|----------|---------|
+| `kvkk_purge_daily` | `@daily` | `kvkk_purge_daily` | Pseudonymises PII in `cdrs`/`sessions`/`audit_logs` past tenant retention (KVKK/GDPR). Honors `payload.dry_run=true` for first prod run. |
+| `ip_grace_release` | `@hourly` | `ip_grace_release` | Returns IPs whose grace window has elapsed back to the pool, publishes `ip.released` event. |
+| `webhook_retry_sweep` | `*/1 * * * *` | `webhook_retry` | Re-sends due `webhook_deliveries` rows; backoff 30s/2m/10m/30m/60m; after 5 attempts marks `dead_letter` and emits `webhook.dead_letter` notification. |
+| `scheduled_report_sweeper` | `*/1 * * * *` | `scheduled_report_sweeper` | Scans `scheduled_reports.next_run_at <= now()` and enqueues a `scheduled_report_run` per due row. |
 
 ### Redis Key Patterns (Job System)
 

@@ -1,0 +1,40 @@
+STEP_1 PLAN: EXECUTED | items=28 | evidence=STORY-069-plan.md | result=PASS
+STEP_2 DEV TASK 1: EXECUTED | files=2 | migration=20260413000001_story_069_schema | result=PASS
+STEP_2 DEV TASK 2: EXECUTED | files=2 | rls_tables=6 | result=PASS
+STEP_2 DEV TASK 3: EXECUTED | files=1 | rows=28 | tr_diacritic_count=43 | result=PASS
+STEP_2 DEV TASK 4: EXECUTED | files=2 | methods=4 | result=PASS
+STEP_2 DEV TASK 5: EXECUTED | files=2 | methods=7 | result=PASS
+STEP_2 DEV TASK 6: EXECUTED | files=2 | stores=2 | methods=14 | result=PASS
+STEP_2 DEV TASK 7: EXECUTED | files=4 | stores=2 | methods=6 | result=PASS
+STEP_2 DEV TASK 8: EXECUTED | files=2 | methods=5 | result=PASS
+STEP_2 DEV TASK 9: EXECUTED | files=4 | tests=17 | result=PASS
+STEP_2 DEV TASK 10: EXECUTED | files=2 | excelize_version=v2.8.1 | result=PASS
+STEP_2 INTER_WAVE_BUILD: EXECUTED | after=Wave_2_3 | result=PASS | all_packages_compile=true
+STEP_2 DEV TASK 11: EXECUTED | files=2+router | endpoints=4 | result=PASS
+STEP_2 DEV TASK 12: EXECUTED | files=3 (handler+test+cron_helpers) | endpoints=5 | tests=12 | result=PASS
+STEP_2 DEV TASK 13: EXECUTED | files=4 (handler+test, dispatcher_test, WEBHOOK_HMAC.md) | endpoints=6 | tests=60 | result=PASS
+STEP_2 DEV TASK 15: EXECUTED | files=5 (handler+test, service+test, router) | endpoints=4 | tests=74 | result=PASS
+STEP_2 DEV TASK 16: EXECUTED_PARTIAL | files=4 (api, job, 2 tests) | result=FAIL | reason=test_compile_error_missing_portabilityJobStore_setTestDeps | blocker=api_rate_limit
+STEP_2 DEV TASK 17: EXECUTED | files=2 | job=kvkk_purge_daily | tests=8 | dry_run_safe=true | result=PASS
+STEP_2 DEV TASK 18: EXECUTED | files=2+3mods | job=ip_grace_release | tests=7 | result=PASS
+STEP_2 DEV TASK 19: EXECUTED | files=4 (api+test, job+test) | endpoints=2 | result=PASS
+STEP_2 DEV TASK 14: NOT_STARTED | reason=api_rate_limit
+STEP_2 DEV TASK 20: NOT_STARTED | reason=api_rate_limit
+STEP_2 WAVE_4_SUMMARY: PARTIAL | completed=T11,T12,T13,T15,T17,T18,T19 | incomplete=T16(test_build_err) | missing=T14,T20
+STEP_2 AUTOPILOT_PAUSED: reason=anthropic_api_rate_limit_reset=2026-04-13T03:00+03:00 | build=PASS | tests=215pass_1fail(data_portability_test_compile)
+STEP_2 DEV TASK 16: FIXED | files=2 | tests=4pass | result=PASS
+STEP_2 DEV TASK 14: EXECUTED | files=2 (webhook_retry.go + test) + metrics + types | tests=5pass | result=PASS
+STEP_2 DEV TASK 20: EXECUTED | files=2 (scheduled_report.go + test) + types | tests=5pass | result=PASS
+STEP_2 INTER_WAVE_BUILD: STARTED
+STEP_2 INTER_WAVE_BUILD: EXECUTED | result=PASS | build=ok | tests=235pass | preexisting_vet=policy/dryrun (unrelated)
+STEP_2 DEV TASK 26: EXECUTED | files=cmd/argus/main.go (+adapters, +stores, +processors, +crons) | result=PASS
+STEP_2 DEV TASK 21: EXECUTED | files=wizard.tsx + use-onboarding.ts | session-based + localStorage resume | result=PASS
+STEP_2 DEV TASK 22: EXECUTED | files=reports/index.tsx + use-reports.ts | hooks instead of mocks | result=PASS
+STEP_2 DEV TASK 23: EXECUTED | files=webhooks/index.tsx + use-webhooks.ts | result=PASS
+STEP_2 DEV TASK 24: EXECUTED | files=preferences-panel.tsx + templates-panel.tsx + use-notification-preferences.ts | result=PASS
+STEP_2 DEV TASK 25: EXECUTED | files=sms/index.tsx + compliance/data-portability.tsx + 2 hooks + 3 routes | result=PASS
+STEP_2 WAVE_5_BUILD: EXECUTED | tsc=clean | vite_build=ok | result=PASS
+STEP_2 DEV TASK 27: EXECUTED | files=story_069_e2e_test.go | webhook_retry+sweeper+report_run chain | result=PASS
+STEP_2 DEV TASK 28: EXECUTED | files=CONFIG.md+decisions.md+USERTEST.md+api/_index.md+ARCHITECTURE.md | endpoints +20 (124->144) | result=PASS
+STEP_2.5 LINT: EXECUTED | hex_count=0 | hardcoded_count=0 | result=PASS
+STEP_2 FULL_TEST: EXECUTED | tests=2556pass/0fail | build=ok | result=PASS

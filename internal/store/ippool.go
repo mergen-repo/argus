@@ -61,6 +61,14 @@ type ExpiredIPAddress struct {
 	ReclaimAt     time.Time  `json:"reclaim_at"`
 }
 
+type GraceExpiredIPAddress struct {
+	ID       uuid.UUID `json:"id"`
+	PoolID   uuid.UUID `json:"pool_id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+	AddressV4 *string  `json:"address_v4"`
+	AddressV6 *string  `json:"address_v6"`
+}
+
 type CreateIPPoolParams struct {
 	APNID                   uuid.UUID
 	Name                    string
@@ -710,6 +718,78 @@ func (s *IPPoolStore) FinalizeReclaim(ctx context.Context, ipID uuid.UUID) error
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("store: commit finalize reclaim: %w", err)
+	}
+	return nil
+}
+
+func (s *IPPoolStore) ListGraceExpired(ctx context.Context, limit int) ([]GraceExpiredIPAddress, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT ip.id, ip.pool_id, p.tenant_id, ip.address_v4::text, ip.address_v6::text
+		FROM ip_addresses ip
+		JOIN ip_pools p ON p.id = ip.pool_id
+		JOIN sims s ON s.id = ip.sim_id
+		WHERE ip.released_at IS NULL
+		  AND ip.grace_expires_at IS NOT NULL
+		  AND ip.grace_expires_at < NOW()
+		  AND s.state = 'terminated'
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list grace expired: %w", err)
+	}
+	defer rows.Close()
+
+	var results []GraceExpiredIPAddress
+	for rows.Next() {
+		var e GraceExpiredIPAddress
+		if err := rows.Scan(&e.ID, &e.PoolID, &e.TenantID, &e.AddressV4, &e.AddressV6); err != nil {
+			return nil, fmt.Errorf("store: scan grace expired: %w", err)
+		}
+		results = append(results, e)
+	}
+	return results, nil
+}
+
+func (s *IPPoolStore) ReleaseGraceIP(ctx context.Context, ipID uuid.UUID) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin tx for release grace ip: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var poolID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		UPDATE ip_addresses
+		SET state = 'available',
+		    sim_id = NULL,
+		    grace_expires_at = NULL,
+		    released_at = NOW(),
+		    allocated_at = NULL
+		WHERE id = $1
+		  AND released_at IS NULL
+		RETURNING pool_id
+	`, ipID).Scan(&poolID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIPNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: release grace ip update: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE ip_pools SET used_addresses = GREATEST(used_addresses - 1, 0) WHERE id = $1`, poolID)
+	if err != nil {
+		return fmt.Errorf("store: release grace ip update pool: %w", err)
+	}
+
+	_, _ = tx.Exec(ctx,
+		`UPDATE ip_pools SET state = 'active' WHERE id = $1 AND state = 'exhausted'`, poolID)
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit release grace ip: %w", err)
 	}
 	return nil
 }

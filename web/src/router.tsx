@@ -58,6 +58,9 @@ const ReportsPage = lazy(() => import('@/pages/reports/index'))
 const CapacityPage = lazy(() => import('@/pages/capacity/index'))
 const SIMComparePage = lazy(() => import('@/pages/sims/compare'))
 const ViolationsPage = lazy(() => import('@/pages/violations/index'))
+const WebhooksPage = lazy(() => import('@/pages/webhooks/index'))
+const SMSPage = lazy(() => import('@/pages/sms/index'))
+const DataPortabilityPage = lazy(() => import('@/pages/compliance/data-portability'))
 
 function LazyFallback() {
   return (
@@ -126,6 +129,9 @@ export const router = createBrowserRouter([
           { path: '/reports', element: lazySuspense(ReportsPage) },
           { path: '/capacity', element: lazySuspense(CapacityPage) },
           { path: '/violations', element: lazySuspense(ViolationsPage) },
+          { path: '/webhooks', element: lazySuspense(WebhooksPage) },
+          { path: '/sms', element: lazySuspense(SMSPage) },
+          { path: '/compliance/data-portability', element: lazySuspense(DataPortabilityPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
           { path: '*', element: <NotFoundPage /> },

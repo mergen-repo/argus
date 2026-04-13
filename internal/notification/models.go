@@ -77,6 +77,10 @@ type NotifyRequest struct {
 	Title      string
 	Body       string
 	Severity   string
+	Locale      string
+	TenantName  string
+	UserName    string
+	ExtraFields map[string]string
 }
 
 type WebhookSender interface {

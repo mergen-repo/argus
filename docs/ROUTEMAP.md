@@ -148,8 +148,9 @@
 
 > Stories completed: 12/22
 > Current story: STORY-069
-> Current step: Plan
+> Current step: Gate
 > Mode: AUTOPILOT
+> Started: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
 ### Wave 1 — Runtime Critical & Data Completeness [sequential]
@@ -183,7 +184,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-069 | Onboarding, Reporting & Notification Completeness | L | [ ] PENDING | — | STORY-059, STORY-063, STORY-065 | — |
+| STORY-069 | Onboarding, Reporting & Notification Completeness | L | [~] IN PROGRESS | Gate | STORY-059, STORY-063, STORY-065 | — |
 | STORY-070 | Frontend Real-Data Wiring | L | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-069 | — |
 | STORY-071 | Roaming Agreement Management | M | [ ] PENDING | — | STORY-063 | — |
 | STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |

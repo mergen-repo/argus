@@ -38,6 +38,13 @@ type Registry struct {
 	BackupLastSuccessTimestamp *prometheus.GaugeVec
 	BackupRunsTotal            *prometheus.CounterVec
 
+	IPGraceReleasedTotal prometheus.Counter
+
+	KVKKPurgeRowsTotal *prometheus.CounterVec
+
+	WebhookRetriesTotal       *prometheus.CounterVec
+	ScheduledReportRunsTotal  *prometheus.CounterVec
+
 	BuildInfo *prometheus.GaugeVec
 }
 
@@ -190,6 +197,30 @@ func NewRegistry() *Registry {
 	}, []string{"kind", "state"})
 	reg.MustRegister(r.BackupRunsTotal)
 
+	r.IPGraceReleasedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_ip_grace_released_total",
+		Help: "Total number of IP addresses released from grace period by the ip_grace_release cron job.",
+	})
+	reg.MustRegister(r.IPGraceReleasedTotal)
+
+	r.KVKKPurgeRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_kvkk_purge_rows_total",
+		Help: "Total number of rows pseudonymized/redacted by the KVKK purge job.",
+	}, []string{"table", "dry_run"})
+	reg.MustRegister(r.KVKKPurgeRowsTotal)
+
+	r.WebhookRetriesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_webhook_retries_total",
+		Help: "Total webhook delivery retry attempts grouped by result (succeeded, retrying, dead_letter).",
+	}, []string{"result"})
+	reg.MustRegister(r.WebhookRetriesTotal)
+
+	r.ScheduledReportRunsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_scheduled_report_runs_total",
+		Help: "Total scheduled report executions grouped by report type and result.",
+	}, []string{"type", "result"})
+	reg.MustRegister(r.ScheduledReportRunsTotal)
+
 	r.BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "argus_build_info",
 		Help: "Argus build information (always 1).",
@@ -281,6 +312,48 @@ func (r *Registry) IncBackupRun(kind, state string) {
 		return
 	}
 	r.BackupRunsTotal.WithLabelValues(kind, state).Inc()
+}
+
+// IncIPGraceReleased increments the ip grace released counter by n.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncIPGraceReleased(n int) {
+	if r == nil || r.IPGraceReleasedTotal == nil {
+		return
+	}
+	for i := 0; i < n; i++ {
+		r.IPGraceReleasedTotal.Inc()
+	}
+}
+
+// IncKVKKPurgeRows increments the KVKK purge rows counter for the given table and dry_run flag.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncKVKKPurgeRows(table string, dryRun bool, n int) {
+	if r == nil || r.KVKKPurgeRowsTotal == nil {
+		return
+	}
+	dryRunLabel := "false"
+	if dryRun {
+		dryRunLabel = "true"
+	}
+	r.KVKKPurgeRowsTotal.WithLabelValues(table, dryRunLabel).Add(float64(n))
+}
+
+// IncWebhookRetry increments the webhook retry counter for the given result label.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncWebhookRetry(result string) {
+	if r == nil || r.WebhookRetriesTotal == nil {
+		return
+	}
+	r.WebhookRetriesTotal.WithLabelValues(result).Inc()
+}
+
+// IncScheduledReportRun increments the scheduled report counter for the given report type and result.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncScheduledReportRun(reportType, result string) {
+	if r == nil || r.ScheduledReportRunsTotal == nil {
+		return
+	}
+	r.ScheduledReportRunsTotal.WithLabelValues(reportType, result).Inc()
 }
 
 func operatorHealthValue(status string) float64 {

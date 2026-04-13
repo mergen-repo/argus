@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -101,6 +102,21 @@ func (u *S3Uploader) Download(ctx context.Context, bucket, key string) ([]byte, 
 	}
 	u.logger.Debug().Str("bucket", bucket).Str("key", key).Int("bytes", buf.Len()).Msg("s3 download ok")
 	return buf.Bytes(), nil
+}
+
+func (u *S3Uploader) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
+	if bucket == "" {
+		bucket = u.bucket
+	}
+	presignClient := s3.NewPresignClient(u.client)
+	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("storage: presign get object: %w", err)
+	}
+	return req.URL, nil
 }
 
 func (u *S3Uploader) Delete(ctx context.Context, bucket, key string) error {

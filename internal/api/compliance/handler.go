@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,16 +10,29 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	compliancesvc "github.com/btopcu/argus/internal/compliance"
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
+// handlerJobEnqueuer is satisfied by *store.JobStore and by test fakes.
+type handlerJobEnqueuer interface {
+	CreateWithTenantID(ctx context.Context, tenantID uuid.UUID, p store.CreateJobParams) (*store.Job, error)
+}
+
+// handlerEventPublisher is satisfied by *bus.EventBus and by test fakes.
+type handlerEventPublisher interface {
+	Publish(ctx context.Context, subject string, payload interface{}) error
+}
+
 type Handler struct {
 	complianceSvc *compliancesvc.Service
 	tenantStore   *store.TenantStore
 	auditSvc      audit.Auditor
+	jobStore      handlerJobEnqueuer
+	eventBus      handlerEventPublisher
 	logger        zerolog.Logger
 }
 
@@ -27,13 +41,33 @@ func NewHandler(
 	tenantStore *store.TenantStore,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		complianceSvc: complianceSvc,
 		tenantStore:   tenantStore,
 		auditSvc:      auditSvc,
 		logger:        logger.With().Str("component", "compliance_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+type HandlerOption func(*Handler)
+
+func WithJobStore(js *store.JobStore) HandlerOption {
+	return func(h *Handler) { h.jobStore = js }
+}
+
+func WithEventBus(eb *bus.EventBus) HandlerOption {
+	return func(h *Handler) { h.eventBus = eb }
+}
+
+func (h *Handler) setTestDeps(js handlerJobEnqueuer, eb handlerEventPublisher) {
+	h.jobStore = js
+	h.eventBus = eb
 }
 
 func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {

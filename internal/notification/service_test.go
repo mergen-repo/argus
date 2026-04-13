@@ -667,3 +667,224 @@ func TestService_ValidateChannels_WarnsNilSenders(t *testing.T) {
 		t.Errorf("unexpected warn for in_app channel which was not configured")
 	}
 }
+
+// -- Preference & template dispatch integration tests (AC-7, AC-8) --
+
+type mockPrefStore struct {
+	pref *Preference
+	err  error
+}
+
+func (m *mockPrefStore) Get(_ context.Context, _ uuid.UUID, _ string) (*Preference, error) {
+	return m.pref, m.err
+}
+
+type mockTemplateStore struct {
+	tmpl *Template
+	err  error
+}
+
+func (m *mockTemplateStore) Get(_ context.Context, _, _ string) (*Template, error) {
+	return m.tmpl, m.err
+}
+
+func TestService_Notify_TurkishTemplate_RenderedSubject(t *testing.T) {
+	email := &mockEmailSender{}
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+	svc.SetTemplateStore(&mockTemplateStore{
+		tmpl: &Template{
+			Subject:  "Merhaba {{.UserName}}, hoş geldiniz!",
+			BodyText: "Güzel bir gün dileriz.",
+		},
+	})
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: "welcome",
+		ScopeType: ScopeSystem,
+		Title:     "fallback",
+		Body:      "fallback body",
+		Severity:  "info",
+		Locale:    "tr",
+		UserName:  "Ahmet",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	defer email.mu.Unlock()
+	if len(email.calls) != 1 {
+		t.Fatalf("email calls = %d, want 1", len(email.calls))
+	}
+	if email.calls[0].subject != "Merhaba Ahmet, hoş geldiniz!" {
+		t.Errorf("subject = %q, want Turkish rendered subject", email.calls[0].subject)
+	}
+}
+
+func TestService_Notify_PreferenceChannelFilter_SkipsWebhook(t *testing.T) {
+	email := &mockEmailSender{}
+	webhook := &mockWebhookSender{}
+
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail, ChannelWebhook}, zerolog.Nop())
+	svc.SetWebhook(webhook)
+	svc.SetWebhookConfig("https://example.com/hook", "secret")
+
+	// Preference: only email channel
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels:          []string{"email"},
+			SeverityThreshold: "info",
+			Enabled:           true,
+		},
+	})
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: "anomaly.detected",
+		ScopeType: ScopeSystem,
+		Title:     "Anomaly",
+		Body:      "Anomaly detected",
+		Severity:  "warning",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	if len(email.calls) != 1 {
+		t.Errorf("email calls = %d, want 1", len(email.calls))
+	}
+	email.mu.Unlock()
+
+	webhook.mu.Lock()
+	if len(webhook.calls) != 0 {
+		t.Errorf("webhook calls = %d, want 0 (not in preference channels)", len(webhook.calls))
+	}
+	webhook.mu.Unlock()
+}
+
+func TestService_Notify_PreferenceDisabled_NoSend(t *testing.T) {
+	email := &mockEmailSender{}
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels:          []string{"email"},
+			SeverityThreshold: "info",
+			Enabled:           false,
+		},
+	})
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: "anomaly.detected",
+		ScopeType: ScopeSystem,
+		Title:     "Should not send",
+		Body:      "disabled",
+		Severity:  "critical",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	if len(email.calls) != 0 {
+		t.Errorf("email calls = %d, want 0 (preference disabled)", len(email.calls))
+	}
+	email.mu.Unlock()
+}
+
+func TestService_Notify_SeverityThreshold_Skip(t *testing.T) {
+	email := &mockEmailSender{}
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+	// Threshold=warning, event severity=info → skip
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels:          []string{"email"},
+			SeverityThreshold: "warning",
+			Enabled:           true,
+		},
+	})
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: "anomaly.detected",
+		ScopeType: ScopeSystem,
+		Title:     "Info event",
+		Body:      "below threshold",
+		Severity:  "info",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	if len(email.calls) != 0 {
+		t.Errorf("email calls = %d, want 0 (severity below threshold)", len(email.calls))
+	}
+	email.mu.Unlock()
+}
+
+func TestService_Notify_SeverityThreshold_Allow(t *testing.T) {
+	email := &mockEmailSender{}
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+	// Threshold=warning, event severity=error → allow
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels:          []string{"email"},
+			SeverityThreshold: "warning",
+			Enabled:           true,
+		},
+	})
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: "anomaly.detected",
+		ScopeType: ScopeSystem,
+		Title:     "Error event",
+		Body:      "above threshold",
+		Severity:  "error",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	if len(email.calls) != 1 {
+		t.Errorf("email calls = %d, want 1 (severity above threshold)", len(email.calls))
+	}
+	email.mu.Unlock()
+}
+
+func TestService_Notify_NoPrefStore_UsesLegacyChannels(t *testing.T) {
+	email := &mockEmailSender{}
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+	ctx := context.Background()
+	err := svc.Notify(ctx, NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventAlertNew,
+		ScopeType: ScopeSystem,
+		Title:     "Alert",
+		Body:      "test",
+		Severity:  "info",
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	email.mu.Lock()
+	if len(email.calls) != 1 {
+		t.Errorf("email calls = %d, want 1 (legacy channels)", len(email.calls))
+	}
+	email.mu.Unlock()
+}

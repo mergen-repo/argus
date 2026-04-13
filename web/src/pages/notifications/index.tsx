@@ -17,6 +17,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useNotificationList, useMarkAsRead, useMarkAllAsRead, useRealtimeNotifications } from '@/hooks/use-notifications'
 import type { Notification } from '@/types/notification'
+import { NotificationPreferencesPanel } from './preferences-panel'
+import { NotificationTemplatesPanel } from './templates-panel'
 
 const categoryIcons: Record<string, React.ElementType> = {
   operator: Building2,
@@ -64,11 +66,14 @@ function formatTimestamp(ts: string): string {
   return date.toLocaleDateString()
 }
 
+type NotificationsTab = 'unread' | 'all' | 'preferences' | 'templates'
+
 export default function NotificationsPage() {
-  const [tab, setTab] = useState<'unread' | 'all'>('all')
+  const [tab, setTab] = useState<NotificationsTab>('all')
   const navigate = useNavigate()
 
-  const { data: notifications = [] } = useNotificationList(tab)
+  const inboxTab: 'unread' | 'all' = tab === 'unread' ? 'unread' : 'all'
+  const { data: notifications = [] } = useNotificationList(inboxTab)
   useRealtimeNotifications()
 
   const markAsRead = useMarkAsRead()
@@ -92,12 +97,26 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'unread' | 'all')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as NotificationsTab)}>
         <TabsList>
           <TabsTrigger value="unread">Unread{unreadCount > 0 && ` (${unreadCount})`}</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
         </TabsList>
 
+        {tab === 'preferences' && (
+          <TabsContent value="preferences">
+            <NotificationPreferencesPanel />
+          </TabsContent>
+        )}
+        {tab === 'templates' && (
+          <TabsContent value="templates">
+            <NotificationTemplatesPanel />
+          </TabsContent>
+        )}
+
+        {(tab === 'unread' || tab === 'all') && (
         <TabsContent value={tab}>
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-text-tertiary">
@@ -156,6 +175,7 @@ export default function NotificationsPage() {
             </div>
           )}
         </TabsContent>
+        )}
       </Tabs>
     </div>
   )

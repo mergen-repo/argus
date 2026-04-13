@@ -275,4 +275,51 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 124 REST endpoints + 10 WebSocket event types**
+## Onboarding (4 endpoints) — STORY-069
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-202 | POST | /api/v1/onboarding/start | Create a new onboarding session for the caller's tenant | JWT (api_user) | Returns `{session_id, current_step:1, steps_total:5}` |
+| API-203 | GET | /api/v1/onboarding/:id | Hydrate session state for resume | JWT (api_user, same tenant) | Returns `current_step` + `data_by_step` map |
+| API-204 | POST | /api/v1/onboarding/:id/step/:n | Submit step n payload (1..5); atomic side-effects per step | JWT (api_user, same tenant) | 422 with `details[]` on validation failure |
+| API-205 | POST | /api/v1/onboarding/:id/complete | Finalise the wizard, fire welcome notification, NATS event | JWT (api_user, same tenant) | Idempotent |
+
+## Reports (5 endpoints) — STORY-069
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-206 | POST | /api/v1/reports/generate | Enqueue an on-demand report run | JWT (api_user) | Returns 202 `{job_id, status:"queued"}` |
+| API-207 | GET | /api/v1/reports/scheduled | List scheduled report definitions (cursor) | JWT (api_user) | — |
+| API-208 | POST | /api/v1/reports/scheduled | Create a scheduled report (cron + recipients[]) | JWT (tenant_admin+) | `next_run_at` computed via `NextRunAfter` |
+| API-209 | PATCH | /api/v1/reports/scheduled/:id | Update schedule, recipients, filters, state | JWT (tenant_admin+) | `state ∈ {active, paused}` |
+| API-210 | DELETE | /api/v1/reports/scheduled/:id | Delete a scheduled report | JWT (tenant_admin+) | — |
+
+## Webhooks (6 endpoints) — STORY-069
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-211 | GET | /api/v1/webhooks | List webhook configs (cursor) | JWT (tenant_admin+) | — |
+| API-212 | POST | /api/v1/webhooks | Create config (https only, secret stored encrypted) | JWT (tenant_admin+) | Secret returned once on creation |
+| API-213 | PATCH | /api/v1/webhooks/:id | Update url/secret/event_types/enabled | JWT (tenant_admin+) | — |
+| API-214 | DELETE | /api/v1/webhooks/:id | Delete config (cascades deliveries via FK) | JWT (tenant_admin+) | — |
+| API-215 | GET | /api/v1/webhooks/:id/deliveries | List deliveries (cursor, last 20 default) | JWT (tenant_admin+) | Includes signature, response_status, final_state |
+| API-216 | POST | /api/v1/webhooks/:id/deliveries/:delivery_id/retry | Force re-send a single delivery | JWT (tenant_admin+) | Persists a new attempt |
+
+## Notification Preferences & Templates (4 endpoints) — STORY-069
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-217 | GET | /api/v1/notification-preferences | Per-tenant matrix (event_type × channels + severity threshold) | JWT (api_user) | — |
+| API-218 | PUT | /api/v1/notification-preferences | Bulk upsert preferences[] | JWT (tenant_admin+) | Replaces missing rows |
+| API-219 | GET | /api/v1/notification-templates | List templates (filter by event_type, locale) | JWT (api_user) | — |
+| API-220 | PUT | /api/v1/notification-templates/:event_type/:locale | Upsert subject/body_text/body_html | JWT (tenant_admin+) | Go template syntax |
+
+## Compliance — Data Portability (1 endpoint) — STORY-069
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-223 | POST | /api/v1/compliance/data-portability/:user_id | Enqueue user data export (zip = data.json + summary.pdf) | JWT (self OR tenant_admin+) | 202 `{job_id, status:"queued"}`; signed URL emailed when ready (7d TTL) |
+
+---
+
+**Total: 144 REST endpoints + 10 WebSocket event types**

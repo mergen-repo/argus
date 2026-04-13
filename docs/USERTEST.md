@@ -1558,3 +1558,41 @@ Bu story'nin UI bilesenleri vardir. Docker ortaminda calistirmak icin `make up` 
 make test  # 2329 test gecmeli
 go build ./...  # Derleme hatasi olmamali
 ```
+
+## STORY-069: Onboarding, Reporting & Notification Completeness
+
+### Backend / Altyapi (12 senaryo)
+
+1. **AC-1 Onboarding session start**: `POST /api/v1/onboarding/start` ile tenant context gonderildiginde 201 Created donmeli; response `{session_id, current_step:1, steps_total:5}` icermeli.
+2. **AC-1 Onboarding step gonderimi**: `POST /api/v1/onboarding/:id/step/1` step1 payload (company_name, locale) ile cagrildiginda 200 OK donmeli ve `current_step` 2'ye yukselmeli.
+3. **AC-1 Onboarding session resume**: `GET /api/v1/onboarding/:id` mevcut session'in `current_step` ve `data_by_step` haritasini hidrate etmeli.
+4. **AC-2 Reports on-demand**: `POST /api/v1/reports/generate {report_type:"compliance_kvkk", format:"pdf"}` 202 ile `{job_id, status:"queued"}` donmeli; jobs sayfasinda gorulmeli.
+5. **AC-3 Scheduled report CRUD**: `POST /api/v1/reports/scheduled` ile yeni schedule olusturma; `GET /api/v1/reports/scheduled` listede gormeli; `PATCH .../scheduled/:id {state:"paused"}` durumu degistirmeli.
+6. **AC-3 Scheduled report sweeper**: 1dk icinde `next_run_at <= now()` olan satir icin yeni `scheduled_report_run` job'i olusturulmali; `last_run_at` ilerlemeli.
+7. **AC-5 Webhook config + delivery**: `POST /api/v1/webhooks {url, secret, event_types}` (https zorunlu); ilgili event tetiklendiginde `webhook_deliveries` satiri olusmali; `X-Argus-Signature` HMAC dogrulamali.
+8. **AC-6 Webhook retry + dead letter**: 5xx alan webhook 4 retry sonrasi `dead_letter` state'e gecmeli; `webhook.dead_letter` notification yayinlanmali; `argus_webhook_retries_total{result="dead_letter"}` artmali.
+9. **AC-7/AC-8 Preferences + templates**: Notifications sayfasinin Preferences sekmesinde `anomaly.detected` icin webhook checkbox'i kaldirildiginda dispatcher webhook gondermemeli; Templates sekmesinde `tr` template'i kaydedildiginde Turkce subject mailde gozukmeli.
+10. **AC-9 Data portability**: `POST /api/v1/compliance/data-portability/:user_id` 202 donmeli; `data_portability_export` job calistiginda S3'e zip yuklenmeli (yapilandirilmissa) ve `data_portability_ready` notification gitmeli.
+11. **AC-10 KVKK auto-purge dry run**: `kvkk_purge_daily` job'a `payload.dry_run=true` ile el ile job baslattiginda satirlar mutate edilmeden `{would_purge}` raporlanmali.
+12. **AC-12 SMS rate limit**: 1 dakikada 60 SMS basariyla gondermeli; 61. SMS 429 + `RATE_LIMITED` error code donmeli.
+
+### Frontend (8 senaryo)
+
+13. **Onboarding wizard resume**: Wizard'in 3. adimindayken sayfayi yenile → wizard ayni adimda acilmali, daha onceki adim verileri server tarafinda saklanmis olmali (localStorage `argus_onboarding_session` kullanilir).
+14. **Reports — generate**: Reports sayfasinda bir karta tikla → Generate Report panelinde format sec → Generate → toast "Report queued (job xxx)" gostermeli; Jobs sayfasinda yeni job gorulmeli.
+15. **Reports — scheduled**: Sayfanin altinda scheduled tablo gorunmeli; bir satirin Pause/Play butonu state degistirmeli; Trash butonu satiri silmeli.
+16. **Webhooks page**: `/webhooks` sayfasi acilmali; New Webhook dialog ile https URL + secret + event_types ile webhook olusturulmali; secret bir kez gosterilmeli; satirin "Deliveries" butonu son 20 delivery'yi acmali; her delivery'nin "Retry" butonu 200 donmeli.
+17. **Notification preferences matrix**: `/notifications` Preferences sekmesi event_types x channels checkbox matrix gostermeli; toggle yapildiginda "Save" butonu aktiflesmeli; Save sonrasi sayfa yenilenince state korunmali.
+18. **Notification templates**: Templates sekmesinde event_type+locale secince mevcut template hidrate olmali; Subject + Body Text + Body HTML duzenlenip Save edilebilmeli; Turkce karakterler bozulmamali (`G`, `S`, `c`, `o`, `u` korunmali).
+19. **SMS gateway**: `/sms` sayfasinda SIM ID + 480 karakter altinda mesaj + priority sec → Send SMS → toast "SMS queued"; SMS History tablosunda satir gozukmeli; status badge'i `queued` olmali; sonra `sent` olarak guncellenmeli.
+20. **Data portability page**: `/compliance/data-portability` sayfasinda User ID gir → Request Export → Job ID gosteren success card cikmali; tenant_admin olmayan kullanici farklinin ID'sini istediginde 403 alirmali.
+
+### Operations
+21. **Cron schedules**: `make up` sonrasi log'larda 4 yeni cron entry mesaji olmali: `kvkk_purge_daily @daily`, `ip_grace_release @hourly`, `webhook_retry_sweep */1 * * * *`, `scheduled_report_sweeper */1 * * * *`.
+
+### Test command
+```bash
+make test  # tum testler gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali
+```

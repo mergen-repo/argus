@@ -35,6 +35,11 @@ import (
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	notifapi "github.com/btopcu/argus/internal/api/notification"
+	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
+	reportsapi "github.com/btopcu/argus/internal/api/reports"
+	smsapi "github.com/btopcu/argus/internal/api/sms"
+	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
+	"github.com/btopcu/argus/internal/report"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
 	systemapi "github.com/btopcu/argus/internal/api/system"
@@ -846,11 +851,86 @@ func main() {
 
 	slaHandler := slaapi.NewHandler(slaReportStore, log.Logger)
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, auditSvc, log.Logger)
-	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger)
+	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger,
+		complianceapi.WithJobStore(jobStore),
+		complianceapi.WithEventBus(eventBus),
+	)
 	violationHandler := violationapi.NewHandler(violationStore, log.Logger)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client), dashboardapi.WithCDRStore(cdrStore))
+
+	webhookConfigStore := store.NewWebhookConfigStore(pg.Pool, cfg.EncryptionKey)
+	webhookDeliveryStore := store.NewWebhookDeliveryStore(pg.Pool)
+	webhookDispatcher := notification.NewDispatcher(webhookConfigStore, webhookDeliveryStore, nil)
+	webhookHandler := webhookapi.NewHandler(webhookConfigStore, webhookDeliveryStore, webhookDispatcher, log.Logger)
+
+	// STORY-069 — wire onboarding/reports/sms/notifications-prefs/data-portability
+	scheduledReportStore := store.NewScheduledReportStore(pg.Pool)
+	notifPrefStore := store.NewNotificationPreferenceStore(pg.Pool)
+	notifTemplateStore := store.NewNotificationTemplateStore(pg.Pool)
+	smsOutboundStore := store.NewSMSOutboundStore(pg.Pool)
+	onboardingSessionStore := store.NewOnboardingSessionStore(pg.Pool)
+
+	notifSvc.SetPrefStore(&notifPrefAdapter{store: notifPrefStore})
+	notifSvc.SetTemplateStore(&notifTemplateAdapter{store: notifTemplateStore})
+	notifHandler.SetPrefStore(notifPrefStore)
+	notifHandler.SetTemplateStore(notifTemplateStore)
+
+	smsRateLimit := cfg.NotificationRateLimitPerMin
+	if smsRateLimit <= 0 {
+		smsRateLimit = 60
+	}
+	smsHandler := smsapi.NewHandler(simStore, smsOutboundStore, jobStore, eventBus, rdb.Client, auditSvc, smsRateLimit, log.Logger)
+
+	reportsHandler := reportsapi.NewHandler(scheduledReportStore, jobStore, eventBus, log.Logger)
+
+	onboardingHandler := onboardingapi.New(
+		onboardingSessionStore,
+		tenantStore,
+		userStore,
+		operatorStore,
+		apnStore,
+		&onboardingBulkImportAdapter{jobs: jobStore, eventBus: eventBus},
+		nil,
+		&onboardingNotifierAdapter{svc: notifSvc},
+		auditSvc,
+		log.Logger,
+	)
+
+	// STORY-069 — register processors + cron entries
+	smsGatewaySender := notification.NewSMSGatewaySender(notification.SMSConfig{
+		Provider:          cfg.SMSProvider,
+		AccountID:         cfg.SMSAccountID,
+		AuthToken:         cfg.SMSAuthToken,
+		FromPhone:         cfg.SMSFromNumber,
+		StatusCallbackURL: cfg.SMSStatusCallbackURL,
+	}, log.Logger)
+
+	kvkkPurgeProc := job.NewKVKKPurgeProcessor(pg.Pool, dataLifecycleStore, tenantStore, auditStore, jobStore, eventBus, metricsReg, log.Logger)
+	ipGraceReleaseProc := job.NewIPGraceReleaseProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, metricsReg, log.Logger)
+	webhookRetryProc := job.NewWebhookRetryProcessor(webhookDeliveryStore, webhookConfigStore, jobStore, eventBus, metricsReg, log.Logger)
+	scheduledReportEngine := report.NewEngine(&emptyReportProvider{})
+	scheduledReportProc := job.NewScheduledReportProcessor(jobStore, scheduledReportStore, scheduledReportEngine, &nullReportStorage{impl: s3Impl}, eventBus, metricsReg, log.Logger)
+	scheduledReportSweeper := job.NewScheduledReportSweeper(jobStore, scheduledReportStore, jobStore, eventBus, log.Logger)
+	dataPortabilityProc := job.NewDataPortabilityProcessor(jobStore, userStore, tenantStore, cdrStore, auditStore, &nullReportStorage{impl: s3Impl}, eventBus, pg.Pool, auditSvc, log.Logger)
+	smsGatewayProc := job.NewSMSGatewayProcessor(smsOutboundStore, smsGatewaySender, rdb.Client, eventBus, log.Logger)
+
+	jobRunner.Register(kvkkPurgeProc)
+	jobRunner.Register(ipGraceReleaseProc)
+	jobRunner.Register(webhookRetryProc)
+	jobRunner.Register(scheduledReportProc)
+	jobRunner.Register(scheduledReportSweeper)
+	jobRunner.Register(dataPortabilityProc)
+	jobRunner.Register(smsGatewayProc)
+	log.Info().Msg("STORY-069 processors registered (kvkk_purge, ip_grace_release, webhook_retry, scheduled_report+sweeper, data_portability, sms_outbound_send)")
+
+	if cronScheduler != nil {
+		cronScheduler.AddEntry(job.CronEntry{Name: "kvkk_purge_daily", Schedule: "@daily", JobType: job.JobTypeKVKKPurgeDaily})
+		cronScheduler.AddEntry(job.CronEntry{Name: "ip_grace_release", Schedule: "@hourly", JobType: job.JobTypeIPGraceRelease})
+		cronScheduler.AddEntry(job.CronEntry{Name: "webhook_retry_sweep", Schedule: "*/1 * * * *", JobType: job.JobTypeWebhookRetry})
+		cronScheduler.AddEntry(job.CronEntry{Name: "scheduled_report_sweeper", Schedule: "*/1 * * * *", JobType: job.JobTypeScheduledReportSweeper})
+	}
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
@@ -939,8 +1019,12 @@ func main() {
 		ViolationHandler:    violationHandler,
 		DashboardHandler:    dashboardHandler,
 		SLAHandler:          slaHandler,
+		ReportsHandler:      reportsHandler,
 		ReliabilityHandler:  reliabilityHandler,
 		StatusHandler:       statusHandler,
+		OnboardingHandler:   onboardingHandler,
+		WebhookHandler:      webhookHandler,
+		SMSHandler:          smsHandler,
 		APIKeyStore:        apiKeyStore,
 		TenantLimits:       tenantLimits,
 		RedisClient:        rdb.Client,
@@ -1540,6 +1624,134 @@ func (a *inAppStoreAdapter) CreateNotification(ctx context.Context, n notificati
 		ChannelsSent: n.ChannelsSent,
 	})
 	return err
+}
+
+// ── STORY-069 adapters ──────────────────────────────────────────────────────
+
+type notifPrefAdapter struct {
+	store *store.NotificationPreferenceStore
+}
+
+func (a *notifPrefAdapter) Get(ctx context.Context, tenantID uuid.UUID, eventType string) (*notification.Preference, error) {
+	row, err := a.store.Get(ctx, tenantID, eventType)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return &notification.Preference{
+		Channels:          row.Channels,
+		SeverityThreshold: row.SeverityThreshold,
+		Enabled:           row.Enabled,
+	}, nil
+}
+
+type notifTemplateAdapter struct {
+	store *store.NotificationTemplateStore
+}
+
+func (a *notifTemplateAdapter) Get(ctx context.Context, eventType, locale string) (*notification.Template, error) {
+	row, err := a.store.Get(ctx, eventType, locale)
+	if err != nil {
+		return nil, err
+	}
+	return &notification.Template{
+		Subject:  row.Subject,
+		BodyText: row.BodyText,
+		BodyHTML: row.BodyHTML,
+	}, nil
+}
+
+type onboardingNotifierAdapter struct {
+	svc *notification.Service
+}
+
+func (a *onboardingNotifierAdapter) Notify(ctx context.Context, req onboardingapi.NotifyRequest) error {
+	return a.svc.Notify(ctx, notification.NotifyRequest{
+		TenantID:  req.TenantID,
+		UserID:    req.UserID,
+		EventType: notification.EventType(req.EventType),
+		Title:     req.Title,
+		Body:      req.Body,
+		Severity:  req.Severity,
+	})
+}
+
+type onboardingBulkImportAdapter struct {
+	jobs     *store.JobStore
+	eventBus *bus.EventBus
+}
+
+func (a *onboardingBulkImportAdapter) EnqueueImport(ctx context.Context, tenantID uuid.UUID, userID *uuid.UUID, csvS3Key string) (string, error) {
+	payload, _ := json.Marshal(map[string]string{"csv_s3_key": csvS3Key})
+	j, err := a.jobs.CreateWithTenantID(ctx, tenantID, store.CreateJobParams{
+		Type:      job.JobTypeBulkImport,
+		Priority:  5,
+		Payload:   payload,
+		CreatedBy: userID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if a.eventBus != nil {
+		_ = a.eventBus.Publish(ctx, bus.SubjectJobQueue, job.JobMessage{
+			JobID:    j.ID,
+			TenantID: j.TenantID,
+			Type:     job.JobTypeBulkImport,
+		})
+	}
+	return j.ID.String(), nil
+}
+
+// nullReportStorage forwards to s3Impl when present; otherwise returns no-op
+// behaviour. Used so the scheduled-report and data-portability processors can
+// run in dev environments without S3 configured.
+type nullReportStorage struct {
+	impl *storage.S3Uploader
+}
+
+func (n *nullReportStorage) Upload(ctx context.Context, bucket, key string, data []byte) error {
+	if n.impl == nil {
+		return nil
+	}
+	return n.impl.Upload(ctx, bucket, key, data)
+}
+
+func (n *nullReportStorage) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
+	if n.impl == nil {
+		return "", nil
+	}
+	return n.impl.PresignGet(ctx, bucket, key, ttl)
+}
+
+// emptyReportProvider is a stub DataProvider that returns empty result sets for
+// every report type. It exists so the scheduled-report processor can build a
+// (mostly empty) artifact end-to-end. A real provider that wires
+// compliance/SLA/usage/cost/audit/SIM-inventory data will replace this in a
+// follow-up; documented in decisions.md (DEV-193).
+type emptyReportProvider struct{}
+
+func (emptyReportProvider) KVKK(_ context.Context, tenantID uuid.UUID, _ map[string]any) (*report.KVKKData, error) {
+	return &report.KVKKData{TenantID: tenantID, GeneratedAt: time.Now().UTC()}, nil
+}
+func (emptyReportProvider) GDPR(_ context.Context, tenantID uuid.UUID, _ map[string]any) (*report.GDPRData, error) {
+	return &report.GDPRData{TenantID: tenantID, GeneratedAt: time.Now().UTC()}, nil
+}
+func (emptyReportProvider) BTK(_ context.Context, tenantID uuid.UUID, _ map[string]any) (*report.BTKData, error) {
+	return &report.BTKData{TenantID: tenantID, GeneratedAt: time.Now().UTC()}, nil
+}
+func (emptyReportProvider) SLAMonthly(_ context.Context, _ uuid.UUID, _ map[string]any) (*report.SLAData, error) {
+	return &report.SLAData{Columns: []string{"period", "uptime_pct"}, Summary: map[string]string{}}, nil
+}
+func (emptyReportProvider) UsageSummary(_ context.Context, _ uuid.UUID, _ map[string]any) (*report.UsageData, error) {
+	return &report.UsageData{Columns: []string{"period", "bytes"}, Summary: map[string]string{}}, nil
+}
+func (emptyReportProvider) CostAnalysis(_ context.Context, _ uuid.UUID, _ map[string]any) (*report.CostData, error) {
+	return &report.CostData{Columns: []string{"operator", "cost"}, Summary: map[string]string{}}, nil
+}
+func (emptyReportProvider) AuditExport(_ context.Context, _ uuid.UUID, _ map[string]any) (*report.AuditExportData, error) {
+	return &report.AuditExportData{Columns: []string{"timestamp", "action", "actor"}, Summary: map[string]string{}}, nil
+}
+func (emptyReportProvider) SIMInventory(_ context.Context, _ uuid.UUID, _ map[string]any) (*report.SIMInventoryData, error) {
+	return &report.SIMInventoryData{Columns: []string{"iccid", "state"}, Summary: map[string]string{}}, nil
 }
 
 type auditRecorderAdapter struct {
