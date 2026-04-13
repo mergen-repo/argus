@@ -16,3 +16,5 @@ GATE_TSC: npx tsc --noEmit | result=PASS
 GATE_BUILD_FE: npm run build | result=PASS
 STEP_3 GATE: EXECUTED | passes=6 | fixes=4 | result=PASS
 STEP_4 REVIEW: EXECUTED | items=14 | evidence=review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=45f2253 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS
