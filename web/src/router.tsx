@@ -74,6 +74,19 @@ const OpsBackupPage = lazy(() => import('@/pages/ops/backup'))
 const OpsDeploysPage = lazy(() => import('@/pages/ops/deploys'))
 const OpsIncidentsPage = lazy(() => import('@/pages/ops/incidents'))
 
+const AdminTenantResourcesPage = lazy(() => import('@/pages/admin/tenant-resources'))
+const AdminQuotasPage = lazy(() => import('@/pages/admin/quotas'))
+const AdminCostPage = lazy(() => import('@/pages/admin/cost'))
+const AdminCompliancePage = lazy(() => import('@/pages/admin/compliance'))
+const AdminSecurityEventsPage = lazy(() => import('@/pages/admin/security-events'))
+const AdminGlobalSessionsPage = lazy(() => import('@/pages/admin/sessions-global'))
+const AdminAPIUsagePage = lazy(() => import('@/pages/admin/api-usage'))
+const AdminDSARPage = lazy(() => import('@/pages/admin/dsar'))
+const AdminPurgeHistoryPage = lazy(() => import('@/pages/admin/purge-history'))
+const AdminDeliveryPage = lazy(() => import('@/pages/admin/delivery'))
+const AdminKillSwitchesPage = lazy(() => import('@/pages/admin/kill-switches'))
+const AdminMaintenancePage = lazy(() => import('@/pages/admin/maintenance'))
+
 function LazyFallback() {
   return (
     <div className="flex items-center justify-center h-full min-h-[200px]">
@@ -156,6 +169,18 @@ export const router = createBrowserRouter([
           { path: '/ops/backup', element: lazySuspense(OpsBackupPage) },
           { path: '/ops/deploys', element: lazySuspense(OpsDeploysPage) },
           { path: '/ops/incidents', element: lazySuspense(OpsIncidentsPage) },
+          { path: '/admin/resources', element: lazySuspense(AdminTenantResourcesPage) },
+          { path: '/admin/quotas', element: lazySuspense(AdminQuotasPage) },
+          { path: '/admin/cost', element: lazySuspense(AdminCostPage) },
+          { path: '/admin/compliance', element: lazySuspense(AdminCompliancePage) },
+          { path: '/admin/security-events', element: lazySuspense(AdminSecurityEventsPage) },
+          { path: '/admin/sessions', element: lazySuspense(AdminGlobalSessionsPage) },
+          { path: '/admin/api-usage', element: lazySuspense(AdminAPIUsagePage) },
+          { path: '/admin/dsar', element: lazySuspense(AdminDSARPage) },
+          { path: '/admin/purge-history', element: lazySuspense(AdminPurgeHistoryPage) },
+          { path: '/admin/delivery', element: lazySuspense(AdminDeliveryPage) },
+          { path: '/admin/kill-switches', element: lazySuspense(AdminKillSwitchesPage) },
+          { path: '/admin/maintenance', element: lazySuspense(AdminMaintenancePage) },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

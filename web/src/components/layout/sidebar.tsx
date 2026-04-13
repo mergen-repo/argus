@@ -36,6 +36,14 @@ import {
   Archive,
   Rocket,
   History,
+  ToggleLeft,
+  CalendarClock,
+  DollarSign,
+  UserCheck,
+  DatabaseZap,
+  FileSearch,
+  PackageSearch,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -108,6 +116,24 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Health', icon: HeartPulse, path: '/system/health' },
       { label: 'Tenants', icon: Building, path: '/system/tenants' },
+    ],
+  },
+  {
+    title: 'ADMIN',
+    minRole: 'tenant_admin',
+    items: [
+      { label: 'Resources', icon: DatabaseZap, path: '/admin/resources' },
+      { label: 'Quotas', icon: Gauge, path: '/admin/quotas' },
+      { label: 'Cost', icon: DollarSign, path: '/admin/cost' },
+      { label: 'Compliance', icon: ShieldCheck, path: '/admin/compliance' },
+      { label: 'Security Events', icon: Shield, path: '/admin/security-events' },
+      { label: 'Sessions', icon: UserCheck, path: '/admin/sessions' },
+      { label: 'API Usage', icon: Key, path: '/admin/api-usage' },
+      { label: 'DSAR Queue', icon: FileSearch, path: '/admin/dsar' },
+      { label: 'Purge History', icon: PackageSearch, path: '/admin/purge-history' },
+      { label: 'Delivery Status', icon: MessageSquare, path: '/admin/delivery' },
+      { label: 'Kill Switches', icon: ToggleLeft, path: '/admin/kill-switches' },
+      { label: 'Maintenance', icon: CalendarClock, path: '/admin/maintenance' },
     ],
   },
   {

@@ -21,6 +21,7 @@ import (
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
+	adminapi "github.com/btopcu/argus/internal/api/admin"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -60,6 +61,7 @@ import (
 	userapi "github.com/btopcu/argus/internal/api/user"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/compliance"
+	"github.com/btopcu/argus/internal/killswitch"
 	"github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/cache"
@@ -945,6 +947,38 @@ func main() {
 		cronScheduler.AddEntry(job.CronEntry{Name: "scheduled_report_sweeper", Schedule: "*/1 * * * *", JobType: job.JobTypeScheduledReportSweeper})
 	}
 
+	// STORY-073 — Admin compliance screens
+	killSwitchStore := store.NewKillSwitchStore(pg.Pool)
+	maintenanceWindowStore := store.NewMaintenanceWindowStore(pg.Pool)
+	killSwitchSvc := killswitch.NewService(killSwitchStore, auditSvc, log.Logger)
+	if err := killSwitchSvc.Reload(ctx); err != nil {
+		log.Warn().Err(err).Msg("kill-switch initial load failed — defaulting to all OFF")
+	}
+	adminHandler := adminapi.NewHandler(
+		killSwitchStore,
+		maintenanceWindowStore,
+		tenantStore,
+		sessionStore,
+		apiKeyStore,
+		jobStore,
+		webhookDeliveryStore,
+		notifStore,
+		smsOutboundStore,
+		auditStore,
+		killSwitchSvc,
+		auditSvc,
+		pg.Pool,
+		rdb.Client,
+		log.Logger,
+	)
+	// Wire kill-switch into enforcement points
+	if radiusServer != nil {
+		radiusServer.SetKillSwitch(killSwitchSvc)
+	}
+	bulkHandler.SetKillSwitch(killSwitchSvc)
+	notifSvc.SetKillSwitch(killSwitchSvc)
+	log.Info().Msg("STORY-073 admin compliance handlers + kill-switch enforcement wired")
+
 	// STORY-071 — Roaming Agreement Management
 	roamingAgreementStore := store.NewRoamingAgreementStore(pg.Pool)
 	roamingHandler := roamingapi.NewHandler(roamingAgreementStore, operatorStore, auditSvc, log.Logger)
@@ -1084,6 +1118,8 @@ func main() {
 		WebhookHandler:      webhookHandler,
 		SMSHandler:          smsHandler,
 		OpsHandler:          opsHandler,
+		AdminHandler:        adminHandler,
+		KillSwitchSvc:       killSwitchSvc,
 		APIKeyStore:        apiKeyStore,
 		TenantLimits:       tenantLimits,
 		RedisClient:        rdb.Client,

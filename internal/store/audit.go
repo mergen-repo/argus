@@ -23,6 +23,7 @@ type ListAuditParams struct {
 	To         *time.Time
 	UserID     *uuid.UUID
 	Action     string
+	Actions    []string
 	EntityType string
 	EntityID   string
 }
@@ -95,6 +96,11 @@ func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAu
 	if params.Action != "" {
 		conditions = append(conditions, fmt.Sprintf("action = $%d", argIdx))
 		args = append(args, params.Action)
+		argIdx++
+	}
+	if len(params.Actions) > 0 {
+		conditions = append(conditions, fmt.Sprintf("action = ANY($%d)", argIdx))
+		args = append(args, params.Actions)
 		argIdx++
 	}
 	if params.EntityType != "" {

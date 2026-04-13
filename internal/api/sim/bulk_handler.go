@@ -18,11 +18,17 @@ import (
 
 const maxUploadSize = 50 << 20 // 50MB
 
+// killSwitchChecker allows the BulkHandler to check if bulk_operations is disabled.
+type killSwitchChecker interface {
+	IsEnabled(key string) bool
+}
+
 type BulkHandler struct {
-	jobs     *store.JobStore
-	segments *store.SegmentStore
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs       *store.JobStore
+	segments   *store.SegmentStore
+	eventBus   *bus.EventBus
+	killSwitch killSwitchChecker
+	logger     zerolog.Logger
 }
 
 func NewBulkHandler(jobs *store.JobStore, segments *store.SegmentStore, eventBus *bus.EventBus, logger zerolog.Logger) *BulkHandler {
@@ -32,6 +38,21 @@ func NewBulkHandler(jobs *store.JobStore, segments *store.SegmentStore, eventBus
 		eventBus: eventBus,
 		logger:   logger,
 	}
+}
+
+// SetKillSwitch attaches an optional kill-switch service.
+func (h *BulkHandler) SetKillSwitch(ks killSwitchChecker) {
+	h.killSwitch = ks
+}
+
+func (h *BulkHandler) checkBulkKillSwitch(w http.ResponseWriter) bool {
+	if h.killSwitch != nil && h.killSwitch.IsEnabled("bulk_operations") {
+		apierr.WriteError(w, http.StatusServiceUnavailable, "SERVICE_DEGRADED",
+			"Bulk operations are currently disabled. The system is in degraded mode.",
+			map[string]string{"key": "bulk_operations"})
+		return true
+	}
+	return false
 }
 
 type bulkImportResponse struct {
@@ -54,6 +75,9 @@ var validBulkTargetStates = map[string]bool{
 }
 
 func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
+	if h.checkBulkKillSwitch(w) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
@@ -182,6 +206,9 @@ func (h *BulkHandler) Import(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BulkHandler) StateChange(w http.ResponseWriter, r *http.Request) {
+	if h.checkBulkKillSwitch(w) {
+		return
+	}
 	var req struct {
 		SegmentID   uuid.UUID `json:"segment_id"`
 		TargetState string    `json:"target_state"`
@@ -249,6 +276,9 @@ func (h *BulkHandler) StateChange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BulkHandler) PolicyAssign(w http.ResponseWriter, r *http.Request) {
+	if h.checkBulkKillSwitch(w) {
+		return
+	}
 	var req struct {
 		SegmentID       uuid.UUID `json:"segment_id"`
 		PolicyVersionID uuid.UUID `json:"policy_version_id"`
@@ -313,6 +343,9 @@ func (h *BulkHandler) PolicyAssign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BulkHandler) OperatorSwitch(w http.ResponseWriter, r *http.Request) {
+	if h.checkBulkKillSwitch(w) {
+		return
+	}
 	var req struct {
 		SegmentID        uuid.UUID `json:"segment_id"`
 		TargetOperatorID uuid.UUID `json:"target_operator_id"`

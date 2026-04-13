@@ -1706,3 +1706,39 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (~3.8s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-073: Multi-Tenant Admin & Compliance Screens
+
+### Backend / Altyapi (7 senaryo)
+
+1. **Kill switch LIST (API-248)**: `super_admin` JWT ile `GET /api/v1/admin/kill-switches` → 5 switch gelmeli; her birinde `key`, `enabled`, `reason`, `toggled_by`, `toggled_at` alanlari olmali. `tenant_admin` JWT ile → 403 Forbidden.
+2. **Kill switch TOGGLE (API-249)**: `PATCH /api/v1/admin/kill-switches/bulk_ops` body `{"enabled": true, "reason": "test disable"}` → 200; `enabled: true` dönmeli. Ardından bulk SIM suspend endpoint'i çağırılınca → 503 `SERVICE_DEGRADED` dönmeli. Tekrar `{"enabled": false}` ile toggle → bulk operasyon normal çalışmalı.
+3. **Maintenance window CREATE/DELETE (API-251/252)**: `POST /admin/maintenance-windows` → 201 Created; `GET /admin/maintenance-windows` → yeni kayıt listede görülmeli. `DELETE /admin/maintenance-windows/:id` → 204; kayıt listeden düşmeli. Her iki işlem için `audit_logs` tablosunda `action = maintenance.scheduled / maintenance.cancelled` satırları olmali.
+4. **Global sessions (API-245)**: `GET /admin/sessions/active` → aktif portal session listesi; `user_email`, `ip`, `browser`, `os`, `last_seen_at` alanları mevcut. `POST /admin/sessions/:id/revoke` → 200; revoke edilen session'a ait token ile herhangi bir endpoint çağrısı → 401.
+5. **DSAR queue (API-255)**: `GET /admin/dsar/queue` (tenant_admin) → kendi tenant'ına ait data-portability ve kvkk-purge tipli job'lar filtrelenmiş gelecek; `sla_hours`, `sla_remaining_hours`, `subject_id` alanları mevcut.
+6. **Delivery status (API-253)**: `GET /admin/delivery/status` → 5 kanal için `{channel, success_rate, failure_rate, retry_depth, p50_ms, p95_ms, p99_ms, last_delivery_at}` dönmeli. Son 30 dakikada başarılı webhook bildirimi gönderilmişse webhook kanalının `success_rate > 0` olması beklenir.
+7. **Migration reversibility**: `migrate -path migrations down 1` → `20260416000001_admin_compliance.down.sql` çalışmalı; `kill_switches` ve `maintenance_windows` tabloları ve RLS policy kalkmalı.
+
+### Frontend (11 senaryo)
+
+8. **Sidebar ADMIN grubu (AC-13)**: `super_admin` olarak giriş → sol sidebar'da ADMIN başlığı altında tüm 12 admin ekranı için link görülmeli. `tenant_admin` olarak giriş → yalnızca izin verilen ekranlar (Quotas, Security Events, Global Sessions, DSAR Queue, Compliance Overview) görülmeli.
+9. **SCR-140 Tenant Resources**: `/admin/resources` → her tenant için SIM count, API RPS, active sessions, CDR volume, storage kart grubu görülmeli. Herhangi bir sütun başlığına tıklayınca sıralama değişmeli.
+10. **SCR-141 Quota Breakdown**: `/admin/quotas` → her tenant için max_sims / current_sims progress bar; 95% üzerinde kırmızı (danger), 80-95% arası sarı (warning), altı yeşil (ok) renk görülmeli. Limit yaklaşan tenant için banner uyarısı görülmeli.
+11. **SCR-143 Security Events**: `/admin/security-events` → audit log'dan auth_failure, role_change, account_locked gibi olaylar listelenm  eli; severity badge'leri görülmeli; tenant/event type filtreleri çalışmalı.
+12. **SCR-144 Global Sessions**: `/admin/sessions` → aktif portal oturumları listelenmeli; "Force Logout" butonuna tıklanınca onay dialogi çıkmalı; onay sonrasında session revoke edilmeli.
+13. **SCR-145 API Key Usage**: `/admin/api-usage` → her API key için rate limit bar, error rate, anomaly flag görülmeli; anomaly_flag=true olan key kırmızı highlight almalı.
+14. **SCR-146 DSAR Queue**: `/admin/dsar` → SLA timer (sla_remaining_hours) geri sayım göstermeli; SLA süresi dolmuş request kırmızı badge almalı; "Generate Response" butonu ilgili job'ı tetiklemeli.
+15. **SCR-149 Kill Switches**: `/admin/kill-switches` → 5 switch toggle ile görülmeli; enable etmek için slide panel açılmalı, reason zorunlu alan olmalı; reason girilmeden submit → validasyon hatası görülmeli.
+16. **SCR-152 Maintenance Windows**: `/admin/maintenance` → pencere listesi ve "Schedule Window" butonu görülmeli; form doldurulup submit edilince liste yenilenmeli; Cancel butonu pencereyi listeden kaldırmalı.
+17. **SCR-153 Delivery Status**: `/admin/delivery` → 5 kanal için health card (webhook/email/sms/in-app/telegram); p50/p95/p99 değerleri görülmeli; kanal sağlığı yeşil/sarı/kırmızı göstergesiyle belirtilmeli.
+18. **SCR-147 Compliance Posture**: `/admin/compliance` → 6 posture card görülmeli (read-only mode, external notifications, quota utilization, audit trail, retention, KVKK/GDPR controls); her kart ok/warning/critical badge taşımalı.
+
+### Test command
+```bash
+make test   # 2693 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali
+npx tsc --noEmit  # TypeScript hata olmamali
+```

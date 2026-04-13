@@ -173,6 +173,11 @@ type Config struct {
 	AlertSubject  string
 }
 
+// killSwitchChecker allows the service to check if external_notifications is disabled.
+type killSwitchChecker interface {
+	IsEnabled(key string) bool
+}
+
 type Service struct {
 	email    EmailSender
 	telegram TelegramSender
@@ -180,6 +185,7 @@ type Service struct {
 	webhook  WebhookDispatcher
 	sms      SMSDispatcher
 	channels []Channel
+	killSwitch killSwitchChecker
 	logger   zerolog.Logger
 
 	webhookURL    string
@@ -207,6 +213,11 @@ func NewService(email EmailSender, telegram TelegramSender, inApp InAppStore, ch
 	}
 	svc.validateChannels()
 	return svc
+}
+
+// SetKillSwitch attaches an optional kill-switch service.
+func (s *Service) SetKillSwitch(ks killSwitchChecker) {
+	s.killSwitch = ks
 }
 
 func (s *Service) senderFor(ch Channel) interface{} {
@@ -312,6 +323,14 @@ func (s *Service) Stop() {
 }
 
 func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
+	// Kill-switch: external_notifications — suppress all outbound dispatches.
+	if s.killSwitch != nil && s.killSwitch.IsEnabled("external_notifications") {
+		s.logger.Warn().
+			Str("event_type", string(req.EventType)).
+			Msg("notification suppressed: kill_switch external_notifications active")
+		return nil
+	}
+
 	if s.delivery != nil && req.UserID != nil {
 		allowed, err := s.delivery.CheckRateLimit(ctx, req.UserID.String())
 		if err != nil {

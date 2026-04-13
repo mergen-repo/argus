@@ -33,6 +33,11 @@ type MetricsRecorder interface {
 	RecordAuth(ctx context.Context, operatorID uuid.UUID, success bool, latencyMs int)
 }
 
+// killSwitchChecker is satisfied by *killswitch.Service (or any test stub).
+type killSwitchChecker interface {
+	IsEnabled(key string) bool
+}
+
 type Server struct {
 	authAddr       string
 	acctAddr       string
@@ -50,6 +55,7 @@ type Server struct {
 	eapAuthResults  sync.Map
 	metricsRecorder MetricsRecorder
 	policyEnforcer  *enforcer.Enforcer
+	killSwitch      killSwitchChecker
 	logger          zerolog.Logger
 
 	authServer *radius.PacketServer
@@ -94,6 +100,12 @@ func NewServer(
 		dmSender:       dmSender,
 		logger:         logger.With().Str("component", "radius_server").Logger(),
 	}
+}
+
+// SetKillSwitch attaches an optional kill-switch service. When radius_auth is
+// enabled the server rejects all Access-Request packets with Access-Reject.
+func (s *Server) SetKillSwitch(ks killSwitchChecker) {
+	s.killSwitch = ks
 }
 
 func (s *Server) Start(_ context.Context) error {
@@ -215,6 +227,13 @@ func (s *Server) handleAuth(w radius.ResponseWriter, r *radius.Request) {
 		Str("remote_addr", r.RemoteAddr.String()).
 		Str("type", "auth").
 		Logger()
+
+	// Kill-switch: radius_auth — reject all auth requests immediately.
+	if s.killSwitch != nil && s.killSwitch.IsEnabled("radius_auth") {
+		logger.Warn().Msg("Access-Reject: kill_switch radius_auth active")
+		s.sendReject(w, r.Packet, "KILL_SWITCH_ACTIVE")
+		return
+	}
 
 	eapMessage := rfc2869.EAPMessage_Get(r.Packet)
 	if len(eapMessage) > 0 && s.eapMachine != nil {

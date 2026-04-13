@@ -52,6 +52,8 @@
 | TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled | No |
 | TBL-43 | roaming_agreements | Operator | → TBL-01 (tenant_id), → TBL-05/TBL-06 (operator_id); partial unique index on (tenant_id, operator_id) WHERE state='active'; RLS enabled | No |
 | TBL-44 | anomaly_comments | Analytics/Anomalies | → TBL-28 (anomaly_id), → TBL-02 (author_id); body varchar(2000); index on (anomaly_id, created_at DESC); RLS via app.current_tenant | No |
+| TBL-45 | kill_switches | Admin/Operations | System-level (no tenant_id); key + enabled + reason + toggled_by + toggled_at; 5 canonical keys seeded | No |
+| TBL-46 | maintenance_windows | Admin/Operations | → TBL-01 (tenant_id nullable — may be system-wide); affected_services JSONB; notify_plan JSONB; RLS enabled | No |
 
 ## Domain Detail Files
 

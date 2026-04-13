@@ -384,4 +384,27 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 184 REST endpoints + 10 WebSocket event types**
+## Admin Endpoints (14 endpoints) — STORY-073
+
+> All under `/api/v1/admin/`. Role: `super_admin` unless noted. Auth: JWT.
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-242 | GET | /api/v1/admin/tenants/resources | Per-tenant resource summary: SIM count, API RPS, active sessions, CDR volume, storage used, spark arrays | JWT (super_admin) | N+1 accepted (PERF-073); React Query 60s refetch |
+| API-243 | GET | /api/v1/admin/tenants/quotas | Per-tenant quota progress: max_sims, max_apns, max_users, max_api_keys vs. current with ok/warning/danger thresholds | JWT (super_admin) | Color thresholds: <80% ok, <95% warning, ≥95% danger |
+| API-244 | GET | /api/v1/admin/cost/by-tenant | Monthly cost breakdown per tenant: total, radius_cost, operator_cost, sms_cost, storage_cost, 6-month trend | JWT (super_admin) | React Query 5min staleTime |
+| API-245 | GET | /api/v1/admin/sessions/active | List all active portal sessions globally; tenant_admin scoped to own tenant | JWT (tenant_admin+) | Fields: user_email, ip, browser, os, device, login_at, last_seen_at, idle_duration |
+| API-246 | POST | /api/v1/admin/sessions/{session_id}/revoke | Force-logout a specific session; emits session.force_logout audit event | JWT (super_admin) | Invalidates token; user redirected to login on next request |
+| API-247 | GET | /api/v1/admin/api-keys/usage | Per-API-key usage stats: request rate, rate-limit consumption, top endpoints, error rate, anomaly flag | JWT (super_admin) | Redis counters per key; cursor-paginated (limit=50) |
+| API-248 | GET | /api/v1/admin/kill-switches | List all 5 canonical kill switches with current state and last toggled metadata | JWT (super_admin) | 15s TTL in-memory cache (PERF-074); returns array |
+| API-249 | PATCH | /api/v1/admin/kill-switches/{key} | Toggle a kill switch on/off; requires reason field; emits killswitch.toggled audit event | JWT (super_admin) | Keys: radius_auth, session_create, bulk_ops, read_only, external_notifications |
+| API-250 | GET | /api/v1/admin/maintenance-windows | List scheduled and historical maintenance windows | JWT (super_admin) | RLS on maintenance_windows; cursor-paginated |
+| API-251 | POST | /api/v1/admin/maintenance-windows | Schedule a new maintenance window with start/end time, affected services, notification plan | JWT (super_admin) | Emits maintenance.scheduled audit event |
+| API-252 | DELETE | /api/v1/admin/maintenance-windows/{id} | Cancel (delete) a scheduled maintenance window | JWT (super_admin) | Emits maintenance.cancelled audit event |
+| API-253 | GET | /api/v1/admin/delivery/status | Per-channel notification delivery stats: success rate, failure rate, retry depth, latency p50/p95/p99 | JWT (super_admin) | 5 channels: email, sms, webhook, in-app, telegram; React Query 60s refetch |
+| API-254 | GET | /api/v1/admin/purge-history | Chronological list of purged SIM records: iccid, msisdn, tenant, actor, purged_at | JWT (super_admin) | Sourced from audit_logs + sims JOIN; cursor-paginated |
+| API-255 | GET | /api/v1/admin/dsar/queue | DSAR job queue: data-portability + KVKK-purge + right-to-erasure jobs with SLA countdown | JWT (tenant_admin+) | SLA tracked in hours (72h KVKK default); tenant_admin scoped to own tenant |
+
+---
+
+**Total: 198 REST endpoints + 10 WebSocket event types**

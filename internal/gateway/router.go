@@ -6,6 +6,7 @@ import (
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
+	adminapi "github.com/btopcu/argus/internal/api/admin"
 	opsapi "github.com/btopcu/argus/internal/api/ops"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
@@ -86,6 +87,8 @@ type RouterDeps struct {
 	WebhookHandler          *webhookapi.Handler
 	SMSHandler              *smsapi.Handler
 	OpsHandler              *opsapi.Handler
+	AdminHandler            *adminapi.Handler
+	KillSwitchSvc           killSwitchChecker
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
 	RedisClient      *redis.Client
@@ -133,6 +136,15 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	r.Use(RecoveryWithZerolog(deps.Logger))
 	r.Use(CorrelationID())
 	r.Use(chimiddleware.RealIP)
+
+	if deps.KillSwitchSvc != nil {
+		r.Use(KillSwitchMiddleware(deps.KillSwitchSvc, []string{
+			"/api/v1/auth/",
+			"/api/v1/admin/kill-switches",
+			"/health",
+			"/api/health",
+		}))
+	}
 
 	r.Get("/health/live", deps.Health.Live)
 	r.Get("/health/ready", deps.Health.Ready)
@@ -802,6 +814,34 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/analytics/anomalies/{id}/comments", deps.AnomalyHandler.ListComments)
 			r.Post("/api/v1/analytics/anomalies/{id}/comments", deps.AnomalyHandler.AddComment)
 			r.Post("/api/v1/analytics/anomalies/{id}/escalate", deps.AnomalyHandler.Escalate)
+		})
+	}
+
+	if deps.AdminHandler != nil {
+		// super_admin-only admin endpoints
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/admin/tenants/resources", deps.AdminHandler.ListTenantResources)
+			r.Get("/api/v1/admin/cost/by-tenant", deps.AdminHandler.ListCostByTenant)
+			r.Get("/api/v1/admin/sessions/active", deps.AdminHandler.ListActiveSessions)
+			r.Post("/api/v1/admin/sessions/{session_id}/revoke", deps.AdminHandler.ForceLogoutSession)
+			r.Get("/api/v1/admin/api-keys/usage", deps.AdminHandler.ListAPIKeyUsage)
+			r.Get("/api/v1/admin/kill-switches", deps.AdminHandler.ListKillSwitches)
+			r.Patch("/api/v1/admin/kill-switches/{key}", deps.AdminHandler.ToggleKillSwitch)
+			r.Get("/api/v1/admin/maintenance-windows", deps.AdminHandler.ListMaintenanceWindows)
+			r.Post("/api/v1/admin/maintenance-windows", deps.AdminHandler.CreateMaintenanceWindow)
+			r.Delete("/api/v1/admin/maintenance-windows/{id}", deps.AdminHandler.DeleteMaintenanceWindow)
+			r.Get("/api/v1/admin/delivery/status", deps.AdminHandler.GetDeliveryStatus)
+			r.Get("/api/v1/admin/purge-history", deps.AdminHandler.ListPurgeHistory)
+		})
+
+		// super_admin + tenant_admin scoped endpoints
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Get("/api/v1/admin/tenants/quotas", deps.AdminHandler.ListTenantQuotas)
+			r.Get("/api/v1/admin/dsar/queue", deps.AdminHandler.ListDSARQueue)
 		})
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -90,6 +91,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Action:     r.URL.Query().Get("action"),
 		EntityType: r.URL.Query().Get("entity_type"),
 		EntityID:   r.URL.Query().Get("entity_id"),
+	}
+
+	if actionsStr := r.URL.Query().Get("actions"); actionsStr != "" {
+		parts := strings.Split(actionsStr, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				params.Actions = append(params.Actions, p)
+			}
+		}
 	}
 
 	params.Limit = 50
