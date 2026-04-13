@@ -112,7 +112,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: AUTOPILOT
+- Mode: —
 - Phase: 10 (Cleanup & Production Hardening)
-- Story: STORY-077
-- Step: Plan
+- Story: —
+- Step: —
