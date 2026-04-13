@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-12
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 12/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 13/22 stories
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 12/22
-> Current story: STORY-069
-> Current step: Plan
+> Stories completed: 55/55 (100%) — Phase 10: 13/22
+> Current story: STORY-070
+> Current step: Planning
 
 ### Phase 1: Foundation [DONE]
 
@@ -146,9 +146,9 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 12/22
-> Current story: STORY-069
-> Current step: Gate
+> Stories completed: 13/22
+> Current story: STORY-070
+> Current step: Planning
 > Mode: AUTOPILOT
 > Started: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -184,7 +184,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-069 | Onboarding, Reporting & Notification Completeness | L | [~] IN PROGRESS | Gate | STORY-059, STORY-063, STORY-065 | — |
+| STORY-069 | Onboarding, Reporting & Notification Completeness | L | [x] DONE | — | STORY-059, STORY-063, STORY-065 | 2026-04-13 |
 | STORY-070 | Frontend Real-Data Wiring | L | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-069 | — |
 | STORY-071 | Roaming Agreement Management | M | [ ] PENDING | — | STORY-063 | — |
 | STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |
@@ -221,6 +221,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-13 | REVIEW | STORY-069 review completed. 10 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale line 144→166 APIs, 31→42 tables; internal/api/ tree +onboarding/, reports/, webhooks/, sms/. SCREENS.md: header 26→33 screens; SCR-003/SCR-113 updated (STORY-069 enhancements); SCR-130..134 added (Reports, Webhooks, SMS, Data Portability, Notification Preferences). db/_index.md: TBL-36..42 added (onboarding_sessions, scheduled_reports, webhook_configs, webhook_deliveries, notification_preferences, notification_templates, sms_outbound). api/_index.md: API-170/171 story reference STORY-029→STORY-069; footer 144→166 REST endpoints. PRODUCT.md: F-055 marked COVERED. GLOSSARY.md: 5 new terms (Onboarding Session, Scheduled Report, Webhook Delivery, Data Portability Export, KVKK Auto-Purge Scheduler). .env.example: RATE_LIMIT_SMS_PER_MINUTE added. ROUTEMAP: counter 12/22→13/22. Check #1 (next-story impact): DEV-201 emptyReportProvider constraint for STORY-070; STORY-073 now unblocked. Decisions DEV-198..205+DEC-205 all ACCEPTED. USERTEST 21 scenarios PASS. Zero-deferral. Report: docs/stories/phase-10/STORY-069-review.md | docs/ARCHITECTURE.md, docs/SCREENS.md, docs/architecture/db/_index.md, docs/architecture/api/_index.md, docs/PRODUCT.md, docs/GLOSSARY.md, .env.example |
+| 2026-04-12 | DONE | STORY-069 completed — Onboarding, Reporting & Notification Completeness. 12 ACs. Onboarding wizard (5-step, localStorage resume, onboarding_sessions store); on-demand + scheduled reports (PDF/CSV/XLSX, `emptyReportProvider` stub per DEV-201); webhook delivery tracking + HMAC-SHA-256 signing (AES-GCM encrypted secrets, dead-letter on max retries); per-tenant notification preferences matrix + locale-aware templates (TR/EN, 28 seed rows); GDPR data portability export (ZIP+signed URL, 7d TTL); KVKK auto-purge cron @daily; IP grace release @hourly; SMS Gateway outbound + history (AC-12, F-055 COVERED). 22 new API endpoints (API-202..223), 7 new tables (TBL-36..42), RLS on 6 tenant-scoped tables, 4 new cron jobs, 6 new job processors. Gate 9 fixes (shadcn Textarea, xlsx format, setTimeout removal, TODO scrubs, audit instrumentation for webhooks+reports, main.go wiring). 2556 tests PASS. | internal/api/{onboarding,reports,webhooks,sms,notification}, internal/job/{kvkk_purge,ip_grace_release,webhook_retry,scheduled_report,sms_gateway,data_portability}, migrations/20260413000001..002, web/src/pages/{reports,webhooks,sms,compliance}, web/src/components/onboarding/wizard.tsx, docs/brainstorming/decisions.md (DEV-198..205) |
 | 2026-04-12 | DONE | STORY-067 completed — CI/CD Pipeline, Deployment Strategy & Ops Tooling. 9 ACs. GitHub Actions CI pipeline (5 stages: lint/test/security-scan/build/deploy); blue-green deployment (2 Docker Compose stacks, bluegreen-flip.sh, rollback.sh, smoke-test.sh, deploy-snapshot.sh, deploy-tag.sh); digest pinning (all FROM statements @sha256, update-digests.sh); argusctl cobra CLI (tenant/apikey/user/compliance/sim/health/backup, ARGUSCTL_ Viper prefix); GET /api/v1/status (public) + GET /api/v1/status/details (super_admin); POST /api/v1/audit/system-events (super_admin, uuid.Nil tenant, hard-fail on deploy/rollback); argus_build_info gauge; 10 runbooks (cert-rotation, db-full, deploy, dr-pitr, dr-restore, latency-spike, nats-lag, operator-down, rollback, session-loss, tenant-suspend). Scope additions: DELETE /api/v1/users/:id?gdpr=1 (UserStore.DeletePII, state=purged), migration 20260412000010 (users.state CHECK +purged). Gate 2 dispatches (F-1: audit endpoint+script rewiring, F-2: E2E evidence). 2182 tests PASS (+7). Review: api/_index.md +4 endpoints (API-192..195), footer 114→118; db/platform.md TBL-02 users.state +purged; GLOSSARY +3 terms (Blue-Green, argusctl, Digest Pinning); USERTEST +15 scenarios; decisions DEV-186..192; ARCHITECTURE: cmd/argusctl tree, deploy scripts tree, CI/CD section, API count 114→118, Reference Registry 115→119; CONFIG.md CI/CD & Ops section (ARGUS_API_URL, ARGUS_API_TOKEN, ARGUSCTL_*). Zero-deferral. | .github/workflows/ci.yml, deploy/{docker-compose.blue.yml,docker-compose.green.yml,scripts/}, infra/{nginx/upstream.conf,scripts/update-digests.sh}, cmd/argusctl/, internal/api/system/status_handler.go, internal/api/audit/handler.go, internal/gateway/router.go, migrations/20260412000010, docs/runbook/(10 files), docs/e2e-evidence/STORY-067-cicd-test.md, 7 doc files |
 | 2026-04-12 | DONE | STORY-066 completed — Reliability, Backup, DR & Runtime Hardening. 13 ACs, 14 tasks, 6 waves. Automated pg_dump backup pipeline (daily/weekly/monthly, S3 upload, SHA-256 verification, retention sweep); WAL archiving enabled (archive_mode=on, postgres_wal_archive volume); PITR procedure documented and dry-run validated (docs/runbook/dr-pitr.md). Health probe split: /health/live (liveness, always 200), /health/ready (full deps + disk probe), /health/startup (60s grace). Disk space probe (argus_disk_usage_percent gauge, DISK_PROBE_MOUNTS). Graceful shutdown drain order (HTTP→RADIUS→Diameter→SBA→WS→jobs→NATS→Redis→PG, SHUTDOWN_TIMEOUT_SECONDS). Circuit breaker per operator adapter (CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_RECOVERY_SEC). JWT dual-key rotation (JWT_SECRET_CURRENT + JWT_SECRET_PREVIOUS, audit log on detection, /api/v1/system/jwt-rotation-history). HSTS guard (TLS_ENABLED or X-Forwarded-Proto). pprof token guard (PPROF_ENABLED=false default, PPROF_TOKEN 32-char min, constant-time compare). Body size limit middleware (1MB auth, 10MB default, 50MB bulk). Read replica routing via DATABASE_READ_REPLICA_URL. NATS consumer lag metric (argus_nats_consumer_lag). Anomaly batchDetector crash safety (restart+backoff). 2 new tables (TBL-32 backup_runs, TBL-33 backup_verifications). Migration 20260412000009. 2135 tests PASS. Gate 2 dispatches (F-1: AC-4 disk probe wiring, F-2: PITR evidence doc sync). Review: PITR runbook Step 4 critical bugs fixed (pg_restore must run against live server, --dbname=postgres with --create); evidence doc fixed (standby.signal→recovery.signal, audit_log→audit_logs); API index +5 endpoints (API-187..191); DB index +2 tables; GLOSSARY +12 terms; ARCHITECTURE: volume, health check URL, backup section; decisions DEV-178..185; USERTEST +13 scenarios. Zero-deferral. Commit d06d8a0. | cmd/argus/main.go, internal/{job,gateway,health,api/system,store,config,operator,analytics}, migrations/20260412000009, infra/postgres/postgresql.conf, deploy/docker-compose.yml, docs/runbook/dr-pitr.md, docs/e2e-evidence/STORY-066-pitr-test.md, 8 doc files |
 | 2026-04-12 | DONE | STORY-065 completed — Observability & Tracing Standardization. 18 tasks across 4 waves. OpenTelemetry SDK (v1.43.0) wired with OTLP gRPC exporter + noop fallback; otelhttp wraps Chi router; otelpgx v0.10.0 instruments pgx v5 pool with slow-query tracer (100ms threshold) + compositeTracer implementing all 6 pgx tracer interfaces; NATS Publish/Subscribe inject/extract traceparent via natsHeaderCarrier; go-redis metricsHook; Prometheus client_golang with 17 metric vectors (HTTP/AAA/DB/NATS/Redis/jobs/operator health/circuit breaker) + Go runtime + process collectors; legacy custom fmt.Sprintf text-format prometheus.go deleted. PromAAARecorder + CompositeMetricsRecorder preserves Redis-backed Collector for STORY-033 WS dashboard. HealthChecker.SetMetricsRegistry + CircuitBreaker.SetTransitionHook update OperatorHealth + CircuitBreakerState gauges. Runner.SetMetrics records JobRunsTotal + JobDuration. gateway.TenantLabel + ZerologRequestLogger emits tenant_id in all authenticated log lines. 6 Grafana dashboards (32 panels: overview/aaa/database/messaging/tenant/jobs) with provisioning + templated tenant variable. 9 Prometheus alert rules (alerts.yml). docker-compose.obs.yml overlay (prometheus/grafana/otel-collector/node-exporter/redis-exporter). cmd/argus/main.go +60 lines wiring. 9 new env vars (OTEL_*/METRICS_*). 1 //go:build integration end-to-end test using tracetest.InMemoryExporter. 2009 tests PASS (was 1945, +64). Gate PASS first try, 0 fixes. Review: 9 cross-doc fixes FIXED (GLOSSARY, ARCHITECTURE, TESTING, FUTURE, PRODUCT, api/_index, SCR-120). Decisions: DEV-171..177. Documented FUTURE items: DEV-174 (NATS pending poller, API gap), DEV-175 (Diameter/SBA Prom recorders, API gap). Zero-deferral. Commit 0a4dade. | cmd/argus/main.go, internal/{observability,gateway,store,bus,cache,operator,job,config,api}, infra/{grafana,prometheus,otel}, deploy/docker-compose.obs.yml, 9 doc files |

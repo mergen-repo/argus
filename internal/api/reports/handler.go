@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/report"
@@ -60,14 +61,16 @@ type Handler struct {
 	store    ScheduledReportStore
 	jobs     JobEnqueuer
 	eventBus EventPublisher
+	auditSvc audit.Auditor
 	logger   zerolog.Logger
 }
 
-func NewHandler(s ScheduledReportStore, jobs JobEnqueuer, eventBus EventPublisher, logger zerolog.Logger) *Handler {
+func NewHandler(s ScheduledReportStore, jobs JobEnqueuer, eventBus EventPublisher, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		store:    s,
 		jobs:     jobs,
 		eventBus: eventBus,
+		auditSvc: auditSvc,
 		logger:   logger.With().Str("component", "reports_handler").Logger(),
 	}
 }
@@ -158,6 +161,11 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "report.generated", "report_job", j.ID.String(), nil, map[string]interface{}{
+		"report_type": req.ReportType,
+		"format":      req.Format,
+		"async":       true,
+	})
 	apierr.WriteSuccess(w, http.StatusAccepted, map[string]string{
 		"job_id": j.ID.String(),
 		"status": "queued",
@@ -250,6 +258,12 @@ func (h *Handler) CreateScheduled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "scheduled_report.created", "scheduled_report", row.ID.String(), nil, map[string]interface{}{
+		"report_type":   row.ReportType,
+		"format":        row.Format,
+		"schedule_cron": row.ScheduleCron,
+		"recipients":    row.Recipients,
+	})
 	apierr.WriteSuccess(w, http.StatusCreated, row)
 }
 
@@ -343,6 +357,7 @@ func (h *Handler) PatchScheduled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "scheduled_report.updated", "scheduled_report", id.String(), existing, updated)
 	apierr.WriteSuccess(w, http.StatusOK, updated)
 }
 
@@ -386,6 +401,7 @@ func (h *Handler) DeleteScheduled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "scheduled_report.deleted", "scheduled_report", id.String(), existing, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

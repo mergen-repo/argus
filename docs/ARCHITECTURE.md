@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (144 APIs, 31 tables, 10 services)
+> Scale: Large (166 APIs, 42 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -136,6 +136,10 @@ argus/
 │   │   ├── esim/
 │   │   ├── ippool/
 │   │   ├── apikey/
+│   │   ├── onboarding/           # STORY-069: Onboarding wizard session management
+│   │   ├── reports/              # STORY-069: On-demand & scheduled report generation
+│   │   ├── webhooks/             # STORY-069: Webhook config & delivery tracking
+│   │   ├── sms/                  # STORY-069: SMS Gateway outbound + history
 │   │   └── ...
 │   ├── aaa/                      # SVC-04: AAA engine
 │   │   ├── radius/               # RADIUS server

@@ -863,7 +863,7 @@ func main() {
 	webhookConfigStore := store.NewWebhookConfigStore(pg.Pool, cfg.EncryptionKey)
 	webhookDeliveryStore := store.NewWebhookDeliveryStore(pg.Pool)
 	webhookDispatcher := notification.NewDispatcher(webhookConfigStore, webhookDeliveryStore, nil)
-	webhookHandler := webhookapi.NewHandler(webhookConfigStore, webhookDeliveryStore, webhookDispatcher, log.Logger)
+	webhookHandler := webhookapi.NewHandler(webhookConfigStore, webhookDeliveryStore, webhookDispatcher, auditSvc, log.Logger)
 
 	// STORY-069 — wire onboarding/reports/sms/notifications-prefs/data-portability
 	scheduledReportStore := store.NewScheduledReportStore(pg.Pool)
@@ -883,7 +883,7 @@ func main() {
 	}
 	smsHandler := smsapi.NewHandler(simStore, smsOutboundStore, jobStore, eventBus, rdb.Client, auditSvc, smsRateLimit, log.Logger)
 
-	reportsHandler := reportsapi.NewHandler(scheduledReportStore, jobStore, eventBus, log.Logger)
+	reportsHandler := reportsapi.NewHandler(scheduledReportStore, jobStore, eventBus, auditSvc, log.Logger)
 
 	onboardingHandler := onboardingapi.New(
 		onboardingSessionStore,

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { FileInput } from '@/components/ui/file-input'
@@ -329,12 +330,12 @@ function Step4SIMImport({
       ) : (
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-text-secondary">ICCIDs (one per line)</label>
-          <textarea
+          <Textarea
             value={data.manualICCIDs}
             onChange={(e) => onChange({ ...data, manualICCIDs: e.target.value })}
             placeholder="8901260882168430001&#10;8901260882168430002&#10;8901260882168430003"
             rows={5}
-            className="flex w-full rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent font-mono"
+            className="font-mono"
           />
         </div>
       )}
@@ -373,12 +374,12 @@ function Step5PolicySetup({
       </div>
       <div className="space-y-1.5">
         <label className="block text-xs font-medium text-text-secondary">Policy DSL</label>
-        <textarea
+        <Textarea
           value={data.dslSource}
           onChange={(e) => onChange({ ...data, dslSource: e.target.value })}
           placeholder="WHEN subscriber.state = &quot;active&quot;&#10;THEN ALLOW&#10;  rate_limit = 10mbps"
           rows={6}
-          className="flex w-full rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent font-mono"
+          className="font-mono"
         />
       </div>
     </div>

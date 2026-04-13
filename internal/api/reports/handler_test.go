@@ -79,7 +79,7 @@ func withCtx(r *http.Request, tenantID, userID uuid.UUID) *http.Request {
 }
 
 func newHandler(s ScheduledReportStore, j JobEnqueuer, eb EventPublisher) *Handler {
-	return NewHandler(s, j, eb, zerolog.Nop())
+	return NewHandler(s, j, eb, nil, zerolog.Nop())
 }
 
 // --- Generate tests ---

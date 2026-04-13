@@ -101,7 +101,7 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 #### API & Integration
 - F-053: REST API — all operations API-first
 - F-054: Event streaming — WebSocket/SSE for real-time data
-- F-055: SMS Gateway — outbound for IoT device management
+- F-055: SMS Gateway — outbound for IoT device management ✓ COVERED (STORY-069 AC-12)
 - F-056: API key management — create, rotate, rate limit, scope restrict, revoke
 - F-057: OAuth2 client credentials for third-party integration
 - F-058: Webhook delivery for notifications

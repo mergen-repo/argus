@@ -43,6 +43,13 @@
 | TBL-33 | backup_verifications | Backup | → TBL-32 (backup_run_id) | No |
 | TBL-34 | password_history | Auth/Security | → TBL-02 (user_id via JOIN to users.tenant_id for RLS) | No |
 | TBL-35 | user_backup_codes | Auth/Security | → TBL-02 (user_id via JOIN to users.tenant_id for RLS) | No |
+| TBL-36 | onboarding_sessions | Onboarding | → TBL-01 (tenant_id); RLS enabled | No |
+| TBL-37 | scheduled_reports | Reporting | → TBL-01 (tenant_id); RLS enabled | No |
+| TBL-38 | webhook_configs | Notifications | → TBL-01 (tenant_id); secret AES-GCM encrypted; RLS enabled | No |
+| TBL-39 | webhook_deliveries | Notifications | → TBL-38 (webhook_config_id); retry state machine; RLS enabled | No |
+| TBL-40 | notification_preferences | Notifications | → TBL-01 (tenant_id); event_type × channel matrix; RLS enabled | No |
+| TBL-41 | notification_templates | Notifications | Global (no tenant_id); locale-keyed TR/EN; 28 seed rows | No |
+| TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled | No |
 
 ## Domain Detail Files
 

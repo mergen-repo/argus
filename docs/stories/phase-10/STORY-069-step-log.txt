@@ -38,3 +38,7 @@ STEP_2 DEV TASK 27: EXECUTED | files=story_069_e2e_test.go | webhook_retry+sweep
 STEP_2 DEV TASK 28: EXECUTED | files=CONFIG.md+decisions.md+USERTEST.md+api/_index.md+ARCHITECTURE.md | endpoints +20 (124->144) | result=PASS
 STEP_2.5 LINT: EXECUTED | hex_count=0 | hardcoded_count=0 | result=PASS
 STEP_2 FULL_TEST: EXECUTED | tests=2556pass/0fail | build=ok | result=PASS
+STEP_5 DURABILITY_COMMIT: EXECUTED | commit=fac87b0 | files=95 | result=PASS | note=committed_before_gate_for_durability_per_advisor
+STEP_3 GATE: NOT_YET_DISPATCHED | resume_from=Gate | commit=fac87b0 | reason=session_handoff_for_fresh_context
+STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
+STEP_4 REVIEW: EXECUTED | items=10 | evidence=review.md | result=PASS

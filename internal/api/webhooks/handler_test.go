@@ -25,7 +25,7 @@ func withRouteID(ctx context.Context, key, val string) context.Context {
 }
 
 func newNilHandler() *Handler {
-	return NewHandler(nil, nil, nil, zerolog.Nop())
+	return NewHandler(nil, nil, nil, nil, zerolog.Nop())
 }
 
 func TestHandler_List_NoTenant(t *testing.T) {

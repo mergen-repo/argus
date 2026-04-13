@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/notification"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,7 @@ type Handler struct {
 	configStore   *store.WebhookConfigStore
 	deliveryStore *store.WebhookDeliveryStore
 	dispatcher    *notification.Dispatcher
+	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
 
@@ -24,12 +26,14 @@ func NewHandler(
 	configStore *store.WebhookConfigStore,
 	deliveryStore *store.WebhookDeliveryStore,
 	dispatcher *notification.Dispatcher,
+	auditSvc audit.Auditor,
 	logger zerolog.Logger,
 ) *Handler {
 	return &Handler{
 		configStore:   configStore,
 		deliveryStore: deliveryStore,
 		dispatcher:    dispatcher,
+		auditSvc:      auditSvc,
 		logger:        logger.With().Str("component", "webhooks_handler").Logger(),
 	}
 }
@@ -128,6 +132,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created.Secret = ""
+	audit.Emit(r, h.logger, h.auditSvc, "webhook_config.created", "webhook_config", created.ID.String(), nil, map[string]interface{}{
+		"url":         created.URL,
+		"event_types": created.EventTypes,
+		"enabled":     created.Enabled,
+	})
 	apierr.WriteSuccess(w, http.StatusCreated, created)
 }
 
@@ -191,6 +200,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "webhook_config.updated", "webhook_config", id.String(), existing, updated)
 	apierr.WriteSuccess(w, http.StatusOK, updated)
 }
 
@@ -234,6 +244,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "webhook_config.deleted", "webhook_config", id.String(), existing, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -364,6 +375,11 @@ func (h *Handler) RetryDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "webhook_delivery.retried", "webhook_delivery", deliveryID.String(), nil, map[string]interface{}{
+		"config_id":       configID.String(),
+		"new_delivery_id": newDelivery.ID.String(),
+		"final_state":     newDelivery.FinalState,
+	})
 	apierr.WriteSuccess(w, http.StatusAccepted, map[string]interface{}{
 		"delivery_id": newDelivery.ID,
 		"final_state": newDelivery.FinalState,

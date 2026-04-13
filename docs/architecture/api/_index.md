@@ -204,8 +204,8 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-170 | POST | /api/v1/sms/send | Send SMS to SIM | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-sim.md) |
-| API-171 | GET | /api/v1/sms/history | SMS delivery history | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-sim.md) |
+| API-170 | POST | /api/v1/sms/send | Send SMS to SIM | JWT (sim_manager+) | See [STORY-069](../../stories/phase-10/STORY-069-onboarding-reporting.md) (AC-12; fully implemented) |
+| API-171 | GET | /api/v1/sms/history | SMS delivery history (cursor-paginated) | JWT (sim_manager+) | See [STORY-069](../../stories/phase-10/STORY-069-onboarding-reporting.md) (AC-12) |
 
 ## Compliance & Data Governance (5 endpoints)
 
@@ -322,4 +322,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 144 REST endpoints + 10 WebSocket event types**
+**Total: 166 REST endpoints + 10 WebSocket event types**

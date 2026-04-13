@@ -80,9 +80,9 @@ const CATEGORY_META: Record<string, { label: string; color: string; border: stri
 }
 
 const FORMAT_OPTIONS = [
-  { value: 'json', label: 'JSON' },
-  { value: 'csv', label: 'CSV' },
   { value: 'pdf', label: 'PDF' },
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'Excel (.xlsx)' },
 ]
 
 function formatDate(iso: string | null): string {
@@ -106,12 +106,9 @@ function ReportCard({
   report: ReportDefinition
   onGenerate: (report: ReportDefinition) => void
 }) {
-  const [generating, setGenerating] = useState(false)
   const IconComp = ICON_MAP[report.icon] || FileBarChart
 
   const handleGenerate = () => {
-    setGenerating(true)
-    setTimeout(() => setGenerating(false), 2000)
     onGenerate(report)
   }
 
@@ -148,14 +145,9 @@ function ReportCard({
           variant="outline"
           className="flex-1 gap-1.5 text-xs"
           onClick={handleGenerate}
-          disabled={generating}
         >
-          {generating ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Download className="h-3 w-3" />
-          )}
-          {generating ? 'Generating...' : 'Generate'}
+          <Download className="h-3 w-3" />
+          Generate
         </Button>
         <Button size="sm" variant="ghost" className="text-xs gap-1.5">
           <CalendarClock className="h-3 w-3" />

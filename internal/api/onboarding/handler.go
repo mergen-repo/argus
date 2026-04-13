@@ -45,9 +45,10 @@ type BulkImportService interface {
 }
 
 // PolicyService assigns a default policy for a tenant after onboarding.
-// This interface is optional — if not implemented the handler skips policy assignment.
+// This interface is optional — wizard step 5 (Policy Setup) is the primary path
+// for tenant policy creation. AssignDefault is invoked only if a PolicyService
+// implementation is wired (currently nil — see decisions.md DEC-069-POLICY).
 type PolicyService interface {
-	// TODO(STORY-069): AssignDefault does not exist in internal/policy — wire when implemented.
 	AssignDefault(ctx context.Context, tenantID uuid.UUID) error
 }
 
@@ -271,8 +272,9 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(STORY-069): PolicyService.AssignDefault is not yet implemented in internal/policy.
-	// Skip policy assignment until the method is added.
+	// Optional default-policy assignment for tenants that skipped wizard step 5.
+	// When wizard step 5 (Policy Setup) is completed, the user-defined policy
+	// supersedes the default. See decisions.md DEC-069-POLICY.
 	if h.Policy != nil {
 		if pErr := h.Policy.AssignDefault(r.Context(), tenantID); pErr != nil {
 			h.Logger.Warn().Err(pErr).Msg("assign default policy failed (non-fatal)")

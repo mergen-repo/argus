@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 26 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068
+> Total: 33 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
 
@@ -8,7 +8,7 @@
 |----|--------|--------|-------|------|-------|
 | SCR-001 | [Login](screens/SCR-001-login.md) | Auth | /login | None | |
 | SCR-002 | [2FA Verification](screens/SCR-002-2fa.md) | Auth | /login/2fa | Partial | |
-| SCR-003 | [Onboarding Wizard](screens/SCR-003-onboarding.md) | Auth | /setup | JWT | |
+| SCR-003 | [Onboarding Wizard](screens/SCR-003-onboarding.md) | Auth | /setup | JWT | STORY-069: rebuilt as 5-step wizard (Tenant Profile / Operator / APN / SIM Import / Policy Setup) with localStorage resume |
 | SCR-015 | 2FA Setup & Backup Codes | Auth/Security | /settings/security#2fa | JWT (any) | STORY-068 AC-4 |
 | SCR-018 | Force Password Change | Auth | /auth/change-password | Partial (force-change) | STORY-068 AC-3 |
 | SCR-019 | User Settings — Security Tab | Settings | /settings/security | JWT (any) | STORY-068 AC-3/4 |
@@ -37,6 +37,11 @@
 | SCR-111 | [API Keys](screens/SCR-111-settings-apikeys.md) | Settings | /settings/api-keys | JWT (tenant_admin+) | IP whitelist per key (STORY-068 AC-5) |
 | SCR-115 | Active Sessions | Settings | /settings/sessions | JWT (any) | STORY-068 AC-6 |
 | SCR-112 | [IP Pools](screens/SCR-112-settings-ippools.md) | Settings | /settings/ip-pools | JWT (op_manager+) | |
-| SCR-113 | [Notification Config](screens/SCR-113-settings-notifications.md) | Settings | /settings/notifications | JWT (any) | |
+| SCR-113 | [Notification Config](screens/SCR-113-settings-notifications.md) | Settings | /settings/notifications | JWT (any) | STORY-069: extended with Preferences matrix tab + Templates editor tab |
 | SCR-120 | [System Health](screens/SCR-120-system-health.md) | System | /system/health | JWT (super_admin) | |
 | SCR-121 | [Tenant Management](screens/SCR-121-tenant-management.md) | System | /system/tenants | JWT (super_admin) | |
+| SCR-130 | Reports | Reporting | /reports | JWT (api_user+) | STORY-069 AC-2/3: on-demand generate + scheduled report table; format pdf/csv/xlsx |
+| SCR-131 | Webhooks | Integrations | /settings/webhooks | JWT (tenant_admin+) | STORY-069 AC-5/6: webhook configs list + delivery slide-panel + retry button |
+| SCR-132 | SMS Gateway | Communications | /sms | JWT (sim_manager+) | STORY-069 AC-12: send form + outbound history table |
+| SCR-133 | Data Portability | Compliance | /compliance/data-portability | JWT (self or tenant_admin+) | STORY-069 AC-9: GDPR export request form + status |
+| SCR-134 | Notification Preferences | Settings | /settings/notifications#preferences | JWT (tenant_admin+) | STORY-069 AC-7/8: preferences matrix + templates editor (tabs on SCR-113) |
