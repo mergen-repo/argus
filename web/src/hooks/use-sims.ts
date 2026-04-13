@@ -23,6 +23,7 @@ function buildListParams(filters: SIMListFilters, cursor?: string) {
   if (filters.state) params.set('state', filters.state)
   if (filters.operator_id) params.set('operator_id', filters.operator_id)
   if (filters.apn_id) params.set('apn_id', filters.apn_id)
+  if (filters.policy_version_id) params.set('policy_version_id', filters.policy_version_id)
   if (filters.rat_type) params.set('rat_type', filters.rat_type)
   if (filters.q) params.set('q', filters.q)
   if (filters.iccid) params.set('iccid', filters.iccid)

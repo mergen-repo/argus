@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (198 APIs, 46 tables, 10 services)
+> Scale: Large (203 APIs, 46 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format

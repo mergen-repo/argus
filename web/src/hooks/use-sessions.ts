@@ -5,6 +5,52 @@ import { wsClient } from '@/lib/ws'
 import type { Session, SessionStats, SessionStartedEvent, SessionEndedEvent } from '@/types/session'
 import type { ListResponse, ApiResponse } from '@/types/sim'
 
+export interface SorScoreEntry {
+  operator_id: string
+  score: number
+  reason?: string
+}
+
+export interface SorDecision {
+  chosen_operator_id?: string
+  scoring?: SorScoreEntry[]
+}
+
+export interface PolicyApplied {
+  policy_id?: string
+  version_id?: string
+  matched_rules?: number[]
+}
+
+export interface QuotaUsage {
+  limit_bytes: number
+  used_bytes: number
+  pct: number
+}
+
+export interface SessionDetail extends Session {
+  sor_decision?: SorDecision
+  policy_applied?: PolicyApplied
+  quota_usage?: QuotaUsage
+}
+
+export function useSession(id: string | undefined) {
+  return useQuery({
+    queryKey: ['sessions', 'detail', id],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<SessionDetail>>(`/sessions/${id}`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 15_000,
+    retry: (failureCount, error: unknown) => {
+      const err = error as { status?: number }
+      if (err?.status === 404) return false
+      return failureCount < 2
+    },
+  })
+}
+
 const SESSIONS_KEY = ['sessions'] as const
 
 export function useSessionList(filters: { operator_id?: string; apn_id?: string }) {

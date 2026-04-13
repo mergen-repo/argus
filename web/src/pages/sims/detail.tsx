@@ -19,6 +19,10 @@ import {
   Info,
   ChevronRight,
   Smartphone,
+  Network,
+  DollarSign,
+  ListChecks,
+  Layers,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -72,6 +76,10 @@ import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { ESimTab } from './esim-tab'
+import { RelatedDataTab } from './_tabs/related-data-tab'
+import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
+import { IPHistoryTab } from './_tabs/ip-history-tab'
+import { CostAttributionTab } from './_tabs/cost-attribution-tab'
 
 function allowedActions(state: SIMState): Array<{ action: string; label: string; icon: React.ElementType; variant: 'default' | 'destructive' | 'outline' }> {
   switch (state) {
@@ -786,6 +794,22 @@ export default function SimDetailPage() {
             <Clock className="h-3.5 w-3.5" />
             History
           </TabsTrigger>
+          <TabsTrigger value="policy-history" className="gap-1.5">
+            <ListChecks className="h-3.5 w-3.5" />
+            Policy
+          </TabsTrigger>
+          <TabsTrigger value="ip-history" className="gap-1.5">
+            <Network className="h-3.5 w-3.5" />
+            IP History
+          </TabsTrigger>
+          <TabsTrigger value="cost" className="gap-1.5">
+            <DollarSign className="h-3.5 w-3.5" />
+            Cost
+          </TabsTrigger>
+          <TabsTrigger value="related" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Related
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -823,6 +847,30 @@ export default function SimDetailPage() {
         <TabsContent value="history">
           <ErrorBoundary>
             <HistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="policy-history">
+          <ErrorBoundary>
+            <PolicyAssignmentHistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="ip-history">
+          <ErrorBoundary>
+            <IPHistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="cost">
+          <ErrorBoundary>
+            <CostAttributionTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="related">
+          <ErrorBoundary>
+            <RelatedDataTab simId={sim.id} />
           </ErrorBoundary>
         </TabsContent>
       </Tabs>

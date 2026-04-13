@@ -94,6 +94,7 @@ export interface SIMListFilters {
   state?: string
   operator_id?: string
   apn_id?: string
+  policy_version_id?: string
   rat_type?: string
   q?: string
   iccid?: string

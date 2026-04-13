@@ -85,6 +85,36 @@ type sessionDTO struct {
 	StartedAt     string  `json:"started_at"`
 }
 
+type sorDecisionDTO struct {
+	ChosenOperatorID string           `json:"chosen_operator_id,omitempty"`
+	Scoring          []sorScoreEntry  `json:"scoring,omitempty"`
+}
+
+type sorScoreEntry struct {
+	OperatorID string  `json:"operator_id"`
+	Score      float64 `json:"score"`
+	Reason     string  `json:"reason,omitempty"`
+}
+
+type policyAppliedDTO struct {
+	PolicyID     string  `json:"policy_id,omitempty"`
+	VersionID    string  `json:"version_id,omitempty"`
+	MatchedRules []int   `json:"matched_rules,omitempty"`
+}
+
+type quotaUsageDTO struct {
+	LimitBytes uint64  `json:"limit_bytes"`
+	UsedBytes  uint64  `json:"used_bytes"`
+	Pct        float64 `json:"pct"`
+}
+
+type sessionDetailDTO struct {
+	sessionDTO
+	SorDecision   *sorDecisionDTO   `json:"sor_decision,omitempty"`
+	PolicyApplied *policyAppliedDTO `json:"policy_applied,omitempty"`
+	QuotaUsage    *quotaUsageDTO    `json:"quota_usage,omitempty"`
+}
+
 type statsDTO struct {
 	TotalActive    int64            `json:"total_active"`
 	ByOperator     map[string]int64 `json:"by_operator"`
@@ -177,6 +207,41 @@ func (h *Handler) enrichSessionDTO(ctx context.Context, tenantIDStr string, s *s
 			}
 		}
 	}
+}
+
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Session ID is required")
+		return
+	}
+
+	tenantIDStr := ""
+	if tid, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID); ok && tid != uuid.Nil {
+		tenantIDStr = tid.String()
+	}
+
+	sess, err := h.sessionMgr.Get(r.Context(), sessionID)
+	if err != nil {
+		h.logger.Error().Err(err).Str("session_id", sessionID).Msg("get session")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	if sess == nil {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Session not found")
+		return
+	}
+
+	if tenantIDStr != "" && sess.TenantID != "" && sess.TenantID != tenantIDStr {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Session not found")
+		return
+	}
+
+	dto := toSessionDTO(sess)
+	h.enrichSessionDTO(r.Context(), tenantIDStr, sess, &dto)
+
+	detail := sessionDetailDTO{sessionDTO: dto}
+	apierr.WriteSuccess(w, http.StatusOK, detail)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {

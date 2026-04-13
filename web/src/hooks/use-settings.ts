@@ -440,3 +440,51 @@ export function useUpdateTenant() {
     },
   })
 }
+
+export interface UserDetail {
+  id: string
+  email: string
+  name: string
+  role: string
+  state: string
+  totp_enabled: boolean
+  last_login_at?: string
+  locked_until?: string
+  created_at: string
+}
+
+export function useUserDetail(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'detail', id],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<UserDetail>>(`/users/${id}`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 30_000,
+  })
+}
+
+export function useUserActivity(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'activity', id],
+    queryFn: async () => {
+      const res = await api.get<ListResponse<Record<string, unknown>>>(`/users/${id}/activity?limit=50`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 30_000,
+  })
+}
+
+export function useUserSessions(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'sessions', id],
+    queryFn: async () => {
+      const res = await authApi.listSessions(undefined, 50)
+      return (res.data.data as AuthSessionItem[])
+    },
+    enabled: !!id,
+    staleTime: 15_000,
+  })
+}

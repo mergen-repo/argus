@@ -7,7 +7,7 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
-## Auth & Users (14 endpoints)
+## Auth & Users (16 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -26,6 +26,8 @@
 | API-198 | POST | /api/v1/users/:id/unlock | Admin unlock locked account; clears failed_login_count + locked_until | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-10) |
 | API-199 | POST | /api/v1/users/:id/revoke-sessions | Revoke all sessions for user (self or tenant_admin); optional include_api_keys, WS drop | JWT (self or tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-6) |
 | API-200 | POST | /api/v1/users/:id/reset-password | Admin reset: issue temp password (returned once), set force-change flag | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-3) |
+| API-257 | GET | /api/v1/users/:id | Get user detail (profile + totp_enabled + state + last_login + locked_until); cross-tenant 404 on mismatch | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
+| API-258 | GET | /api/v1/users/:id/activity | Get user audit-log activity (cursor-paginated, filtered to actor_id); cross-tenant 404 | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 
 ## Tenants (5 endpoints)
 
@@ -133,7 +135,7 @@
 | API-098 | POST | /api/v1/policy-rollouts/:id/rollback | Rollback rollout | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-099 | GET | /api/v1/policy-rollouts/:id | Get rollout status | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 
-## Sessions (4 endpoints)
+## Sessions (5 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -141,6 +143,7 @@
 | API-101 | GET | /api/v1/sessions/stats | Real-time session statistics | JWT (analyst+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-102 | POST | /api/v1/sessions/:id/disconnect | Force disconnect session (CoA/DM) | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
 | API-103 | POST | /api/v1/sessions/bulk/disconnect | Bulk disconnect on segment | JWT (tenant_admin) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
+| API-256 | GET | /api/v1/sessions/:id | Get session detail with enriched SIM + operator + APN context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 
 ## Analytics & CDR (6 endpoints)
 
@@ -407,4 +410,13 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 198 REST endpoints + 10 WebSocket event types**
+## Policy Violations (2 endpoints) — STORY-075
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
+| API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
+
+---
+
+**Total: 203 REST endpoints + 10 WebSocket event types**

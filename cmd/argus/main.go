@@ -674,6 +674,7 @@ func main() {
 		userapi.WithSessionStore(sessionStore),
 		userapi.WithAPIKeyStore(apiKeyStore),
 		userapi.WithWSHub(wsHub),
+		userapi.WithAuditStore(auditStore),
 		userapi.WithPasswordPolicy(auth.PasswordPolicy{
 			MinLength:     cfg.PasswordMinLength,
 			RequireUpper:  cfg.PasswordRequireUpper,
@@ -870,7 +871,10 @@ func main() {
 		complianceapi.WithJobStore(jobStore),
 		complianceapi.WithEventBus(eventBus),
 	)
-	violationHandler := violationapi.NewHandler(violationStore, log.Logger, violationapi.WithAuditSvc(auditSvc))
+	violationHandler := violationapi.NewHandler(violationStore, log.Logger,
+		violationapi.WithAuditSvc(auditSvc),
+		violationapi.WithSIMStore(simStore),
+	)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client), dashboardapi.WithCDRStore(cdrStore))

@@ -281,6 +281,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/users/{id}", deps.UserHandler.Delete)
 			r.Post("/api/v1/users/{id}/unlock", deps.UserHandler.Unlock)
 			r.Post("/api/v1/users/{id}/reset-password", deps.UserHandler.ResetPassword)
+			r.Get("/api/v1/users/{id}", deps.UserHandler.GetUser)
+			r.Get("/api/v1/users/{id}/activity", deps.UserHandler.Activity)
 		})
 	}
 
@@ -583,7 +585,9 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("policy_editor"))
+			r.Get("/api/v1/policy-violations/{id}", deps.ViolationHandler.Get)
 			r.Post("/api/v1/policy-violations/{id}/acknowledge", deps.ViolationHandler.Acknowledge)
+			r.Post("/api/v1/policy-violations/{id}/remediate", deps.ViolationHandler.Remediate)
 		})
 	}
 
@@ -592,6 +596,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sessions", deps.SessionHandler.List)
+			r.Get("/api/v1/sessions/{id}", deps.SessionHandler.Get)
 			r.Post("/api/v1/sessions/{id}/disconnect", deps.SessionHandler.Disconnect)
 		})
 

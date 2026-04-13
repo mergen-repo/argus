@@ -41,6 +41,7 @@ import type { AuditLog } from '@/types/audit'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/format'
+import { EntityLink } from '@/components/shared'
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All Actions' },
@@ -112,15 +113,21 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
           </Badge>
         </TableCell>
         <TableCell>
-          <span className="text-xs text-text-secondary">
-            {entry.user_id?.slice(0, 8) ?? 'system'}
-          </span>
+          {entry.user_id ? (
+            <EntityLink entityType="user" entityId={entry.user_id} truncate />
+          ) : (
+            <span className="text-xs text-text-secondary italic">system</span>
+          )}
         </TableCell>
         <TableCell>
           <span className="text-xs text-text-secondary">{entry.entity_type}</span>
         </TableCell>
         <TableCell>
-          <span className="font-mono text-xs text-text-tertiary">{entry.entity_id.slice(0, 8)}</span>
+          {entry.entity_id && entry.entity_type ? (
+            <EntityLink entityType={entry.entity_type} entityId={entry.entity_id} truncate />
+          ) : (
+            <span className="font-mono text-xs text-text-tertiary">{entry.entity_id?.slice(0, 8)}</span>
+          )}
         </TableCell>
         <TableCell>
           <span className="text-xs text-text-secondary" title={new Date(entry.created_at).toLocaleString()}>

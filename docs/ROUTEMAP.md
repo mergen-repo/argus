@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-13
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 17/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 18/22 stories
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 17/22
-> Current story: STORY-075 (next)
+> Stories completed: 55/55 (100%) — Phase 10: 18/22
+> Current story: STORY-076
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 17/22
-> Current story: STORY-075 (next)
+> Stories completed: 18/22
+> Current story: STORY-076
 > Mode: AUTOPILOT
 > Started: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -193,7 +193,7 @@
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
-| STORY-075 | Cross-Entity Context & Detail Pages | XL | [ ] PENDING | — | STORY-057, STORY-063, STORY-065, STORY-068 | — |
+| STORY-075 | Cross-Entity Context & Detail Pages | XL | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-068 | 2026-04-13 |
 | STORY-076 | Universal Search, Navigation & Clipboard | L | [ ] PENDING | — | STORY-075 | — |
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [ ] PENDING | — | STORY-075, STORY-076 | — |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [ ] PENDING | — | STORY-056..077 | — |
@@ -220,6 +220,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-13 | REVIEW | STORY-075 review completed. 7 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale 198→203 APIs (+5). api/_index.md: Sessions section +API-256 (GET /sessions/:id); Auth & Users section +API-257 (GET /users/:id) + API-258 (GET /users/:id/activity); new Policy Violations section API-259/260; footer 198→203. GLOSSARY.md: 4 new terms (Entity Link, Copyable ID, Cross-Entity Context, Remediation Action). SCREENS.md: header 59→64; SCR-170..174 added (Session/User/Alert/Violation/Tenant detail pages). USERTEST.md: STORY-075 section added (16 scenarios — backend 5 API+RLS scenarios, frontend 11 component+page scenarios). decisions.md: DEV-214 (shared organism pattern), DEV-215 (EntityLink inline route map), DEV-216 (remediation vs acknowledgment distinction). ROUTEMAP: STORY-075 marked DONE, counter 17/22→18/22, current story→STORY-076, D-007 (APN Policies Referencing) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-075-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/GLOSSARY.md, docs/SCREENS.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
+| 2026-04-13 | DONE | STORY-075 completed — Cross-Entity Context & Detail Page Completeness. 14/16 ACs PASS, 1 DEFERRED (AC-8 Policies Referencing → D-007 → STORY-077), 1 PARTIAL-ACCEPTED (AC-12 user schema fields absent from store.User). 5 new backend endpoints (API-256..260): GET /sessions/:id, GET /users/:id, GET /users/:id/activity, GET /policy-violations/:id, POST /policy-violations/:id/remediate. 6 shared components: EntityLink, CopyableId, RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab. 5 new detail pages (SCR-170..174): sessions/detail, user-detail, alerts/detail, violations/detail, tenant-detail. 4 enriched pages: sims/detail (+4 tabs), apns/detail (+3 tabs), operators/detail (+4 tabs including SIMs), policies/editor (+3 tabs + Clone + Export). Audit log entity_id + actor use EntityLink. Gate: 4 fixes (raw textarea, +16 BE tests). 2675 Go tests PASS, tsc clean. | internal/api/session/handler.go, internal/api/user/handler.go, internal/api/violation/handler.go, web/src/components/shared/, web/src/pages/{sessions,settings,alerts,violations,system}/detail.tsx, web/src/router.tsx |
 | 2026-04-13 | REVIEW | STORY-073 review completed. 7 cross-doc findings — all fixed (zero-deferral). SCREENS.md: SCR-150/151 collision fixed (STORY-071 Roaming IDs kept; STORY-073 Maintenance Windows renamed SCR-152, Delivery Channel Status renamed SCR-153); header note updated. ARCHITECTURE.md: scale 184→198 APIs, 44→46 tables. api/_index.md: Admin section (14 endpoints) API-242..255 added; footer 184→198 REST endpoints. db/_index.md: TBL-45 kill_switches + TBL-46 maintenance_windows added (Admin/Operations domain). GLOSSARY.md: 4 new terms (Kill Switch, Maintenance Window, Compliance Posture Dashboard, Cost-per-Tenant View). USERTEST.md: STORY-073 section added (18 scenarios — backend kill-switch/maintenance/sessions/DSAR/delivery, frontend all 12 admin screens). ROUTEMAP: STORY-073 marked DONE, counter stays 17/22, D-006 (GeoIP) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-073-review.md | docs/SCREENS.md, docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/db/_index.md, docs/GLOSSARY.md, docs/USERTEST.md |
 | 2026-04-13 | DONE | STORY-073 completed — Multi-Tenant Admin & Compliance Screens. 13 ACs (AC-8 partial — full per-standard scoring deferred to STORY-078 per D-1). 12 admin screens SCR-140..149 + SCR-152/153. 14 new admin endpoints (API-242..255). New package `internal/killswitch/service.go`: 5 kill-switch keys, 15s TTL in-memory cache, kill-switch enforcement in RADIUS/bulk/notification/gateway-read-only-mode. 2 new tables (TBL-45 kill_switches, TBL-46 maintenance_windows) via migration 20260416000001. Sidebar ADMIN section with minRole gating. Gate 15 fixes (4 CRITICAL contract reshapes, 2 code quality, 1 design token batch, 1 shadcn/ui batch, 1 decision, 1 security SQL injection, 1 schema runtime fix, 4 others). 2693 tests PASS. | internal/killswitch/, internal/api/admin/, internal/gateway/router.go, migrations/20260416000001, web/src/pages/admin/*.tsx, web/src/hooks/use-admin.ts, web/src/types/admin.ts |
 | 2026-04-13 | REVIEW | STORY-071 review completed. 14 cross-doc findings — 8 fixed, 6 already-pass (zero-deferral). ARCHITECTURE.md: scale 172→178 APIs, 42→43 tables. api/_index.md: API-230..235 added (Roaming Agreements CRUD + operator-scoped list); footer 172→178 REST endpoints. db/_index.md: TBL-43 roaming_agreements added (Operator domain); Domain Detail Files Operator entry updated TBL-05/06/23 → TBL-05/06/23/43. GLOSSARY.md: 5 new terms (Roaming Agreement, Agreement State, SLA Terms (Roaming), Cost Terms (Roaming), SoR Agreement Hook). SCREENS.md: header 33→35 screens; SCR-150 (Roaming Agreements List) + SCR-151 (Roaming Agreement Detail) added. CONFIG.md: Roaming Agreements section added (ROAMING_RENEWAL_ALERT_DAYS, ROAMING_RENEWAL_CRON); embedded .env.example block updated with both vars. USERTEST.md: STORY-071 section added (19 scenarios — backend DB/API/SoR/cron, frontend list/detail/operator-tab, operations). decisions.md: DEV-209 (partial unique index for single-active roaming agreement per tenant+operator). ROUTEMAP: counter 14/22→15/22, STORY-071 marked DONE. Report: docs/stories/phase-10/STORY-071-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/db/_index.md, docs/GLOSSARY.md, docs/SCREENS.md, docs/architecture/CONFIG.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
@@ -314,6 +316,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 | D-004 | STORY-059 Gate | `internal/gateway/bruteforce.go:91` `extractIP` uses buggy last-colon split (same pattern AC-1 fixed in anomaly detector). Fixed in STORY-059 close-out commit using `net.SplitHostPort` + `net.ParseIP`; new IPv6 tests added (`TestExtractIP` subtests `ipv6_bracketed_with_port`, `ipv6_loopback_bracketed`, `ipv6_bare`). Future helper extraction to `internal/net/addr.go` remains optional. | STORY-059 | ✓ RESOLVED (2026-04-12) |
 | D-005 | STORY-059 Review | Compliance API section entirely absent from `docs/architecture/api/_index.md` (compliance endpoints from STORY-039 never indexed; STORY-059 adds PDF variant). Added "Compliance & Data Governance (5 endpoints)" section with API-175..179 in STORY-059 close-out commit. | STORY-059 | ✓ RESOLVED (2026-04-12) |
 | D-006 | STORY-073 Gate D-3 | GeoIP lookup for SCR-144 (Active User Sessions) location field emits `null` — no MaxMind dependency wired per plan. AC-5 specifies "location (GeoIP lookup)". Deferred from POST-GA to STORY-077 (Enterprise UX Polish) under zero-deferral routing. | STORY-077 | OPEN |
+| D-007 | STORY-075 AC-8 | APN detail "Policies Referencing" tab omitted — no backend filter endpoint exists for querying policies by DSL APN-name reference; client-side DSL substring scan would be fragile (DSL whitespace/comment variants). Requires new store query `WHERE dsl_compiled ILIKE` with GIN/trigram index + new tab in `apns/detail.tsx`. Deferred to STORY-077 (Enterprise UX Polish). | STORY-077 | OPEN |
 
 ---
 

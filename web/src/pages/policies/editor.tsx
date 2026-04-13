@@ -11,6 +11,11 @@ import {
   Keyboard,
   CheckCircle2,
   HelpCircle,
+  Layers,
+  FileWarning,
+  Copy,
+  Download,
+  Wifi,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +42,8 @@ import {
   useDryRunMutation,
 } from '@/hooks/use-policies'
 import type { PolicyVersion, DryRunResult } from '@/types/policy'
+import { RelatedAuditTab, RelatedViolationsTab } from '@/components/shared'
+import { AssignedSimsTab } from './_tabs/assigned-sims-tab'
 
 export default function PolicyEditorPage() {
   const { id } = useParams<{ id: string }>()
@@ -150,6 +157,28 @@ export default function PolicyEditorPage() {
     } catch {
       // handled by api interceptor
     }
+  }
+
+  const handleExport = () => {
+    if (!policy || !selectedVersion) return
+    const dslBlob = new Blob([dslContent], { type: 'text/plain' })
+    const jsonBlob = new Blob(
+      [JSON.stringify({ policy, version: selectedVersion }, null, 2)],
+      { type: 'application/json' }
+    )
+    const dslUrl = URL.createObjectURL(dslBlob)
+    const jsonUrl = URL.createObjectURL(jsonBlob)
+    const prefix = `${policy.name.replace(/\s+/g, '_')}_v${selectedVersion.version}`
+    const a1 = document.createElement('a')
+    a1.href = dslUrl
+    a1.download = `${prefix}.dsl`
+    a1.click()
+    URL.revokeObjectURL(dslUrl)
+    const a2 = document.createElement('a')
+    a2.href = jsonUrl
+    a2.download = `${prefix}.json`
+    a2.click()
+    URL.revokeObjectURL(jsonUrl)
   }
 
   useEffect(() => {
@@ -314,6 +343,34 @@ export default function PolicyEditorPage() {
           </Button>
 
           <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={handleCreateVersion}
+            disabled={createVersionMutation.isPending}
+            title="Clone current version into a new draft"
+          >
+            {createVersionMutation.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+            Clone
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={handleExport}
+            disabled={!selectedVersion}
+            title="Download .dsl and .json files"
+          >
+            <Download className="h-3 w-3" />
+            Export
+          </Button>
+
+          <Button
             size="sm"
             className="gap-1.5 text-xs"
             onClick={() => setActivateDialog(true)}
@@ -369,7 +426,19 @@ export default function PolicyEditorPage() {
                   Versions {policy.versions ? `(${policy.versions.length})` : ''}
                 </TabsTrigger>
                 <TabsTrigger value="rollout">Rollout</TabsTrigger>
-                <TabsTrigger value="dsl-help">
+                <TabsTrigger value="audit" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          <TabsTrigger value="violations" className="gap-1.5">
+            <FileWarning className="h-3.5 w-3.5" />
+            Violations
+          </TabsTrigger>
+          <TabsTrigger value="assigned-sims" className="gap-1.5">
+            <Wifi className="h-3.5 w-3.5" />
+            SIMs
+          </TabsTrigger>
+          <TabsTrigger value="dsl-help">
                   <HelpCircle className="h-3 w-3 mr-1" />
                   DSL Help
                 </TabsTrigger>
@@ -567,6 +636,22 @@ WHEN NOT roaming = true {
 }`}</pre>
                   </div>
                 </div>
+              </TabsContent>
+
+              {id && (
+                <TabsContent value="audit" className="h-full mt-0 overflow-y-auto p-4">
+                  <RelatedAuditTab entityId={id} entityType="policy" />
+                </TabsContent>
+              )}
+
+              {id && (
+                <TabsContent value="violations" className="h-full mt-0 overflow-y-auto p-4">
+                  <RelatedViolationsTab entityId={id} scope="policy" />
+                </TabsContent>
+              )}
+
+              <TabsContent value="assigned-sims" className="h-full mt-0 overflow-y-auto">
+                <AssignedSimsTab versionId={selectedVersionId} />
               </TabsContent>
             </div>
           </Tabs>

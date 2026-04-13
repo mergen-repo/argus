@@ -18,6 +18,9 @@ import {
   Signal,
   Handshake,
   Plus,
+  Layers,
+  Bell,
+  Wifi,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -69,6 +72,9 @@ import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink } from '@/components/shared'
+import { useSIMList } from '@/hooks/use-sims'
+import { stateVariant } from '@/lib/sim-utils'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -816,6 +822,73 @@ function AgreementsTab({ operatorId }: { operatorId: string }) {
   )
 }
 
+function OperatorSimsTab({ operatorId }: { operatorId: string }) {
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useSIMList({ operator_id: operatorId })
+  const sims = data?.pages.flatMap((p) => p.data) ?? []
+
+  if (isLoading) {
+    return (
+      <div className="mt-4 space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-10 w-full bg-bg-surface rounded-[10px] animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (sims.length === 0) {
+    return (
+      <div className="mt-4 flex flex-col items-center justify-center py-10 text-center">
+        <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3 opacity-40" />
+        <p className="text-[13px] text-text-secondary">No SIMs connected to this operator</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4">
+      <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
+        Connected SIMs — {sims.length}{hasNextPage ? '+' : ''} total
+      </p>
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border-subtle hover:bg-transparent">
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">ICCID</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">IMSI</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">APN</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sims.map((sim) => (
+            <TableRow key={sim.id} className="hover:bg-bg-hover transition-colors duration-150">
+              <TableCell className="py-2.5">
+                <EntityLink entityType="sim" entityId={sim.id} label={sim.iccid} truncate />
+              </TableCell>
+              <TableCell className="py-2.5">
+                <span className="text-[12px] font-mono text-text-secondary">{sim.imsi}</span>
+              </TableCell>
+              <TableCell className="py-2.5">
+                <Badge variant={stateVariant(sim.state)} className="text-[10px]">{sim.state}</Badge>
+              </TableCell>
+              <TableCell className="py-2.5">
+                <span className="text-[12px] text-text-secondary">{sim.apn_name ?? '—'}</span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {hasNextPage && (
+        <div className="mt-3 text-center">
+          <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+            {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function OperatorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -962,6 +1035,22 @@ export default function OperatorDetailPage() {
             <Handshake className="h-3.5 w-3.5" />
             Agreements
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-1.5">
+            <Bell className="h-3.5 w-3.5" />
+            Notifications
+          </TabsTrigger>
+          <TabsTrigger value="sims" className="gap-1.5">
+            <Wifi className="h-3.5 w-3.5" />
+            SIMs
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -984,6 +1073,24 @@ export default function OperatorDetailPage() {
         </TabsContent>
         <TabsContent value="agreements">
           <AgreementsTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="audit">
+          <div className="mt-4">
+            <RelatedAuditTab entityId={operator.id} entityType="operator" />
+          </div>
+        </TabsContent>
+        <TabsContent value="alerts">
+          <div className="mt-4">
+            <RelatedAlertsPanel entityId={operator.id} entityType="operator" />
+          </div>
+        </TabsContent>
+        <TabsContent value="notifications">
+          <div className="mt-4">
+            <RelatedNotificationsPanel entityId={operator.id} />
+          </div>
+        </TabsContent>
+        <TabsContent value="sims">
+          <OperatorSimsTab operatorId={operator.id} />
         </TabsContent>
       </Tabs>
 

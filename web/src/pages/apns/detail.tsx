@@ -14,6 +14,8 @@ import {
   Lock,
   Activity,
   Plus,
+  Shield,
+  Layers,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -61,6 +63,7 @@ import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
 import { InfoRow } from '@/components/ui/info-row'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel } from '@/components/shared'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
@@ -938,6 +941,18 @@ export default function ApnDetailPage() {
             <Wifi className="h-3.5 w-3.5" />
             Connected SIMs
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Notifications
+          </TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
           <TabsTrigger value="traffic" className="gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
@@ -955,6 +970,21 @@ export default function ApnDetailPage() {
         </TabsContent>
         <TabsContent value="traffic">
           <TrafficTab apnId={apn.id} />
+        </TabsContent>
+        <TabsContent value="audit">
+          <div className="mt-4">
+            <RelatedAuditTab entityId={apn.id} entityType="apn" />
+          </div>
+        </TabsContent>
+        <TabsContent value="notifications">
+          <div className="mt-4">
+            <RelatedNotificationsPanel entityId={apn.id} />
+          </div>
+        </TabsContent>
+        <TabsContent value="alerts">
+          <div className="mt-4">
+            <RelatedAlertsPanel entityId={apn.id} entityType="apn" />
+          </div>
         </TabsContent>
       </Tabs>
 

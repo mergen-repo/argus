@@ -202,6 +202,87 @@ func TestHandler_BulkDisconnect_MissingReason(t *testing.T) {
 	}
 }
 
+// STORY-075: Get — single session fetch
+func TestHandler_Get_NotFound(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/does-not-exist", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Get_Success(t *testing.T) {
+	h, mgr := newTestHandler(t)
+
+	ctx := context.Background()
+	sess := &sessModel.Session{
+		ID:            "get-sess-001",
+		SimID:         "sim-get-001",
+		TenantID:      "tenant-001",
+		OperatorID:    "op-001",
+		IMSI:          "286010700000001",
+		AcctSessionID: "acct-get-001",
+		NASIP:         "10.0.0.1",
+		SessionState:  "active",
+		BytesIn:       1000,
+		BytesOut:      2000,
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := mgr.Create(ctx, sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/get-sess-001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string           `json:"status"`
+		Data   sessionDetailDTO `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.ID != "get-sess-001" {
+		t.Errorf("id = %q, want get-sess-001", resp.Data.ID)
+	}
+	if resp.Data.State != "active" {
+		t.Errorf("state = %q, want active", resp.Data.State)
+	}
+}
+
+func TestHandler_Get_MissingID(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	// chi strips trailing slash; manually register without {id}
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	// Test via direct invocation with empty URL param
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Chi returns 404 for no match, 400 from handler would need URL param
+	if w.Code != http.StatusNotFound && w.Code != http.StatusBadRequest && w.Code != http.StatusMovedPermanently {
+		t.Errorf("expected 404/400/301 for empty session id, got %d", w.Code)
+	}
+}
+
 func TestHandler_BulkDisconnect_MissingSimIDs(t *testing.T) {
 	h, _ := newTestHandler(t)
 

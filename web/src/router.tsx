@@ -58,6 +58,11 @@ const ReportsPage = lazy(() => import('@/pages/reports/index'))
 const CapacityPage = lazy(() => import('@/pages/capacity/index'))
 const SIMComparePage = lazy(() => import('@/pages/sims/compare'))
 const ViolationsPage = lazy(() => import('@/pages/violations/index'))
+const ViolationDetailPage = lazy(() => import('@/pages/violations/detail'))
+const AlertDetailPage = lazy(() => import('@/pages/alerts/detail'))
+const SessionDetailPage = lazy(() => import('@/pages/sessions/detail'))
+const UserDetailPage = lazy(() => import('@/pages/settings/user-detail'))
+const TenantDetailPage = lazy(() => import('@/pages/system/tenant-detail'))
 const WebhooksPage = lazy(() => import('@/pages/webhooks/index'))
 const SMSPage = lazy(() => import('@/pages/sms/index'))
 const DataPortabilityPage = lazy(() => import('@/pages/compliance/data-portability'))
@@ -133,6 +138,7 @@ export const router = createBrowserRouter([
           { path: '/operators', element: lazySuspense(OperatorListPage) },
           { path: '/operators/:id', element: lazySuspense(OperatorDetailPage) },
           { path: '/sessions', element: lazySuspense(SessionListPage) },
+          { path: '/sessions/:id', element: lazySuspense(SessionDetailPage) },
           { path: '/policies', element: lazySuspense(PolicyListPage) },
           { path: '/policies/:id', element: lazySuspense(PolicyEditorPage) },
           { path: '/esim', element: lazySuspense(EsimListPage) },
@@ -140,6 +146,7 @@ export const router = createBrowserRouter([
           { path: '/audit', element: lazySuspense(AuditLogPage) },
           { path: '/notifications', element: lazySuspense(NotificationsPage) },
           { path: '/settings/users', element: lazySuspense(UsersPage) },
+          { path: '/settings/users/:id', element: lazySuspense(UserDetailPage) },
           { path: '/settings/api-keys', element: lazySuspense(ApiKeysPage) },
           { path: '/settings/ip-pools', element: lazySuspense(IpPoolsPage) },
           { path: '/settings/ip-pools/:poolId', element: lazySuspense(IpPoolDetailPage) },
@@ -149,11 +156,13 @@ export const router = createBrowserRouter([
           { path: '/settings/security', element: lazySuspense(SecurityPage) },
           { path: '/settings/sessions', element: lazySuspense(ActiveSessionsPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
+          { path: '/alerts/:id', element: lazySuspense(AlertDetailPage) },
           { path: '/sla', element: lazySuspense(SLADashboardPage) },
           { path: '/topology', element: lazySuspense(TopologyPage) },
           { path: '/reports', element: lazySuspense(ReportsPage) },
           { path: '/capacity', element: lazySuspense(CapacityPage) },
           { path: '/violations', element: lazySuspense(ViolationsPage) },
+          { path: '/violations/:id', element: lazySuspense(ViolationDetailPage) },
           { path: '/webhooks', element: lazySuspense(WebhooksPage) },
           { path: '/sms', element: lazySuspense(SMSPage) },
           { path: '/compliance/data-portability', element: lazySuspense(DataPortabilityPage) },
@@ -161,6 +170,7 @@ export const router = createBrowserRouter([
           { path: '/roaming-agreements/:id', element: lazySuspense(RoamingAgreementDetailPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
+          { path: '/system/tenants/:id', element: lazySuspense(TenantDetailPage) },
           { path: '/ops/performance', element: lazySuspense(OpsPerformancePage) },
           { path: '/ops/errors', element: lazySuspense(OpsErrorsPage) },
           { path: '/ops/aaa-traffic', element: lazySuspense(OpsAAATrafficPage) },

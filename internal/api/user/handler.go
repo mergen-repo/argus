@@ -56,6 +56,7 @@ type Handler struct {
 	userStore      userStoreI
 	tenantStore    *store.TenantStore
 	auditSvc       audit.Auditor
+	auditStore     *store.AuditStore
 	logger         zerolog.Logger
 	sessionStore   sessionRevoker
 	apiKeyStore    apiKeyRevoker
@@ -76,6 +77,10 @@ func WithAPIKeyStore(s apiKeyRevoker) HandlerOption {
 
 func WithWSHub(hub wsDropper) HandlerOption {
 	return func(h *Handler) { h.wsHub = hub }
+}
+
+func WithAuditStore(s *store.AuditStore) HandlerOption {
+	return func(h *Handler) { h.auditStore = s }
 }
 
 func WithPasswordPolicy(policy auth.PasswordPolicy, bcryptCost int) HandlerOption {
@@ -140,6 +145,128 @@ func toUserResponse(u *store.User) userResponse {
 		resp.LockedUntil = &s
 	}
 	return resp
+}
+
+type userDetailResponse struct {
+	ID          string  `json:"id"`
+	Email       string  `json:"email"`
+	Name        string  `json:"name"`
+	Role        string  `json:"role"`
+	State       string  `json:"state"`
+	TOTPEnabled bool    `json:"totp_enabled"`
+	LastLoginAt *string `json:"last_login_at,omitempty"`
+	LockedUntil *string `json:"locked_until,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+func toUserDetailResponse(u *store.User) userDetailResponse {
+	resp := userDetailResponse{
+		ID:          u.ID.String(),
+		Email:       u.Email,
+		Name:        u.Name,
+		Role:        u.Role,
+		State:       u.State,
+		TOTPEnabled: u.TOTPEnabled,
+		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if u.LastLoginAt != nil {
+		s := u.LastLoginAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.LastLoginAt = &s
+	}
+	if u.LockedUntil != nil {
+		s := u.LockedUntil.Format("2006-01-02T15:04:05Z07:00")
+		resp.LockedUntil = &s
+	}
+	return resp
+}
+
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user detail")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	callerRole, _ := r.Context().Value(apierr.RoleKey).(string)
+	if callerRole != "super_admin" && existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, toUserDetailResponse(existing))
+}
+
+func (h *Handler) Activity(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	targetID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid user ID format")
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	existing, err := h.userStore.GetByID(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("get user for activity")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	callerRole, _ := r.Context().Value(apierr.RoleKey).(string)
+	if callerRole != "super_admin" && existing.TenantID != tenantID {
+		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "User not found")
+		return
+	}
+
+	if h.auditStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	q := r.URL.Query()
+	cursor := q.Get("cursor")
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	entries, nextCursor, err := h.auditStore.List(r.Context(), tenantID, store.ListAuditParams{
+		Cursor: cursor,
+		Limit:  limit,
+		UserID: &targetID,
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Str("user_id", idStr).Msg("list user activity")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteList(w, http.StatusOK, entries, apierr.ListMeta{
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: nextCursor != "",
+	})
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {

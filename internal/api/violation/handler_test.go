@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -87,4 +88,108 @@ func TestNewHandler_WithOptions(t *testing.T) {
 	}
 
 	_ = context.Background()
+}
+
+// STORY-075: Remediate — pre-store validation paths (don't require DB)
+func TestRemediate_MissingTenant(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	id := uuid.New()
+
+	router := chi.NewRouter()
+	router.Post("/policy-violations/{id}/remediate", h.Remediate)
+
+	req := httptest.NewRequest(http.MethodPost, "/policy-violations/"+id.String()+"/remediate", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestRemediate_InvalidID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Post("/policy-violations/{id}/remediate", h.Remediate)
+
+	req := httptest.NewRequest(http.MethodPost, "/policy-violations/not-a-uuid/remediate", nil)
+	req = withCtx(req, uuid.New(), uuid.New())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestRemediate_InvalidJSON(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	id := uuid.New()
+
+	router := chi.NewRouter()
+	router.Post("/policy-violations/{id}/remediate", h.Remediate)
+
+	req := httptest.NewRequest(http.MethodPost, "/policy-violations/"+id.String()+"/remediate",
+		strings.NewReader("{not valid json"))
+	req.Header.Set("Content-Type", "application/json")
+	req = withCtx(req, uuid.New(), uuid.New())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for invalid JSON", w.Code)
+	}
+}
+
+func TestRemediate_UnknownAction(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	id := uuid.New()
+
+	router := chi.NewRouter()
+	router.Post("/policy-violations/{id}/remediate", h.Remediate)
+
+	body := `{"action":"nuke_everything","reason":"nope"}`
+	req := httptest.NewRequest(http.MethodPost, "/policy-violations/"+id.String()+"/remediate",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withCtx(req, uuid.New(), uuid.New())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for unknown action", w.Code)
+	}
+}
+
+func TestGet_MissingTenant(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	id := uuid.New()
+
+	router := chi.NewRouter()
+	router.Get("/policy-violations/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/policy-violations/"+id.String(), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestGet_InvalidID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/policy-violations/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/policy-violations/not-a-uuid", nil)
+	req = withCtx(req, uuid.New(), uuid.New())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
 }

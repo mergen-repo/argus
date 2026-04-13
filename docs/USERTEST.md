@@ -1742,3 +1742,37 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-075: Cross-Entity Context & Detail Page Completeness
+
+### Backend / Altyapi (5 senaryo)
+
+1. **Session detail (API-256)**: `sim_manager` JWT ile `GET /api/v1/sessions/{id}` → 200; `sim_id`, `operator_id`, `apn_id` ile birlikte enriched DTO dönmeli (`sim.iccid`, `operator.name`, `apn.name` alanları mevcut). Farklı tenant'a ait session id ile istek → 404 (existence leak önlemi).
+2. **User detail + activity (API-257/258)**: `tenant_admin` JWT ile `GET /api/v1/users/{id}` → 200; `email`, `role`, `state`, `totp_enabled`, `last_login_at`, `locked_until` alanları mevcut. `GET /api/v1/users/{id}/activity` → cursor-paginated audit log listesi; her satırda `action`, `entity_type`, `entity_id`, `created_at` alanları mevcut. Farklı tenant user id'si → 404.
+3. **Violation detail (API-259)**: `GET /api/v1/policy-violations/{id}` → 200; violation satırı + enriched SIM/policy context. Farklı tenant → 404.
+4. **Violation remediate (API-260)**: `POST /api/v1/policy-violations/{id}/remediate` body `{"action":"dismiss"}` → 200; `audit_logs` tablosunda `action = violation.dismissed` satırı oluşmali. `{"action":"suspend_sim"}` ile aktif olmayan SIM'e remediate → 409 (geçersiz state transition). `{"action":"escalate"}` → 200; violation state `escalated` olmalı. Geçersiz action değeri → 400.
+5. **Tenant RLS**: Tüm 5 yeni endpoint'te farklı tenant'a ait entity_id kullanılınca → 404 (403 değil, existence leak önlemi). `super_admin` JWT ile `GET /api/v1/system/tenants/{id}` → 200; `sim_count`, `session_count`, `user_count` stats alanları mevcut.
+
+### Frontend (11 senaryo)
+
+6. **EntityLink bileşeni**: Audit Log sayfasında (`/audit`) `entity_id` sütunundaki değere tıklanınca ilgili entity'nin detail sayfasına yönlendirilmeli (ör. SIM entity_type → `/sims/{id}`). Actor sütunundaki user ID de EntityLink ile render edilmeli.
+7. **CopyableId bileşeni**: Herhangi bir detail sayfasında ID alanı üzerine gelinince kopyalama ikonu görülmeli; tıklanınca panoya kopyalanmalı ve 2 saniye boyunca checkmark gösterilmeli. ID maskeli (ilk 8 karakter) gösterilmeli; hover ile tam değer açılmalı.
+8. **SCR-170 Session Detail**: `/sessions/{id}` → SoR, Policy, Quota, Audit, Alerts tabları görülmeli. Force-Disconnect butonuna tıklanınca onay dialogu açılmalı; onay sonrası endpoint çağrılmalı.
+9. **SCR-171 User Detail**: `/settings/users/{id}` → Overview, Activity, Sessions, Permissions, Notifications tabları görülmeli. Activity tabında audit satırları EntityLink ile gösterilmeli. "Unlock Account" butonu kilitli kullanıcı için aktif olmalı; tıklanınca unlock endpoint çağrılmalı.
+10. **SCR-172 Alert Detail**: `/alerts/{id}` → Overview, Similar, Audit tabları görülmeli. "Acknowledge" butonuna tıklanınca dialog açılmalı; onay sonrası alert state güncellenmeli. Similar tabında aynı entity_type'tan benzer alert'ler listelenmeli.
+11. **SCR-173 Violation Detail**: `/violations/{id}` → Overview, Audit tabları görülmeli. "Suspend SIM" aksiyonu seçilip onaylanınca `remediate` endpoint'i çağrılmalı; action başarısız olursa (409 geçersiz state) hata toast gösterilmeli. "Dismiss" ve "Escalate" de aynı şekilde çalışmalı.
+12. **SCR-174 Tenant Detail**: `/system/tenants/{id}` → Yalnızca `super_admin` rolü erişebilmeli; `tenant_admin` ile erişim → 403/redirect. Stats kartlarında AnimatedCounter ile canlı sayım animasyonu görülmeli. Overview, Audit, Alerts tabları mevcut.
+13. **SIM detail zenginleştirme**: `/sims/{id}` → Policy History, IP History, Cost Attribution ve Related Data tabları görülmeli. RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel bileşenleri yüklenmeli; boş listede empty state göstermeli; skeleton loader yükleme sırasında görünmeli.
+14. **APN/Operator/Policy zenginleştirme**: `/apns/{id}` → Audit, Notifications, Alerts tabları görülmeli. `/operators/{id}` → SIMs tab'ında paginated SIM listesi + EntityLink ile SIM'lere link verilmeli. `/policies/{id}` → Violations tabı + Assigned SIMs tabı + Clone butonu + Export butonu görülmeli.
+15. **RelatedXxx bileşenleri yükleme durumları**: Related data yüklenirken skeleton gösterilmeli; boş listedeki empty state mesajı görülmeli; API hatası durumunda error fallback banner görülmeli.
+16. **Audit tabı JSON diff**: RelatedAuditTab'da değişiklik içeren bir audit satırı expand edilince `before` ve `after` JSON diff görünmeli; altında "View in Audit Log" footer linki ile `/audit?entity_id={id}` sayfasına yönlendirilmeli.
+
+### Test command
+```bash
+make test   # 2675 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (~3.8s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

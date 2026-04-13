@@ -847,3 +847,137 @@ func TestResetPassword_HappyPath(t *testing.T) {
 		t.Error("temp_password missing from response")
 	}
 }
+
+// STORY-075: GetUser — happy path, not found, cross-tenant 404, invalid UUID
+func TestGetUser_Happy(t *testing.T) {
+	tenantID := uuid.New()
+	targetID := uuid.New()
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return &store.User{
+				ID: targetID, TenantID: tenantID,
+				Email: "u@example.com", Name: "Bob", Role: "analyst", State: "active",
+				TOTPEnabled: true, CreatedAt: time.Now(),
+			}, nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+targetID.String(), nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+
+	rr := httptest.NewRecorder()
+	h.GetUser(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var resp apierr.SuccessResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	data, _ := json.Marshal(resp.Data)
+	var payload map[string]interface{}
+	json.Unmarshal(data, &payload)
+	if payload["email"] != "u@example.com" {
+		t.Errorf("email = %v, want u@example.com", payload["email"])
+	}
+	if payload["totp_enabled"] != true {
+		t.Errorf("totp_enabled = %v, want true", payload["totp_enabled"])
+	}
+}
+
+func TestGetUser_InvalidUUID(t *testing.T) {
+	h := newHandlerForTest(t, &mockUserStore{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/not-a-uuid", nil)
+	req = withChiURLParam(req, "id", "not-a-uuid")
+	rr := httptest.NewRecorder()
+	h.GetUser(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestGetUser_NotFound(t *testing.T) {
+	h := newHandlerForTest(t, &mockUserStore{})
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+targetID.String(), nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+	rr := httptest.NewRecorder()
+	h.GetUser(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestGetUser_CrossTenant(t *testing.T) {
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	targetID := uuid.New()
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return &store.User{ID: targetID, TenantID: tenantA, Email: "x@y.com", Role: "analyst", State: "active", CreatedAt: time.Now()}, nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+targetID.String(), nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantB)
+	ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+	rr := httptest.NewRecorder()
+	h.GetUser(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("cross-tenant should return 404, got %d", rr.Code)
+	}
+}
+
+func TestActivity_InvalidUUID(t *testing.T) {
+	h := newHandlerForTest(t, &mockUserStore{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/bad-id/activity", nil)
+	req = withChiURLParam(req, "id", "bad-id")
+	rr := httptest.NewRecorder()
+	h.Activity(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestActivity_UserNotFound(t *testing.T) {
+	h := newHandlerForTest(t, &mockUserStore{})
+	targetID := uuid.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+targetID.String()+"/activity", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+	rr := httptest.NewRecorder()
+	h.Activity(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestActivity_NoAuditStore(t *testing.T) {
+	// When audit store is not configured, handler should return empty list (200).
+	tenantID := uuid.New()
+	targetID := uuid.New()
+	us := &mockUserStore{
+		getByIDFn: func(ctx context.Context, id uuid.UUID) (*store.User, error) {
+			return &store.User{ID: targetID, TenantID: tenantID, Email: "u@x.com", Role: "analyst", State: "active", CreatedAt: time.Now()}, nil
+		},
+	}
+	h := newHandlerForTest(t, us)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+targetID.String()+"/activity", nil)
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, tenantID)
+	req = req.WithContext(ctx)
+	req = withChiURLParam(req, "id", targetID.String())
+	rr := httptest.NewRecorder()
+	h.Activity(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
