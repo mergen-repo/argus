@@ -75,6 +75,7 @@ import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { FavoriteToggle } from '@/components/shared'
 import { ESimTab } from './esim-tab'
 import { RelatedDataTab } from './_tabs/related-data-tab'
 import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
@@ -725,6 +726,12 @@ export default function SimDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               SIM {sim.iccid}
             </h1>
+            <FavoriteToggle
+              type="sim"
+              id={id ?? ''}
+              label={`SIM ${sim.iccid?.slice(-8) ?? id?.slice(0, 8) ?? ''}`}
+              path={`/sims/${id}`}
+            />
             <Badge variant={stateVariant(sim.state)} className="gap-1 flex-shrink-0">
               {sim.state === 'active' && (
                 <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />

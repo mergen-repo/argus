@@ -42,7 +42,8 @@ import {
   useDryRunMutation,
 } from '@/hooks/use-policies'
 import type { PolicyVersion, DryRunResult } from '@/types/policy'
-import { RelatedAuditTab, RelatedViolationsTab } from '@/components/shared'
+import { RelatedAuditTab, RelatedViolationsTab, FavoriteToggle } from '@/components/shared'
+import { useUIStore } from '@/stores/ui'
 import { AssignedSimsTab } from './_tabs/assigned-sims-tab'
 
 export default function PolicyEditorPage() {
@@ -62,6 +63,14 @@ export default function PolicyEditorPage() {
 
 
   const dryRunTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  useEffect(() => {
+    if (policy && id) {
+      addRecentItem({ type: 'policy', id, label: `Policy: ${policy.name}`, path: `/policies/${id}` })
+    }
+  }, [policy, id, addRecentItem])
 
   const updateVersionMutation = useUpdateVersion()
   const activateVersionMutation = useActivateVersion(id!)
@@ -271,6 +280,12 @@ export default function PolicyEditorPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-semibold text-text-primary">{policy.name}</h1>
+              <FavoriteToggle
+                type="policy"
+                id={id ?? ''}
+                label={`Policy: ${policy.name}`}
+                path={`/policies/${id}`}
+              />
               <Badge variant={policy.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
                 {policy.state.toUpperCase()}
               </Badge>

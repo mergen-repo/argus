@@ -7,6 +7,7 @@ import (
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
+	searchapi "github.com/btopcu/argus/internal/api/search"
 	opsapi "github.com/btopcu/argus/internal/api/ops"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
@@ -88,6 +89,7 @@ type RouterDeps struct {
 	SMSHandler              *smsapi.Handler
 	OpsHandler              *opsapi.Handler
 	AdminHandler            *adminapi.Handler
+	SearchHandler           *searchapi.Handler
 	KillSwitchSvc           killSwitchChecker
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
@@ -847,6 +849,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/admin/tenants/quotas", deps.AdminHandler.ListTenantQuotas)
 			r.Get("/api/v1/admin/dsar/queue", deps.AdminHandler.ListDSARQueue)
+		})
+	}
+
+	if deps.SearchHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("analyst"))
+			r.Get("/api/v1/search", deps.SearchHandler.Search)
 		})
 	}
 

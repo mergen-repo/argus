@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Skeleton } from '@/components/ui/skeleton'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
@@ -545,6 +546,12 @@ function AlertCard({
           >
             <MessageSquare className="h-3.5 w-3.5" />
           </Button>
+          <RowActionsMenu
+            actions={[
+              { label: 'View Details', onClick: () => navigate(`/alerts/${anomaly.id}`) },
+              ...(anomaly.sim_id ? [{ label: 'View SIM', onClick: () => navigate(`/sims/${anomaly.sim_id}`) }] : []),
+            ]}
+          />
         </div>
 
         <div className="flex-shrink-0 text-text-tertiary">

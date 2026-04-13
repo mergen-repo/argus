@@ -17,7 +17,7 @@ export type EntityType =
   | 'job'
   | 'apikey'
 
-const ENTITY_ROUTE_MAP: Record<EntityType, (id: string) => string> = {
+export const ENTITY_ROUTE_MAP: Record<EntityType, (id: string) => string> = {
   sim: (id) => `/sims/${id}`,
   apn: (id) => `/apns/${id}`,
   operator: (id) => `/operators/${id}`,

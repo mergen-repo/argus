@@ -14,6 +14,7 @@ import {
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import {
   Table,
   TableHeader,
@@ -342,8 +343,12 @@ export default function JobListPage() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'View Details', onClick: () => setSelectedJobId(job.id) },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

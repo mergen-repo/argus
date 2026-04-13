@@ -63,7 +63,7 @@ import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
 import { InfoRow } from '@/components/ui/info-row'
-import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel } from '@/components/shared'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
@@ -895,6 +895,12 @@ export default function ApnDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               {apn.display_name || apn.name}
             </h1>
+            <FavoriteToggle
+              type="apn"
+              id={id ?? ''}
+              label={`APN: ${apn.name}`}
+              path={`/apns/${id}`}
+            />
             <Badge variant={apn.state === 'active' ? 'success' : 'secondary'} className="gap-1 flex-shrink-0">
               {apn.state === 'active' && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
               {apn.state.toUpperCase()}

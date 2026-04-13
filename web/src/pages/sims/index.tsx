@@ -5,7 +5,6 @@ import {
   Filter,
   X,
   ChevronDown,
-  MoreVertical,
   Pause,
   Play,
   XCircle,
@@ -64,6 +63,8 @@ import { cn } from '@/lib/utils'
 import { RAT_DISPLAY, RAT_OPTIONS } from '@/lib/constants'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -618,9 +619,20 @@ export default function SimListPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs text-accent hover:underline">
-                      {sim.iccid}
-                    </span>
+                    <RowQuickPeek
+                      title={sim.iccid}
+                      fields={[
+                        { label: 'IMSI', value: sim.imsi },
+                        { label: 'State', value: sim.state },
+                        { label: 'Operator', value: sim.operator_name || '—' },
+                        { label: 'APN', value: sim.apn_name || '—' },
+                        { label: 'Created', value: new Date(sim.created_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <span className="font-mono text-xs text-accent hover:underline">
+                        {sim.iccid}
+                      </span>
+                    </RowQuickPeek>
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-xs text-text-secondary">{sim.imsi}</span>
@@ -661,51 +673,30 @@ export default function SimListPage() {
                     </span>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger aria-label="Row actions" className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
-                        <MoreVertical className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {sim.state === 'ordered' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Activate
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'active' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Suspend
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'suspended' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Resume
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'active' && !sim.ip_address && sim.apn_id && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={async () => {
-                              try {
-                                const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
-                                const pool = poolsRes.data.data?.[0]
-                                if (!pool) { toast.error('No IP pool found for this APN'); return }
-                                await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
-                                toast.success('Static IP reserved')
-                                refetch()
-                              } catch (err) {
-                                toast.error(err instanceof Error ? err.message : 'Failed to reserve static IP')
-                              }
-                            }}>
-                              Reserve Static IP
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'View Details', onClick: () => navigate(`/sims/${sim.id}`) },
+                        ...(sim.state === 'ordered' ? [{ label: 'Activate', icon: Play, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'active' ? [{ label: 'Suspend', icon: Pause, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'suspended' ? [{ label: 'Resume', icon: Play, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'active' && !sim.ip_address && sim.apn_id ? [{
+                          label: 'Reserve Static IP',
+                          separator: true,
+                          onClick: async () => {
+                            try {
+                              const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
+                              const pool = poolsRes.data.data?.[0]
+                              if (!pool) { toast.error('No IP pool found for this APN'); return }
+                              await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
+                              toast.success('Static IP reserved')
+                              refetch()
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : 'Failed to reserve static IP')
+                            }
+                          },
+                        }] : []),
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

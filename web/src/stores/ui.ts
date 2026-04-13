@@ -24,6 +24,7 @@ interface UIState {
   tableDensity: 'compact' | 'comfortable' | 'spacious'
   recentItems: RecentItem[]
   favorites: FavoriteItem[]
+  recentSearches: string[]
 
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
@@ -34,6 +35,7 @@ interface UIState {
   setTableDensity: (d: 'compact' | 'comfortable' | 'spacious') => void
   addRecentItem: (item: Omit<RecentItem, 'timestamp'>) => void
   toggleFavorite: (item: FavoriteItem) => void
+  addRecentSearch: (q: string) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -46,6 +48,7 @@ export const useUIStore = create<UIState>()(
       tableDensity: 'compact' as const,
       recentItems: [] as RecentItem[],
       favorites: [] as FavoriteItem[],
+      recentSearches: [] as string[],
 
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
@@ -65,7 +68,7 @@ export const useUIStore = create<UIState>()(
       addRecentItem: (item) =>
         set((s) => {
           const filtered = s.recentItems.filter((r) => r.id !== item.id)
-          return { recentItems: [{ ...item, timestamp: Date.now() }, ...filtered].slice(0, 10) }
+          return { recentItems: [{ ...item, timestamp: Date.now() }, ...filtered].slice(0, 20) }
         }),
       toggleFavorite: (item) =>
         set((s) => {
@@ -73,8 +76,15 @@ export const useUIStore = create<UIState>()(
           return {
             favorites: exists
               ? s.favorites.filter((f) => f.id !== item.id)
-              : [...s.favorites, item].slice(0, 5),
+              : [...s.favorites, item].slice(0, 20),
           }
+        }),
+      addRecentSearch: (q) =>
+        set((s) => {
+          const trimmed = q.trim()
+          if (!trimmed) return {}
+          const filtered = s.recentSearches.filter((r) => r !== trimmed)
+          return { recentSearches: [trimmed, ...filtered].slice(0, 10) }
         }),
     }),
     {
@@ -86,6 +96,7 @@ export const useUIStore = create<UIState>()(
         tableDensity: state.tableDensity,
         recentItems: state.recentItems,
         favorites: state.favorites,
+        recentSearches: state.recentSearches,
       }),
     },
   ),

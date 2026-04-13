@@ -419,4 +419,12 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 203 REST endpoints + 10 WebSocket event types**
+## Universal Search (1 endpoint) — STORY-076
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-261 | GET | /api/v1/search | Cross-entity full-text search: `?q=<query>&types=sim,apn,operator,policy,user&limit=<n>`. Returns grouped results `{type,id,label,sub}`. Tenant-scoped. 500ms context timeout. Limit capped at 20. Rate-limited via gateway middleware. | JWT (api_user+) | See [STORY-076](../../stories/phase-10/STORY-076-universal-search-nav.md) (AC-1) |
+
+---
+
+**Total: 204 REST endpoints + 10 WebSocket event types**

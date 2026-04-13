@@ -72,7 +72,7 @@ import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
-import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink } from '@/components/shared'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle } from '@/components/shared'
 import { useSIMList } from '@/hooks/use-sims'
 import { stateVariant } from '@/lib/sim-utils'
 
@@ -981,6 +981,12 @@ export default function OperatorDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               {operator.name}
             </h1>
+            <FavoriteToggle
+              type="operator"
+              id={id ?? ''}
+              label={`Op: ${operator.name}`}
+              path={`/operators/${id}`}
+            />
             <Badge variant={healthVariant(operator.health_status)} className="gap-1 flex-shrink-0">
               {operator.health_status.toUpperCase()}
             </Badge>

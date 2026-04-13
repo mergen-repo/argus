@@ -30,6 +30,7 @@ import type { APN, APNListFilters } from '@/types/apn'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 
 const APN_TYPE_OPTIONS = [
   { value: 'private_managed', label: 'Private Managed' },
@@ -450,12 +451,19 @@ export default function ApnListPage() {
       {!isLoading && filteredApns.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredApns.map((apn, i) => (
-            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1">
+            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group">
               <APNCard
                 apn={apn}
                 operatorName={operatorMap.get(apn.operator_id) ?? 'Unknown'}
                 onClick={() => navigate(`/apns/${apn.id}`)}
               />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <RowActionsMenu
+                  actions={[
+                    { label: 'View Details', onClick: () => navigate(`/apns/${apn.id}`) },
+                  ]}
+                />
+              </div>
             </div>
           ))}
         </div>

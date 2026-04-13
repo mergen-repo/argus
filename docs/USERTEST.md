@@ -1776,3 +1776,37 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (~3.8s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-076: Universal Search, Navigation & Clipboard
+
+### Backend / Altyapi (3 senaryo)
+
+1. **Universal Search endpoint (API-261)**: `api_user` JWT ile `GET /api/v1/search?q=89012&types=sim,apn,operator,policy,user&limit=5` → 200; gruplu sonuç `[{type, id, label, sub}, ...]` dönmeli. Her sonuç `tenant_id` ile scope edilmiş olmalı. `q` boş olunca → 400 `VALIDATION_ERROR`. `limit=100` ile istek → `limit=20` ile cevap dönmeli (cap zorlama). Farklı tenant JWT ile aynı `q` → sadece o tenant'a ait sonuçlar gelmeli.
+2. **Paralel sorgu + timeout**: 5 entity tipi için errgroup.Group ile paralel DB sorgusu çalışmalı; 500ms context timeout içinde cevap gelmeli. Çok yavaş DB simülasyonunda (test ortamında değil, gözlem yolu ile) timeout aşılınca handler 500/504 dönmeli.
+3. **Rate limiting**: Gateway middleware rate limit yapılandırması geçerli olmalı; ardışık çok sayıda istek → 429 `TOO_MANY_REQUESTS` dönmeli.
+
+### Frontend (13 senaryo)
+
+4. **Command Palette entity modu**: `Cmd+K` ile palette açılmalı. Input boş iken Recent Searches ve Favorites grupları görülmeli. En az 2 karakter girince entity modu aktif olmalı; API sonuçları gruplu (SIM, APN, Operator, Policy, User) gösterilmeli. Sonuç satırı formatı: `[SIM] 89...1234 — Active — Vodafone` benzeri label + sub. Enter ile ilgili detail sayfasına yönlendirilmeli.
+5. **Arama sonucu boş durumu**: Hiç sonuç gelmeyen bir sorgu girince "No results for X." mesajı görülmeli.
+6. **Recent Searches**: Palette'e bir sorgu yazıp Enter basılınca, o sorgu Recent Searches listesine eklenmeli. Palette tekrar açılınca listede görünmeli. 10'dan fazla arama yapılınca en eski silinmeli.
+7. **`/` kısayolu**: Herhangi bir sayfada `/` tuşuna basılınca Command Palette açılıp input odaklanmalı.
+8. **`?` kısayolu**: `?` tuşuna basılınca Keyboard Shortcuts Help Modal açılmalı; tüm kısayollar tablo halinde görülmeli. `Esc` ile kapanmalı.
+9. **`g+X` navigasyon kısayolları**: `g` ardından `s` → `/sims` sayfasına gitmelidir. `g+a` → `/apns`, `g+o` → `/operators`, `g+p` → `/policies`, `g+d` → `/`, `g+j` → `/jobs`, `g+u` → `/audit`. Kısayol yanlış sırada ya da tek tuş olarak basılınca tetiklenmemeli.
+10. **Favoriler**: Bir SIM detail sayfasında (`/sims/{id}`) yıldız ikonuna tıklanınca yıldız dolu olmalı; sidebar "Favorites" bölümünde SIM görünmeli. Sayfa yenilendikten sonra (localStorage) favori korunmalı. 20 favori sınırı: 20'den sonra yeni ekleme yapılınca eski silinmeli.
+11. **Recent Items**: SIM detail sayfasını ziyaret edince sidebar "Recent" bölümünde o SIM görünmeli; max 20 kayıt tutulmalı; deduplication çalışmalı (aynı SIM'i iki kez ziyaret edince listede sadece bir kez olmalı).
+12. **Row Actions Menu**: SIM listesinde bir satırın üzerine gelinince `⋮` butonu görünmeli; tıklanınca "View Detail, Copy ICCID, Copy IMSI, Suspend, Activate, Assign Policy, Run Diagnostics, View Audit" seçenekleri açılmalı. "Copy ICCID" tıklanınca ICCID panoya kopyalanmalı. APN, Operator, Policy, Audit, Session, Job, Alert listelerinde de kendi aksiyonları ile çalışmalı.
+13. **Row Quick-Peek**: SIM listesinde bir satırın üzerinde 500ms+ beklince özet popover görünmeli (3–4 alan: ICCID, state, operator, apn). Fare çekilince kapanmalı. Popover içindeki "Open" / kart alanına tıklanınca detail sayfasına gidilmeli.
+14. **Detail page `e` / `Backspace` kısayolları**: `data-detail-page="true"` attribute'una sahip bir detail sayfasında `e` tuşuna basılınca `argus:edit` custom event dispatch edilmeli (modal açılması sayfaya bağlı). `Backspace` → önceki listeye dönmeli.
+15. **Klavye kısayolları help modal içeriği**: Açılan modal tabloda en az şu satırlar bulunmalı: `?` → Shortcuts Modal, `/` → Open Search, `Cmd+K` → Open Palette, `G+S/A/O/P/D/J/U` → Go To, `Esc` → Close. APNs ve Audit satırları doğru yönlendirme ile kayıtlı olmalı.
+16. **tsc + build doğrulaması**: Tüm yeni bileşenler (`row-actions-menu.tsx`, `row-quick-peek.tsx`, `favorite-toggle.tsx`, `keyboard-shortcuts.tsx`, `use-search.ts`, `use-keyboard-nav.ts`) TypeScript hatasız derlenmeli; `npm run build` ✓ olmalı.
+
+### Test command
+```bash
+make test   # 2712 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (~4.2s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

@@ -34,11 +34,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { EntityLink, RelatedAuditTab } from '@/components/shared'
+import { EntityLink, RelatedAuditTab, FavoriteToggle } from '@/components/shared'
 import { useAlert, useSimilarAlerts, useUpdateAlertState } from '@/hooks/use-alert-detail'
 import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
 import type { Anomaly } from '@/types/analytics'
+import { useUIStore } from '@/stores/ui'
 
 function severityIcon(severity: string) {
   if (severity === 'critical') return <AlertCircle className="h-5 w-5 text-danger" />
@@ -75,6 +76,13 @@ export default function AlertDetailPage() {
   const { data: alert, isLoading, isError } = useAlert(id)
   const { data: similar = [] } = useSimilarAlerts(alert?.type)
   const updateState = useUpdateAlertState()
+  const { addRecentItem } = useUIStore()
+
+  React.useEffect(() => {
+    if (alert && id) {
+      addRecentItem({ type: 'alert', id, label: alert.type || id.slice(0, 8), path: `/alerts/${id}` })
+    }
+  }, [alert, id, addRecentItem])
 
   function handleAction() {
     if (!id || !actionOpen) return
@@ -154,6 +162,12 @@ export default function AlertDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <FavoriteToggle
+            type="alert"
+            id={id ?? ''}
+            label={alertTitle(alert)}
+            path={`/alerts/${id}`}
+          />
           {alert.state === 'open' && (
             <>
               <Button

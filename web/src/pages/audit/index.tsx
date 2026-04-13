@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -42,6 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/format'
 import { EntityLink } from '@/components/shared'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All Actions' },
@@ -91,8 +92,21 @@ function JsonDiffView({ data }: { data: unknown }) {
   )
 }
 
+const ENTITY_DETAIL_ROUTES: Partial<Record<string, (id: string) => string>> = {
+  sim: (id) => `/sims/${id}`,
+  apn: (id) => `/apns/${id}`,
+  operator: (id) => `/operators/${id}`,
+  policy: (id) => `/policies/${id}`,
+  user: (id) => `/settings/users/${id}`,
+  alert: (id) => `/alerts/${id}`,
+  violation: (id) => `/violations/${id}`,
+}
+
 function ExpandableRow({ entry }: { entry: AuditLog }) {
   const [expanded, setExpanded] = useState(false)
+  const navigate = useNavigate()
+
+  const entityRouteFn = entry.entity_type ? ENTITY_DETAIL_ROUTES[entry.entity_type] : undefined
 
   return (
     <>
@@ -137,10 +151,19 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
         <TableCell>
           <span className="font-mono text-xs text-text-tertiary">{entry.ip_address ?? '-'}</span>
         </TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          {entityRouteFn && entry.entity_id && (
+            <RowActionsMenu
+              actions={[
+                { label: 'View Entity', onClick: () => navigate(entityRouteFn(entry.entity_id!)) },
+              ]}
+            />
+          )}
+        </TableCell>
       </TableRow>
       {expanded && (
         <TableRow className="bg-bg-surface">
-          <TableCell colSpan={7}>
+          <TableCell colSpan={8}>
             <div className="px-4 py-3 space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -509,13 +532,14 @@ export default function AuditLogPage() {
                 <TableHead>Entity ID</TableHead>
                 <TableHead>Time</TableHead>
                 <TableHead>IP Address</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 8 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
@@ -523,7 +547,7 @@ export default function AuditLogPage() {
 
               {!isLoading && allEntries.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <div className="flex flex-col items-center justify-center py-16 text-center">
                       <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
                         <Shield className="h-8 w-8 text-text-tertiary mx-auto mb-3" />

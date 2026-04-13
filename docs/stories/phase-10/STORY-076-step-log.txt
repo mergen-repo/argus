@@ -1,0 +1,20 @@
+[2026-04-13] PLAN — PASS
+[2026-04-13] STEP_1 IMPLEMENT: EXECUTED | tasks=8/8 | waves=5 | result=PASS
+[2026-04-13] STEP_2 FULL_TEST: EXECUTED | tests=2711/0 | result=PASS
+[2026-04-13] STEP_2.5 LINT: EXECUTED | hex=0 | result=PASS
+[2026-04-13] STEP_3 VERIFY: EXECUTED | go_tests=2711/0 | web_build=PASS | tsc=PASS | result=PASS
+Plan: docs/stories/phase-10/STORY-076-plan.md
+Tasks: 8 (Waves: 5)
+  W1: Task 1 (backend search endpoint — high), Task 2 (UI store caps — low)
+  W2: Task 3 (use-search hook — medium), Task 5 (keyboard shortcuts — medium)
+  W3: Task 4 (palette rewrite — high), Task 6 (row actions menu — high)
+  W4: Task 7 (quick-peek + favorites + new-detail wiring — medium)
+  W5: Task 8 (verification — low)
+Components: search (NEW backend pkg), command-palette, hooks/use-search (NEW), hooks/use-keyboard-nav, stores/ui, shared/row-actions-menu (NEW), shared/row-quick-peek (NEW), shared/favorite-toggle (NEW), 8 list pages, 9 detail pages (5 new + 4 existing)
+Screens: Command Palette (entity + empty modes), Row Actions Menu, Row Quick-Peek, Detail header Favorite toggle, Keyboard Shortcuts help modal (extended)
+API: GET /api/v1/search?q=&types=&limit= (NEW)
+DB: No migrations
+Pre-Validation: PASS (substance, sections, embedded specs, complexity mix, context refs, design tokens, component reuse, bug patterns, tenant isolation, no impl code)
+Risks: search latency without trigram indexes (500ms timeout mitigation), Backspace shortcut in DSL editor (guard), operator JOIN duplicates (DISTINCT), cmdk filter conflict (shouldFilter=false when API mode)
+[2026-04-13] STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
+[2026-04-13] STEP_4 REVIEW: EXECUTED | items=14 | evidence=STORY-076-review.md | result=PASS

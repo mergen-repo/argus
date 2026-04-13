@@ -27,10 +27,11 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
-import { EntityLink, RelatedAuditTab } from '@/components/shared'
+import { EntityLink, RelatedAuditTab, FavoriteToggle } from '@/components/shared'
 import { useViolation, useRemediate } from '@/hooks/use-violation-detail'
 import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
+import { useUIStore } from '@/stores/ui'
 
 type RemediateAction = 'suspend_sim' | 'escalate' | 'dismiss' | null
 
@@ -55,6 +56,13 @@ export default function ViolationDetailPage() {
 
   const { data: violation, isLoading, isError } = useViolation(id)
   const remediate = useRemediate(id)
+  const { addRecentItem } = useUIStore()
+
+  React.useEffect(() => {
+    if (violation && id) {
+      addRecentItem({ type: 'violation', id, label: violation.policy_name || id.slice(0, 8), path: `/violations/${id}` })
+    }
+  }, [violation, id, addRecentItem])
 
   function handleRemediate() {
     if (!actionOpen || !id) return
@@ -134,8 +142,15 @@ export default function ViolationDetailPage() {
             </div>
           </div>
         </div>
-        {isOpen && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <FavoriteToggle
+            type="violation"
+            id={id ?? ''}
+            label={violation.policy_name || (id?.slice(0, 8) ?? '')}
+            path={`/violations/${id}`}
+          />
+          {isOpen && (
+            <>
             <Button
               variant="destructive"
               size="sm"
@@ -172,8 +187,9 @@ export default function ViolationDetailPage() {
               <CheckCircle2 className="h-3.5 w-3.5" />
               Dismiss
             </Button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

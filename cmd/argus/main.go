@@ -22,6 +22,7 @@ import (
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
+	searchapi "github.com/btopcu/argus/internal/api/search"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -328,6 +329,7 @@ func main() {
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
 	bulkHandler := simapi.NewBulkHandler(jobStore, segmentStore, eventBus, log.Logger)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, auditSvc, log.Logger)
+	searchHandler := searchapi.NewHandler(simStore, apnStore, operatorStore, policyStore, userStore, pg.Pool, log.Logger)
 
 	otaStore := store.NewOTAStore(pg.Pool)
 	otaRateLimiter := ota.NewRateLimiter(rdb.Client, ota.DefaultMaxOTAPerSimPerHour)
@@ -1123,6 +1125,7 @@ func main() {
 		SMSHandler:          smsHandler,
 		OpsHandler:          opsHandler,
 		AdminHandler:        adminHandler,
+		SearchHandler:       searchHandler,
 		KillSwitchSvc:       killSwitchSvc,
 		APIKeyStore:        apiKeyStore,
 		TenantLimits:       tenantLimits,

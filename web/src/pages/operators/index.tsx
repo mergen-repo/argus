@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { SlidePanel } from '@/components/ui/slide-panel'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator } from '@/hooks/use-operators'
 import type { Operator } from '@/types/operator'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -367,11 +368,18 @@ export default function OperatorListPage() {
       {!isLoading && operators && operators.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {operators.map((op, i) => (
-            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1">
+            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group">
               <OperatorCard
                 operator={op}
                 onClick={() => navigate(`/operators/${op.id}`)}
               />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <RowActionsMenu
+                  actions={[
+                    { label: 'View Details', onClick: () => navigate(`/operators/${op.id}`) },
+                  ]}
+                />
+              </div>
             </div>
           ))}
         </div>

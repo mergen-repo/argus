@@ -27,10 +27,11 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
-import { RelatedAuditTab, RelatedNotificationsPanel, CopyableId } from '@/components/shared'
+import { RelatedAuditTab, RelatedNotificationsPanel, CopyableId, FavoriteToggle } from '@/components/shared'
 import { useUserDetail, useUserActivity, useUserSessions, useResetUserPassword, useRevokeUserSessions, useUnlockUser } from '@/hooks/use-settings'
 import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
+import { useUIStore } from '@/stores/ui'
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -64,6 +65,13 @@ export default function UserDetailPage() {
   const resetPassword = useResetUserPassword()
   const revokeSessions = useRevokeUserSessions()
   const unlock = useUnlockUser()
+  const { addRecentItem } = useUIStore()
+
+  React.useEffect(() => {
+    if (user && id) {
+      addRecentItem({ type: 'user', id, label: user.name || user.email || id.slice(0, 8), path: `/settings/users/${id}` })
+    }
+  }, [user, id, addRecentItem])
 
   if (isLoading) {
     return (
@@ -133,6 +141,12 @@ export default function UserDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <FavoriteToggle
+            type="user"
+            id={id ?? ''}
+            label={user.name || user.email || (id?.slice(0, 8) ?? '')}
+            path={`/settings/users/${id}`}
+          />
           {user.locked_until && (
             <Button
               variant="outline"

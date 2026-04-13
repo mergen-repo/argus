@@ -27,10 +27,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
-import { EntityLink, CopyableId, RelatedAuditTab, RelatedAlertsPanel } from '@/components/shared'
+import { EntityLink, CopyableId, RelatedAuditTab, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
 import { useSession, useDisconnectSession } from '@/hooks/use-sessions'
 import { formatBytes, timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
+import { useUIStore } from '@/stores/ui'
 
 function useLiveDuration(startedAt: string | undefined): string {
   const [elapsed, setElapsed] = React.useState('')
@@ -62,6 +63,13 @@ export default function SessionDetailPage() {
   const { data: session, isLoading, isError } = useSession(id)
   const disconnectMutation = useDisconnectSession()
   const liveDuration = useLiveDuration(session?.state === 'active' ? session.started_at : undefined)
+  const { addRecentItem } = useUIStore()
+
+  React.useEffect(() => {
+    if (session && id) {
+      addRecentItem({ type: 'session', id, label: session.imsi || id.slice(0, 8), path: `/sessions/${id}` })
+    }
+  }, [session, id, addRecentItem])
 
   function handleDisconnect() {
     if (!id) return
@@ -157,6 +165,12 @@ export default function SessionDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <FavoriteToggle
+            type="session"
+            id={id ?? ''}
+            label={session.imsi || (id?.slice(0, 8) ?? '')}
+            path={`/sessions/${id}`}
+          />
           {isActive && (
             <Button
               variant="destructive"

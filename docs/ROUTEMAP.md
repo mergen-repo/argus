@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-13
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 18/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 19/22 stories
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 18/22
-> Current story: STORY-076
+> Stories completed: 55/55 (100%) — Phase 10: 19/22
+> Current story: STORY-077
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 18/22
-> Current story: STORY-076
+> Stories completed: 19/22
+> Current story: STORY-077
 > Mode: AUTOPILOT
 > Started: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
@@ -194,7 +194,7 @@
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-075 | Cross-Entity Context & Detail Pages | XL | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-068 | 2026-04-13 |
-| STORY-076 | Universal Search, Navigation & Clipboard | L | [ ] PENDING | — | STORY-075 | — |
+| STORY-076 | Universal Search, Navigation & Clipboard | L | [x] DONE | — | STORY-075 | 2026-04-13 |
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [ ] PENDING | — | STORY-075, STORY-076 | — |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [ ] PENDING | — | STORY-056..077 | — |
 | STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [ ] PENDING | — | STORY-011, STORY-001 | — |
@@ -220,7 +220,9 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-13 | REVIEW | STORY-076 review completed. 14 checks — all passed (zero-deferral). ARCHITECTURE.md: scale 203→204 APIs (+1). api/_index.md: +API-261 GET /api/v1/search (Universal Search endpoint); footer 203→204. GLOSSARY.md: 5 new terms (Universal Search, Command Palette, Row Quick-Peek, Row Actions Menu, Favorites) in new "Universal Search & Navigation Terms" section. USERTEST.md: STORY-076 section added (16 scenarios — backend 3 API/tenant/rate-limit, frontend 13 palette/shortcuts/favorites/recent/row-actions/quick-peek/detail/build). decisions.md: DEV-217 (debounce 300ms vs spec 200ms), DEV-218 (500ms search timeout), DEV-219 (cmdk shouldFilter=false in entity mode), DEV-220 (recentSearches cap 10), DEV-221 (flat response shape vs per-type DTOs). ROUTEMAP: STORY-076 marked DONE, counter 18/22→19/22, current story→STORY-077, D-008 (flat search shape) + D-009 (data-row-index annotation) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-076-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/GLOSSARY.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
 | 2026-04-13 | REVIEW | STORY-075 review completed. 7 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale 198→203 APIs (+5). api/_index.md: Sessions section +API-256 (GET /sessions/:id); Auth & Users section +API-257 (GET /users/:id) + API-258 (GET /users/:id/activity); new Policy Violations section API-259/260; footer 198→203. GLOSSARY.md: 4 new terms (Entity Link, Copyable ID, Cross-Entity Context, Remediation Action). SCREENS.md: header 59→64; SCR-170..174 added (Session/User/Alert/Violation/Tenant detail pages). USERTEST.md: STORY-075 section added (16 scenarios — backend 5 API+RLS scenarios, frontend 11 component+page scenarios). decisions.md: DEV-214 (shared organism pattern), DEV-215 (EntityLink inline route map), DEV-216 (remediation vs acknowledgment distinction). ROUTEMAP: STORY-075 marked DONE, counter 17/22→18/22, current story→STORY-076, D-007 (APN Policies Referencing) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-075-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/GLOSSARY.md, docs/SCREENS.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
+| 2026-04-13 | DONE | STORY-076 completed — Universal Search, Navigation & Clipboard. 7/7 ACs. New backend: `internal/api/search/` package (GET /api/v1/search, API-261) with errgroup parallel queries, 500ms timeout, tenant-scoped, limit capped at 20. New frontend: `useSearch` hook (TanStack Query, 300ms debounce, staleTime 30s), `command-palette.tsx` entity mode (shouldFilter=false, grouped results, Recent Searches), `use-keyboard-nav.ts` (g+X nav, j/k/Enter/x row nav, e/Backspace detail shortcuts, `?` help modal, `/` focus), `keyboard-shortcuts.tsx` (shadcn modal), `row-actions-menu.tsx` (8 entity types × entity-specific actions), `row-quick-peek.tsx` (500ms hover popover), `favorite-toggle.tsx` (star toggle + localStorage). 9 detail pages with FavoriteToggle + addRecentItem (5 new + 4 gate-added). `stores/ui.ts`: recentItems (cap 20, dedup) + recentSearches (cap 10) + favorites (cap 20). Gate 9 fixes (nil-guard, nav-map correction, shadcn enforcement, FavoriteToggle on 4 pages, j/k/Enter/x extension). 2712 Go tests PASS, tsc clean. | internal/api/search/, web/src/components/command-palette/, web/src/hooks/use-search.ts, web/src/hooks/use-keyboard-nav.ts, web/src/components/shared/{row-actions-menu,row-quick-peek,favorite-toggle}.tsx, web/src/components/ui/keyboard-shortcuts.tsx, web/src/stores/ui.ts, web/src/pages/{sims,apns,operators,policies,audit,sessions,jobs,alerts}/index+detail.tsx |
 | 2026-04-13 | DONE | STORY-075 completed — Cross-Entity Context & Detail Page Completeness. 14/16 ACs PASS, 1 DEFERRED (AC-8 Policies Referencing → D-007 → STORY-077), 1 PARTIAL-ACCEPTED (AC-12 user schema fields absent from store.User). 5 new backend endpoints (API-256..260): GET /sessions/:id, GET /users/:id, GET /users/:id/activity, GET /policy-violations/:id, POST /policy-violations/:id/remediate. 6 shared components: EntityLink, CopyableId, RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab. 5 new detail pages (SCR-170..174): sessions/detail, user-detail, alerts/detail, violations/detail, tenant-detail. 4 enriched pages: sims/detail (+4 tabs), apns/detail (+3 tabs), operators/detail (+4 tabs including SIMs), policies/editor (+3 tabs + Clone + Export). Audit log entity_id + actor use EntityLink. Gate: 4 fixes (raw textarea, +16 BE tests). 2675 Go tests PASS, tsc clean. | internal/api/session/handler.go, internal/api/user/handler.go, internal/api/violation/handler.go, web/src/components/shared/, web/src/pages/{sessions,settings,alerts,violations,system}/detail.tsx, web/src/router.tsx |
 | 2026-04-13 | REVIEW | STORY-073 review completed. 7 cross-doc findings — all fixed (zero-deferral). SCREENS.md: SCR-150/151 collision fixed (STORY-071 Roaming IDs kept; STORY-073 Maintenance Windows renamed SCR-152, Delivery Channel Status renamed SCR-153); header note updated. ARCHITECTURE.md: scale 184→198 APIs, 44→46 tables. api/_index.md: Admin section (14 endpoints) API-242..255 added; footer 184→198 REST endpoints. db/_index.md: TBL-45 kill_switches + TBL-46 maintenance_windows added (Admin/Operations domain). GLOSSARY.md: 4 new terms (Kill Switch, Maintenance Window, Compliance Posture Dashboard, Cost-per-Tenant View). USERTEST.md: STORY-073 section added (18 scenarios — backend kill-switch/maintenance/sessions/DSAR/delivery, frontend all 12 admin screens). ROUTEMAP: STORY-073 marked DONE, counter stays 17/22, D-006 (GeoIP) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-073-review.md | docs/SCREENS.md, docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/db/_index.md, docs/GLOSSARY.md, docs/USERTEST.md |
 | 2026-04-13 | DONE | STORY-073 completed — Multi-Tenant Admin & Compliance Screens. 13 ACs (AC-8 partial — full per-standard scoring deferred to STORY-078 per D-1). 12 admin screens SCR-140..149 + SCR-152/153. 14 new admin endpoints (API-242..255). New package `internal/killswitch/service.go`: 5 kill-switch keys, 15s TTL in-memory cache, kill-switch enforcement in RADIUS/bulk/notification/gateway-read-only-mode. 2 new tables (TBL-45 kill_switches, TBL-46 maintenance_windows) via migration 20260416000001. Sidebar ADMIN section with minRole gating. Gate 15 fixes (4 CRITICAL contract reshapes, 2 code quality, 1 design token batch, 1 shadcn/ui batch, 1 decision, 1 security SQL injection, 1 schema runtime fix, 4 others). 2693 tests PASS. | internal/killswitch/, internal/api/admin/, internal/gateway/router.go, migrations/20260416000001, web/src/pages/admin/*.tsx, web/src/hooks/use-admin.ts, web/src/types/admin.ts |
@@ -317,6 +319,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 | D-005 | STORY-059 Review | Compliance API section entirely absent from `docs/architecture/api/_index.md` (compliance endpoints from STORY-039 never indexed; STORY-059 adds PDF variant). Added "Compliance & Data Governance (5 endpoints)" section with API-175..179 in STORY-059 close-out commit. | STORY-059 | ✓ RESOLVED (2026-04-12) |
 | D-006 | STORY-073 Gate D-3 | GeoIP lookup for SCR-144 (Active User Sessions) location field emits `null` — no MaxMind dependency wired per plan. AC-5 specifies "location (GeoIP lookup)". Deferred from POST-GA to STORY-077 (Enterprise UX Polish) under zero-deferral routing. | STORY-077 | OPEN |
 | D-007 | STORY-075 AC-8 | APN detail "Policies Referencing" tab omitted — no backend filter endpoint exists for querying policies by DSL APN-name reference; client-side DSL substring scan would be fragile (DSL whitespace/comment variants). Requires new store query `WHERE dsl_compiled ILIKE` with GIN/trigram index + new tab in `apns/detail.tsx`. Deferred to STORY-077 (Enterprise UX Polish). | STORY-077 | OPEN |
+| D-008 | STORY-076 Gate trade-off #1 | Search handler returns flat `{type,id,label,sub}` shape instead of per-type DTOs with `state`, `operator_name`, `mcc`, `health_status`, `role` fields (AC-1 spec). Flat shape is sufficient for Command Palette display; per-type enrichment (operator JOIN for SIMs, health field for Operators, role for Users) would be required if a "View All Results" filtered list page is added. See DEV-221. | STORY-077 | OPEN |
+| D-009 | STORY-076 Gate trade-off #2 | `j/k/Enter/x` row-navigation shortcuts (AC-3) require list-page rows to emit `[data-row-index]`, `[data-href]`, and `[data-row-active]` attributes for the `use-keyboard-nav` hook. The hook is forward-compatible (no-op on pages without the markers), but individual list pages have not yet annotated their rows. Full keyboard row navigation depends on each list page opting in with these data attributes. Deferred to STORY-077. | STORY-077 | OPEN |
 
 ---
 

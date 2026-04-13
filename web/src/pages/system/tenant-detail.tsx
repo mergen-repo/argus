@@ -20,10 +20,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
-import { RelatedAuditTab, RelatedAlertsPanel } from '@/components/shared'
+import { RelatedAuditTab, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
 import { useTenantDetail, useTenantStats } from '@/hooks/use-tenant-detail'
 import { useAuthStore } from '@/stores/auth'
 import { formatCurrency, formatBytes, timeAgo } from '@/lib/format'
+import { useUIStore } from '@/stores/ui'
 
 export default function TenantDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -33,6 +34,13 @@ export default function TenantDetailPage() {
 
   const { data: tenant, isLoading: tenantLoading } = useTenantDetail(id)
   const { data: stats, isLoading: statsLoading } = useTenantStats(id)
+  const { addRecentItem } = useUIStore()
+
+  React.useEffect(() => {
+    if (tenant && id) {
+      addRecentItem({ type: 'tenant', id, label: tenant.name || id.slice(0, 8), path: `/system/tenants/${id}` })
+    }
+  }, [tenant, id, addRecentItem])
 
   const isSuperAdmin = user?.role === 'super_admin'
 
@@ -108,6 +116,14 @@ export default function TenantDetailPage() {
               )}
             </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <FavoriteToggle
+            type="tenant"
+            id={id ?? ''}
+            label={tenant.name || (id?.slice(0, 8) ?? '')}
+            path={`/system/tenants/${id}`}
+          />
         </div>
       </div>
 

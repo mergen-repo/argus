@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import {
   Table,
   TableHeader,
@@ -86,6 +87,7 @@ function SessionRow({
   onDisconnect,
   onRowClick,
   onIMSIClick,
+  onNavigateDetail,
 }: {
   session: Session
   isNew: boolean
@@ -93,6 +95,7 @@ function SessionRow({
   onDisconnect: (session: Session) => void
   onRowClick: (session: Session) => void
   onIMSIClick: (simId: string) => void
+  onNavigateDetail?: (session: Session) => void
 }) {
   const [elapsed, setElapsed] = useState(session.duration_sec)
 
@@ -160,6 +163,14 @@ function SessionRow({
           <WifiOff className="h-3 w-3" />
           Disconnect
         </Button>
+      </TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <RowActionsMenu
+          actions={[
+            { label: 'View Details', onClick: () => onNavigateDetail ? onNavigateDetail(session) : onRowClick(session) },
+            { label: 'View SIM', onClick: () => session.sim_id && onIMSIClick(session.sim_id), disabled: !session.sim_id },
+          ]}
+        />
       </TableCell>
     </TableRow>
   )
@@ -358,6 +369,7 @@ export default function SessionListPage() {
                 <TableHead>Bytes Out</TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead className="w-24" />
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -393,6 +405,7 @@ export default function SessionListPage() {
                   onDisconnect={setDisconnectTarget}
                   onRowClick={(s) => setSelectedSession(s)}
                   onIMSIClick={(simId) => navigate(`/sims/${simId}`)}
+                  onNavigateDetail={(s) => navigate(`/sessions/${s.id}`)}
                 />
               ))}
             </TableBody>

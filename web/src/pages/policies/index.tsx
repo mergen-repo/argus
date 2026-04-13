@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   Search,
   Plus,
-  MoreVertical,
   Shield,
   X,
   Filter,
@@ -48,6 +47,8 @@ import { usePolicyList, useCreatePolicy, useDeletePolicy } from '@/hooks/use-pol
 import type { PolicyListItem } from '@/types/policy'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Status' },
@@ -293,16 +294,27 @@ export default function PolicyListPage() {
                   onClick={() => navigate(`/policies/${policy.id}`)}
                 >
                   <TableCell>
-                    <div>
-                      <span className="text-sm font-medium text-text-primary hover:text-accent transition-colors">
-                        {policy.name}
-                      </span>
-                      {policy.description && (
-                        <p className="text-xs text-text-tertiary truncate max-w-xs mt-0.5">
-                          {policy.description}
-                        </p>
-                      )}
-                    </div>
+                    <RowQuickPeek
+                      title={policy.name}
+                      fields={[
+                        { label: 'Scope', value: policy.scope },
+                        { label: 'State', value: policy.state },
+                        { label: 'Version', value: policy.active_version != null ? `v${policy.active_version}` : '—' },
+                        { label: 'SIMs', value: policy.sim_count.toLocaleString() },
+                        { label: 'Modified', value: new Date(policy.updated_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-text-primary hover:text-accent transition-colors">
+                          {policy.name}
+                        </span>
+                        {policy.description && (
+                          <p className="text-xs text-text-tertiary truncate max-w-xs mt-0.5">
+                            {policy.description}
+                          </p>
+                        )}
+                      </div>
+                    </RowQuickPeek>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary">
@@ -335,25 +347,12 @@ export default function PolicyListPage() {
                     </span>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
-                        <MoreVertical className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => navigate(`/policies/${policy.id}`)}>
-                          <Edit className="h-3.5 w-3.5 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setDeleteDialogOpen(policy.id)}
-                          className="text-danger focus:text-danger"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'Edit', icon: Edit, onClick: () => navigate(`/policies/${policy.id}`) },
+                        { label: 'Delete', icon: Trash2, onClick: () => setDeleteDialogOpen(policy.id), variant: 'destructive', separator: true },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
