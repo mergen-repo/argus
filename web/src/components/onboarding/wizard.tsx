@@ -31,7 +31,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { FileInput } from '@/components/ui/file-input'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
-import { useOperatorList, useTestConnection } from '@/hooks/use-operators'
+import { useOperatorList } from '@/hooks/use-operators'
+import { api } from '@/lib/api'
+import type { ApiResponse } from '@/types/sim'
 
 interface StepConfig {
   id: number
@@ -82,17 +84,17 @@ const POLICY_TEMPLATES = [
 
 function StepIndicator({ steps, currentStep, completedSteps }: { steps: StepConfig[]; currentStep: number; completedSteps: Set<number> }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-6">
-      {steps.map((step, idx) => {
-        const isCompleted = completedSteps.has(step.id)
-        const isCurrent = step.id === currentStep
-        const Icon = step.icon
-        return (
-          <div key={step.id} className="flex items-center">
-            <div className="flex flex-col items-center">
+    <div className="py-6">
+      <div className="flex items-center justify-center">
+        {steps.map((step, idx) => {
+          const isCompleted = completedSteps.has(step.id)
+          const isCurrent = step.id === currentStep
+          const Icon = step.icon
+          return (
+            <div key={step.id} className="flex items-center">
               <div
                 className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-200',
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
                   isCompleted && 'border-success bg-success text-white',
                   isCurrent && !isCompleted && 'border-accent bg-accent-dim text-accent',
                   !isCurrent && !isCompleted && 'border-border bg-bg-surface text-text-tertiary',
@@ -100,16 +102,31 @@ function StepIndicator({ steps, currentStep, completedSteps }: { steps: StepConf
               >
                 {isCompleted ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
               </div>
-              <span className={cn('mt-1.5 text-[10px] font-medium', isCurrent ? 'text-text-primary' : 'text-text-tertiary')}>
-                {step.title}
-              </span>
+              {idx < steps.length - 1 && (
+                <div className={cn('mx-1.5 h-0.5 w-12 rounded-full transition-colors', isCompleted ? 'bg-success' : 'bg-border')} />
+              )}
             </div>
-            {idx < steps.length - 1 && (
-              <div className={cn('mx-2 h-0.5 w-8 rounded-full transition-colors', isCompleted ? 'bg-success' : 'bg-border')} />
-            )}
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+      <div className="flex justify-center mt-2">
+        {steps.map((step, idx) => {
+          const isCurrent = step.id === currentStep
+          return (
+            <div key={step.id} className="flex items-center">
+              <span
+                className={cn(
+                  'w-10 text-center text-[10px] leading-tight font-medium',
+                  isCurrent ? 'text-text-primary' : 'text-text-tertiary',
+                )}
+              >
+                {step.title.split(' ').map((w, i) => <span key={i} className="block">{w}</span>)}
+              </span>
+              {idx < steps.length - 1 && <div className="mx-1.5 w-12" />}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -175,85 +192,90 @@ function Step2OperatorConnection({
   data,
   onChange,
 }: {
-  data: { operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }
-  onChange: (data: { operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }) => void
+  data: { operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }
+  onChange: (data: { operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }) => void
 }) {
   const { data: operators } = useOperatorList()
-  const testConnection = useTestConnection(data.operatorId)
 
-  const operatorOptions = (operators || []).map((op) => ({
-    value: op.id,
-    label: `${op.name} (${op.code})`,
-  }))
+  const toggleOperator = (id: string) => {
+    const ids = data.operatorIds.includes(id)
+      ? data.operatorIds.filter((x) => x !== id)
+      : [...data.operatorIds, id]
+    onChange({ ...data, operatorIds: ids })
+  }
 
-  const handleTest = async () => {
-    if (!data.operatorId) return
-    onChange({ ...data, testResult: 'loading', testError: undefined })
+  const handleTest = async (opId: string) => {
+    onChange({ ...data, testResults: { ...data.testResults, [opId]: 'loading' }, testErrors: { ...data.testErrors, [opId]: '' } })
     try {
-      const result = await testConnection.mutateAsync()
+      const res = await api.post<ApiResponse<{ success: boolean; error?: string }>>(`/operators/${opId}/test`)
+      const result = res.data.data
       if (result.success) {
-        onChange({ ...data, testResult: 'success', testError: undefined })
+        onChange({ ...data, testResults: { ...data.testResults, [opId]: 'success' } })
       } else {
-        onChange({ ...data, testResult: 'error', testError: result.error || 'Connection test failed' })
+        onChange({ ...data, testResults: { ...data.testResults, [opId]: 'error' }, testErrors: { ...data.testErrors, [opId]: result.error || 'Failed' } })
       }
     } catch {
-      onChange({ ...data, testResult: 'error', testError: 'Failed to test connection' })
+      onChange({ ...data, testResults: { ...data.testResults, [opId]: 'error' }, testErrors: { ...data.testErrors, [opId]: 'Connection failed' } })
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <label className="block text-xs font-medium text-text-secondary">Select Operator *</label>
-        <Select
-          value={data.operatorId}
-          onChange={(e) => onChange({ ...data, operatorId: e.target.value, testResult: 'idle', testError: undefined })}
-          options={operatorOptions}
-          placeholder="Choose an operator"
-        />
-      </div>
-
-      {data.operatorId && (
-        <div className="space-y-3">
-          <Button
-            variant="outline"
-            onClick={handleTest}
-            disabled={data.testResult === 'loading'}
-            className="w-full gap-2"
-          >
-            {data.testResult === 'loading' ? (
-              <>
-                <Spinner />
-                Testing connection...
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4" />
-                Test Connection
-              </>
-            )}
-          </Button>
-
-          {data.testResult === 'success' && (
-            <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success-dim px-3 py-2 text-sm text-success">
-              <CheckCircle2 className="h-4 w-4" />
-              Connection successful
-            </div>
-          )}
-
-          {data.testResult === 'error' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
-                <AlertCircle className="h-4 w-4" />
-                {data.testError}
+    <div className="space-y-3">
+      <label className="block text-xs font-medium text-text-secondary">Select Operators * (one or more)</label>
+      {!operators?.length ? (
+        <p className="text-xs text-text-tertiary">No operators available. Ask a super_admin to create operators first.</p>
+      ) : (
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {operators.map((op) => {
+            const selected = data.operatorIds.includes(op.id)
+            const testState = data.testResults[op.id] || 'idle'
+            return (
+              <div
+                key={op.id}
+                className={cn(
+                  'flex items-center justify-between rounded-[var(--radius-md)] border px-3 py-2.5 cursor-pointer transition-colors',
+                  selected ? 'border-accent bg-accent/5' : 'border-border bg-bg-surface hover:border-text-tertiary',
+                )}
+                onClick={() => toggleOperator(op.id)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={cn('h-4 w-4 rounded border flex items-center justify-center', selected ? 'border-accent bg-accent text-white' : 'border-border')}>
+                    {selected && <Check className="h-3 w-3" />}
+                  </div>
+                  <div>
+                    <span className="text-sm text-text-primary font-medium">{op.name}</span>
+                    <span className="ml-2 text-xs text-text-tertiary font-mono">{op.code}</span>
+                  </div>
+                </div>
+                {selected && (
+                  <div className="flex items-center gap-2">
+                    {testState === 'success' && <CheckCircle2 className="h-4 w-4 text-success" />}
+                    {testState === 'error' && <AlertCircle className="h-4 w-4 text-danger" />}
+                    {testState === 'loading' && <Spinner />}
+                    {(testState === 'idle' || testState === 'error') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs gap-1"
+                        onClick={(e) => { e.stopPropagation(); handleTest(op.id) }}
+                      >
+                        <Zap className="h-3 w-3" />
+                        Test
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
-              <Button variant="outline" size="sm" onClick={handleTest} className="gap-1.5">
-                Retry
-              </Button>
-            </div>
-          )}
+            )
+          })}
         </div>
       )}
+      {Object.entries(data.testErrors).filter(([, v]) => v).map(([id, err]) => (
+        <div key={id} className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger-dim px-3 py-1.5 text-xs text-danger">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {operators?.find((o) => o.id === id)?.name}: {err}
+        </div>
+      ))}
     </div>
   )
 }
@@ -448,7 +470,7 @@ export function OnboardingWizard() {
   }, [session.data])
 
   const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90', contactEmail: '', locale: 'en' })
-  const [step2, setStep2] = useState<{ operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }>({ operatorId: '', testResult: 'idle' })
+  const [step2, setStep2] = useState<{ operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }>({ operatorIds: [], testResults: {}, testErrors: {} })
   const [step3, setStep3] = useState({ apnName: '', apnType: 'internet', ipCidr: '' })
   const [step4, setStep4] = useState<{ importMode: 'csv' | 'manual'; csvFile: File | null; manualICCIDs: string }>({ importMode: 'csv', csvFile: null, manualICCIDs: '' })
   const [step5, setStep5] = useState({ policyName: '', template: 'basic-internet', dslSource: POLICY_TEMPLATES[0].dsl })
@@ -458,7 +480,7 @@ export function OnboardingWizard() {
       case 1:
         return step1.companyName.trim().length > 0 && step1.contactEmail.trim().length > 0 && step1.contactEmail.includes('@')
       case 2:
-        return step2.operatorId.length > 0 && step2.testResult === 'success'
+        return step2.operatorIds.length > 0 && step2.operatorIds.every((id) => step2.testResults[id] === 'success')
       case 3:
         return step3.apnName.trim().length > 0
       case 4:
@@ -486,9 +508,7 @@ export function OnboardingWizard() {
         }
       case 2:
         return {
-          operator_grants: step2.operatorId
-            ? [{ operator_id: step2.operatorId, rat_types: [] }]
-            : [],
+          operator_grants: step2.operatorIds.map((id) => ({ operator_id: id, rat_types: [] })),
         }
       case 3:
         return {
@@ -588,14 +608,15 @@ export function OnboardingWizard() {
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p>{error}</p>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleNext}
                 disabled={submitting}
-                className="mt-1.5 text-xs underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                className="mt-1.5 h-auto px-0 text-xs underline underline-offset-2 hover:no-underline text-danger"
               >
                 Retry this step
-              </button>
+              </Button>
             </div>
           </div>
         )}

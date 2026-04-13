@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAPNList, useCreateAPN } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
+import { useIpPoolList } from '@/hooks/use-settings'
 import type { APN, APNListFilters } from '@/types/apn'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -51,10 +52,21 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
     apn_type: 'private_managed',
     display_name: '',
     supported_rat_types: [] as string[],
+    ip_pool_ids: [] as string[],
   })
   const [error, setError] = useState<string | null>(null)
   const { data: operators } = useOperatorList()
+  const { data: ipPools = [] } = useIpPoolList()
   const createMutation = useCreateAPN()
+
+  const togglePool = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      ip_pool_ids: f.ip_pool_ids.includes(id)
+        ? f.ip_pool_ids.filter((p) => p !== id)
+        : [...f.ip_pool_ids, id],
+    }))
+  }
 
   const toggleRat = (rat: string) => {
     setForm((f) => ({
@@ -77,8 +89,9 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
         apn_type: form.apn_type,
         supported_rat_types: form.supported_rat_types,
         display_name: form.display_name.trim() || undefined,
+        ip_pool_ids: form.ip_pool_ids.length > 0 ? form.ip_pool_ids : undefined,
       })
-      setForm({ name: '', operator_id: '', apn_type: 'private_managed', display_name: '', supported_rat_types: [] })
+      setForm({ name: '', operator_id: '', apn_type: 'private_managed', display_name: '', supported_rat_types: [], ip_pool_ids: [] })
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -148,6 +161,29 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
             ))}
           </div>
         </div>
+        {ipPools.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">IP Pools (optional)</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              {ipPools.map((pool) => (
+                <div
+                  key={pool.id}
+                  className={cn(
+                    'flex items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 py-1.5 cursor-pointer transition-colors text-xs',
+                    form.ip_pool_ids.includes(pool.id) ? 'border-accent bg-accent/5' : 'border-border hover:border-text-tertiary',
+                  )}
+                  onClick={() => togglePool(pool.id)}
+                >
+                  <div className={cn('h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0', form.ip_pool_ids.includes(pool.id) ? 'border-accent bg-accent text-white' : 'border-border')}>
+                    {form.ip_pool_ids.includes(pool.id) && <Check className="h-2.5 w-2.5" />}
+                  </div>
+                  <span className="text-text-primary">{pool.name}</span>
+                  <span className="text-text-tertiary font-mono ml-auto">{pool.cidr_v4 || pool.cidr_v6}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {error && (
           <p className="text-xs text-danger">{error}</p>
         )}

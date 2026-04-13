@@ -229,6 +229,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Post("/api/v1/auth/logout", deps.AuthHandler.Logout)
 		r.Post("/api/v1/auth/2fa/setup", deps.AuthHandler.Setup2FA)
 		r.Post("/api/v1/auth/2fa/backup-codes", deps.AuthHandler.GenerateBackupCodes)
+		r.Get("/api/v1/auth/2fa/backup-codes/remaining", deps.AuthHandler.BackupCodesRemaining)
 		r.Get("/api/v1/auth/sessions", deps.AuthHandler.ListSessions)
 		r.Delete("/api/v1/auth/sessions/{id}", deps.AuthHandler.RevokeSession)
 	})
@@ -324,9 +325,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	if deps.OperatorHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-			r.Use(RequireRole("super_admin"))
+			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/operators", deps.OperatorHandler.List)
 			r.Get("/api/v1/operators/export.csv", deps.OperatorHandler.ExportCSV)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
 			r.Post("/api/v1/operators", deps.OperatorHandler.Create)
 			r.Patch("/api/v1/operators/{id}", deps.OperatorHandler.Update)
 			r.Post("/api/v1/operators/{id}/test", deps.OperatorHandler.TestConnection)

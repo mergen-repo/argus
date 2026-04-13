@@ -57,6 +57,7 @@ export interface CreateAPNData {
   apn_type: string
   supported_rat_types: string[]
   display_name?: string
+  ip_pool_ids?: string[]
 }
 
 export function useCreateAPN() {

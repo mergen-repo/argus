@@ -2,16 +2,24 @@ import * as React from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, AlertTriangle, Info, ArrowRight, Radio } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { EmptyState } from './empty-state'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { Anomaly } from '@/types/analytics'
 import type { ListResponse } from '@/types/sim'
 import { timeAgo } from '@/lib/format'
-import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
 interface RelatedAlertsPanelProps {
@@ -70,39 +78,59 @@ function useAckAnomaly() {
   })
 }
 
-function AlertRow({ anomaly }: { anomaly: Anomaly }) {
+function AlertsTable({ alerts }: { alerts: Anomaly[] }) {
   const ack = useAckAnomaly()
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors duration-150 border-b border-border-subtle last:border-0">
-      {severityIcon(anomaly.severity)}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <Link
-            to={`/alerts/${anomaly.id}`}
-            className="text-[12px] font-medium text-text-primary hover:text-accent transition-colors duration-150 truncate"
-          >
-            {alertTitle(anomaly)}
-          </Link>
-          <Badge variant={severityVariant(anomaly.severity)} className="text-[10px]">
-            {anomaly.severity}
-          </Badge>
-        </div>
-        <p className="text-[11px] text-text-tertiary">{timeAgo(anomaly.detected_at)}</p>
-      </div>
-      {anomaly.state === 'open' && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-[10px]"
-          onClick={() => ack.mutate(anomaly.id)}
-          disabled={ack.isPending}
-          aria-label="Acknowledge alert"
-        >
-          Ack
-        </Button>
-      )}
-    </div>
+    <Table>
+      <TableHeader>
+        <TableRow className="border-b border-border-subtle hover:bg-transparent">
+          <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Severity</TableHead>
+          <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Type</TableHead>
+          <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Detected</TableHead>
+          <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2"></TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {alerts.map((anomaly) => (
+          <TableRow key={anomaly.id} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+            <TableCell className="py-2">
+              <span className="flex items-center gap-1.5">
+                {severityIcon(anomaly.severity)}
+                <Badge variant={severityVariant(anomaly.severity)} className="text-[10px]">
+                  {anomaly.severity}
+                </Badge>
+              </span>
+            </TableCell>
+            <TableCell className="py-2">
+              <Link
+                to={`/alerts/${anomaly.id}`}
+                className="text-[12px] font-medium text-text-primary hover:text-accent transition-colors duration-150"
+              >
+                {alertTitle(anomaly)}
+              </Link>
+            </TableCell>
+            <TableCell className="py-2">
+              <span className="text-[11px] text-text-tertiary">{timeAgo(anomaly.detected_at)}</span>
+            </TableCell>
+            <TableCell className="py-2">
+              {anomaly.state === 'open' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => ack.mutate(anomaly.id)}
+                  disabled={ack.isPending}
+                  aria-label="Acknowledge alert"
+                >
+                  Ack
+                </Button>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
 
@@ -149,11 +177,11 @@ export function RelatedAlertsPanel({ entityId, entityType }: RelatedAlertsPanelP
             <p className="text-[13px] text-danger">Failed to load alerts</p>
           </div>
         ) : allAlerts.length === 0 ? (
-          <div className="py-6 text-center">
-            <AlertCircle className="h-8 w-8 text-success mx-auto mb-2 opacity-40" />
-            <p className="text-[13px] text-text-secondary">No alerts for this entity</p>
-            <p className="text-[11px] text-text-tertiary mt-1">All systems nominal</p>
-          </div>
+          <EmptyState
+            icon={AlertTriangle}
+            title="No alerts"
+            description="All systems nominal. Alerts for this entity will appear here."
+          />
         ) : (
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full rounded-none border-b border-border-subtle bg-transparent">
@@ -166,20 +194,24 @@ export function RelatedAlertsPanel({ entityId, entityType }: RelatedAlertsPanelP
             </TabsList>
             <TabsContent value="open" className="mt-0">
               {openAlerts.length === 0 ? (
-                <div className="py-6 text-center">
-                  <p className="text-[13px] text-success">No open alerts</p>
-                </div>
+                <EmptyState
+                  icon={AlertTriangle}
+                  title="No open alerts"
+                  description="No active alerts for this entity."
+                />
               ) : (
-                openAlerts.map((a) => <AlertRow key={a.id} anomaly={a} />)
+                <AlertsTable alerts={openAlerts} />
               )}
             </TabsContent>
             <TabsContent value="recent" className="mt-0">
               {recentResolved.length === 0 ? (
-                <div className="py-6 text-center">
-                  <p className="text-[13px] text-text-secondary">No resolved alerts in the last 7 days</p>
-                </div>
+                <EmptyState
+                  icon={AlertTriangle}
+                  title="No recent alerts"
+                  description="No resolved alerts in the last 7 days."
+                />
               ) : (
-                recentResolved.map((a) => <AlertRow key={a.id} anomaly={a} />)
+                <AlertsTable alerts={recentResolved} />
               )}
             </TabsContent>
           </Tabs>

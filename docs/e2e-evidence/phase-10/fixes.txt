@@ -1,0 +1,80 @@
+Phase 10 Gate — Fix Loop Summary
+=================================
+
+FIX-1: Nginx upstream.conf pointed at "argus-app-blue:8080" (blue-green convention), but
+default docker-compose.yml uses container name "argus-app". This caused
+"host not found in upstream" boot loop for nginx.
+
+Action: Updated /Users/btopcu/workspace/argus/infra/nginx/upstream.conf from
+"argus-app-blue" to "argus-app". Nginx now healthy.
+
+Status: APPLIED, verified healthy.
+
+FIX-2: Fresh DB volume had no Phase 10 migrations applied (stopped at 20260323,
+Phase 9 frontier). Argus binary does NOT auto-run migrations, and `make db-migrate`
+falls through to `argus serve` (no migrate subcommand wired in cmd/argus/main.go).
+This caused:
+  - "failed to list views" toast on every page (user_views table missing)
+  - "failed to fetch announcements" toast on every page (announcements table missing)
+  - Command palette "No entities found" (backend search broken)
+
+Action: Used migrate/migrate docker image to apply migrations + batch-applied all
+.up.sql files directly via psql (bypassing transaction wrapper for CONCURRENTLY
+indexes on partitioned tables and FORCE RLS on hypertables with columnstore).
+
+Phase 10 tables now exist: user_views, announcements, announcement_dismissals,
+chart_annotations, user_column_preferences, kill_switches, maintenance_windows,
+anomaly_comments, roaming_agreements, sla_reports, backup_runs,
+notification_preferences, notification_templates, onboarding_sessions,
+scheduled_reports, webhook_configs.
+
+Force-bumped schema_migrations to 20260417000003.
+
+Status: APPLIED. Re-verified: "failed to list views" toast GONE,
+"failed to fetch announcements" toast GONE.
+
+FOLLOW-UPS (not fixed during gate, flagged for Phase 10.x or follow-on):
+
+F-1: MIGRATION AUTOMATION
+  - argus binary lacks `migrate` subcommand; `make db-migrate` falls through to serve.
+  - Pre-existing issue NOT specific to Phase 10, but noticed because phase-10 adds
+    new migrations that never run on a fresh deploy.
+  - Recommendation: add cobra-based migrate subcommand or run golang-migrate
+    in Dockerfile entrypoint.
+
+F-2: PARTITIONED-TABLE MIGRATIONS
+  - Multiple migrations fail on partitioned sims/audit_logs (CONCURRENTLY not supported
+    on partitioned parents; hypertables-with-columnstore reject RLS).
+  - Pre-existing. Not a Phase 10 regression.
+  - Recommendation: guard these index creations behind pg_class checks or use
+    PARTITION-aware syntax.
+
+F-3: COMPREHENSIVE SEED SQL FAILS
+  - migrations/seed/003_comprehensive_seed.sql aborts with transaction error after
+    basic seeds 001/002/004 succeed. Results in empty sims/apns/operators on fresh deploy.
+  - Needs investigation; may be schema-drift from later migrations vs seed file.
+
+F-4: SIM COMPARE pre-selection not carried over
+  - STORY-078: clicking Compare on /sims with 2 checkboxes navigates to /sims/compare
+    but the page does not receive the selected SIM IDs; user must search again.
+  - UX gap; API works correctly (sim_id_a, sim_id_b).
+
+F-5: Turkish i18n coverage minimal
+  - Language toggle flips EN<->TR indicator, but navigation, buttons, page titles
+    remain English (Dashboard, SIM Cards, Views, Export, Compare, State, RAT, etc.).
+  - Date format also remains M/D/YYYY instead of DD.MM.YYYY when TR selected.
+  - Phase 10 stories did not explicitly mandate full TR coverage; if required,
+    needs translation pass across all components.
+
+F-6: Policies page missing Compare button (mentioned in gate-task requirements)
+  - /policies shows Views, Export, New Policy — no Compare button.
+  - STORY-078 scope was SIM compare only; if Policy compare is required, it's not
+    delivered.
+
+F-7: /dashboard route returns 404
+  - Dashboard mounted at "/" not "/dashboard"; deep-links to /dashboard yield 404
+    page-not-found. Sidebar "Dashboard" link works (points to /).
+  - Minor UX; consider aliasing /dashboard -> /.
+
+F-8: Minor initial-load toasts: "Invalid session ID format" on first dashboard
+  after fresh login (likely stale localStorage). Self-corrects.

@@ -935,9 +935,9 @@ export default function SimListPage() {
 
             <div className="mt-3">
               <div className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated p-2.5 mb-3">
-                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Required Columns</p>
-                <pre className="font-mono text-[11px] text-text-secondary">iccid, imsi, msisdn, operator_code, apn_name</pre>
-                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers.</p>
+                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Columns</p>
+                <pre className="font-mono text-[11px] text-text-secondary">iccid, imsi, msisdn, operator_code, apn_name, <span className="text-text-tertiary">ip_address</span></pre>
+                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers. <span className="text-text-tertiary">ip_address</span> is optional — if provided, reserves that IP from the APN's pool.</p>
               </div>
 
               <label className="flex items-center gap-2 mb-3 cursor-pointer">
@@ -954,7 +954,7 @@ export default function SimListPage() {
                 <Textarea
                   value={pasteContent}
                   onChange={(e) => setPasteContent(e.target.value)}
-                  placeholder={`iccid,imsi,msisdn,operator_code,apn_name\n8990010000000001,286010000000001,905301000001,turkcell,iot.demo\n8990010000000002,286010000000002,905301000002,turkcell,m2m.demo`}
+                  placeholder={`iccid,imsi,msisdn,operator_code,apn_name,ip_address\n8990010000000001,286010000000001,905301000001,turkcell,iot.demo,10.0.0.10\n8990010000000002,286010000000002,905301000002,turkcell,m2m.demo,`}
                   className="h-48 font-mono text-xs placeholder:text-text-tertiary/40"
                   spellCheck={false}
                 />

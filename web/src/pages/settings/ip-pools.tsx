@@ -10,7 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { useIpPoolList, useCreateIpPool } from '@/hooks/use-settings'
@@ -88,37 +88,32 @@ function CreatePoolDialog({ open, onClose }: { open: boolean; onClose: () => voi
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create IP Pool</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-text-secondary block mb-1">APN *</label>
-            <Select
-              value={form.apn_id}
-              onChange={(e) => setForm((f) => ({ ...f, apn_id: e.target.value }))}
-              options={[{ value: '', label: 'Select APN...' }, ...apns.map((a) => ({ value: a.id, label: a.name }))]}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-text-secondary block mb-1">Pool Name *</label>
-            <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. iot-pool-v4" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-text-secondary block mb-1">CIDR v4 *</label>
-            <Input value={form.cidr_v4} onChange={(e) => setForm((f) => ({ ...f, cidr_v4: e.target.value }))} placeholder="e.g. 10.0.0.0/24" className="font-mono" />
-          </div>
+    <SlidePanel open={open} onOpenChange={onClose} title="Create IP Pool" description="Add a new IP address pool for an APN." width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">APN *</label>
+          <Select
+            value={form.apn_id}
+            onChange={(e) => setForm((f) => ({ ...f, apn_id: e.target.value }))}
+            options={[{ value: '', label: 'Select APN...' }, ...apns.map((a) => ({ value: a.id, label: a.name }))]}
+          />
         </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleCreate} disabled={!form.apn_id || !form.name || !form.cidr_v4 || create.isPending}>
-            {create.isPending ? 'Creating…' : 'Create Pool'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">Pool Name *</label>
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. iot-pool-v4" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">CIDR v4 *</label>
+          <Input value={form.cidr_v4} onChange={(e) => setForm((f) => ({ ...f, cidr_v4: e.target.value }))} placeholder="e.g. 10.0.0.0/24" className="font-mono" />
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={handleCreate} disabled={!form.apn_id || !form.name || !form.cidr_v4 || create.isPending}>
+          {create.isPending ? 'Creating…' : 'Create Pool'}
+        </Button>
+      </div>
+    </SlidePanel>
   )
 }
 

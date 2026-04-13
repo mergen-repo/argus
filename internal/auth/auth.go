@@ -541,6 +541,21 @@ func (s *Service) GenerateBackupCodes(ctx context.Context, userID uuid.UUID) ([]
 	return codes, nil
 }
 
+func (s *Service) BackupCodesRemaining(ctx context.Context, userID uuid.UUID) (int, bool, error) {
+	if s.backupCodes == nil {
+		return 0, false, nil
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return 0, false, err
+	}
+	remaining, err := s.backupCodes.CountUnused(ctx, userID)
+	if err != nil {
+		return 0, false, err
+	}
+	return remaining, user.TOTPEnabled, nil
+}
+
 // ChangePassword verifies the current password, validates the new password
 // against the configured policy and reuse history, rotates the password hash,
 // clears the force-change flag and lockout state, and records the change in

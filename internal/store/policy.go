@@ -1137,8 +1137,11 @@ func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID
 	args = append(args, limit+1)
 	limitArg := len(args)
 
+	qualifiedCols := `p.id, p.tenant_id, p.name, p.description, p.scope, p.scope_ref_id,
+		p.current_version_id, p.state, p.created_at, p.updated_at, p.created_by`
+
 	query := fmt.Sprintf(`
-		SELECT DISTINCT p.%s
+		SELECT DISTINCT %s
 		FROM policies p
 		JOIN policy_versions pv ON pv.id = p.current_version_id
 		WHERE p.tenant_id = $1
@@ -1146,7 +1149,7 @@ func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID
 		%s
 		ORDER BY p.id
 		LIMIT $%d`,
-		policyColumns, cursorCond, limitArg,
+		qualifiedCols, cursorCond, limitArg,
 	)
 
 	rows, err := s.db.Query(ctx, query, args...)

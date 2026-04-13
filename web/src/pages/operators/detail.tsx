@@ -72,7 +72,7 @@ import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
-import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle } from '@/components/shared'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle, EmptyState } from '@/components/shared'
 import { useSIMList } from '@/hooks/use-sims'
 import { stateVariant } from '@/lib/sim-utils'
 
@@ -786,32 +786,33 @@ function AgreementsTab({ operatorId }: { operatorId: string }) {
         </Button>
       </div>
       {agreements.length === 0 ? (
-        <div className="text-center py-8">
-          <Handshake className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
-          <p className="text-sm text-text-secondary">No roaming agreements for this operator.</p>
-        </div>
+        <EmptyState
+          icon={Handshake}
+          title="No roaming agreements"
+          description="No roaming agreements have been created for this operator."
+        />
       ) : (
         <Card className="overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow className="bg-bg-elevated hover:bg-bg-elevated">
-                <TableHead>Partner</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>End Date</TableHead>
+              <TableRow className="border-b border-border-subtle hover:bg-transparent">
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Partner</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Type</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">End Date</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {agreements.map((ag: RoamingAgreement) => (
                 <TableRow
                   key={ag.id}
-                  className="cursor-pointer"
+                  className="cursor-pointer border-b border-border-subtle hover:bg-bg-hover transition-colors"
                   onClick={() => navigate(`/roaming-agreements/${ag.id}`)}
                 >
-                  <TableCell>{ag.partner_operator_name}</TableCell>
-                  <TableCell>{typeBadge(ag.agreement_type)}</TableCell>
-                  <TableCell>{agreementStateBadge(ag.state)}</TableCell>
-                  <TableCell className="text-text-secondary">{ag.end_date}</TableCell>
+                  <TableCell className="py-2">{ag.partner_operator_name}</TableCell>
+                  <TableCell className="py-2">{typeBadge(ag.agreement_type)}</TableCell>
+                  <TableCell className="py-2">{agreementStateBadge(ag.state)}</TableCell>
+                  <TableCell className="py-2 text-text-secondary">{ag.end_date}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -838,10 +839,11 @@ function OperatorSimsTab({ operatorId }: { operatorId: string }) {
 
   if (sims.length === 0) {
     return (
-      <div className="mt-4 flex flex-col items-center justify-center py-10 text-center">
-        <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3 opacity-40" />
-        <p className="text-[13px] text-text-secondary">No SIMs connected to this operator</p>
-      </div>
+      <EmptyState
+        icon={Wifi}
+        title="No SIMs connected"
+        description="No SIM cards are connected to this operator."
+      />
     )
   }
 

@@ -20,7 +20,9 @@ import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { EmptyState } from '@/components/shared/empty-state'
 import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
 import { useExport } from '@/hooks/use-export'
-import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator } from '@/hooks/use-operators'
+import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator, useOperatorGrants, useAssignOperator, useRemoveOperatorGrant } from '@/hooks/use-operators'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import type { Operator } from '@/types/operator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RAT_DISPLAY } from '@/lib/constants'
@@ -76,7 +78,7 @@ function MetricBox({ label, value }: { label: string; value: string }) {
   )
 }
 
-function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () => void }) {
+function OperatorCard({ operator, onClick, assigned }: { operator: Operator; onClick: () => void; assigned?: boolean }) {
   const failoverLabel = FAILOVER_DISPLAY[operator.failover_policy] ?? operator.failover_policy
 
   return (
@@ -100,9 +102,12 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
             </p>
           </div>
         </div>
-        <Badge variant={healthVariant(operator.health_status)} className="text-[10px] flex-shrink-0">
-          {operator.health_status.toUpperCase()}
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          {assigned && <Badge variant="secondary" className="text-[10px]">Assigned</Badge>}
+          <Badge variant={healthVariant(operator.health_status)} className="text-[10px] flex-shrink-0">
+            {operator.health_status.toUpperCase()}
+          </Badge>
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -184,6 +189,8 @@ const ADAPTER_OPTIONS = [
   { value: 'sba', label: '5G SBA' },
 ]
 
+const PROTOCOL_OPTIONS = ['radius', 'diameter', 'sba'] as const
+
 const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
 function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -193,10 +200,20 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
     mcc: '',
     mnc: '',
     adapter_type: 'mock',
+    supported_protocols: [] as string[],
     supported_rat_types: [] as string[],
   })
   const [error, setError] = useState<string | null>(null)
   const createMutation = useCreateOperator()
+
+  const toggleProtocol = (proto: string) => {
+    setForm((f) => ({
+      ...f,
+      supported_protocols: f.supported_protocols.includes(proto)
+        ? f.supported_protocols.filter((p) => p !== proto)
+        : [...f.supported_protocols, proto],
+    }))
+  }
 
   const toggleRat = (rat: string) => {
     setForm((f) => ({
@@ -222,7 +239,7 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
         adapter_type: form.adapter_type,
         supported_rat_types: form.supported_rat_types,
       })
-      setForm({ name: '', code: '', mcc: '', mnc: '', adapter_type: 'mock', supported_rat_types: [] })
+      setForm({ name: '', code: '', mcc: '', mnc: '', adapter_type: 'mock', supported_protocols: [], supported_rat_types: [] })
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -281,6 +298,28 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
           />
         </div>
         <div>
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported Protocols</label>
+          <div className="flex flex-wrap gap-2">
+            {PROTOCOL_OPTIONS.map((proto) => (
+              <Button
+                key={proto}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => toggleProtocol(proto)}
+                className={cn(
+                  'px-2.5 py-1 h-auto text-xs font-mono border transition-colors',
+                  form.supported_protocols.includes(proto)
+                    ? 'border-accent bg-accent-dim text-accent hover:bg-accent-dim hover:text-accent'
+                    : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
+                )}
+              >
+                {proto === 'sba' ? '5G SBA' : proto.toUpperCase()}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
@@ -322,8 +361,30 @@ export default function OperatorListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { data: operators, isLoading, isError, refetch } = useOperatorList()
+  const { data: grants = [] } = useOperatorGrants()
+  const assignMutation = useAssignOperator()
+  const removeMutation = useRemoveOperatorGrant()
   useRealtimeOperatorHealth()
   const { exportCSV, exporting } = useExport('operators')
+
+  const grantedOperatorIds = new Set(grants.map((g) => g.operator_id))
+  const grantByOperatorId = Object.fromEntries(grants.map((g) => [g.operator_id, g]))
+
+  const handleAssign = async (operatorId: string) => {
+    try {
+      await assignMutation.mutateAsync({ operator_id: operatorId })
+      toast.success('Operator assigned to tenant')
+    } catch { /* interceptor */ }
+  }
+
+  const handleUnassign = async (operatorId: string) => {
+    const grant = grantByOperatorId[operatorId]
+    if (!grant) return
+    try {
+      await removeMutation.mutateAsync(grant.id)
+      toast.success('Operator removed from tenant')
+    } catch { /* interceptor */ }
+  }
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -403,6 +464,7 @@ export default function OperatorListPage() {
               <OperatorCard
                 operator={op}
                 onClick={() => navigate(`/operators/${op.id}`)}
+                assigned={grantedOperatorIds.has(op.id)}
               />
               <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Checkbox
@@ -414,6 +476,9 @@ export default function OperatorListPage() {
                 <RowActionsMenu
                   actions={[
                     { label: 'View Details', onClick: () => navigate(`/operators/${op.id}`) },
+                    ...(grantedOperatorIds.has(op.id)
+                      ? [{ label: 'Remove from Tenant', onClick: () => handleUnassign(op.id), variant: 'destructive' as const }]
+                      : [{ label: 'Assign to Tenant', onClick: () => handleAssign(op.id) }]),
                   ]}
                 />
               </div>

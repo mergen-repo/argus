@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
 interface DropdownMenuProps {
@@ -8,11 +9,13 @@ interface DropdownMenuProps {
 interface DropdownContextValue {
   open: boolean
   setOpen: (open: boolean) => void
+  triggerRef: React.RefObject<HTMLDivElement | null>
 }
 
 const DropdownContext = React.createContext<DropdownContextValue>({
   open: false,
   setOpen: () => {},
+  triggerRef: { current: null },
 })
 
 function DropdownMenu({ children }: DropdownMenuProps) {
@@ -32,9 +35,10 @@ function DropdownMenu({ children }: DropdownMenuProps) {
     }
   }, [open])
 
+  const ref = React.useRef<HTMLDivElement>(null)
   return (
-    <DropdownContext.Provider value={{ open, setOpen }}>
-      <div className="relative inline-block">{children}</div>
+    <DropdownContext.Provider value={{ open, setOpen, triggerRef: ref }}>
+      <div ref={ref} className="relative inline-block">{children}</div>
     </DropdownContext.Provider>
   )
 }
@@ -56,20 +60,36 @@ function DropdownMenuTrigger({ children, className, ...props }: React.ButtonHTML
 }
 
 function DropdownMenuContent({ children, className, align = 'end' }: React.HTMLAttributes<HTMLDivElement> & { align?: 'start' | 'end' }) {
-  const { open } = React.useContext(DropdownContext)
-  if (!open) return null
+  const { open, triggerRef } = React.useContext(DropdownContext)
+  const [pos, setPos] = React.useState<{ top: number; left: number; right: number } | null>(null)
 
-  return (
+  React.useEffect(() => {
+    if (!open || !triggerRef.current) { setPos(null); return }
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      right: window.innerWidth - rect.right,
+    })
+  }, [open, triggerRef])
+
+  if (!open || !pos) return null
+
+  return createPortal(
     <div
       className={cn(
-        'absolute z-50 mt-1 min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg',
-        align === 'end' ? 'right-0' : 'left-0',
+        'fixed z-[9999] min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg animate-in fade-in slide-in-from-top-1 duration-100',
         className,
       )}
+      style={{
+        top: pos.top,
+        ...(align === 'end' ? { right: pos.right } : { left: pos.left }),
+      }}
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

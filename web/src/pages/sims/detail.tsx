@@ -75,7 +75,7 @@ import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { FavoriteToggle } from '@/components/shared'
+import { FavoriteToggle, EmptyState } from '@/components/shared'
 import { ESimTab } from './esim-tab'
 import { RelatedDataTab } from './_tabs/related-data-tab'
 import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
@@ -242,36 +242,34 @@ function SessionsTab({ simId }: { simId: string }) {
 
   if (allSessions.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Activity className="h-8 w-8 text-text-tertiary mb-3" />
-          <h3 className="text-sm font-semibold text-text-primary mb-1">No sessions found</h3>
-          <p className="text-xs text-text-secondary">This SIM has no session history yet.</p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Activity}
+        title="No sessions found"
+        description="This SIM has no session history yet."
+      />
     )
   }
 
   return (
     <Card className="overflow-hidden">
       <Table>
-        <TableHeader className="bg-bg-elevated">
-          <TableRow>
-            <TableHead>Session ID</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>NAS IP</TableHead>
-            <TableHead>Framed IP</TableHead>
-            <TableHead>RAT</TableHead>
-            <TableHead>Data In</TableHead>
-            <TableHead>Data Out</TableHead>
-            <TableHead>Duration</TableHead>
-            <TableHead>Started</TableHead>
+        <TableHeader>
+          <TableRow className="border-b border-border-subtle hover:bg-transparent">
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Session ID</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">NAS IP</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Framed IP</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">RAT</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Data In</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Data Out</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Duration</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Started</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {allSessions.map((session) => (
-            <TableRow key={session.id}>
-              <TableCell>
+            <TableRow key={session.id} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+              <TableCell className="py-2">
                 <span className="font-mono text-xs text-text-secondary">{session.acct_session_id ? session.acct_session_id.slice(0, 12) + '...' : '-'}</span>
               </TableCell>
               <TableCell>
@@ -558,13 +556,11 @@ function HistoryTab({ simId }: { simId: string }) {
 
   if (allHistory.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Clock className="h-8 w-8 text-text-tertiary mb-3" />
-          <h3 className="text-sm font-semibold text-text-primary mb-1">No history yet</h3>
-          <p className="text-xs text-text-secondary">State transition history will appear here.</p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Clock}
+        title="No history yet"
+        description="State transition history will appear here."
+      />
     )
   }
 
@@ -859,7 +855,7 @@ export default function SimDetailPage() {
 
         <TabsContent value="policy-history">
           <ErrorBoundary>
-            <PolicyAssignmentHistoryTab simId={sim.id} />
+            <PolicyAssignmentHistoryTab simId={sim.id} currentPolicyVersionId={sim.policy_version_id} />
           </ErrorBoundary>
         </TabsContent>
 

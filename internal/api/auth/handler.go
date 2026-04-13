@@ -290,6 +290,23 @@ func (h *AuthHandler) GenerateBackupCodes(w http.ResponseWriter, r *http.Request
 	apierr.WriteSuccess(w, http.StatusOK, generateBackupCodesResponse{Codes: codes})
 }
 
+func (h *AuthHandler) BackupCodesRemaining(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "Authentication required")
+		return
+	}
+	remaining, totpEnabled, err := h.svc.BackupCodesRemaining(r.Context(), userID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"remaining":    remaining,
+		"totp_enabled": totpEnabled,
+	})
+}
+
 func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
 	if !ok || userID == uuid.Nil {

@@ -1,0 +1,12 @@
+=== curl http://localhost:8084/ ===
+HTTP=200
+=== curl http://localhost:8080/health ===
+FAILED: curl curl: (7) Failed to connect to localhost port 8080 after 1 ms: Couldn't connect to server
+=== curl http://localhost:8080/api/health ===
+FAILED: curl curl: (7) Failed to connect to localhost port 8080 after 1 ms: Couldn't connect to server
+=== curl http://localhost:8084/api/health ===
+{"status":"success","data":{"state":"healthy","db":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-13T19:58:18.317261885Z"},"redis":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04...
+
+HTTP=200
+=== pg_isready ===
+/var/run/postgresql:5432 - accepting connections

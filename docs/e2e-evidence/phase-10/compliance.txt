@@ -1,0 +1,38 @@
+=== Phase 10 Compliance Check ===
+
+=== API envelope (GET /api/v1/system/config as super_admin) ===
+
+keys: ['data', 'status']
+status: success
+
+=== User views list (new endpoint) ===
+HTTP=404
+404 page not found
+
+=== Announcements list ===
+HTTP=200
+{"status":"success","data":[]}
+
+=== Phase 10 DB tables (user_views, announcements, etc.) ===
+announcement_dismissals|RLS
+announcements|RLS
+anomaly_comments|RLS
+chart_annotations|RLS
+kill_switches|no-RLS
+maintenance_windows|RLS
+user_column_preferences|RLS
+user_views|RLS
+
+=== tenant_id on new tables ===
+anomaly_comments|tenant_id,user_id
+chart_annotations|tenant_id,user_id
+maintenance_windows|tenant_id
+user_column_preferences|user_id
+user_views|tenant_id,user_id
+
+=== Audit log recent writes ===
+
+=== Saved Views (correct path) ===
+{"status":"error","error":{"code":"VALIDATION_ERROR","message":"page query param required"}}
+
+HTTP=400

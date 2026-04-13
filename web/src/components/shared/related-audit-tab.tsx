@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, ChevronDown, ArrowRight } from 'lucide-react'
+import { ChevronRight, ChevronDown, ArrowRight, ScrollText } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { EntityLink } from './entity-link'
+import { EmptyState } from './empty-state'
 import { useAuditList } from '@/hooks/use-audit'
 import type { AuditLog } from '@/types/audit'
 import { timeAgo } from '@/lib/format'
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils'
 interface RelatedAuditTabProps {
   entityId: string
   entityType: string
+  actionFilter?: string
   maxRows?: number
 }
 
@@ -87,11 +89,13 @@ function AuditRowExpandable({ entry }: { entry: AuditLog }) {
 export function RelatedAuditTab({
   entityId,
   entityType,
+  actionFilter,
   maxRows = 20,
 }: RelatedAuditTabProps) {
   const { data, isLoading, isError } = useAuditList({
     entity_id: entityId,
     entity_type: entityType,
+    action: actionFilter,
   })
 
   const entries = React.useMemo(() => {
@@ -120,10 +124,11 @@ export function RelatedAuditTab({
 
   if (entries.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-10 text-center">
-        <p className="text-[13px] text-text-secondary mb-1">No audit entries for this entity yet.</p>
-        <p className="text-[11px] text-text-tertiary">Actions on this {entityType} will appear here.</p>
-      </div>
+      <EmptyState
+        icon={ScrollText}
+        title="No audit entries yet"
+        description={`Actions on this ${entityType} will appear here.`}
+      />
     )
   }
 

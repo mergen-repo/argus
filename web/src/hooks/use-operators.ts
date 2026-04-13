@@ -95,6 +95,42 @@ export function useUpdateOperator(id: string) {
   })
 }
 
+export function useOperatorGrants() {
+  return useQuery({
+    queryKey: [...OPERATORS_KEY, 'grants'],
+    queryFn: async () => {
+      const res = await api.get<ListResponse<{ id: string; tenant_id: string; operator_id: string; supported_rat_types: string[]; created_at: string }>>('/operator-grants?limit=200')
+      return res.data.data
+    },
+    staleTime: 30_000,
+  })
+}
+
+export function useAssignOperator() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { operator_id: string; supported_rat_types?: string[] }) => {
+      const res = await api.post<ApiResponse<{ id: string }>>('/operator-grants', data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: OPERATORS_KEY })
+    },
+  })
+}
+
+export function useRemoveOperatorGrant() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (grantId: string) => {
+      await api.delete(`/operator-grants/${grantId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: OPERATORS_KEY })
+    },
+  })
+}
+
 export function useRealtimeOperatorHealth() {
   const queryClient = useQueryClient()
 

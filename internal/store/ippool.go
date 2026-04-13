@@ -413,12 +413,9 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 	}
 
 	if cursor != "" {
-		cursorID, parseErr := uuid.Parse(cursor)
-		if parseErr == nil {
-			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
-			args = append(args, cursorID)
-			argIdx++
-		}
+		conditions = append(conditions, fmt.Sprintf("address_v4 > $%d::inet", argIdx))
+		args = append(args, cursor)
+		argIdx++
 	}
 
 	where := "WHERE " + strings.Join(conditions, " AND ")
@@ -426,7 +423,7 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 	args = append(args, limit+1)
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
-	query := fmt.Sprintf(`SELECT %s FROM ip_addresses %s ORDER BY id DESC LIMIT %s`,
+	query := fmt.Sprintf(`SELECT %s FROM ip_addresses %s ORDER BY address_v4 ASC NULLS LAST, address_v6 ASC NULLS LAST LIMIT %s`,
 		ipAddressColumns, where, limitPlaceholder)
 
 	rows, err := s.db.Query(ctx, query, args...)
@@ -449,7 +446,12 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 
 	nextCursor := ""
 	if len(results) > limit {
-		nextCursor = results[limit-1].ID.String()
+		last := results[limit-1]
+		if last.AddressV4 != nil {
+			nextCursor = *last.AddressV4
+		} else {
+			nextCursor = last.ID.String()
+		}
 		results = results[:limit]
 	}
 

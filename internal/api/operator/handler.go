@@ -233,6 +233,27 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	tenantID, _ := ctx.Value(apierr.TenantIDKey).(uuid.UUID)
+	role, _ := ctx.Value(apierr.RoleKey).(string)
+
+	if role != "super_admin" && tenantID != uuid.Nil {
+		grants, gErr := h.operatorStore.ListGrants(ctx, tenantID)
+		if gErr != nil {
+			h.logger.Warn().Err(gErr).Msg("list grants for operator filter")
+		} else {
+			allowed := make(map[uuid.UUID]bool, len(grants))
+			for _, g := range grants {
+				allowed[g.OperatorID] = true
+			}
+			filtered := operators[:0]
+			for _, o := range operators {
+				if allowed[o.ID] {
+					filtered = append(filtered, o)
+				}
+			}
+			operators = filtered
+			nextCursor = ""
+		}
+	}
 
 	var simCounts map[uuid.UUID]int
 	if h.simStore != nil && tenantID != uuid.Nil {

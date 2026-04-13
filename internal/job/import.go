@@ -17,11 +17,13 @@ import (
 )
 
 const (
-	progressInterval = 100
-	maxCSVColumns    = 5
+	progressInterval  = 100
+	minCSVColumns     = 5
+	maxCSVColumns     = 6
 )
 
 var requiredHeaders = []string{"iccid", "imsi", "msisdn", "operator_code", "apn_name"}
+var optionalHeaders = []string{"ip_address"}
 
 type ImportPayload struct {
 	CSVData         string `json:"csv_data"`
@@ -136,10 +138,10 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			}
 		}
 
-		if len(row) < maxCSVColumns {
+		if len(row) < minCSVColumns {
 			rowErrors = append(rowErrors, ImportRowError{
 				Row:          rowNum,
-				ErrorMessage: fmt.Sprintf("expected %d columns, got %d", maxCSVColumns, len(row)),
+				ErrorMessage: fmt.Sprintf("expected at least %d columns, got %d", minCSVColumns, len(row)),
 			})
 			failed++
 			p.updateProgressPeriodic(ctx, job, processed, failed, totalRows, i)
@@ -151,6 +153,11 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 		msisdn := strings.TrimSpace(row[colMap["msisdn"]])
 		operatorCode := strings.TrimSpace(row[colMap["operator_code"]])
 		apnName := strings.TrimSpace(row[colMap["apn_name"]])
+
+		var requestedIP string
+		if ipCol, ok := colMap["ip_address"]; ok && ipCol < len(row) {
+			requestedIP = strings.TrimSpace(row[ipCol])
+		}
 
 		if validationErr := validateRow(iccid, imsi, operatorCode, apnName); validationErr != "" {
 			rowErrors = append(rowErrors, ImportRowError{
@@ -234,7 +241,18 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 		}
 		_ = ordered
 
-		p.allocateIPAndPolicy(tenantCtx, activatedSim, &apn.ID, apn.DefaultPolicyID, payload.ReserveStaticIP)
+		if requestedIP != "" {
+			ipErr := p.reserveSpecificIP(tenantCtx, activatedSim, apn, requestedIP)
+			if ipErr != "" {
+				rowErrors = append(rowErrors, ImportRowError{
+					Row:          rowNum,
+					ICCID:        iccid,
+					ErrorMessage: fmt.Sprintf("SIM created but IP allocation failed: %s", ipErr),
+				})
+			}
+		} else {
+			p.allocateIPAndPolicy(tenantCtx, activatedSim, &apn.ID, apn.DefaultPolicyID, payload.ReserveStaticIP)
+		}
 
 		createdIDs = append(createdIDs, sim.ID.String())
 		processed++
@@ -335,6 +353,23 @@ func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *stor
 	_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &result.ID, defaultPolicyID)
 }
 
+func (p *BulkImportProcessor) reserveSpecificIP(ctx context.Context, sim *store.SIM, apn *store.APN, ipAddr string) string {
+	pools, _, err := p.ipPools.List(ctx, sim.TenantID, "", 100, &apn.ID)
+	if err != nil || len(pools) == 0 {
+		return fmt.Sprintf("no IP pool found for APN '%s'", apn.Name)
+	}
+
+	for _, pool := range pools {
+		addr, err := p.ipPools.ReserveStaticIP(ctx, pool.ID, sim.ID, &ipAddr)
+		if err == nil && addr != nil {
+			_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &addr.ID, apn.DefaultPolicyID)
+			return ""
+		}
+	}
+
+	return fmt.Sprintf("IP '%s' not available in any pool of APN '%s'", ipAddr, apn.Name)
+}
+
 func mapColumns(headers []string) (map[string]int, error) {
 	normalized := make([]string, len(headers))
 	for i, h := range headers {
@@ -353,6 +388,14 @@ func mapColumns(headers []string) (map[string]int, error) {
 		}
 		if !found {
 			return nil, fmt.Errorf("missing required CSV column: %s", required)
+		}
+	}
+	for _, opt := range optionalHeaders {
+		for i, h := range normalized {
+			if h == opt {
+				colMap[opt] = i
+				break
+			}
 		}
 	}
 	return colMap, nil

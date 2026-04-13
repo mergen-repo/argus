@@ -2,14 +2,22 @@ import * as React from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, Mail, Webhook, MessageSquare, ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from './empty-state'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { ListResponse } from '@/types/sim'
 import type { Notification } from '@/types/notification'
 import { timeAgo } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 interface RelatedNotificationsPanelProps {
   entityId: string
@@ -83,28 +91,45 @@ export function RelatedNotificationsPanel({
             <p className="text-[13px] text-danger">Failed to load notifications</p>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="py-6 text-center">
-            <Bell className="h-8 w-8 text-text-tertiary mx-auto mb-2 opacity-40" />
-            <p className="text-[13px] text-text-secondary">No notifications for this entity</p>
-          </div>
+          <EmptyState
+            icon={Bell}
+            title="No notifications"
+            description="Notifications for this entity will appear here."
+          />
         ) : (
-          <ul className="divide-y divide-border-subtle">
-            {notifications.map((notif) => (
-              <li key={notif.id} className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors duration-150">
-                {channelIcon(notif.type)}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] text-text-primary truncate">{notif.title}</p>
-                  <p className="text-[11px] text-text-tertiary">{timeAgo(notif.created_at)}</p>
-                </div>
-                <Badge
-                  variant={severityVariant(notif.severity)}
-                  className="text-[10px] flex-shrink-0"
-                >
-                  {notif.severity}
-                </Badge>
-              </li>
-            ))}
-          </ul>
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border-subtle hover:bg-transparent">
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Channel</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Title</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Severity</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Time</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {notifications.map((notif) => (
+                <TableRow key={notif.id} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+                  <TableCell className="py-2">
+                    <span className="flex items-center gap-1.5">
+                      {channelIcon(notif.type)}
+                      <span className="text-[11px] text-text-secondary capitalize">{notif.type}</span>
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <span className="text-[12px] text-text-primary truncate max-w-[200px] block">{notif.title}</span>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <Badge variant={severityVariant(notif.severity)} className="text-[10px]">
+                      {notif.severity}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <span className="text-[11px] text-text-tertiary">{timeAgo(notif.created_at)}</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
