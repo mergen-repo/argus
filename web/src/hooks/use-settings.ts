@@ -194,6 +194,19 @@ export function useIpPoolList() {
   })
 }
 
+export function useCreateIpPool() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { apn_id: string; name: string; cidr_v4?: string; cidr_v6?: string; alert_threshold_warning?: number; alert_threshold_critical?: number; reclaim_grace_period_days?: number }) => {
+      const res = await api.post<ApiResponse<IpPool>>('/ip-pools', body)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: IP_POOLS_KEY })
+    },
+  })
+}
+
 export function useIpPoolAddresses(poolId: string) {
   return useInfiniteQuery({
     queryKey: [...IP_POOLS_KEY, 'addresses', poolId],
