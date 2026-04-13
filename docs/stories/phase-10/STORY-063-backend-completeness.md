@@ -12,10 +12,10 @@ Comprehensive backend audit surfaced ~10 silently-broken features where code com
 - Source: Phase 10 comprehensive audit (6-agent scan 2026-04-11), STORY-028 DEV-086, STORY-031 job runner scope
 
 ## Screen Reference
-- SCR-072 (eSIM Profiles — real provisioning UX)
+- SCR-070 (eSIM Profiles — real provisioning UX)
 - SCR-110 (Notification Channels — SMS active, InApp visible)
 - SCR-120 (System Health — real dependency probes)
-- SCR-070 (Live Sessions — restart-safe)
+- SCR-050 (Live Sessions — restart-safe)
 
 ## Acceptance Criteria
 - [ ] AC-1: **SM-DP+ real adapter** implemented against SGP.22 ES9+ protocol. At minimum one real provider adapter (e.g., Valid, Thales, IDEMIA test sandbox, or Kigen) plus preserved mock for dev. Config var `ESIM_SMDP_PROVIDER=mock|valid|thales|...`. Adapter interface covers: `DownloadProfile`, `EnableProfile`, `DisableProfile`, `DeleteProfile`, `GetProfileInfo`, with proper error propagation, retry/compensation, and timeout.

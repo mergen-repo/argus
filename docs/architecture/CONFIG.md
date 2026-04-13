@@ -90,6 +90,8 @@ Row-Level Security is enabled on all multi-tenant tables as defense-in-depth (mi
 | `lock:` | 30s | Distributed locks (job runner) |
 | `ota:ratelimit:` | 1hr | OTA per-SIM rate limit counters (INCR + EXPIRE) |
 | `notif:rl:` | Per-minute sliding window TTL | Notification delivery rate limit counters per tenant (ZADD/ZREMRANGEBYSCORE/ZCARD) |
+| `sessions:active:count:` | No TTL (SET by reconciler) | Active session counter per tenant (INCR on session.started, DECR on session.ended; reconciled hourly) |
+| `dashboard:` | 30s | Cached dashboard aggregate response per tenant (DEL on sim.*, session.*, operator.health_changed, cdr.recorded NATS events) |
 
 ---
 
@@ -112,6 +114,10 @@ Row-Level Security is enabled on all multi-tenant tables as defense-in-depth (mi
 | `argus.events.operator.*` | Operator health events | WebSocket, alert engine |
 | `argus.events.notification.*` | Notification dispatch | Notification engine |
 | `argus.jobs.queue` | Job queue (pull-based) | Job runner |
+| `argus.jobs.completed` | Job completion notification | Dashboard, WebSocket broadcaster |
+| `argus.jobs.progress` | Job progress updates (percent + message) | WebSocket broadcaster |
+| `argus.events.alert.triggered` | Alert triggered (anomaly, threshold, roaming renewal) | Alert engine, notification dispatcher |
+| `argus.events.audit.create` | Audit log entry created | Audit consumer, WebSocket broadcaster |
 | `argus.cache.invalidate` | Cache invalidation broadcast | All instances |
 
 ---

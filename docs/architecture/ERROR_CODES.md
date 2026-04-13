@@ -181,6 +181,10 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 |------|-------------|-------------|------------------|
 | `PROFILE_NOT_FOUND` | 404 | eSIM profile not found | `{"status":"error","error":{"code":"PROFILE_NOT_FOUND","message":"eSIM profile not found"}}` |
 | `PROFILE_ALREADY_ENABLED` | 422 | Attempting to enable a profile that is already enabled | `{"status":"error","error":{"code":"PROFILE_ALREADY_ENABLED","message":"eSIM profile is already in enabled state"}}` |
+| `NOT_ESIM` | 422 | Operation requires an eSIM-capable SIM but the target SIM is not eSIM type | `{"status":"error","error":{"code":"NOT_ESIM","message":"SIM is not an eSIM type"}}` |
+| `INVALID_PROFILE_STATE` | 422 | Profile is in a state that does not allow the requested operation | `{"status":"error","error":{"code":"INVALID_PROFILE_STATE","message":"Profile state does not allow this operation","details":[{"profile_id":"uuid","current_state":"deleted"}]}}` |
+| `SAME_PROFILE` | 422 | Switch target profile is the same as the currently enabled profile | `{"status":"error","error":{"code":"SAME_PROFILE","message":"Target profile is already the active profile"}}` |
+| `DIFFERENT_SIM` | 422 | Profile does not belong to the target SIM | `{"status":"error","error":{"code":"DIFFERENT_SIM","message":"Profile does not belong to the specified SIM"}}` |
 | `SM_DP_PLUS_ERROR` | 502 | Error communicating with SM-DP+ server | `{"status":"error","error":{"code":"SM_DP_PLUS_ERROR","message":"SM-DP+ server returned an error","details":[{"sm_dp_error_code":"8.1","sm_dp_message":"Profile not available"}]}}` |
 | `SWITCH_FAILED` | 502 | eSIM operator switch failed during the multi-step process | `{"status":"error","error":{"code":"SWITCH_FAILED","message":"eSIM operator switch failed","details":[{"step":"disable_current","error":"Timeout communicating with Turkcell SM-DP+"}]}}` |
 | `PROFILE_LIMIT_EXCEEDED` | 422 | Max profiles per SIM reached (GSMA SGP.22 limit: 8 profiles per SIM) | `{"status":"error","error":{"code":"PROFILE_LIMIT_EXCEEDED","message":"Maximum number of profiles per SIM reached","details":[{"sim_id":"uuid","current_count":8,"limit":8}]}}` |
@@ -328,6 +332,10 @@ const (
     // eSIM
     CodeProfileNotFound      = "PROFILE_NOT_FOUND"
     CodeProfileAlreadyEnabled = "PROFILE_ALREADY_ENABLED"
+    CodeNotESIM              = "NOT_ESIM"
+    CodeInvalidProfileState  = "INVALID_PROFILE_STATE"
+    CodeSameProfile          = "SAME_PROFILE"
+    CodeDifferentSIM         = "DIFFERENT_SIM"
     CodeSMDPPlusError        = "SM_DP_PLUS_ERROR"
     CodeSwitchFailed         = "SWITCH_FAILED"
     CodeProfileLimitExceeded = "PROFILE_LIMIT_EXCEEDED"

@@ -194,7 +194,7 @@ No N+1, no missing indexes, no SELECT *, no unbounded result sets. ✓
 
 ## Pass 6: UI Quality
 
-**SKIPPED** — `has_ui: false`. STORY-060 is backend/protocol-only. No component changes. The story's Screen Reference list (SCR-070, SCR-100, SCR-072) is informational only: CoA dispatch count surfaces via existing `policy.rollout_progress` WS event and existing Live Sessions / Policy Editor / eSIM screens — no frontend modifications were needed or made.
+**SKIPPED** — `has_ui: false`. STORY-060 is backend/protocol-only. No component changes. The story's Screen Reference list (SCR-050, SCR-062, SCR-070) is informational only: CoA dispatch count surfaces via existing `policy.rollout_progress` WS event and existing Live Sessions / Policy Editor / eSIM screens — no frontend modifications were needed or made.
 
 ---
 

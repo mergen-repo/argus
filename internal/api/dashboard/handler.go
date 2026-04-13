@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,15 +15,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type SessionCounter interface {
+	GetActiveCount(ctx context.Context, tenantID string) (int64, error)
+}
+
 type Handler struct {
-	simStore      *store.SIMStore
-	sessionStore  *store.RadiusSessionStore
-	operatorStore *store.OperatorStore
-	anomalyStore  *store.AnomalyStore
-	apnStore      *store.APNStore
-	cdrStore      *store.CDRStore
-	redisClient   *redis.Client
-	logger        zerolog.Logger
+	simStore       *store.SIMStore
+	sessionStore   *store.RadiusSessionStore
+	operatorStore  *store.OperatorStore
+	anomalyStore   *store.AnomalyStore
+	apnStore       *store.APNStore
+	cdrStore       *store.CDRStore
+	redisClient    *redis.Client
+	sessionCounter SessionCounter
+	logger         zerolog.Logger
 }
 
 type HandlerOption func(*Handler)
@@ -36,6 +42,12 @@ func WithRedisClient(rc *redis.Client) HandlerOption {
 func WithCDRStore(cs *store.CDRStore) HandlerOption {
 	return func(h *Handler) {
 		h.cdrStore = cs
+	}
+}
+
+func WithSessionCounter(sc SessionCounter) HandlerOption {
+	return func(h *Handler) {
+		h.sessionCounter = sc
 	}
 }
 
@@ -184,8 +196,16 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		if len(topAPNs) > 5 {
 			topAPNs = topAPNs[:5]
 		}
+
+		activeSessions := stats.TotalActive
+		if h.sessionCounter != nil {
+			if cached, cErr := h.sessionCounter.GetActiveCount(ctx, tenantID.String()); cErr == nil && cached >= 0 {
+				activeSessions = cached
+			}
+		}
+
 		mu.Lock()
-		resp.ActiveSessions = stats.TotalActive
+		resp.ActiveSessions = activeSessions
 		resp.TopAPNs = topAPNs
 		mu.Unlock()
 	}()
@@ -331,7 +351,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	if h.redisClient != nil {
 		envelope := apierr.SuccessResponse{Status: "success", Data: resp}
 		if respBytes, err := json.Marshal(envelope); err == nil {
-			h.redisClient.Set(r.Context(), cacheKey, respBytes, 15*time.Second)
+			h.redisClient.Set(r.Context(), cacheKey, respBytes, 30*time.Second)
 		}
 	}
 

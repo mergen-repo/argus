@@ -647,7 +647,7 @@ export default function AlertsPage() {
   } = useAlerts(filters)
 
   useRealtimeAlertUpdates()
-  const { exportCSV, exporting } = useExport('anomalies')
+  const { exportCSV, exporting } = useExport('analytics/anomalies')
 
   const alerts = useMemo(
     () => data?.pages.flatMap((p) => p.data) ?? [],

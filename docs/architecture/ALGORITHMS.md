@@ -367,6 +367,77 @@ GROUP BY bucket, tenant_id, operator_id, apn_id, rat_type;
 
 ---
 
+## 5a. CDR Export Streaming
+
+**Package**: `internal/api/cdr/` (handler), `internal/export/` (streaming primitives)
+**Endpoint**: `GET /api/v1/cdrs/export` → `ExportCSV`
+
+### Cursor-Pagination Streaming
+
+CDR export never buffers the full result set. Instead it iterates in 500-row cursor pages and writes rows directly to the HTTP response stream:
+
+```
+FUNCTION ExportCSV(w, r)
+
+1. Extract tenant_id from request context (forbidden if missing)
+2. Parse optional filters: operator_id, sim_id
+3. Set response headers:
+     Content-Type: text/csv; charset=utf-8
+     Content-Disposition: attachment; filename="cdrs_{filters}_{date}.csv"
+     Cache-Control: no-cache
+
+4. params = ListCDRParams{ Limit: 500 }
+   cursor = ""
+
+5. LOOP:
+     params.Cursor = cursor
+     cdrs, next, err = cdrStore.ListByTenant(ctx, tenantID, params)
+     IF err: log error, RETURN
+
+     FOR each cdr in cdrs:
+       yield([]string{ id, session_id, sim_id, operator_id, apn_id,
+                       rat_type, record_type, bytes_in, bytes_out,
+                       duration_sec, usage_cost, timestamp })
+
+     IF next == "": BREAK
+     cursor = next
+
+6. After every 500 rows written:
+     csv.Writer.Flush()          -- flush csv buffer to http.ResponseWriter
+     http.Flusher.Flush()        -- flush http buffer to network (chunked transfer)
+
+7. Final csv.Writer.Flush() after loop ends
+```
+
+### Key Properties
+
+| Property | Value |
+|----------|-------|
+| Chunk size | 500 rows per `ListByTenant` call |
+| Cursor field | opaque string (ID-based cursor, `""` = first page) |
+| Memory bound | O(500) rows in memory at any point |
+| Network flush | Every 500 rows via `http.Flusher` (chunked HTTP) |
+| CSV flush | Every 500 rows + final flush after loop |
+| Backpressure | `yield` returns `false` to abort mid-stream (client disconnect) |
+
+### Flow Diagram
+
+```
+Client                Handler (ExportCSV)           DB (ListByTenant)
+  │                         │                              │
+  │── GET /cdrs/export ────►│                              │
+  │                         │── SELECT LIMIT 500 cursor="" ►│
+  │                         │◄─ cdrs[0..499], next="abc" ──│
+  │                         │  write 500 rows → csv.Flush + http.Flush
+  │◄── chunk 1 ─────────────│                              │
+  │                         │── SELECT LIMIT 500 cursor="abc" ►│
+  │                         │◄─ cdrs[0..387], next="" ─────│
+  │                         │  write 387 rows → csv.Flush
+  │◄── chunk 2 (EOF) ───────│                              │
+```
+
+---
+
 ## 6. Policy Evaluation Order
 
 **Package**: `internal/policy/evaluator/`

@@ -12,9 +12,9 @@ Close all protocol DEFER items identified in reviews: EAP-SIM dual-MAC compat, W
 - Source: docs/architecture/PROTOCOLS.md, docs/architecture/WEBSOCKET_EVENTS.md, docs/architecture/ALGORITHMS.md, reviews: STORY-016, STORY-022, STORY-026, STORY-028, STORY-030, STORY-040, STORY-054 (Diameter/TLS deferral), STORY-027 (RAT enum alignment)
 
 ## Screen Reference
-- SCR-070 (Live Sessions — CoA/DM triggers visible in session audit)
-- SCR-100 (Policy Editor — rollout status shows CoA dispatch count)
-- SCR-072 (eSIM — profile switch reflects session disconnect)
+- SCR-050 (Live Sessions — CoA/DM triggers visible in session audit)
+- SCR-062 (Policy Editor — rollout status shows CoA dispatch count)
+- SCR-070 (eSIM — profile switch reflects session disconnect)
 
 ## Acceptance Criteria
 - [ ] AC-1: EAP-SIM authentication removes dual-MAC test-compat path. Only RFC 4186 HMAC MAC accepted. Test fixtures regenerated to produce spec-correct MAC. `GetSessionMSK` race condition fixed with Redis `GETDEL`.

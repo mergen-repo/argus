@@ -137,6 +137,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if (params.From != nil) != (params.To != nil) {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Both from and to date parameters are required when filtering by date range")
+		return
+	}
+	if params.From != nil && params.To != nil {
+		if params.To.Sub(*params.From) > 90*24*time.Hour {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Date range must not exceed 90 days")
+			return
+		}
+	}
+
 	entries, nextCursor, err := h.auditStore.List(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list audit logs")
@@ -220,6 +231,11 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	toTime = toTime.Add(24*time.Hour - time.Nanosecond)
+
+	if toTime.Sub(fromTime) > 90*24*time.Hour {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Date range must not exceed 90 days")
+		return
+	}
 
 	entries, err := h.auditStore.GetByDateRange(r.Context(), tenantID, fromTime, toTime)
 	if err != nil {

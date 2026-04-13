@@ -15,7 +15,7 @@ Final cleanup pass. Track F (perf follow-ups that perf-optimizer flagged but did
 
 ## Screen Reference
 - SCR-001 (Dashboard — caching invisible to user but latency improves)
-- SCR-080 (Audit Log — bounded pagination)
+- SCR-090 (Audit Log — bounded pagination)
 - Documentation pages not directly tied to screens.
 
 ## Acceptance Criteria

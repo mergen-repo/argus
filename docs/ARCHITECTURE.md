@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (204 APIs, 46 tables, 10 services)
+> Scale: Large (201 APIs, 46 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -142,6 +142,8 @@ argus/
 │   │   ├── sms/                  # STORY-069: SMS Gateway outbound + history
 │   │   ├── announcement/         # STORY-077: System announcement CRUD + active + dismiss
 │   │   ├── undo/                 # STORY-077: POST /undo/:action_id inverse-operation handler
+│   │   ├── cdr/                  # CDR list + export endpoints
+│   │   ├── ota/                  # OTA command dispatch endpoints (STORY-029)
 │   │   └── ...
 │   ├── aaa/                      # SVC-04: AAA engine
 │   │   ├── radius/               # RADIUS server
@@ -175,6 +177,7 @@ argus/
 │   ├── cache/                    # Redis cache layer
 │   ├── bus/                      # NATS event bus
 │   ├── undo/                     # Undo registry — Redis-backed 15s TTL inverse-operation store (STORY-077)
+│   ├── ota/                      # OTA command orchestration — SM-DP+ dispatch, polling, state machine
 │   ├── geoip/                    # GeoIP lookup — MaxMind wrapper with graceful nil on missing DB (STORY-077)
 │   ├── export/                   # CSV streaming helper — cursor-paged, Flusher-aware (STORY-077)
 │   ├── middleware/
@@ -182,8 +185,6 @@ argus/
 │   ├── auth/                     # JWT, 2FA, API key
 │   ├── tenant/                   # Tenant context middleware
 │   └── config/                   # Configuration
-├── pkg/
-│   └── dsl/                      # Public Policy DSL package
 ├── web/                          # React SPA
 │   ├── src/
 │   │   ├── components/
@@ -373,6 +374,8 @@ RADIUS Request → UDP listener (goroutine pool)
 | Auth rate counters | Redis INCR | 5s | Auto-expire (TTL) |
 | Auth latency window | Redis ZSET | 120s | Auto-expire + 60s sliding prune |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
+| Dashboard cache (per-tenant) | Redis | 30s | NATS on sim.*, session.*, operator.health_changed, cdr.recorded |
+| Active sessions counter (per-tenant) | Redis INCR | No TTL | NATS session.started/ended + hourly reconciler SET |
 | Diagnostic result (per-SIM) | Redis | 1min | Auto-expire (TTL) |
 
 ## Observability Architecture
@@ -497,8 +500,8 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (144 endpoints + story links) |
-| [architecture/db/](architecture/db/_index.md) | Database schema (35 tables) |
+| [architecture/api/](architecture/api/_index.md) | API surface (201 endpoints + story links) |
+| [architecture/db/](architecture/db/_index.md) | Database schema (46 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
 

@@ -891,7 +891,22 @@ func main() {
 	)
 
 	dashboardSessionStore := store.NewRadiusSessionStore(pg.Pool)
-	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger, dashboardapi.WithRedisClient(rdb.Client), dashboardapi.WithCDRStore(cdrStore))
+
+	sessionCounter, err := aaasession.RegisterSessionCounter(eventBus, rdb.Client, dashboardSessionStore, log.Logger)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to register session counter")
+	}
+	sessionCounter.Start(appCtx)
+
+	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger,
+		dashboardapi.WithRedisClient(rdb.Client),
+		dashboardapi.WithCDRStore(cdrStore),
+		dashboardapi.WithSessionCounter(sessionCounter),
+	)
+
+	if err := dashboardapi.RegisterDashboardInvalidator(eventBus, rdb.Client, log.Logger); err != nil {
+		log.Fatal().Err(err).Msg("failed to register dashboard cache invalidator")
+	}
 
 	webhookConfigStore := store.NewWebhookConfigStore(pg.Pool, cfg.EncryptionKey)
 	webhookDeliveryStore := store.NewWebhookDeliveryStore(pg.Pool)

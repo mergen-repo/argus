@@ -30,4 +30,4 @@
 | `internal/protocol/radius` | RADIUS protocol implementation (RFC 2865/2866) |
 | `internal/protocol/diameter` | Diameter protocol implementation (RFC 6733, Gx, Gy) |
 | `internal/aaa/sba` | 5G SBA HTTP/2 proxy (AUSF/UDM, EAP-AKA' proxy, NRF placeholder) |
-| `pkg/dsl` | Policy DSL parser and evaluator |
+| `internal/policy/dsl/` | Policy DSL parser and evaluator |

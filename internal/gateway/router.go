@@ -626,6 +626,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sessions", deps.SessionHandler.List)
+			r.Get("/api/v1/sessions/export.csv", deps.SessionHandler.ExportCSV)
 			r.Get("/api/v1/sessions/{id}", deps.SessionHandler.Get)
 			r.Post("/api/v1/sessions/{id}/disconnect", deps.SessionHandler.Disconnect)
 		})

@@ -16,16 +16,16 @@
 ### Key Pages
 | Page | Path | Screens |
 |------|------|---------|
-| SIM List | `web/src/pages/sims/index.tsx` | SCR-045 |
-| SIM Detail | `web/src/pages/sims/detail.tsx` | SCR-075 |
-| Sessions | `web/src/pages/sessions/index.tsx` | SCR-070 |
-| Jobs | `web/src/pages/jobs/index.tsx` | SCR-071 |
-| eSIM | `web/src/pages/esim/index.tsx` | SCR-072 |
-| Audit | `web/src/pages/audit/index.tsx` | SCR-080 |
-| APN Detail | `web/src/pages/apns/detail.tsx` | SCR-060 |
+| SIM List | `web/src/pages/sims/index.tsx` | SCR-020 |
+| SIM Detail | `web/src/pages/sims/detail.tsx` | SCR-021 |
+| Sessions | `web/src/pages/sessions/index.tsx` | SCR-050 |
+| Jobs | `web/src/pages/jobs/index.tsx` | SCR-080 |
+| eSIM | `web/src/pages/esim/index.tsx` | SCR-070 |
+| Audit | `web/src/pages/audit/index.tsx` | SCR-090 |
+| APN Detail | `web/src/pages/apns/detail.tsx` | SCR-032 |
 | Operator Detail | `web/src/pages/operators/detail.tsx` | — |
 | Dashboard | `web/src/pages/dashboard/index.tsx` | SCR-010 |
-| Policy Editor | `web/src/pages/policies/editor.tsx` | SCR-100 |
+| Policy Editor | `web/src/pages/policies/editor.tsx` | SCR-062 |
 
 ### Pre-Existing Consolidations (Verify-Only)
 - `Skeleton` already extracted to `web/src/components/ui/skeleton.tsx`, all pages import from there (no local definitions in `web/src/pages/`)

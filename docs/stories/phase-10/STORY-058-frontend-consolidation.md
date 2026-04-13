@@ -12,7 +12,7 @@ Phase 8 story reviews flagged 7 consecutive stories without an `ErrorBoundary`, 
 
 ## Screen Reference
 - All SCR-* that render SIM rows, RAT badges, byte sizes, or tabbed detail panes.
-- SCR-070 (Live Sessions), SCR-071 (Jobs), SCR-072 (eSIM), SCR-080 (Audit), SCR-075 (SIM Detail), SCR-060 (APN List), SCR-045 (SIM List), SCR-100 (Policy Editor), SCR-113 (Notification Settings).
+- SCR-050 (Live Sessions), SCR-080 (Jobs), SCR-070 (eSIM), SCR-090 (Audit), SCR-021 (SIM Detail), SCR-030 (APN List), SCR-020 (SIM List), SCR-062 (Policy Editor), SCR-113 (Notification Settings).
 
 ## Acceptance Criteria
 - [ ] AC-1: Shared `Skeleton` component extracted to `web/src/components/ui/skeleton.tsx` and used in all 11 files (zero duplicate local definitions remain).

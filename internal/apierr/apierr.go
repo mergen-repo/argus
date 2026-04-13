@@ -82,6 +82,8 @@ const (
 	CodeRoamingAgreementOverlap           = "ROAMING_AGREEMENT_OVERLAP"
 	CodeRoamingAgreementInvalidDates      = "ROAMING_AGREEMENT_INVALID_DATES"
 	CodeRoamingAgreementOperatorNotGranted = "ROAMING_AGREEMENT_OPERATOR_NOT_GRANTED"
+
+	CodeInvalidDateRange = "INVALID_DATE_RANGE"
 )
 
 type SuccessResponse struct {

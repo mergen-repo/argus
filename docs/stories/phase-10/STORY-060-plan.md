@@ -181,7 +181,7 @@ The simple-SRES fallback in `sim.go:217 verifySimpleSRES` is NOT in the RFC. It 
 **RFC 6733 §5.6 — CER/CEA** — Already implemented in `internal/aaa/diameter/server.go handleCER`. AC-8 ensures TLS wraps the TCP listener.
 
 ### Design Token Map
-**N/A — this story is pure backend/protocol work.** `has_ui: false`. No new UI components. The story Screen Reference list (SCR-070/072/100/062) is informational only — CoA dispatch count already surfaces on existing Policy Editor / Live Sessions screens via existing `policy.rollout_progress` WS event and existing session list UI. No frontend changes required.
+**N/A — this story is pure backend/protocol work.** `has_ui: false`. No new UI components. The story Screen Reference list (SCR-050/070/062) is informational only — CoA dispatch count already surfaces on existing Policy Editor / Live Sessions screens via existing `policy.rollout_progress` WS event and existing session list UI. No frontend changes required.
 
 ---
 

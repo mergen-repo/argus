@@ -1844,3 +1844,23 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (~4.3s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-062: Performance & Doc Drift Cleanup (final sweep)
+
+### Backend / Perf (5 senaryo)
+
+1. **Dashboard cache 30s TTL**: `GET /api/v1/dashboard/summary` icin tenant JWT ile iki ardisik istek gonder; ikinci istekte Redis `HIT` logu gorulmeli. 30 saniye bekleyip tekrar istekte bulun → `MISS` logu gorulmeli. Ardından `sim.updated` NATS eventi yayinla (ornegin bir SIM durum degistir) → aninda cache invalidation olmali (`dashboard:<tenant_id>` anahtari Redis'ten silinmeli).
+2. **MSISDN toplu import**: `POST /api/v1/msisdn-pool/bulk` ile 10.000+ satirlik CSV upload et → arka planda `INSERT ... VALUES ...ON CONFLICT DO NOTHING` calistirilmali; tek tek INSERT dongusu yoktur. DB logunda tek bir cok degerli INSERT ifadesi (500'luk bloklar) gorulmeli. Tekrar ayni CSV yuklersek `duplicates_skipped` sayisi artar, hata olmaz.
+3. **Aktif session Redis sayaci**: Yeni bir RADIUS session baslat (`session.started` eventi tetikle) → `sessions:active:count:<tenant_id>` Redis anahtari 1 artar. Session bitirince (`session.ended` eventi) 1 azalir. `GET /api/v1/dashboard/summary` yaniti `active_sessions` degerini Redis'ten okumali; DB sorgusu logu yoktur (cache hit).
+4. **Audit tarih aralik sinirlama**: `GET /api/v1/audit-logs?from=2020-01-01` (to parametresi yok) → 400 `INVALID_DATE_RANGE` donmeli. `?from=2020-01-01&to=2020-06-01` (91 gunluk aralik) → 400 `INVALID_DATE_RANGE` donmeli. `?from=2024-01-01&to=2024-03-01` (89 gunluk aralik) → 200 donmeli.
+5. **Session CSV export**: `GET /api/v1/sessions/export.csv` ile `sim_manager` rolundeki JWT ile istek gonder → `Content-Type: text/csv`, `Content-Disposition: attachment; filename=sessions_....csv` donmeli. Buyuk dataset icin OOM olmamali (cursor streaming).
+
+### Test command
+```bash
+make test   # 2738 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (~4.3s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

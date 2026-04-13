@@ -172,6 +172,8 @@ func (s *MSISDNStore) GetByID(ctx context.Context, id uuid.UUID) (*MSISDN, error
 	return &m, nil
 }
 
+const bulkImportBatchSize = 500
+
 func (s *MSISDNStore) BulkImport(ctx context.Context, operatorID uuid.UUID, rows []MSISDNImportRow) (*MSISDNImportResult, error) {
 	tenantID, err := TenantIDFromContext(ctx)
 	if err != nil {
@@ -182,39 +184,66 @@ func (s *MSISDNStore) BulkImport(ctx context.Context, operatorID uuid.UUID, rows
 		Total: len(rows),
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
+	for batchStart := 0; batchStart < len(rows); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(rows) {
+			batchEnd = len(rows)
+		}
+		batch := rows[batchStart:batchEnd]
 
-	for i, row := range rows {
-		_, execErr := tx.Exec(ctx, `
+		valueStrings := make([]string, len(batch))
+		args := []interface{}{tenantID, operatorID}
+		for j, row := range batch {
+			argIdx := j + 3
+			valueStrings[j] = fmt.Sprintf("($1, $2, $%d, 'available')", argIdx)
+			args = append(args, row.MSISDN)
+		}
+
+		query := fmt.Sprintf(`
 			INSERT INTO msisdn_pool (tenant_id, operator_id, msisdn, state)
-			VALUES ($1, $2, $3, 'available')
-		`, tenantID, operatorID, row.MSISDN)
-		if execErr != nil {
-			if isDuplicateKeyError(execErr) {
+			VALUES %s
+			ON CONFLICT (msisdn) DO NOTHING
+			RETURNING msisdn
+		`, strings.Join(valueStrings, ", "))
+
+		tx, txErr := s.db.Begin(ctx)
+		if txErr != nil {
+			return nil, fmt.Errorf("begin tx: %w", txErr)
+		}
+
+		insertedSet := make(map[string]struct{})
+		queryRows, queryErr := tx.Query(ctx, query, args...)
+		if queryErr != nil {
+			tx.Rollback(ctx)
+			return nil, fmt.Errorf("bulk insert batch: %w", queryErr)
+		}
+		for queryRows.Next() {
+			var msisdn string
+			if scanErr := queryRows.Scan(&msisdn); scanErr != nil {
+				queryRows.Close()
+				tx.Rollback(ctx)
+				return nil, fmt.Errorf("scan inserted msisdn: %w", scanErr)
+			}
+			insertedSet[msisdn] = struct{}{}
+		}
+		queryRows.Close()
+
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return nil, fmt.Errorf("commit: %w", commitErr)
+		}
+
+		for j, row := range batch {
+			if _, ok := insertedSet[row.MSISDN]; ok {
+				result.Imported++
+			} else {
 				result.Skipped++
 				result.Errors = append(result.Errors, MSISDNImportError{
-					Row:     i + 1,
+					Row:     batchStart + j + 1,
 					MSISDN:  row.MSISDN,
-					Message: "MSISDN already exists",
+					Message: "duplicate",
 				})
-				continue
 			}
-			result.Errors = append(result.Errors, MSISDNImportError{
-				Row:     i + 1,
-				MSISDN:  row.MSISDN,
-				Message: execErr.Error(),
-			})
-			continue
 		}
-		result.Imported++
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
 	}
 
 	return result, nil

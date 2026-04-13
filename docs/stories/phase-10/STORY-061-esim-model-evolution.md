@@ -12,8 +12,8 @@ STORY-028 merged `available` into `disabled` and enforced `UNIQUE(sim_id)` limit
 - Source: docs/stories/phase-5/STORY-028-review.md (DEV-088 deviation), docs/architecture/db/_index.md (TBL-12)
 
 ## Screen Reference
-- SCR-072 (eSIM Profiles List — show multiple profiles per SIM)
-- SCR-073 (eSIM Profile Detail — state + switch flow)
+- SCR-070 (eSIM Profiles List — show multiple profiles per SIM)
+- SCR-021 (SIM Detail — eSIM tab, state + switch flow)
 
 ## Acceptance Criteria
 - [ ] AC-1: Profile state machine adds `available` state as distinct from `disabled`.

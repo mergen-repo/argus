@@ -25,7 +25,8 @@ export function useImpersonation() {
     if (!token) return null
     try {
       const payload = JSON.parse(atob(token.split('.')[1]))
-      return payload.act?.sub ?? null
+      // Claims.ImpersonatedBy serializes as flat "act_sub" per RFC 8693 (internal/auth/jwt.go)
+      return payload.act_sub ?? null
     } catch {
       return null
     }

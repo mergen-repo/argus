@@ -14,7 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrAuditNotFound = errors.New("store: audit entry not found")
+var (
+	ErrAuditNotFound     = errors.New("store: audit entry not found")
+	ErrDateRangeRequired = errors.New("store: from and to date range are required")
+	ErrDateRangeTooLarge = errors.New("store: date range must not exceed 90 days")
+)
 
 type ListAuditParams struct {
 	Cursor     string
@@ -203,6 +207,13 @@ func (s *AuditStore) GetRange(ctx context.Context, tenantID uuid.UUID, count int
 }
 
 func (s *AuditStore) GetByDateRange(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.Entry, error) {
+	if from.IsZero() || to.IsZero() {
+		return nil, ErrDateRangeRequired
+	}
+	if to.Sub(from) > 90*24*time.Hour {
+		return nil, ErrDateRangeTooLarge
+	}
+
 	rows, err := s.db.Query(ctx, `
 		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
 			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,

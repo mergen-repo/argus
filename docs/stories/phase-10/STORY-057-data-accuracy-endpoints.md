@@ -12,7 +12,7 @@ Close data-display bugs (Dashboard UUIDs, empty Operator Health, $0 Monthly Cost
 - Source: docs/architecture/api/_index.md (API-035/043/051/052), docs/reports/seed-report.md, docs/reports/acceptance-report.md, docs/stories/phase-8/STORY-043-review.md, docs/stories/phase-8/STORY-044-review.md
 
 ## Screen Reference
-- SCR-001 (Main Dashboard), SCR-041..045 (SIM Detail — 5 tabs), SCR-060 (APN List), SCR-011 (Login — remember_me)
+- SCR-010 (Main Dashboard), SCR-021..021e (SIM Detail — 5 tabs), SCR-030 (APN List), SCR-001 (Login — remember_me)
 
 ## Acceptance Criteria
 - [ ] AC-1: Dashboard "Top 5 APNs by Traffic" widget displays APN `name` (not UUID). Backend `GET /api/v1/dashboard` joins `apns` for the name in the top-N query.

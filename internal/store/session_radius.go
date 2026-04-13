@@ -193,6 +193,39 @@ func (s *RadiusSessionStore) CountActive(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+func (s *RadiusSessionStore) CountActiveByTenant(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE session_state = 'active' AND tenant_id = $1`,
+		tenantID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active radius sessions by tenant: %w", err)
+	}
+	return count, nil
+}
+
+func (s *RadiusSessionStore) ListActiveTenantCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT tenant_id::text, COUNT(*) FROM sessions WHERE session_state = 'active' GROUP BY tenant_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active session counts by tenant: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var tenantID string
+		var count int64
+		if err := rows.Scan(&tenantID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan active session tenant count: %w", err)
+		}
+		result[tenantID] = count
+	}
+	return result, nil
+}
+
 func (s *RadiusSessionStore) CountInWindow(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (int64, error) {
 	var count int64
 	err := s.db.QueryRow(ctx,

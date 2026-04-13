@@ -426,3 +426,79 @@ func TestHandler_Export_InvalidToDate(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
 	}
 }
+
+func TestHandler_List_MissingTo_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs?from=2020-01-01", nil)
+	req = withTenantContext(req)
+	w := httptest.NewRecorder()
+
+	handler.List(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp apierr.ErrorResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeInvalidDateRange {
+		t.Fatalf("error code = %s, want %s", resp.Error.Code, apierr.CodeInvalidDateRange)
+	}
+}
+
+func TestHandler_List_MissingFrom_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs?to=2020-01-31", nil)
+	req = withTenantContext(req)
+	w := httptest.NewRecorder()
+
+	handler.List(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp apierr.ErrorResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeInvalidDateRange {
+		t.Fatalf("error code = %s, want %s", resp.Error.Code, apierr.CodeInvalidDateRange)
+	}
+}
+
+func TestHandler_List_180DaySpan_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs?from=2020-01-01&to=2020-07-01", nil)
+	req = withTenantContext(req)
+	w := httptest.NewRecorder()
+
+	handler.List(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp apierr.ErrorResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeInvalidDateRange {
+		t.Fatalf("error code = %s, want %s", resp.Error.Code, apierr.CodeInvalidDateRange)
+	}
+}
+
+func TestHandler_Export_180DaySpan_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit-logs/export", strings.NewReader(`{"from":"2020-01-01","to":"2020-07-01"}`))
+	req = withTenantContext(req)
+	w := httptest.NewRecorder()
+
+	handler.Export(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp apierr.ErrorResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeInvalidDateRange {
+		t.Fatalf("error code = %s, want %s", resp.Error.Code, apierr.CodeInvalidDateRange)
+	}
+}

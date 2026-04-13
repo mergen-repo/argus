@@ -13,7 +13,7 @@ Close all runtime bugs surfaced by E2E browser testing (docs/reports/e2e-test-re
 - Proxy: deploy/nginx/argus.conf (WebSocket location block)
 
 ## Screen Reference
-- SCR-102 (IP Pools), SCR-118 (Tenants), SCR-075 (Sessions), SCR-080 (Audit Log), SCR-060 (APN List), SCR-001 (Dashboard — notification badge), all SCR-* (ErrorBoundary behavior)
+- SCR-112 (IP Pools), SCR-121 (Tenants), SCR-050 (Sessions), SCR-090 (Audit Log), SCR-030 (APN List), SCR-010 (Dashboard — notification badge), all SCR-* (ErrorBoundary behavior)
 
 ## Acceptance Criteria
 - [ ] AC-1: IP Pools page (`/settings/ip-pools`) loads without crash. Frontend reads `total_addresses`, `used_addresses`, `utilization_pct` from API response (or API returns `available_addresses = total - used`). Response contract verified in both directions.

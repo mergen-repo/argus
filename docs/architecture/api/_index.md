@@ -120,7 +120,7 @@
 | API-084 | GET | /api/v1/ip-pools/:id/addresses | List addresses in pool | JWT (operator_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 | API-085 | POST | /api/v1/ip-pools/:id/addresses/reserve | Reserve static IP for SIM | JWT (sim_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 
-## Policies (10 endpoints)
+## Policies (11 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -134,6 +134,7 @@
 | API-097 | POST | /api/v1/policy-rollouts/:id/advance | Advance to next rollout stage | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-098 | POST | /api/v1/policy-rollouts/:id/rollback | Rollback rollout | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-099 | GET | /api/v1/policy-rollouts/:id | Get rollout status | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
+| API-099b | GET | /api/v1/policy-versions/{id1}/diff/{id2} | Diff two policy versions (unified text diff of DSL) | JWT (policy_editor+) | See [STORY-023](../../stories/phase-4/STORY-023-policy-crud.md) |
 
 ## Sessions (5 endpoints)
 
@@ -145,7 +146,7 @@
 | API-103 | POST | /api/v1/sessions/bulk/disconnect | Bulk disconnect on segment | JWT (tenant_admin) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
 | API-256 | GET | /api/v1/sessions/:id | Get session detail with enriched SIM + operator + APN context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 
-## Analytics & CDR (6 endpoints)
+## Analytics & CDR (7 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -153,6 +154,7 @@
 | API-111 | GET | /api/v1/analytics/usage | Usage analytics (time-series) | JWT (analyst+) | See [STORY-034](../../stories/phase-6/STORY-034-usage-analytics.md) |
 | API-112 | GET | /api/v1/analytics/cost | Cost analytics + optimization | JWT (analyst+) | See [STORY-035](../../stories/phase-6/STORY-035-cost-analytics.md) |
 | API-113 | GET | /api/v1/analytics/anomalies | Anomaly detection results | JWT (analyst+) | See [STORY-036](../../stories/phase-6/STORY-036-anomaly-detection.md) |
+| API-113b | GET | /api/v1/analytics/anomalies/{id} | Get single anomaly detail | JWT (analyst+) | See [STORY-036](../../stories/phase-6/STORY-036-anomaly-detection.md) |
 | API-114 | GET | /api/v1/cdrs | List CDRs (time-range query) | JWT (analyst+) | See [STORY-032](../../stories/phase-6/STORY-032-cdr-processing.md) |
 | API-115 | POST | /api/v1/cdrs/export | Export CDRs to CSV | JWT (analyst+) | See [STORY-032](../../stories/phase-6/STORY-032-cdr-processing.md) |
 
@@ -166,21 +168,23 @@
 | API-123 | POST | /api/v1/jobs/:id/retry | Retry failed items | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md), [STORY-031](../../stories/phase-5/STORY-031-job-runner.md) |
 | API-124 | GET | /api/v1/jobs/:id/errors | Download job error report (JSON or CSV) | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md) |
 
-## Notifications (5 endpoints)
+## Notifications (6 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-130 | GET | /api/v1/notifications | List notifications (unread first) | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
+| API-130b | GET | /api/v1/notifications/unread-count | Get count of unread notifications | JWT (api_user+) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 | API-131 | PATCH | /api/v1/notifications/:id/read | Mark notification as read | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 | API-132 | POST | /api/v1/notifications/read-all | Mark all as read | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 | API-133 | GET | /api/v1/notification-configs | Get notification preferences | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 | API-134 | PUT | /api/v1/notification-configs | Update notification preferences | JWT (any) | See [STORY-038](../../stories/phase-7/STORY-038-notification-engine.md) |
 
-## Audit (4 endpoints)
+## Audit (5 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-140 | GET | /api/v1/audit-logs | Search audit logs | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
+| API-140b | GET | /api/v1/audit | Alias for /api/v1/audit-logs (backward compat; same handler) | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
 | API-141 | GET | /api/v1/audit-logs/verify | Verify hash chain integrity | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
 | API-142 | POST | /api/v1/audit-logs/export | Export audit logs (date range) | JWT (tenant_admin+) | See [STORY-007](../../stories/phase-1/STORY-007-audit-log.md) |
 | API-194 | POST | /api/v1/audit/system-events | Emit infra-level system event into hash chain (TenantID=uuid.Nil) | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (AC-4, AC-8) |
@@ -410,12 +414,24 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-## Policy Violations (2 endpoints) — STORY-075
+## Policy Violations (4 endpoints) — STORY-025, STORY-075
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
+| API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated) | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
+| API-263 | GET | /api/v1/policy-violations/counts | Violation counts grouped by type/severity | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 | API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
+
+---
+
+## OTA Commands (3 endpoints) — STORY-029
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-172 | GET | /api/v1/ota-commands/{commandId} | Get OTA command detail by ID | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-commands.md) |
+| API-173 | POST | /api/v1/sims/{id}/ota | Send OTA command to a single SIM | JWT (sim_manager+) | See [STORY-029](../../stories/phase-5/STORY-029-ota-commands.md) |
+| API-174 | POST | /api/v1/sims/bulk/ota | Bulk send OTA command to a segment of SIMs | JWT (tenant_admin) | See [STORY-029](../../stories/phase-5/STORY-029-ota-commands.md) |
 
 ---
 
@@ -427,4 +443,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 204 REST endpoints + 10 WebSocket event types**
+**Total: 201 REST endpoints + 10 WebSocket event types**

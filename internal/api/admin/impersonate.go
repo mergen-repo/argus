@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
@@ -81,5 +83,72 @@ func (h *Handler) Impersonate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ImpersonateExit(w http.ResponseWriter, r *http.Request) {
-	apierr.WriteSuccess(w, http.StatusOK, map[string]string{"message": "use original JWT to restore session"})
+	if h.userStore == nil || h.jwtSecret == "" {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "impersonation not configured")
+		return
+	}
+
+	tokenStr := ""
+	if hdr := r.Header.Get("Authorization"); hdr != "" {
+		parts := strings.SplitN(hdr, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			tokenStr = strings.TrimSpace(parts[1])
+		}
+	}
+	if tokenStr == "" {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "missing authorization header")
+		return
+	}
+
+	claims, err := auth.ValidateToken(tokenStr, h.jwtSecret)
+	if err != nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "invalid token")
+		return
+	}
+
+	if !claims.Impersonated || claims.ImpersonatedBy == nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "not in impersonation session")
+		return
+	}
+
+	adminID := *claims.ImpersonatedBy
+	impersonatedUserID := claims.UserID
+
+	admin, err := h.userStore.GetByIDGlobal(r.Context(), adminID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "admin user not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("admin_id", adminID.String()).Msg("impersonate_exit: get admin user")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to fetch admin user")
+		return
+	}
+
+	jwtStr, err := auth.GenerateToken(h.jwtSecret, admin.ID, admin.TenantID, admin.Role, time.Hour, false)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("impersonate_exit: generate token")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to issue token")
+		return
+	}
+
+	afterData, _ := json.Marshal(map[string]string{
+		"impersonated_user_id": impersonatedUserID.String(),
+	})
+	_, _ = h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
+		TenantID:   admin.TenantID,
+		UserID:     &adminID,
+		Action:     "admin.impersonate_exit",
+		EntityType: "user",
+		EntityID:   impersonatedUserID.String(),
+		AfterData:  afterData,
+	})
+
+	apierr.WriteSuccess(w, http.StatusOK, impersonateResponse{
+		JWT:      jwtStr,
+		UserID:   admin.ID.String(),
+		Email:    admin.Email,
+		TenantID: admin.TenantID.String(),
+		Role:     admin.Role,
+	})
 }
