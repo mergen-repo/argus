@@ -20,6 +20,7 @@ import (
 type SessionStore interface {
 	Create(ctx context.Context, tenantID, startedBy uuid.UUID) (*store.OnboardingSession, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error)
+	GetLatestByTenant(ctx context.Context, tenantID uuid.UUID) (*store.OnboardingSession, error)
 	UpdateStep(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error
 	MarkCompleted(ctx context.Context, id uuid.UUID) error
 }
@@ -109,6 +110,7 @@ func New(
 
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/onboarding", func(r chi.Router) {
+		r.Get("/status", h.status)
 		r.Post("/start", h.start)
 		r.Route("/{id}", func(r chi.Router) {
 			r.Get("/", h.get)
@@ -116,6 +118,42 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Post("/complete", h.complete)
 		})
 	})
+}
+
+func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	type statusResp struct {
+		OperatorConfigured bool `json:"operator_configured"`
+		APNCreated         bool `json:"apn_created"`
+		SIMImported        bool `json:"sim_imported"`
+		PolicyCreated      bool `json:"policy_created"`
+	}
+
+	ctx := r.Context()
+	var resp statusResp
+
+	if h.Sessions != nil {
+		latest, err := h.Sessions.GetLatestByTenant(ctx, tenantID)
+		if err == nil && latest != nil && latest.State == "completed" {
+			resp = statusResp{true, true, true, true}
+			apierr.WriteSuccess(w, http.StatusOK, resp)
+			return
+		}
+	}
+
+	resp = statusResp{
+		OperatorConfigured: h.OperatorGrants != nil,
+		APNCreated:         h.APN != nil,
+		SIMImported:        h.BulkImport != nil,
+		PolicyCreated:      h.Policy != nil,
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
 // POST /api/v1/onboarding/start

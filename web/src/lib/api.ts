@@ -77,8 +77,11 @@ api.interceptors.response.use(
 
     const errorData = error.response?.data?.error
     const message = errorData?.message || error.message || 'An error occurred'
+    const url = error.config?.url || ''
+    const silentPaths = ['/users/me/views', '/onboarding/status', '/announcements/active']
+    const isSilent = silentPaths.some((p) => url.includes(p))
 
-    if (error.response?.status !== 401) {
+    if (error.response?.status !== 401 && !isSilent) {
       toast.error(message)
     }
 

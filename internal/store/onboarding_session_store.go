@@ -97,6 +97,30 @@ func (s *OnboardingSessionStore) UpdateStep(ctx context.Context, id uuid.UUID, s
 	return nil
 }
 
+func (s *OnboardingSessionStore) GetLatestByTenant(ctx context.Context, tenantID uuid.UUID) (*OnboardingSession, error) {
+	var sess OnboardingSession
+	err := s.db.QueryRow(ctx, `
+		SELECT id, tenant_id, started_by, current_step,
+			step_1_data, step_2_data, step_3_data, step_4_data, step_5_data,
+			state, completed_at, created_at, updated_at
+		FROM onboarding_sessions
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, tenantID).Scan(
+		&sess.ID, &sess.TenantID, &sess.StartedBy, &sess.CurrentStep,
+		&sess.StepData[0], &sess.StepData[1], &sess.StepData[2], &sess.StepData[3], &sess.StepData[4],
+		&sess.State, &sess.CompletedAt, &sess.CreatedAt, &sess.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get latest onboarding session: %w", err)
+	}
+	return &sess, nil
+}
+
 func (s *OnboardingSessionStore) MarkCompleted(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE onboarding_sessions
