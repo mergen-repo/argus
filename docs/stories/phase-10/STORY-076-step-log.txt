@@ -18,3 +18,5 @@ Pre-Validation: PASS (substance, sections, embedded specs, complexity mix, conte
 Risks: search latency without trigram indexes (500ms timeout mitigation), Backspace shortcut in DSL editor (guard), operator JOIN duplicates (DISTINCT), cmdk filter conflict (shouldFilter=false when API mode)
 [2026-04-13] STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
 [2026-04-13] STEP_4 REVIEW: EXECUTED | items=14 | evidence=STORY-076-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=0094b7b | result=PASS
+STEP_6 POSTPROC: EXECUTED | result=PASS
