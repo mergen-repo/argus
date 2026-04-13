@@ -1,0 +1,5 @@
+STEP_1 PLAN: EXECUTED | items=6 tasks | evidence=docs/stories/phase-10/STORY-078-plan.md | result=PASS
+STEP_2 DEV: EXECUTED | items=6 tasks (3 waves) | evidence=go-build+tsc all pass | result=PASS
+STEP_2.5 LINT: EXECUTED | items=0 findings | evidence=lint-scan | result=PASS
+STEP_3 GATE: EXECUTED | items=6 passes | evidence=docs/stories/phase-10/STORY-078-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | items=2 fixes (0 open) | evidence=docs/stories/phase-10/STORY-078-review.md | result=PASS

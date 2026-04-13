@@ -84,6 +84,7 @@ type RouterDeps struct {
 	ReportsHandler       *reportsapi.Handler
 	ReliabilityHandler      *systemapi.ReliabilityHandler
 	StatusHandler           *systemapi.StatusHandler
+	SystemConfigHandler     *systemapi.ConfigHandler
 	RevokeSessionsHandler   *systemapi.RevokeSessionsHandler
 	CapacityHandler         *systemapi.CapacityHandler
 	OnboardingHandler       *onboardingapi.Handler
@@ -420,6 +421,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Post("/api/v1/sims/{id}/suspend", deps.SIMHandler.Suspend)
 			r.Post("/api/v1/sims/{id}/resume", deps.SIMHandler.Resume)
 			r.Post("/api/v1/sims/{id}/report-lost", deps.SIMHandler.ReportLost)
+			r.Post("/api/v1/sims/compare", deps.SIMHandler.Compare)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -758,6 +760,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/status/details", deps.StatusHandler.ServeDetails)
+		})
+	}
+
+	if deps.SystemConfigHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/system/config", deps.SystemConfigHandler.Serve)
 		})
 	}
 

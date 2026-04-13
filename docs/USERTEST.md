@@ -1864,3 +1864,31 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (~4.3s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-078: SIM Compare & System Config Backfill
+
+### SIM Compare (sim_manager)
+
+1. **Happy path**: Login as a `sim_manager` user. Navigate to `/sims/compare`. Select 2 different SIMs from the same tenant. Verify the side-by-side diff renders with rows where `equal=false` visually highlighted (e.g. different background or indicator). Confirm all diff rows have the field name, SIM A value, SIM B value, and `equal` flag in the response payload.
+2. **Audit log entry**: After a successful compare, call `GET /api/v1/audit-logs?action=sim.compare` — the entry should appear with metadata containing `sim_id_b` (the second SIM's ID).
+3. **Negative — same SIM twice**: Submit a compare request with the same SIM ID for both `sim_id_a` and `sim_id_b` → expect `422 VALIDATION_ERROR`.
+4. **Negative — cross-tenant SIM**: Attempt to pass a SIM ID that belongs to a different tenant → expect `404 SIM_NOT_FOUND` (ID enumeration prevention; do NOT expect `403 FORBIDDEN_CROSS_TENANT` here).
+
+### System Config (super_admin)
+
+5. **Happy path**: Login as `admin@argus.io` (or any `super_admin`). Run:
+   ```bash
+   curl -H "Authorization: Bearer <jwt>" http://localhost:8080/api/v1/system/config
+   ```
+   Verify the response body includes all of: `version`, `git_sha`, `build_time`, `started_at`, `feature_flags`, `protocols`, `limits`, `retention`.
+6. **Secret scrubbing**: Grep the response body for any of the following strings — none should appear: `JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD`, `SMTP_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `S3_SECRET_KEY`.
+7. **Negative — tenant_admin**: Make the same request with a `tenant_admin` JWT → expect `403 FORBIDDEN`.
+8. **Negative — unauthenticated**: Make the same request without an `Authorization` header → expect `401 UNAUTHORIZED`.
+
+### Test command
+```bash
+make test   # existing suite must pass
+go build ./...  # no compilation errors
+```

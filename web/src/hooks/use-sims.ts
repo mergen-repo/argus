@@ -9,6 +9,7 @@ import type {
   DiagnosticResult,
   SIMListFilters,
   SIMUsageData,
+  SIMCompareResult,
   ListResponse,
   ApiResponse,
 } from '@/types/sim'
@@ -246,5 +247,17 @@ export function useImportSIMs() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
     },
+  })
+}
+
+export function useSIMComparePair(idA: string, idB: string) {
+  return useQuery({
+    queryKey: [...SIMS_KEY, 'compare', idA, idB],
+    queryFn: async () => {
+      const res = await api.post<ApiResponse<SIMCompareResult>>('/sims/compare', { sim_id_a: idA, sim_id_b: idB })
+      return res.data.data
+    },
+    enabled: !!idA && !!idB && idA !== idB,
+    staleTime: 10_000,
   })
 }

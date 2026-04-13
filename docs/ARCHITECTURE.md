@@ -142,6 +142,7 @@ argus/
 │   │   ├── sms/                  # STORY-069: SMS Gateway outbound + history
 │   │   ├── announcement/         # STORY-077: System announcement CRUD + active + dismiss
 │   │   ├── undo/                 # STORY-077: POST /undo/:action_id inverse-operation handler
+│   │   ├── system/               # STORY-078: GET /system/config — redacted config + build metadata (super_admin)
 │   │   ├── cdr/                  # CDR list + export endpoints
 │   │   ├── ota/                  # OTA command dispatch endpoints (STORY-029)
 │   │   └── ...

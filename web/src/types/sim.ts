@@ -134,6 +134,20 @@ export interface SIMUsageTopSession {
   duration_sec: number
 }
 
+export interface SIMFieldDiff {
+  field: string
+  value_a: unknown
+  value_b: unknown
+  equal: boolean
+}
+
+export interface SIMCompareResult {
+  sim_a: SIM
+  sim_b: SIM
+  diff: SIMFieldDiff[]
+  compared_at: string
+}
+
 export interface SIMUsageData {
   sim_id: string
   period: string

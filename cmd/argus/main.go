@@ -1109,6 +1109,7 @@ func main() {
 	)
 
 	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
+	systemConfigHandler := systemapi.NewConfigHandler(cfg, version, gitSHA, buildTime)
 
 	capacitySimStore := store.NewSIMStore(pg.Pool)
 	capacitySessionStore := store.NewRadiusSessionStore(pg.Pool)
@@ -1172,6 +1173,7 @@ func main() {
 		ReportsHandler:      reportsHandler,
 		ReliabilityHandler:  reliabilityHandler,
 		StatusHandler:       statusHandler,
+		SystemConfigHandler: systemConfigHandler,
 		CapacityHandler:     capacityHandler,
 		OnboardingHandler:   onboardingHandler,
 		RoamingHandler:      roamingHandler,

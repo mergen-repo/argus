@@ -197,7 +197,7 @@
 | STORY-076 | Universal Search, Navigation & Clipboard | L | [x] DONE | — | STORY-075 | 2026-04-13 |
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [x] DONE | — | STORY-075, STORY-076 | 2026-04-13 |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [x] DONE | — | STORY-056..077 | 2026-04-13 |
-| STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [ ] PENDING | — | STORY-011, STORY-001 | — |
+| STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [~] IN PROGRESS | Commit | STORY-011, STORY-001 | — |
 
 Source: docs/stories/phase-10/STORY-056..077-*.md
 

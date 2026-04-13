@@ -66,6 +66,7 @@ For `ACCOUNT_LOCKED`, the `details` array includes retry information:
 | `FORBIDDEN` | 403 | Generic authorization failure; user cannot perform this action | `{"status":"error","error":{"code":"FORBIDDEN","message":"You do not have permission to perform this action"}}` |
 | `INSUFFICIENT_ROLE` | 403 | User's role is below the minimum required for this endpoint | `{"status":"error","error":{"code":"INSUFFICIENT_ROLE","message":"This action requires tenant_admin role or higher","details":[{"required_role":"tenant_admin","current_role":"sim_manager"}]}}` |
 | `SCOPE_DENIED` | 403 | API key does not have the required scope for this endpoint | `{"status":"error","error":{"code":"SCOPE_DENIED","message":"API key does not have the required scope","details":[{"required_scope":"sims:write","available_scopes":["sims:read","analytics:read"]}]}}` |
+| `FORBIDDEN_CROSS_TENANT` | 403 | Cross-tenant resource access denied (reserved for explicit cross-tenant flows; default behavior is 404 SIM_NOT_FOUND to prevent ID enumeration) | `{"status":"error","error":{"code":"FORBIDDEN_CROSS_TENANT","message":"Cross-tenant resource access denied"}}` |
 
 ---
 
