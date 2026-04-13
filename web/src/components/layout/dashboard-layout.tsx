@@ -13,6 +13,8 @@ import { useUIStore } from '@/stores/ui'
 import { useEventStore, type LiveEvent } from '@/stores/events'
 import { wsClient } from '@/lib/ws'
 import { cn } from '@/lib/utils'
+import { ImpersonationBanner } from '@/components/shared/impersonation-banner'
+import { AnnouncementBanner } from '@/components/shared/announcement-banner'
 
 function useGlobalEventListener() {
   const addEvent = useEventStore((s) => s.addEvent)
@@ -57,6 +59,8 @@ export function DashboardLayout() {
           sidebarCollapsed ? 'pl-16' : 'pl-60',
         )}
       >
+        <ImpersonationBanner />
+        <AnnouncementBanner />
         <div className="p-6">
           <ErrorBoundary key={location.pathname}>
             <Outlet />

@@ -140,6 +140,8 @@ argus/
 │   │   ├── reports/              # STORY-069: On-demand & scheduled report generation
 │   │   ├── webhooks/             # STORY-069: Webhook config & delivery tracking
 │   │   ├── sms/                  # STORY-069: SMS Gateway outbound + history
+│   │   ├── announcement/         # STORY-077: System announcement CRUD + active + dismiss
+│   │   ├── undo/                 # STORY-077: POST /undo/:action_id inverse-operation handler
 │   │   └── ...
 │   ├── aaa/                      # SVC-04: AAA engine
 │   │   ├── radius/               # RADIUS server
@@ -172,6 +174,11 @@ argus/
 │   ├── store/                    # Database access (PG)
 │   ├── cache/                    # Redis cache layer
 │   ├── bus/                      # NATS event bus
+│   ├── undo/                     # Undo registry — Redis-backed 15s TTL inverse-operation store (STORY-077)
+│   ├── geoip/                    # GeoIP lookup — MaxMind wrapper with graceful nil on missing DB (STORY-077)
+│   ├── export/                   # CSV streaming helper — cursor-paged, Flusher-aware (STORY-077)
+│   ├── middleware/
+│   │   └── impersonation.go      # ImpersonationReadOnly middleware — blocks non-GET when impersonated (STORY-077)
 │   ├── auth/                     # JWT, 2FA, API key
 │   ├── tenant/                   # Tenant context middleware
 │   └── config/                   # Configuration

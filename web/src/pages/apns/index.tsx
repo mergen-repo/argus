@@ -11,6 +11,7 @@ import {
   Wifi,
   Plus,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
+import { useExport } from '@/hooks/use-export'
 
 const APN_TYPE_OPTIONS = [
   { value: 'private_managed', label: 'Private Managed' },
@@ -300,6 +304,7 @@ export default function ApnListPage() {
 
   const { data: operators } = useOperatorList()
   const { data: apns, isLoading, isError, refetch } = useAPNList(filters)
+  const { exportCSV, exporting } = useExport('apns')
 
   const operatorMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -338,10 +343,17 @@ export default function ApnListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">APN Management</h1>
-        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Create APN
-        </Button>
+        <div className="flex items-center gap-2">
+          <SavedViewsMenu page="apns" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Create APN
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -418,40 +430,29 @@ export default function ApnListPage() {
       )}
 
       {!isLoading && filteredApns.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-            <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-text-primary mb-1">No APNs configured</h3>
-            <p className="text-xs text-text-secondary mb-4">
-              {searchInput || filters.operator_id
-                ? 'Try adjusting your filters or search terms.'
-                : 'Create your first APN to get started.'}
-            </p>
-            {searchInput || filters.operator_id ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFilters({})
-                  setSearchInput('')
-                }}
-              >
-                Clear Filters
-              </Button>
-            ) : (
-              <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-3.5 w-3.5" />
-                Create APN
-              </Button>
-            )}
-          </div>
-        </div>
+        searchInput || filters.operator_id ? (
+          <EmptyState
+            icon={Search}
+            title="No APNs match your filters"
+            description="Try adjusting your filters or search terms."
+            ctaLabel="Clear Filters"
+            onCta={() => { setFilters({}); setSearchInput('') }}
+          />
+        ) : (
+          <EmptyState
+            icon={Wifi}
+            title="No APNs configured"
+            description="Create your first APN to get started."
+            ctaLabel="Create APN"
+            onCta={() => setCreateOpen(true)}
+          />
+        )
       )}
 
       {!isLoading && filteredApns.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredApns.map((apn, i) => (
-            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group">
+            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group" data-row-index={i} data-href={`/apns/${apn.id}`}>
               <APNCard
                 apn={apn}
                 operatorName={operatorMap.get(apn.operator_id) ?? 'Unknown'}

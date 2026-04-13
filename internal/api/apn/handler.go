@@ -36,8 +36,13 @@ type Handler struct {
 	simStore      *store.SIMStore
 	cdrStore      *store.CDRStore
 	ipPoolStore   *store.IPPoolStore
+	policyStore   *store.PolicyStore
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
+}
+
+func WithPolicyStore(ps *store.PolicyStore) HandlerOption {
+	return func(h *Handler) { h.policyStore = ps }
 }
 
 func WithSIMStore(s *store.SIMStore) HandlerOption {
@@ -50,6 +55,10 @@ func WithCDRStore(cs *store.CDRStore) HandlerOption {
 
 func WithIPPoolStore(ip *store.IPPoolStore) HandlerOption {
 	return func(h *Handler) { h.ipPoolStore = ip }
+}
+
+func (h *Handler) SetPolicyStore(ps *store.PolicyStore) {
+	h.policyStore = ps
 }
 
 func NewHandler(
@@ -689,4 +698,51 @@ func userIDFromContext(r *http.Request) *uuid.UUID {
 		return nil
 	}
 	return &uid
+}
+
+// ListReferencingPolicies returns policies whose compiled DSL text references
+// this APN by name (D-007). Requires policyStore to be wired.
+func (h *Handler) ListReferencingPolicies(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "tenant context required")
+		return
+	}
+
+	if h.policyStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	apnID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "invalid APN id")
+		return
+	}
+
+	apn, err := h.apnStore.GetByID(r.Context(), tenantID, apnID)
+	if err != nil {
+		if errors.Is(err, store.ErrAPNNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "APN not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("apn_id", apnID.String()).Msg("get apn for policy ref")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to fetch APN")
+		return
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+	limit := 20
+
+	policies, nextCursor, err := h.policyStore.ListReferencingAPN(r.Context(), tenantID, apn.Name, limit, cursor)
+	if err != nil {
+		h.logger.Error().Err(err).Str("apn_name", apn.Name).Msg("list referencing policies")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to fetch policies")
+		return
+	}
+
+	apierr.WriteList(w, http.StatusOK, policies, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+	})
 }

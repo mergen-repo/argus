@@ -1,0 +1,57 @@
+{
+  "sims": {
+    "title": "Henüz SIM yok",
+    "description": "Başlamak için filonuzu içe aktarın.",
+    "cta": "İlk SIM'lerinizi İçe Aktarın"
+  },
+  "apns": {
+    "title": "APN yapılandırılmamış",
+    "description": "Veri bağlantılarınızı yönetmek için APN oluşturun.",
+    "cta": "APN Oluştur"
+  },
+  "operators": {
+    "title": "Operatör bulunamadı",
+    "description": "Bağlantı yönetimini başlatmak için operatör ekleyin.",
+    "cta": "Operatör Ekle"
+  },
+  "policies": {
+    "title": "Politika tanımlanmamış",
+    "description": "SIM davranışını kontrol etmek için politika oluşturun.",
+    "cta": "Politika Oluştur"
+  },
+  "jobs": {
+    "title": "Çalışan iş yok",
+    "description": "Toplu işlemler ve zamanlanmış görevler burada görünür.",
+    "cta": null
+  },
+  "notifications": {
+    "title": "Bildirim yok",
+    "description": "Tüm bildirimleri okudunuz!",
+    "cta": null
+  },
+  "users": {
+    "title": "Kullanıcı bulunamadı",
+    "description": "Ekip üyelerinizi davet edin.",
+    "cta": "Kullanıcı Davet Et"
+  },
+  "audit": {
+    "title": "Denetim kaydı yok",
+    "description": "İşlemler gerçekleştirildikçe kayıtlar burada görünür.",
+    "cta": null
+  },
+  "violations": {
+    "title": "Politika ihlali yok",
+    "description": "Filonuz uyumlu.",
+    "cta": null
+  },
+  "anomalies": {
+    "title": "Anomali tespit edilmedi",
+    "description": "Her şey normal görünüyor.",
+    "cta": null
+  },
+  "announcements": {
+    "title": "Duyuru yok",
+    "description": "Kullanıcılarınızı bilgilendirmek için duyuru oluşturun.",
+    "cta": "Duyuru Oluştur"
+  }
+}

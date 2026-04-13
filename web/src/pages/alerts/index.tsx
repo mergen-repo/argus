@@ -5,7 +5,7 @@ import {
   AlertCircle, AlertTriangle, Info, CheckCircle, Clock, Shield,
   ChevronDown, ChevronUp, Search, BellOff, ExternalLink, BookOpen,
   RefreshCw, Eye, Radio, Zap, Wifi, WifiOff, Database, Lock,
-  Activity, TrendingUp, MessageSquare,
+  Activity, TrendingUp, MessageSquare, Download, Loader2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,7 @@ import { timeAgo, formatNumber } from '@/lib/format'
 import type { Anomaly } from '@/types/analytics'
 import type { ListResponse } from '@/types/sim'
 import { AlertActionButtons } from './_partials/alert-actions'
+import { useExport } from '@/hooks/use-export'
 import { CommentThread } from './_partials/comment-thread'
 
 interface AlertFilters {
@@ -646,6 +647,7 @@ export default function AlertsPage() {
   } = useAlerts(filters)
 
   useRealtimeAlertUpdates()
+  const { exportCSV, exporting } = useExport('anomalies')
 
   const alerts = useMemo(
     () => data?.pages.flatMap((p) => p.data) ?? [],
@@ -735,6 +737,10 @@ export default function AlertsPage() {
             >
               <BellOff className="h-3.5 w-3.5" />
               {muted ? 'Muted' : 'Mute All'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => exportCSV()} disabled={exporting} className="gap-1.5 text-xs">
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Export
             </Button>
             <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1.5 text-xs">
               <RefreshCw className="h-3.5 w-3.5" />
@@ -830,14 +836,15 @@ export default function AlertsPage() {
       ) : (
         <div className="space-y-2">
           {alerts.map((anomaly, idx) => (
-            <AlertCard
-              key={anomaly.id}
-              anomaly={anomaly}
-              isExpanded={expandedIds.has(anomaly.id)}
-              onToggle={() => toggleExpanded(anomaly.id)}
-              onCommentOpen={() => setCommentAnomalyId(anomaly.id)}
-              delay={300 + Math.min(idx, 10) * 40}
-            />
+            <div key={anomaly.id} data-row-index={idx} data-href={`/alerts/${anomaly.id}`}>
+              <AlertCard
+                anomaly={anomaly}
+                isExpanded={expandedIds.has(anomaly.id)}
+                onToggle={() => toggleExpanded(anomaly.id)}
+                onCommentOpen={() => setCommentAnomalyId(anomaly.id)}
+                delay={300 + Math.min(idx, 10) * 40}
+              />
+            </div>
           ))}
         </div>
       )}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/geoip"
 	"github.com/btopcu/argus/internal/killswitch"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +28,15 @@ type Handler struct {
 	db         *pgxpool.Pool
 	redis      *redis.Client
 	logger     zerolog.Logger
+	userStore  *store.UserStore
+	jwtSecret  string
+	announcementStore *store.AnnouncementStore
+	geoipLookup *geoip.Lookup
+}
+
+func (h *Handler) WithGeoIP(l *geoip.Lookup) *Handler {
+	h.geoipLookup = l
+	return h
 }
 
 func NewHandler(
@@ -63,4 +73,19 @@ func NewHandler(
 		redis:      redis,
 		logger:     logger.With().Str("component", "admin_handler").Logger(),
 	}
+}
+
+func (h *Handler) WithUserStore(s *store.UserStore) *Handler {
+	h.userStore = s
+	return h
+}
+
+func (h *Handler) WithJWTSecret(secret string) *Handler {
+	h.jwtSecret = secret
+	return h
+}
+
+func (h *Handler) WithAnnouncementStore(s *store.AnnouncementStore) *Handler {
+	h.announcementStore = s
+	return h
 }

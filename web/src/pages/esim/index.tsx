@@ -11,6 +11,7 @@ import {
   PowerOff,
   ArrowRightLeft,
   Trash2,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -50,6 +51,8 @@ import { useOperatorList } from '@/hooks/use-operators'
 import type { ESimProfile, ESimProfileState } from '@/types/esim'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -114,6 +117,7 @@ export default function EsimListPage() {
   const disableMutation = useDisableProfile()
   const switchMutation = useSwitchProfile()
   const deleteMutation = useDeleteProfile()
+  const { exportCSV, exporting } = useExport('esim-profiles')
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -179,6 +183,10 @@ export default function EsimListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">eSIM Profiles</h1>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Export
+        </Button>
       </div>
 
       {/* Filter Bar */}
@@ -279,21 +287,17 @@ export default function EsimListPage() {
               {!isLoading && allProfiles.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Smartphone className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No eSIM profiles found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {filters.state ? 'Try adjusting your filters.' : 'eSIM profiles will appear here when provisioned.'}
-                        </p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Smartphone}
+                      title="No eSIM profiles found"
+                      description={filters.state ? 'Try adjusting your filters.' : 'eSIM profiles will appear here when provisioned.'}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {allProfiles.map((profile) => (
-                <TableRow key={profile.id}>
+              {allProfiles.map((profile, idx) => (
+                <TableRow key={profile.id} data-row-index={idx} data-href={`/sims/${profile.sim_id}`}>
                   <TableCell>
                     <span className="font-mono text-xs text-accent">{profile.sim_id.slice(0, 8)}</span>
                   </TableCell>

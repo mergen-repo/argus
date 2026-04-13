@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
+	announcementapi "github.com/btopcu/argus/internal/api/announcement"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
@@ -12,6 +13,7 @@ import (
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
 	roamingapi "github.com/btopcu/argus/internal/api/roaming"
+	undoapi "github.com/btopcu/argus/internal/api/undo"
 	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
@@ -38,6 +40,7 @@ import (
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	tenantapi "github.com/btopcu/argus/internal/api/tenant"
 	userapi "github.com/btopcu/argus/internal/api/user"
+	mw "github.com/btopcu/argus/internal/middleware"
 	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -90,6 +93,8 @@ type RouterDeps struct {
 	OpsHandler              *opsapi.Handler
 	AdminHandler            *adminapi.Handler
 	SearchHandler           *searchapi.Handler
+	AnnouncementHandler     *announcementapi.Handler
+	UndoHandler             *undoapi.Handler
 	KillSwitchSvc           killSwitchChecker
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
@@ -266,6 +271,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/users", deps.UserHandler.List)
 			r.With(limitFor(LimitUsers)).Post("/api/v1/users", deps.UserHandler.Create)
+			r.Get("/api/v1/users/export.csv", deps.UserHandler.ExportCSV)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -274,6 +280,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Patch("/api/v1/users/{id}", deps.UserHandler.Update)
 			// Revoke sessions: self or tenant_admin (self-check enforced in handler).
 			r.Post("/api/v1/users/{id}/revoke-sessions", deps.UserHandler.RevokeSessions)
+			// Saved views
+			r.Get("/api/v1/users/me/views", deps.UserHandler.ListViews)
+			r.Post("/api/v1/users/me/views", deps.UserHandler.CreateView)
+			r.Patch("/api/v1/users/me/views/{view_id}", deps.UserHandler.UpdateView)
+			r.Delete("/api/v1/users/me/views/{view_id}", deps.UserHandler.DeleteView)
+			r.Post("/api/v1/users/me/views/{view_id}/default", deps.UserHandler.SetDefaultView)
+			// Preferences
+			r.Patch("/api/v1/users/me/preferences", deps.UserHandler.UpdatePreferences)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -295,6 +309,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
 			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
+			r.Get("/api/v1/audit-logs/export.csv", deps.AuditHandler.ExportCSV)
 			r.Get("/api/v1/audit", deps.AuditHandler.List)
 		})
 
@@ -310,6 +325,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/operators", deps.OperatorHandler.List)
+			r.Get("/api/v1/operators/export.csv", deps.OperatorHandler.ExportCSV)
 			r.Post("/api/v1/operators", deps.OperatorHandler.Create)
 			r.Patch("/api/v1/operators/{id}", deps.OperatorHandler.Update)
 			r.Post("/api/v1/operators/{id}/test", deps.OperatorHandler.TestConnection)
@@ -337,9 +353,11 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/apns", deps.APNHandler.List)
+			r.Get("/api/v1/apns/export.csv", deps.APNHandler.ExportCSV)
 			r.Get("/api/v1/apns/{id}", deps.APNHandler.Get)
 			r.Get("/api/v1/apns/{id}/sims", deps.APNHandler.ListSIMs)
 			r.Get("/api/v1/apns/{id}/traffic", deps.APNHandler.GetTraffic)
+			r.Get("/api/v1/apns/{id}/referencing-policies", deps.APNHandler.ListReferencingPolicies)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -379,6 +397,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/api-keys", deps.APIKeyHandler.List)
+			r.Get("/api/v1/api-keys/export.csv", deps.APIKeyHandler.ExportCSV)
 			r.With(limitFor(LimitAPIKeys)).Post("/api/v1/api-keys", deps.APIKeyHandler.Create)
 			r.Patch("/api/v1/api-keys/{id}", deps.APIKeyHandler.Update)
 			r.Post("/api/v1/api-keys/{id}/rotate", deps.APIKeyHandler.Rotate)
@@ -391,6 +410,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/sims", deps.SIMHandler.List)
+			r.Get("/api/v1/sims/export.csv", deps.SIMHandler.ExportCSV)
 			r.With(limitFor(LimitSIMs)).Post("/api/v1/sims", deps.SIMHandler.Create)
 			r.Get("/api/v1/sims/{id}", deps.SIMHandler.Get)
 			r.Patch("/api/v1/sims/{id}", deps.SIMHandler.Patch)
@@ -485,6 +505,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Get("/api/v1/jobs", deps.JobHandler.List)
+			r.Get("/api/v1/jobs/export.csv", deps.JobHandler.ExportCSV)
 			r.Get("/api/v1/jobs/{id}", deps.JobHandler.Get)
 			r.Post("/api/v1/jobs/{id}/retry", deps.JobHandler.Retry)
 			r.Get("/api/v1/jobs/{id}/errors", deps.JobHandler.ErrorReport)
@@ -517,6 +538,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("policy_editor"))
 			r.Get("/api/v1/policies", deps.PolicyHandler.List)
+			r.Get("/api/v1/policies/export.csv", deps.PolicyHandler.ExportCSV)
 			r.Post("/api/v1/policies", deps.PolicyHandler.Create)
 			r.Get("/api/v1/policies/{id}", deps.PolicyHandler.Get)
 			r.Patch("/api/v1/policies/{id}", deps.PolicyHandler.Update)
@@ -554,6 +576,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/cdrs", deps.CDRHandler.List)
+			r.Get("/api/v1/cdrs/export.csv", deps.CDRHandler.ExportCSV)
 			r.Post("/api/v1/cdrs/export", deps.CDRHandler.Export)
 		})
 	}
@@ -564,6 +587,9 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/analytics/usage", deps.AnalyticsHandler.GetUsage)
 			r.Get("/api/v1/analytics/cost", deps.AnalyticsHandler.GetCost)
+			r.Post("/api/v1/analytics/charts/{chart_key}/annotations", deps.AnalyticsHandler.CreateChartAnnotation)
+			r.Get("/api/v1/analytics/charts/{chart_key}/annotations", deps.AnalyticsHandler.ListChartAnnotations)
+			r.Delete("/api/v1/analytics/charts/{chart_key}/annotations/{annotation_id}", deps.AnalyticsHandler.DeleteChartAnnotation)
 		})
 	}
 
@@ -572,6 +598,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("analyst"))
 			r.Get("/api/v1/analytics/anomalies", deps.AnomalyHandler.List)
+			r.Get("/api/v1/analytics/anomalies/export.csv", deps.AnomalyHandler.ExportCSV)
 			r.Get("/api/v1/analytics/anomalies/{id}", deps.AnomalyHandler.Get)
 			r.Patch("/api/v1/analytics/anomalies/{id}", deps.AnomalyHandler.UpdateState)
 		})
@@ -581,6 +608,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Get("/api/v1/policy-violations", deps.ViolationHandler.List)
+			r.Get("/api/v1/policy-violations/export.csv", deps.ViolationHandler.ExportCSV)
 			r.Get("/api/v1/policy-violations/counts", deps.ViolationHandler.CountByType)
 		})
 
@@ -620,6 +648,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/notifications", deps.NotificationHandler.List)
+			r.Get("/api/v1/notifications/export.csv", deps.NotificationHandler.ExportCSV)
 			r.Get("/api/v1/notifications/unread-count", deps.NotificationHandler.UnreadCount)
 			r.Patch("/api/v1/notifications/{id}/read", deps.NotificationHandler.MarkRead)
 			r.Post("/api/v1/notifications/read-all", deps.NotificationHandler.MarkAllRead)
@@ -841,6 +870,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/admin/maintenance-windows/{id}", deps.AdminHandler.DeleteMaintenanceWindow)
 			r.Get("/api/v1/admin/delivery/status", deps.AdminHandler.GetDeliveryStatus)
 			r.Get("/api/v1/admin/purge-history", deps.AdminHandler.ListPurgeHistory)
+			// Impersonation
+			r.Post("/api/v1/admin/impersonate/{user_id}", deps.AdminHandler.Impersonate)
 		})
 
 		// super_admin + tenant_admin scoped endpoints
@@ -849,6 +880,40 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/admin/tenants/quotas", deps.AdminHandler.ListTenantQuotas)
 			r.Get("/api/v1/admin/dsar/queue", deps.AdminHandler.ListDSARQueue)
+		})
+
+		// Impersonation exit (any authenticated user can call this to drop impersonation)
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("api_user"))
+			r.Post("/api/v1/admin/impersonate/exit", deps.AdminHandler.ImpersonateExit)
+		})
+	}
+
+	if deps.AnnouncementHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("api_user"))
+			r.Get("/api/v1/announcements/active", deps.AnnouncementHandler.GetActive)
+			r.Post("/api/v1/announcements/{id}/dismiss", deps.AnnouncementHandler.Dismiss)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/announcements", deps.AnnouncementHandler.List)
+			r.Post("/api/v1/announcements", deps.AnnouncementHandler.Create)
+			r.Patch("/api/v1/announcements/{id}", deps.AnnouncementHandler.Update)
+			r.Delete("/api/v1/announcements/{id}", deps.AnnouncementHandler.Delete)
+		})
+	}
+
+	if deps.UndoHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("api_user"))
+			r.Use(mw.ImpersonationReadOnly)
+			r.Post("/api/v1/undo/{action_id}", deps.UndoHandler.Execute)
 		})
 	}
 

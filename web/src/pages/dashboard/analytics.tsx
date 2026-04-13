@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import {
-  BarChart3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Layers, Check,
+  BarChart3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Layers, Check, ImageDown,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -69,6 +69,7 @@ const GROUP_COLORS = [
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes, formatNumber } from '@/lib/format'
+import { useChartExport } from '@/hooks/use-chart-export'
 
 function formatTimestamp(ts: string, period: string): string {
   const d = new Date(ts)
@@ -206,6 +207,9 @@ export default function AnalyticsPage() {
 
   const { data, isLoading, isError, refetch } = useUsageAnalytics(filters)
 
+  const chartRef = useRef<HTMLDivElement>(null)
+  const { exportPng, exporting } = useChartExport(chartRef)
+
   const groupKeys = useMemo(() => {
     if (!data?.time_series || !groupBy) return []
     const keys = new Set<string>()
@@ -341,16 +345,28 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      <Card>
+      <Card ref={chartRef}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>
             {metric === 'total_bytes' ? 'Traffic' : metric === 'sessions' ? 'Sessions' : 'Authentications'} Over Time
           </CardTitle>
-          {data && (
-            <span className="text-[11px] text-text-tertiary font-mono">
-              {data.bucket_size} buckets
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {data && (
+              <span className="text-[11px] text-text-tertiary font-mono">
+                {data.bucket_size} buckets
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => exportPng('usage-chart.png')}
+              disabled={exporting}
+              title="Export chart as PNG"
+            >
+              <ImageDown className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isEmpty ? (

@@ -1105,3 +1105,78 @@ func (s *PolicyStore) SetVersionState(ctx context.Context, versionID uuid.UUID, 
 	}
 	return nil
 }
+
+// ListReferencingAPN returns policies whose active compiled_rules JSON text
+// contains apnName as a substring (D-007). Uses the GIN trigram index for
+// fast ILIKE search. apnName must be ≥ 3 characters to avoid degenerate scans.
+// Limitation: false positives may occur when apnName is a strict substring of
+// another identifier (e.g. "iot" matches "iot-extra"). Callers should perform
+// a secondary filter if exact matching is required.
+func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID, apnName string, limit int, cursor string) ([]Policy, string, error) {
+	if len(apnName) < 3 {
+		return nil, "", fmt.Errorf("store: apnName must be at least 3 characters for trigram search")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	pattern := "%" + apnName + "%"
+
+	var cursorCond string
+	var args []interface{}
+	args = append(args, tenantID, pattern)
+
+	if cursor != "" {
+		cursorCond = fmt.Sprintf(" AND p.id > $%d", len(args)+1)
+		args = append(args, cursor)
+	}
+
+	args = append(args, limit+1)
+	limitArg := len(args)
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT p.%s
+		FROM policies p
+		JOIN policy_versions pv ON pv.id = p.current_version_id
+		WHERE p.tenant_id = $1
+		  AND pv.compiled_rules::text ILIKE $2
+		%s
+		ORDER BY p.id
+		LIMIT $%d`,
+		policyColumns, cursorCond, limitArg,
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list referencing apn: %w", err)
+	}
+	defer rows.Close()
+
+	var policies []Policy
+	for rows.Next() {
+		var p Policy
+		if err := rows.Scan(
+			&p.ID, &p.TenantID, &p.Name, &p.Description,
+			&p.Scope, &p.ScopeRefID, &p.CurrentVersionID,
+			&p.State, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan referencing policy: %w", err)
+		}
+		policies = append(policies, p)
+	}
+
+	var nextCursor string
+	if len(policies) > limit {
+		nextCursor = policies[limit].ID.String()
+		policies = policies[:limit]
+	}
+
+	if policies == nil {
+		policies = []Policy{}
+	}
+
+	return policies, nextCursor, nil
+}

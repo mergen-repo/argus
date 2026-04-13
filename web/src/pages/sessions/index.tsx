@@ -12,12 +12,15 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import {
   Table,
   TableHeader,
@@ -88,6 +91,7 @@ function SessionRow({
   onRowClick,
   onIMSIClick,
   onNavigateDetail,
+  rowIndex,
 }: {
   session: Session
   isNew: boolean
@@ -96,6 +100,7 @@ function SessionRow({
   onRowClick: (session: Session) => void
   onIMSIClick: (simId: string) => void
   onNavigateDetail?: (session: Session) => void
+  rowIndex?: number
 }) {
   const [elapsed, setElapsed] = useState(session.duration_sec)
 
@@ -116,6 +121,8 @@ function SessionRow({
         isEnded && 'opacity-40',
       )}
       onClick={() => onRowClick(session)}
+      data-row-index={rowIndex}
+      data-href={`/sessions/${session.id}`}
     >
       <TableCell>
         <span
@@ -203,6 +210,7 @@ export default function SessionListPage() {
     isFetchingNextPage,
   } = useSessionList({})
 
+  const { exportCSV, exporting } = useExport('sessions')
   const sessionFilters = useMemo(() => ({}), [])
   const disconnectMutation = useDisconnectSession()
   const newSessionIds = useRealtimeSessionStarted(sessionFilters)
@@ -277,10 +285,16 @@ export default function SessionListPage() {
           <h1 className="text-[16px] font-semibold text-text-primary">Live Sessions</h1>
           <LiveDot />
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -385,18 +399,16 @@ export default function SessionListPage() {
               {!isLoading && filteredSessions.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No active sessions</h3>
-                        <p className="text-xs text-text-secondary">Sessions will appear here as devices connect.</p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No active sessions"
+                      description="Sessions will appear here as devices connect."
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {filteredSessions.map((session) => (
+              {filteredSessions.map((session, idx) => (
                 <SessionRow
                   key={session.id}
                   session={session}
@@ -406,6 +418,7 @@ export default function SessionListPage() {
                   onRowClick={(s) => setSelectedSession(s)}
                   onIMSIClick={(simId) => navigate(`/sims/${simId}`)}
                   onNavigateDetail={(s) => navigate(`/sessions/${s.id}`)}
+                  rowIndex={idx}
                 />
               ))}
             </TableBody>

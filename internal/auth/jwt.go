@@ -16,12 +16,34 @@ var (
 )
 
 type Claims struct {
-	UserID   uuid.UUID `json:"sub"`
-	TenantID uuid.UUID `json:"tenant_id"`
-	Role     string    `json:"role"`
-	Partial  bool      `json:"partial,omitempty"`
-	Reason   string    `json:"reason,omitempty"`
+	UserID         uuid.UUID  `json:"sub"`
+	TenantID       uuid.UUID  `json:"tenant_id"`
+	Role           string     `json:"role"`
+	Partial        bool       `json:"partial,omitempty"`
+	Reason         string     `json:"reason,omitempty"`
+	Impersonated   bool       `json:"impersonated,omitempty"`
+	ImpersonatedBy *uuid.UUID `json:"act_sub,omitempty"`
 	jwt.RegisteredClaims
+}
+
+func GenerateImpersonationToken(secret string, targetUserID, targetTenantID uuid.UUID, targetRole string, adminUserID uuid.UUID) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UserID:         targetUserID,
+		TenantID:       targetTenantID,
+		Role:           targetRole,
+		Impersonated:   true,
+		ImpersonatedBy: &adminUserID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "argus",
+			Subject:   targetUserID.String(),
+			ID:        uuid.New().String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
 func GenerateToken(secret string, userID, tenantID uuid.UUID, role string, expiry time.Duration, partial bool) (string, error) {

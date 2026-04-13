@@ -16,6 +16,8 @@ import {
   Plus,
   Shield,
   Layers,
+  FileText,
+  ExternalLink,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -50,7 +52,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
-import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool } from '@/hooks/use-apns'
+import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool, useAPNReferencingPolicies } from '@/hooks/use-apns'
 import { useAPNTraffic } from '@/hooks/use-apn-traffic'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useIpPoolAddresses } from '@/hooks/use-settings'
@@ -720,6 +722,61 @@ const APN_TYPE_OPTIONS = [
 
 const RAT_TYPE_OPTIONS_LIST = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
+function PoliciesReferencingTab({ apnId }: { apnId: string }) {
+  const navigate = useNavigate()
+  const { data: policies = [], isLoading } = useAPNReferencingPolicies(apnId)
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 mt-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-10 rounded bg-bg-elevated animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (policies.length === 0) {
+    return (
+      <div className="mt-4 flex flex-col items-center justify-center py-12 gap-3">
+        <FileText className="h-8 w-8 text-text-tertiary" />
+        <p className="text-sm text-text-secondary">No policies reference this APN</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Scope</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead className="w-8" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {policies.map((p) => (
+            <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(`/policies/${p.id}`)}>
+              <TableCell className="text-sm font-medium text-text-primary">{p.name}</TableCell>
+              <TableCell>
+                <Badge variant="secondary" className="text-[10px]">{p.scope}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={p.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">{p.state}</Badge>
+              </TableCell>
+              <TableCell>
+                <ExternalLink className="h-3.5 w-3.5 text-text-tertiary" />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 function EditAPNDialog({
   open,
   onClose,
@@ -963,6 +1020,10 @@ export default function ApnDetailPage() {
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
           </TabsTrigger>
+          <TabsTrigger value="policies" className="gap-1.5">
+            <FileText className="h-3.5 w-3.5" />
+            Policies
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="config">
@@ -991,6 +1052,9 @@ export default function ApnDetailPage() {
           <div className="mt-4">
             <RelatedAlertsPanel entityId={apn.id} entityType="apn" />
           </div>
+        </TabsContent>
+        <TabsContent value="policies">
+          <PoliciesReferencingTab apnId={apn.id} />
         </TabsContent>
       </Tabs>
 

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import type React from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useNavigate } from 'react-router-dom'
 import {
   RefreshCw,
@@ -6,6 +8,7 @@ import {
   Radio,
   Plus,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +17,9 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
+import { useExport } from '@/hooks/use-export'
 import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator } from '@/hooks/use-operators'
 import type { Operator } from '@/types/operator'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -314,8 +320,20 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
 export default function OperatorListPage() {
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { data: operators, isLoading, isError, refetch } = useOperatorList()
   useRealtimeOperatorHealth()
+  const { exportCSV, exporting } = useExport('operators')
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < 3) next.add(id)
+      return next
+    })
+  }
 
   if (isError) {
     return (
@@ -337,10 +355,27 @@ export default function OperatorListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Operators</h1>
-        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Create Operator
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => navigate(`/operators/compare?ids=${Array.from(selectedIds).join(',')}`)}
+            >
+              Compare ({selectedIds.size})
+            </Button>
+          )}
+          <SavedViewsMenu page="operators" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Create Operator
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -352,28 +387,30 @@ export default function OperatorListPage() {
       )}
 
       {!isLoading && (!operators || operators.length === 0) && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-            <Radio className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-text-primary mb-1">No operators configured</h3>
-            <p className="text-xs text-text-secondary mb-4">Create your first operator to get started.</p>
-            <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              Create Operator
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          icon={Radio}
+          title="No operators configured"
+          description="Create your first operator to get started."
+          ctaLabel="Create Operator"
+          onCta={() => setCreateOpen(true)}
+        />
       )}
 
       {!isLoading && operators && operators.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {operators.map((op, i) => (
-            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group">
+            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group" data-row-index={i} data-href={`/operators/${op.id}`}>
               <OperatorCard
                 operator={op}
                 onClick={() => navigate(`/operators/${op.id}`)}
               />
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Checkbox
+                  checked={selectedIds.has(op.id)}
+                  onClick={(e: React.MouseEvent) => toggleSelect(op.id, e)}
+                  disabled={!selectedIds.has(op.id) && selectedIds.size >= 3}
+                  aria-label={`Select ${op.name}`}
+                />
                 <RowActionsMenu
                   actions={[
                     { label: 'View Details', onClick: () => navigate(`/operators/${op.id}`) },

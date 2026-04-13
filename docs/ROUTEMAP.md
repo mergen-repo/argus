@@ -195,7 +195,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-075 | Cross-Entity Context & Detail Pages | XL | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-068 | 2026-04-13 |
 | STORY-076 | Universal Search, Navigation & Clipboard | L | [x] DONE | — | STORY-075 | 2026-04-13 |
-| STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [ ] PENDING | — | STORY-075, STORY-076 | — |
+| STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [~] IN PROGRESS | Commit | STORY-075, STORY-076 | — |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [ ] PENDING | — | STORY-056..077 | — |
 | STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [ ] PENDING | — | STORY-011, STORY-001 | — |
 
@@ -312,15 +312,18 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | # | Source | Description | Target Story | Status |
 |---|--------|-------------|-------------|--------|
-| D-001 | STORY-056 Gate | Raw `<input>` in `ip-pool-detail.tsx:233` — should use shadcn/ui `Input` | STORY-077 | OPEN |
-| D-002 | STORY-056 Gate | Raw `<button>` elements in `ip-pool-detail.tsx` and `apns/index.tsx` (7 instances) — should use shadcn/ui `Button` | STORY-077 | OPEN |
+| D-001 | STORY-056 Gate | Raw `<input>` in `ip-pool-detail.tsx:233` — should use shadcn/ui `Input` | STORY-077 | ✓ RESOLVED (2026-04-13) |
+| D-002 | STORY-056 Gate | Raw `<button>` elements in `ip-pool-detail.tsx` and `apns/index.tsx` (7 instances) — should use shadcn/ui `Button` | STORY-077 | ✓ RESOLVED (2026-04-13) |
 | D-003 | STORY-058 Review | Stale SCR IDs in story+plan files (SCR-045/075/070/071/072/080/060/100) — superseded by current SCREENS.md numbering. Doc drift only, no implementation impact. | STORY-062 | OPEN |
 | D-004 | STORY-059 Gate | `internal/gateway/bruteforce.go:91` `extractIP` uses buggy last-colon split (same pattern AC-1 fixed in anomaly detector). Fixed in STORY-059 close-out commit using `net.SplitHostPort` + `net.ParseIP`; new IPv6 tests added (`TestExtractIP` subtests `ipv6_bracketed_with_port`, `ipv6_loopback_bracketed`, `ipv6_bare`). Future helper extraction to `internal/net/addr.go` remains optional. | STORY-059 | ✓ RESOLVED (2026-04-12) |
 | D-005 | STORY-059 Review | Compliance API section entirely absent from `docs/architecture/api/_index.md` (compliance endpoints from STORY-039 never indexed; STORY-059 adds PDF variant). Added "Compliance & Data Governance (5 endpoints)" section with API-175..179 in STORY-059 close-out commit. | STORY-059 | ✓ RESOLVED (2026-04-12) |
-| D-006 | STORY-073 Gate D-3 | GeoIP lookup for SCR-144 (Active User Sessions) location field emits `null` — no MaxMind dependency wired per plan. AC-5 specifies "location (GeoIP lookup)". Deferred from POST-GA to STORY-077 (Enterprise UX Polish) under zero-deferral routing. | STORY-077 | OPEN |
-| D-007 | STORY-075 AC-8 | APN detail "Policies Referencing" tab omitted — no backend filter endpoint exists for querying policies by DSL APN-name reference; client-side DSL substring scan would be fragile (DSL whitespace/comment variants). Requires new store query `WHERE dsl_compiled ILIKE` with GIN/trigram index + new tab in `apns/detail.tsx`. Deferred to STORY-077 (Enterprise UX Polish). | STORY-077 | OPEN |
-| D-008 | STORY-076 Gate trade-off #1 | Search handler returns flat `{type,id,label,sub}` shape instead of per-type DTOs with `state`, `operator_name`, `mcc`, `health_status`, `role` fields (AC-1 spec). Flat shape is sufficient for Command Palette display; per-type enrichment (operator JOIN for SIMs, health field for Operators, role for Users) would be required if a "View All Results" filtered list page is added. See DEV-221. | STORY-077 | OPEN |
-| D-009 | STORY-076 Gate trade-off #2 | `j/k/Enter/x` row-navigation shortcuts (AC-3) require list-page rows to emit `[data-row-index]`, `[data-href]`, and `[data-row-active]` attributes for the `use-keyboard-nav` hook. The hook is forward-compatible (no-op on pages without the markers), but individual list pages have not yet annotated their rows. Full keyboard row navigation depends on each list page opting in with these data attributes. Deferred to STORY-077. | STORY-077 | OPEN |
+| D-006 | STORY-073 Gate D-3 | GeoIP lookup for SCR-144 (Active User Sessions) location field emits `null` — no MaxMind dependency wired per plan. AC-5 specifies "location (GeoIP lookup)". Deferred from POST-GA to STORY-077 (Enterprise UX Polish) under zero-deferral routing. | STORY-077 | ✓ RESOLVED (2026-04-13) |
+| D-007 | STORY-075 AC-8 | APN detail "Policies Referencing" tab omitted — no backend filter endpoint exists for querying policies by DSL APN-name reference; client-side DSL substring scan would be fragile (DSL whitespace/comment variants). Requires new store query `WHERE dsl_compiled ILIKE` with GIN/trigram index + new tab in `apns/detail.tsx`. Deferred to STORY-077 (Enterprise UX Polish). | STORY-077 | ✓ RESOLVED (2026-04-13) |
+| D-008 | STORY-076 Gate trade-off #1 | Search handler returns flat `{type,id,label,sub}` shape instead of per-type DTOs with `state`, `operator_name`, `mcc`, `health_status`, `role` fields (AC-1 spec). Flat shape is sufficient for Command Palette display; per-type enrichment (operator JOIN for SIMs, health field for Operators, role for Users) would be required if a "View All Results" filtered list page is added. See DEV-221. | STORY-077 | ✓ RESOLVED (2026-04-13) |
+| D-009 | STORY-076 Gate trade-off #2 | `j/k/Enter/x` row-navigation shortcuts (AC-3) require list-page rows to emit `[data-row-index]`, `[data-href]`, and `[data-row-active]` attributes for the `use-keyboard-nav` hook. The hook is forward-compatible (no-op on pages without the markers), but individual list pages have not yet annotated their rows. Full keyboard row navigation depends on each list page opting in with these data attributes. Deferred to STORY-077. | STORY-077 | ✓ RESOLVED (2026-04-13) |
+| D-010 | STORY-077 Gate | Sessions and alerts CSV export missing (2 of 14 entities lack export endpoints per AC-4) | STORY-062 | OPEN |
+| D-011 | STORY-077 Gate | ImpersonateExit no JWT in response body — forces admin re-login instead of restoring original session (AC-9 degraded UX) | STORY-062 | OPEN |
+| D-012 | STORY-077 Gate | `impersonatedBy` always null in frontend — `act_sub` flat claim vs `payload.act?.sub` nested access mismatch | STORY-062 | OPEN |
 
 ---
 

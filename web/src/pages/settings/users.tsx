@@ -13,6 +13,7 @@ import {
   KeyRound,
   Copy,
   Check,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -55,6 +56,8 @@ import { useAuthStore } from '@/stores/auth'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { TenantUser } from '@/types/settings'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const ROLE_OPTIONS = [
   { value: 'viewer', label: 'Viewer' },
@@ -89,6 +92,7 @@ export default function UsersPage() {
   const isTenantAdmin = user?.role === 'tenant_admin' || user?.role === 'super_admin'
 
   const { data: users, isLoading, isError, refetch } = useUserList()
+  const { exportCSV, exporting } = useExport('users')
   const inviteMutation = useInviteUser()
   const updateMutation = useUpdateUser()
   const unlockMutation = useUnlockUser()
@@ -205,10 +209,16 @@ export default function UsersPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Users & Roles</h1>
-        <Button size="sm" className="gap-2" onClick={() => setShowInviteDialog(true)}>
-          <UserPlus className="h-3.5 w-3.5" />
-          Invite User
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button size="sm" className="gap-2" onClick={() => setShowInviteDialog(true)}>
+            <UserPlus className="h-3.5 w-3.5" />
+            Invite User
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -259,23 +269,29 @@ export default function UsersPage() {
               {!isLoading && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <UserPlus className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No users found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {searchQuery ? 'Try adjusting your search.' : 'Invite your first team member to get started.'}
-                        </p>
-                      </div>
-                    </div>
+                    {searchQuery ? (
+                      <EmptyState
+                        icon={Search}
+                        title="No users match your search"
+                        description="Try adjusting your search query."
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={UserPlus}
+                        title="No users yet"
+                        description="Invite your first team member to get started."
+                        ctaLabel="Invite User"
+                        onCta={() => setShowInviteDialog(true)}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
 
-              {filtered.map((u) => {
+              {filtered.map((u, idx) => {
                 const locked = isLocked(u)
                 return (
-                  <TableRow key={u.id}>
+                  <TableRow key={u.id} data-row-index={idx} data-href={`/settings/users/${u.id}`}>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-text-primary">{u.name}</span>

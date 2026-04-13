@@ -22,6 +22,8 @@ import (
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
+	announcementapi "github.com/btopcu/argus/internal/api/announcement"
+	undoapi "github.com/btopcu/argus/internal/api/undo"
 	searchapi "github.com/btopcu/argus/internal/api/search"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
@@ -69,8 +71,10 @@ import (
 	diagnosticspkg "github.com/btopcu/argus/internal/diagnostics"
 	esimpkg "github.com/btopcu/argus/internal/esim"
 	"github.com/btopcu/argus/internal/config"
+	"github.com/btopcu/argus/internal/geoip"
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/job"
+	"github.com/btopcu/argus/internal/undo"
 	"github.com/btopcu/argus/internal/notification"
 	"github.com/btopcu/argus/internal/observability"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
@@ -290,6 +294,7 @@ func main() {
 		apnapi.WithCDRStore(apnCDRStore),
 		apnapi.WithIPPoolStore(ippoolStore),
 	)
+	// policyStore for apnHandler wired after policyStore construction (see below)
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
 	esimStore := store.NewESimProfileStore(pg.Pool)
 	var smdpAdapter esimpkg.SMDPAdapter
@@ -320,6 +325,7 @@ func main() {
 	jobStore := store.NewJobStore(pg.Pool)
 
 	policyStore := store.NewPolicyStore(pg.Pool)
+	apnHandler.SetPolicyStore(policyStore)
 	nameCache := cache.NewNameCache(rdb.Client)
 	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	cdrStore := store.NewCDRStore(pg.Pool)
@@ -350,6 +356,8 @@ func main() {
 	analyticsHandler := analyticsapi.NewHandler(usageAnalyticsStore, log.Logger)
 	analyticsHandler.SetCostService(costService)
 	analyticsHandler.WithStores(simStore, operatorStore, apnStore, ippoolStore)
+	chartAnnotationStore := store.NewChartAnnotationStore(pg.Pool)
+	analyticsHandler.SetChartAnnotationStore(chartAnnotationStore)
 	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
@@ -672,11 +680,15 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to start ws server")
 	}
 
+	userViewStore := store.NewUserViewStore(pg.Pool)
+	userColumnPrefStore := store.NewUserColumnPrefStore(pg.Pool)
 	userHandler = userapi.NewHandler(userStore, tenantStore, auditSvc, log.Logger,
 		userapi.WithSessionStore(sessionStore),
 		userapi.WithAPIKeyStore(apiKeyStore),
 		userapi.WithWSHub(wsHub),
 		userapi.WithAuditStore(auditStore),
+		userapi.WithViewStore(userViewStore),
+		userapi.WithColumnPrefStore(userColumnPrefStore),
 		userapi.WithPasswordPolicy(auth.PasswordPolicy{
 			MinLength:     cfg.PasswordMinLength,
 			RequireUpper:  cfg.PasswordRequireUpper,
@@ -985,6 +997,33 @@ func main() {
 	notifSvc.SetKillSwitch(killSwitchSvc)
 	log.Info().Msg("STORY-073 admin compliance handlers + kill-switch enforcement wired")
 
+	// STORY-077 — Enterprise UX Polish: GeoIP, impersonation, announcements, undo
+	var geoipLookup *geoip.Lookup
+	if cfg.GeoIPDBPath != "" {
+		gl, geoipErr := geoip.New(cfg.GeoIPDBPath)
+		if geoipErr != nil {
+			log.Warn().Err(geoipErr).Msg("geoip: failed to open DB, location lookup disabled")
+		} else {
+			geoipLookup = gl
+			log.Info().Str("path", cfg.GeoIPDBPath).Msg("geoip: GeoLite2 DB loaded")
+		}
+	}
+	adminHandler.WithUserStore(userStore)
+	adminHandler.WithJWTSecret(cfg.JWTSecret)
+	if geoipLookup != nil {
+		adminHandler.WithGeoIP(geoipLookup)
+	}
+
+	announcementStore := store.NewAnnouncementStore(pg.Pool)
+	announcementHandler := announcementapi.NewHandler(announcementStore, auditSvc, log.Logger)
+	adminHandler.WithAnnouncementStore(announcementStore)
+
+	undoRegistry := undo.NewRegistry(rdb.Client)
+	undoHandler := undoapi.NewHandler(undoRegistry, auditSvc, log.Logger)
+	_ = undoHandler
+	_ = announcementHandler
+	log.Info().Msg("STORY-077 UX polish handlers wired")
+
 	// STORY-071 — Roaming Agreement Management
 	roamingAgreementStore := store.NewRoamingAgreementStore(pg.Pool)
 	roamingHandler := roamingapi.NewHandler(roamingAgreementStore, operatorStore, auditSvc, log.Logger)
@@ -1126,6 +1165,8 @@ func main() {
 		OpsHandler:          opsHandler,
 		AdminHandler:        adminHandler,
 		SearchHandler:       searchHandler,
+		AnnouncementHandler: announcementHandler,
+		UndoHandler:         undoHandler,
 		KillSwitchSvc:       killSwitchSvc,
 		APIKeyStore:        apiKeyStore,
 		TenantLimits:       tenantLimits,

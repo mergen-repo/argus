@@ -8,6 +8,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/geoip"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -15,18 +16,19 @@ import (
 // activeSessionItem matches FE ActiveSession (web/src/types/admin.ts): flat
 // browser/os strings (rather than nested ua_parsed), last_seen_at, ip_address.
 type activeSessionItem struct {
-	SessionID   uuid.UUID `json:"session_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	UserEmail   string    `json:"user_email"`
-	TenantID    uuid.UUID `json:"tenant_id"`
-	TenantName  string    `json:"tenant_name"`
-	IPAddress   string    `json:"ip_address"`
-	Browser     string    `json:"browser"`
-	OS          string    `json:"os"`
-	Device      string    `json:"device"`
-	IdleSeconds int64     `json:"idle_seconds"`
-	CreatedAt   time.Time `json:"created_at"`
-	LastSeenAt  time.Time `json:"last_seen_at"`
+	SessionID   uuid.UUID            `json:"session_id"`
+	UserID      uuid.UUID            `json:"user_id"`
+	UserEmail   string               `json:"user_email"`
+	TenantID    uuid.UUID            `json:"tenant_id"`
+	TenantName  string               `json:"tenant_name"`
+	IPAddress   string               `json:"ip_address"`
+	Browser     string               `json:"browser"`
+	OS          string               `json:"os"`
+	Device      string               `json:"device"`
+	IdleSeconds int64                `json:"idle_seconds"`
+	CreatedAt   time.Time            `json:"created_at"`
+	LastSeenAt  time.Time            `json:"last_seen_at"`
+	Location    *geoip.LocationInfo  `json:"location,omitempty"`
 }
 
 type uaParsed struct {
@@ -150,7 +152,7 @@ func (h *Handler) ListActiveSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		idleSeconds := int64(now.Sub(r.CreatedAt).Seconds())
 		parsed := parseUA(ua)
-		items = append(items, activeSessionItem{
+		item := activeSessionItem{
 			SessionID:   r.SessionID,
 			UserID:      r.UserID,
 			UserEmail:   r.UserEmail,
@@ -163,7 +165,11 @@ func (h *Handler) ListActiveSessions(w http.ResponseWriter, r *http.Request) {
 			IdleSeconds: idleSeconds,
 			CreatedAt:   r.CreatedAt,
 			LastSeenAt:  r.CreatedAt,
-		})
+		}
+		if h.geoipLookup != nil && ip != "" {
+			item.Location = h.geoipLookup.Lookup(ip)
+		}
+		items = append(items, item)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{

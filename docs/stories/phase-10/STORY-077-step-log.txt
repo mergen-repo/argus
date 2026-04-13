@@ -1,0 +1,35 @@
+2026-04-13 STEP_2 DEVELOPER PASS (Wave 3 + Wave 4 Tasks 20-22)
+
+Tasks completed this session:
+  Task 20: density CSS variable wired — app.tsx sets data-density on html element
+  Task 21: list-page sweep — 14 pages updated with SavedViewsMenu, EmptyState, useExport, DataFreshness, data-row-index/data-href attrs
+  Task 22 (partial): detail/admin/compare sweep
+    - admin/announcements.tsx: new CRUD page
+    - admin/impersonate-list.tsx: new impersonation page
+    - router.tsx: wired /admin/announcements, /admin/impersonate, /operators/compare, /policies/compare
+    - analytics.tsx + analytics-cost.tsx: useChartExport wired on main chart cards
+    - apns/detail.tsx: PoliciesReferencingTab added (D-007 UI consumer)
+    - policies/index.tsx + operators/index.tsx: multi-select + Compare button wired
+    - policies/compare.tsx + operators/compare.tsx: new compare pages using CompareView (AC-16)
+    - use-apns.ts: added useAPNReferencingPolicies hook
+Gates: tsc 0 errors, npm run build ✓, go build ✓, go test 2724 passed
+
+2026-04-13 PLANNER PASS
+Story: STORY-077 Enterprise UX Polish & Ergonomics (L-XL)
+Plan: docs/stories/phase-10/STORY-077-plan.md (590 lines, 22 tasks)
+Waves: 4 (W1 infra×6, W2 backend×10, W3 shared FE×4, W4 page integration×2)
+Complexity: 5 high / 11 medium / 6 low
+Coverage: AC-1..AC-16 mapped; Tech Debt D-001 (already resolved — verify-only), D-002 (already resolved — verify-only), D-006 (Task 5,14), D-007 (Task 2,12,22), D-008 (Task 13), D-009 (Task 21) all addressed.
+Pre-Validation: PASS
+  - Min substance (XL: ≥120 lines, ≥6 tasks): 590 lines, 22 tasks — PASS
+  - Required sections (Goal, Architecture Context, Tasks, AC Mapping): PASS
+  - Embedded specs: API endpoints, DB schema (with up/down), screen mockups, design token map — PASS
+  - At least 1 high-complexity task for XL: 5 present — PASS
+  - Context refs validated: all point to existing section headers — PASS
+  - DB schema source noted: ARCHITECTURE.md new tables (no prior migration) — PASS
+  - Pattern refs present on every file-creating task — PASS
+Dependencies: STORY-075 DONE, STORY-076 DONE — prerequisites satisfied.
+HEAD: 64be7c5 (unchanged — planning only).
+STEP_2.5 LINT: EXECUTED | items=0 actionable findings (hex in CSS vars=expected, raw HTML in atoms=expected) | evidence=lint-scan | result=PASS
+STEP_3 GATE: EXECUTED | items=6 passes | evidence=docs/stories/phase-10/STORY-077-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | items=3 deferred findings (D-010..D-012) | evidence=docs/stories/phase-10/STORY-077-review.md | result=PASS

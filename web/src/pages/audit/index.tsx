@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Loader2,
   Calendar,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,8 @@ import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/format'
 import { EntityLink } from '@/components/shared'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All Actions' },
@@ -102,7 +105,7 @@ const ENTITY_DETAIL_ROUTES: Partial<Record<string, (id: string) => string>> = {
   violation: (id) => `/violations/${id}`,
 }
 
-function ExpandableRow({ entry }: { entry: AuditLog }) {
+function ExpandableRow({ entry, rowIndex }: { entry: AuditLog; rowIndex?: number }) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
 
@@ -113,6 +116,7 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
       <TableRow
         className="cursor-pointer hover:bg-bg-hover"
         onClick={() => setExpanded(!expanded)}
+        data-row-index={rowIndex}
       >
         <TableCell className="w-8">
           {expanded ? (
@@ -242,6 +246,7 @@ export default function AuditLogPage() {
   } = useAuditList(filters)
 
   const { data: verifyResult, isLoading: isVerifying, refetch: runVerify, isError: isVerifyError, error: verifyError } = useVerifyAuditChain(verifying)
+  const { exportCSV, exporting } = useExport('audit')
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -306,20 +311,26 @@ export default function AuditLogPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Audit Log</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={handleVerify}
-          disabled={isVerifying}
-        >
-          {isVerifying ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Shield className="h-3.5 w-3.5" />
-          )}
-          Verify Integrity
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleVerify}
+            disabled={isVerifying}
+          >
+            {isVerifying ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Shield className="h-3.5 w-3.5" />
+            )}
+            Verify Integrity
+          </Button>
+        </div>
       </div>
 
       {/* Verify Error Banner */}
@@ -548,21 +559,17 @@ export default function AuditLogPage() {
               {!isLoading && allEntries.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Shield className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No audit logs found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {activeFilterCount > 0 ? 'Try adjusting your filters.' : 'Audit entries will appear here as actions are performed.'}
-                        </p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Shield}
+                      title="No audit logs found"
+                      description={activeFilterCount > 0 ? 'Try adjusting your filters.' : 'Audit entries will appear here as actions are performed.'}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {allEntries.map((entry) => (
-                <ExpandableRow key={entry.id} entry={entry} />
+              {allEntries.map((entry, idx) => (
+                <ExpandableRow key={entry.id} entry={entry} rowIndex={idx} />
               ))}
             </TableBody>
           </Table>

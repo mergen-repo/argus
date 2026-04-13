@@ -118,6 +118,8 @@ type Config struct {
 	RoamingRenewalAlertDays   int           `envconfig:"ROAMING_RENEWAL_ALERT_DAYS" default:"30"`
 	RoamingRenewalCron        string        `envconfig:"ROAMING_RENEWAL_CRON" default:"0 6 * * *"`
 
+	GeoIPDBPath string `envconfig:"GEOIP_DB_PATH" default:""`
+
 	StorageAlertPct           float64       `envconfig:"STORAGE_ALERT_PCT" default:"80"`
 
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`

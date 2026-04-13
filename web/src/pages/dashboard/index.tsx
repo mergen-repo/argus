@@ -22,6 +22,7 @@ import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState,
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { wsClient } from '@/lib/ws'
+import { FirstRunChecklist } from '@/components/shared/first-run-checklist'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -952,6 +953,8 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
+      <FirstRunChecklist />
+
       {/* ── System Status Strip ──────────────────────────────────── */}
       <SystemStatusStrip
         status={data.system_status || 'operational'}

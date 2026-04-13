@@ -180,6 +180,49 @@ func (s *NotificationStore) ListByUser(ctx context.Context, tenantID, userID uui
 	return results, nextCursor, nil
 }
 
+func (s *NotificationStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]NotificationRow, string, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	args := []interface{}{tenantID, limit + 1}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 3
+	if cursor != "" {
+		cursorID, err := uuid.Parse(cursor)
+		if err == nil {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			args = append(args, cursorID)
+		}
+	}
+	where := strings.Join(conditions, " AND ")
+	query := fmt.Sprintf(`
+		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
+			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at
+		FROM notifications
+		WHERE %s
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2`, where)
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list notifications by tenant: %w", err)
+	}
+	defer rows.Close()
+	var results []NotificationRow
+	for rows.Next() {
+		n, err := scanNotificationRows(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan notification: %w", err)
+		}
+		results = append(results, *n)
+	}
+	var nextCursor string
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+	return results, nextCursor, nil
+}
+
 func (s *NotificationStore) MarkRead(ctx context.Context, tenantID, id uuid.UUID) (*NotificationRow, error) {
 	row := s.db.QueryRow(ctx, `
 		UPDATE notifications

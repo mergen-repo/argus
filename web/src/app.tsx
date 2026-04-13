@@ -10,11 +10,16 @@ import { wsClient } from './lib/ws'
 
 export function App() {
   const darkMode = useUIStore((s) => s.darkMode)
+  const tableDensity = useUIStore((s) => s.tableDensity)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
   }, [darkMode])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-density', tableDensity)
+  }, [tableDensity])
 
   useEffect(() => {
     if (isAuthenticated) {

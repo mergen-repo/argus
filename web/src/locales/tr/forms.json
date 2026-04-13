@@ -1,0 +1,10 @@
+{
+  "required": "Bu alan zorunludur",
+  "minLength": "En az {{min}} karakter gerekli",
+  "maxLength": "En fazla {{max}} karakter girilebilir",
+  "invalidFormat": "Geçersiz format",
+  "unsavedChanges": "Kaydedilmemiş değişiklikler var",
+  "unsavedChangesBody": "Çıkmak istediğinizden emin misiniz? Değişiklikleriniz kaybolacak.",
+  "stay": "Kal",
+  "leave": "Çık"
+}

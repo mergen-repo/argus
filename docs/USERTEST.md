@@ -1810,3 +1810,37 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (~4.2s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-077: Enterprise UX Polish & Ergonomics
+
+### Backend / Altyapi (6 senaryo)
+
+1. **Saved views CRUD**: `tenant_admin` JWT ile `POST /api/v1/user/views` body `{page:"sims", name:"Active VF", filters_json:{...}, is_default:true}` → 201 döner; `GET /api/v1/user/views?page=sims` → oluşturulan view listede olmalı. `DELETE /api/v1/user/views/:id` → 204. Başka tenant'ın JWT'si ile aynı view_id → 404 dönmeli.
+2. **Undo endpoint**: Bir bulk-suspend işlemi sonrası oluşturulan `action_id` ile `POST /api/v1/undo/:action_id` → 200 ve inverse işlem uygulanmış olmalı. 15 saniye TTL geçince aynı action_id ile istek → 404 `NOT_FOUND`. Farklı tenant JWT ile geçerli action_id → 404 döner (tenant isolation).
+3. **CSV export — SIM**: `GET /api/v1/sims/export?format=csv&status=active&operator_id=X` → `Content-Type: text/csv` streaming response; `Content-Disposition: attachment; filename=sims_active_...csv`. Her 500 satırda bir flush yapılmalı; 10K satırda OOM çıkmamalı.
+4. **Announcements CRUD**: `super_admin` JWT ile `POST /api/v1/admin/announcements` → 201; `GET /api/v1/announcements/active` → başlangıç/bitiş tarihinde aktif olan duyurular listesi dönmeli. Başlangıç tarihi ileride olan duyuru aktif listede görünmemeli. `POST /api/v1/announcements/:id/dismiss` → 204; tekrar `/active` çağrısında o duyuru `dismissed:true` ile işaretlenmeli.
+5. **Impersonation flow**: `super_admin` JWT ile `POST /api/v1/admin/impersonate/:user_id` → 200 + impersonation JWT dönmeli (1h exp, `impersonated=true` claim). Impersonation JWT ile `POST /api/v1/sims` → 405 veya 403 dönmeli (read-only middleware). `GET /api/v1/sims` → 200 (read-only izin). Audit log'da `impersonated_by` alanı dolu olmalı.
+6. **Chart annotations**: `GET /api/v1/analytics/annotations?chart_id=usage&from=...&to=...` → tenant'a ait anotasyonlar liste olarak dönmeli. `POST /api/v1/analytics/annotations` body `{chart_id, label, annotated_at}` → 201. `DELETE /api/v1/analytics/annotations/:id` → 204.
+
+### Frontend (10 senaryo)
+
+7. **Saved views round-trip**: SIM list sayfasında filtre uygula → "Save View" butonuna tıkla → isim ver → kaydet. Sidebar "My Views" bölümünde görünmeli. Tıklanınca filtreler restore edilmeli. "Set as Default" ile default yapılınca sayfayı yenile → filtreler otomatik uygulanmış olmalı.
+8. **Undo toast**: Bir SIM'i suspend et → "1 SIM suspended. [Undo]" toast 10 saniye görünmeli → "Undo" tıklanınca SIM active state'e dönmeli ve "Action undone" toast görünmeli. 10 saniye geçince toast kapanmalı; Undo artık mevcut değilse 404 mesajı toast'ta gösterilmeli.
+9. **Inline edit**: SIM list'te bir satırdaki label alanının üzerine gelinince kalem ikonu görünmeli. Tıklanınca contentEditable aktif olmalı. Enter veya blur → PATCH API çağrısı → optimistic olarak UI güncellenmeli. Esc → değişiklik iptal edilmeli, orijinal değer restore edilmeli.
+10. **Empty state CTA**: Boş tenant (SIM yok) ile SIM list sayfasına gidince "Import your first SIMs" butonlu empty state görünmeli. Dashboard'da first-run checklist (`Connect an operator → Create an APN → Import SIMs → Create a policy`) görünmeli; her adım ilgili sayfaya link vermeli.
+11. **Data freshness indicator**: Her list sayfasının altında "Last updated Xs ago" göstergesi bulunmalı. WS destekli sayfada (sessions, dashboard) "Live" yeşil badge görünmeli. WS bağlantısı kesilince badge "Offline" sarıya dönmeli. Auto-refresh selector (15s/30s/1m/off) çalışmalı.
+12. **Impersonation banner**: super_admin olarak `/admin/impersonate` sayfasında bir kullanıcıya "Impersonate" tıkla → tüm sayfada üstte mor banner: "Viewing as [user@email.com] — [Tenant] | Exit". Exit butonuna basılınca banner kaybolmalı.
+13. **Announcements banner**: Admin bir "Maintenance" duyurusu oluşturunca diğer kullanıcılar topbar altında renkli banner görmalı. Dismiss ikonuna tıklanınca banner kaybolmalı. Sayfa yenilendikten sonra banner tekrar görünmemeli (dismissed state korunmalı).
+14. **Language toggle TR/EN**: Topbar'daki dil seçicisinden TR seçilince sayfa etiketleri Türkçe olmalı; tarih formatı `GG.AA.YYYY` görünmeli; sayılar `1.234.567` formatında olmalı. EN'e geri geçilince İngilizce formatlar restore olmalı.
+15. **Table density toggle**: Toolbar'daki density butonuyla "Comfortable" ↔ "Compact" geçişi yapılınca CSS değişkeni `--table-row-height` uygulanmalı. Compact'ta satır yüksekliği daha küçük olmalı. Tercih sayfa yenilemeden sonra korunmalı.
+16. **Column customization**: SIM list tabloya dişli ikonu tıklanınca panel açılmalı; sütunlar checkbox ile toggle edilebilmeli; drag-to-reorder çalışmalı. Reset to default tüm sütunları geri yüklemeli. Preferences yenileme sonrası korunmalı.
+
+### Test command
+```bash
+make test   # 2724 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali (~4.3s)
+npx tsc --noEmit  # TypeScript hata olmamali
+```

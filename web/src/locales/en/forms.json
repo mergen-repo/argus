@@ -1,0 +1,10 @@
+{
+  "required": "This field is required",
+  "minLength": "Minimum {{min}} characters required",
+  "maxLength": "Maximum {{max}} characters allowed",
+  "invalidFormat": "Invalid format",
+  "unsavedChanges": "You have unsaved changes",
+  "unsavedChangesBody": "Are you sure you want to leave? Your changes will be lost.",
+  "stay": "Stay",
+  "leave": "Leave"
+}

@@ -13,6 +13,7 @@ import {
   EyeOff,
   X,
   Shield,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,8 @@ import {
 } from '@/hooks/use-settings'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/
 const IPV6_RE = /^[a-fA-F0-9:]+([a-fA-F0-9]*(\/(\d|[1-9]\d|1[01]\d|12[0-8]))?)?$/
@@ -66,6 +69,7 @@ const SCOPE_OPTIONS = [
 export default function ApiKeysPage() {
   const { data: keys, isLoading, isError, refetch } = useApiKeyList()
   const createMutation = useCreateApiKey()
+  const { exportCSV, exporting } = useExport('api-keys')
   const rotateMutation = useRotateApiKey()
   const revokeMutation = useRevokeApiKey()
 
@@ -176,13 +180,19 @@ export default function ApiKeysPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">API Keys</h1>
-        <Button size="sm" className="gap-2" onClick={() => setShowCreateDialog(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          Create Key
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button size="sm" className="gap-2" onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Create Key
+          </Button>
+        </div>
       </div>
 
-      <Card className="overflow-hidden density-compact">
+      <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -210,19 +220,19 @@ export default function ApiKeysPage() {
               {!isLoading && (!keys || keys.length === 0) && (
                 <TableRow>
                   <TableCell colSpan={8}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Key className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No API keys</h3>
-                        <p className="text-xs text-text-secondary">Create your first API key for machine-to-machine access.</p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Key}
+                      title="No API keys"
+                      description="Create your first API key for machine-to-machine access."
+                      ctaLabel="Create Key"
+                      onCta={() => setShowCreateDialog(true)}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {(keys ?? []).map((key) => (
-                <TableRow key={key.id}>
+              {(keys ?? []).map((key, idx) => (
+                <TableRow key={key.id} data-row-index={idx}>
                   <TableCell>
                     <span className="text-sm font-medium text-text-primary">{key.name}</span>
                   </TableCell>
@@ -445,7 +455,7 @@ export default function ApiKeysPage() {
                       ))}
                     </div>
                   )}
-                  <input
+                  <Input
                     ref={ipInputRef}
                     type="text"
                     value={ipInput}
@@ -466,7 +476,7 @@ export default function ApiKeysPage() {
                       if (ipInput.trim()) commitIp()
                     }}
                     placeholder="e.g. 192.168.1.0/24 — press Enter to add"
-                    className="w-full bg-transparent px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary outline-none font-mono"
+                    className="w-full bg-transparent border-none shadow-none px-3 py-2 text-xs font-mono focus-visible:ring-0"
                   />
                 </div>
                 {ipError && (

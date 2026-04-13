@@ -640,6 +640,34 @@ func (s *UserStore) DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.U
 	}, nil
 }
 
+func (s *UserStore) GetByIDGlobal(ctx context.Context, id uuid.UUID) (*User, error) {
+	var u User
+	err := s.db.QueryRow(ctx, `
+		SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
+			   state, last_login_at, failed_login_count, locked_until,
+			   password_change_required, password_changed_at, created_at, updated_at
+		FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get user by id global: %w", err)
+	}
+	return &u, nil
+}
+
+func (s *UserStore) UpdateLocale(ctx context.Context, userID uuid.UUID, locale string) error {
+	_, err := s.db.Exec(ctx, `UPDATE users SET locale = $1 WHERE id = $2`, locale, userID)
+	if err != nil {
+		return fmt.Errorf("store: update locale: %w", err)
+	}
+	return nil
+}
+
 func (s *UserStore) ListByRole(ctx context.Context, tenantID uuid.UUID, role string) ([]User, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,

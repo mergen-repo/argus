@@ -37,6 +37,7 @@ type userStoreI interface {
 	ClearLockout(ctx context.Context, userID uuid.UUID) error
 	SetPasswordHash(ctx context.Context, userID uuid.UUID, hash string) error
 	SetPasswordChangeRequired(ctx context.Context, userID uuid.UUID, required bool) error
+	UpdateLocale(ctx context.Context, userID uuid.UUID, locale string) error
 }
 
 type sessionRevoker interface {
@@ -63,6 +64,8 @@ type Handler struct {
 	wsHub          wsDropper
 	passwordPolicy auth.PasswordPolicy
 	bcryptCost     int
+	viewStore      *store.UserViewStore
+	columnPrefStore *store.UserColumnPrefStore
 }
 
 type HandlerOption func(*Handler)
@@ -88,6 +91,14 @@ func WithPasswordPolicy(policy auth.PasswordPolicy, bcryptCost int) HandlerOptio
 		h.passwordPolicy = policy
 		h.bcryptCost = bcryptCost
 	}
+}
+
+func WithViewStore(s *store.UserViewStore) HandlerOption {
+	return func(h *Handler) { h.viewStore = s }
+}
+
+func WithColumnPrefStore(s *store.UserColumnPrefStore) HandlerOption {
+	return func(h *Handler) { h.columnPrefStore = s }
 }
 
 func NewHandler(userStore *store.UserStore, tenantStore *store.TenantStore, auditSvc audit.Auditor, logger zerolog.Logger, opts ...HandlerOption) *Handler {

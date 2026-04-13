@@ -3,6 +3,24 @@ import { api } from '@/lib/api'
 import type { ApiResponse } from '@/types/sim'
 
 const ONBOARDING_KEY = ['onboarding'] as const
+
+export interface OnboardingStatus {
+  operator_configured: boolean
+  apn_created: boolean
+  sim_imported: boolean
+  policy_created: boolean
+}
+
+export function useOnboarding() {
+  return useQuery({
+    queryKey: [...ONBOARDING_KEY, 'status'],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<OnboardingStatus>>('/onboarding/status')
+      return res.data.data
+    },
+    staleTime: 60_000,
+  })
+}
 const SESSION_LS_KEY = 'argus_onboarding_session'
 
 export interface OnboardingSession {

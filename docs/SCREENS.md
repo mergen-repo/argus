@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 64 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075
+> Total: 66 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077
 > Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
@@ -75,3 +75,5 @@
 | SCR-172 | Alert Detail | Alerts | /alerts/:id | JWT (sim_manager+) | STORY-075: overview/similar/audit tabs + ack/resolve/escalate dialogs |
 | SCR-173 | Violation Detail | Violations | /violations/:id | JWT (sim_manager+) | STORY-075: overview/audit tabs + suspend_sim/escalate/dismiss dialogs |
 | SCR-174 | Tenant Detail | System | /system/tenants/:id | JWT (super_admin) | STORY-075: AnimatedCounter stats, overview/audit/alerts tabs, super_admin guard |
+| SCR-175 | Announcements | Admin | /admin/announcements | JWT (super_admin) | STORY-077: CRUD for system announcements (info/warning/critical), target all or specific tenant, starts_at/ends_at scheduling, dismissible flag |
+| SCR-176 | Impersonate User | Admin | /admin/impersonate | JWT (super_admin) | STORY-077: user list with "Impersonate" button per row; triggers 1h read-only JWT + purple banner |

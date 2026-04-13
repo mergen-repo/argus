@@ -10,11 +10,14 @@ import {
   Loader2,
   Clock,
   ChevronRight,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import {
   Table,
   TableHeader,
@@ -133,6 +136,7 @@ export default function JobListPage() {
 
   const retryMutation = useRetryJob()
   const cancelMutation = useCancelJob()
+  const { exportCSV, exporting } = useExport('jobs')
 
   useRealtimeJobProgress()
 
@@ -190,6 +194,10 @@ export default function JobListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Jobs</h1>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Export
+        </Button>
       </div>
 
       {/* Filter Bar */}
@@ -281,22 +289,20 @@ export default function JobListPage() {
               {!isLoading && allJobs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Clock className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No jobs found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {filters.type || filters.state ? 'Try adjusting your filters.' : 'Jobs will appear here when bulk operations are started.'}
-                        </p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Clock}
+                      title="No jobs found"
+                      description={filters.type || filters.state ? 'Try adjusting your filters.' : 'Jobs will appear here when bulk operations are started.'}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {allJobs.map((job) => (
+              {allJobs.map((job, idx) => (
                 <TableRow
                   key={job.id}
+                  data-row-index={idx}
+                  data-href={`/jobs/${job.id}`}
                   className="cursor-pointer hover:bg-bg-hover"
                   onClick={() => setSelectedJobId(job.id)}
                 >

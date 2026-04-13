@@ -290,6 +290,16 @@
 | Row Actions Menu | The ellipsis (`⋮`) contextual dropdown (`web/src/components/shared/row-actions-menu.tsx`) that appears on hover/focus on every list row. Provides entity-specific quick actions (e.g., Copy ICCID, Suspend, Assign Policy for SIMs; Clone, Activate Version for Policies). Wired to 8 list pages: sims, apns, operators, policies, audit, sessions, jobs, alerts. Keyboard-accessible: `Enter` on highlighted row opens menu, arrow keys navigate items. | STORY-076, AC-6, `web/src/components/shared/row-actions-menu.tsx` |
 | Favorites | User-pinned entities stored in the `favorites` Zustand slice (`web/src/stores/ui.ts`), persisted to `localStorage`. Star toggle (`web/src/components/shared/favorite-toggle.tsx`) available on every entity detail page header. Cap: 20 favorites. Displayed in the sidebar "Favorites" section (above "Recent") and in the Command Palette Favorites group when input is empty. | STORY-076, AC-5, `web/src/stores/ui.ts`, `web/src/components/shared/favorite-toggle.tsx` |
 
+## Enterprise UX Terms
+
+| Term | Definition | Context |
+|------|-----------|---------|
+| Saved View | A named, per-page user preference record (`user_views` table) capturing the current filter, column visibility, sort state, and optionally sharing scope. One default view per page per user enforced at the store layer. Restored on click. Shared views visible to all users in the same tenant. | STORY-077, AC-1, `internal/store/user_view.go`, `web/src/hooks/use-saved-views.ts` |
+| Impersonation Session | A short-lived (1 hour) JWT issued to a super_admin that carries `impersonated=true` and `act_sub` claims, allowing the admin to view another user's data. All actions during impersonation are read-only (enforced by `ImpersonationReadOnly` middleware) and are audit-logged with `impersonated_by`. Terminated by the "Exit Impersonation" button in the purple banner. | STORY-077, AC-9, `internal/api/admin/impersonate.go`, `internal/middleware/impersonation.go` |
+| Announcement | A time-bounded, admin-authored system message stored in the `announcements` table. Types: `info` (blue), `warning` (yellow), `critical` (red). Target: `all` tenants or a specific `tenant_id`. Displayed as a colored banner below the topbar. Dismissible per-user (tracked in `announcement_dismissals`). CRUD managed at `/admin/announcements` (super_admin only). | STORY-077, AC-10, `internal/store/announcement.go`, SCR-175 |
+| Chart Annotation | A user-created vertical marker on a time-series chart (`chart_annotations` table: `tenant_id`, `chart_id`, `label`, `annotated_at`). Appears as a vertical line with tooltip. Created by clicking the chart; persisted to the backend and rendered on subsequent page loads. | STORY-077, AC-13, `internal/store/chart_annotation.go` |
+| GeoIP Lookup | MaxMind GeoLite2 database wrapper in `internal/geoip/lookup.go` that resolves an IP address to a country/city string. Gracefully returns empty string when the database file is absent (configurable via `GEOIP_DB_PATH` env var). Wired into the sessions global handler to populate the `location` field. | STORY-077, D-006, `internal/geoip/lookup.go` |
+
 ## Regulatory Terms
 
 | Term | Definition | Context |

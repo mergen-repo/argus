@@ -19,6 +19,7 @@ import {
   AlertCircle,
   RefreshCw,
   GitCompareArrows,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -65,6 +66,12 @@ import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { EmptyState } from '@/components/shared/empty-state'
+import { DataFreshness } from '@/components/shared/data-freshness'
+import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
+import { useExport } from '@/hooks/use-export'
+import { useDataFreshness } from '@/hooks/use-data-freshness'
+import { useUIStore } from '@/stores/ui'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -86,6 +93,7 @@ function detectSearchType(q: string): { field: string; label: string } | null {
 
 export default function SimListPage() {
   const navigate = useNavigate()
+  const tableDensity = useUIStore((s) => s.tableDensity)
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = useMemo<SIMListFilters>(() => ({
     state: searchParams.get('state') ?? undefined,
@@ -141,6 +149,8 @@ export default function SimListPage() {
   const [reserveOnImport, setReserveOnImport] = useState(false)
   const [importResult, setImportResult] = useState<{ job_id: string; rows_parsed: number; errors: string[] } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { exportCSV, exporting } = useExport('sims')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const activeFilters = useMemo(() => {
     const applied: { key: string; label: string; value: string }[] = []
@@ -196,6 +206,8 @@ export default function SimListPage() {
     isFetchingNextPage,
   } = useSIMList(filters)
 
+  const freshness = useDataFreshness({ source: 'poll', lastUpdated, refetch, pageKey: 'sims' })
+
   useEffect(() => {
     const el = loadMoreRef.current
     if (!el) return
@@ -215,6 +227,10 @@ export default function SimListPage() {
       observerRef.current?.disconnect()
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  useEffect(() => {
+    if (data) setLastUpdated(new Date())
+  }, [data])
 
   const allSims = useMemo(() => {
     if (!data?.pages) return []
@@ -310,6 +326,11 @@ export default function SimListPage() {
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">SIM Management</h1>
         <div className="flex items-center gap-2">
+          <SavedViewsMenu page="sims" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate('/sims/compare')}>
             <GitCompareArrows className="h-4 w-4" />
             Compare
@@ -530,7 +551,7 @@ export default function SimListPage() {
       )}
 
       {/* Data Table */}
-      <Card className="overflow-hidden density-compact">
+      <Card className={cn('overflow-hidden', `density-${tableDensity}`)}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -578,35 +599,33 @@ export default function SimListPage() {
               {!isLoading && allSims.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={12}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Search className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No SIMs found</h3>
-                        <p className="text-xs text-text-secondary mb-4">
-                          {activeFilters.length > 0
-                            ? 'Try adjusting your filters or search terms.'
-                            : 'Import SIMs to get started.'}
-                        </p>
-                        {activeFilters.length > 0 ? (
-                          <Button variant="outline" size="sm" onClick={clearFilters}>
-                            Clear Filters
-                          </Button>
-                        ) : (
-                          <Button size="sm" className="gap-2">
-                            <Upload className="h-3.5 w-3.5" />
-                            Import SIMs
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                    {activeFilters.length > 0 ? (
+                      <EmptyState
+                        icon={Search}
+                        title="No SIMs match your filters"
+                        description="Try adjusting your filters or search terms."
+                        ctaLabel="Clear Filters"
+                        onCta={clearFilters}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={Upload}
+                        title="No SIMs yet"
+                        description="Import SIMs to get started with subscriber management."
+                        ctaLabel="Import SIMs"
+                        onCta={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportTab('paste'); setReserveOnImport(false) }}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
 
-              {allSims.map((sim) => (
+              {allSims.map((sim, idx) => (
                 <TableRow
                   key={sim.id}
                   data-state={selectedIds.has(sim.id) ? 'selected' : undefined}
+                  data-row-index={idx}
+                  data-href={`/sims/${sim.id}`}
                   className="cursor-pointer"
                   onClick={() => navigate(`/sims/${sim.id}`)}
                 >
@@ -809,6 +828,15 @@ export default function SimListPage() {
               Showing all {allSims.length} SIMs
             </p>
           ) : null}
+        </div>
+        <div className="px-4 py-2 border-t border-border-subtle flex items-center justify-end">
+          <DataFreshness
+            indicator={freshness.indicator}
+            label={freshness.label}
+            onRefresh={refetch}
+            autoRefresh={freshness.autoRefresh}
+            setAutoRefresh={freshness.setAutoRefresh}
+          />
         </div>
       </Card>
 

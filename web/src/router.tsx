@@ -26,11 +26,13 @@ const ApnDetailPage = lazy(() => import('@/pages/apns/detail'))
 
 const OperatorListPage = lazy(() => import('@/pages/operators/index'))
 const OperatorDetailPage = lazy(() => import('@/pages/operators/detail'))
+const OperatorComparePage = lazy(() => import('@/pages/operators/compare'))
 
 const SessionListPage = lazy(() => import('@/pages/sessions/index'))
 
 const PolicyListPage = lazy(() => import('@/pages/policies/index'))
 const PolicyEditorPage = lazy(() => import('@/pages/policies/editor'))
+const PolicyComparePage = lazy(() => import('@/pages/policies/compare'))
 
 const EsimListPage = lazy(() => import('@/pages/esim/index'))
 
@@ -91,6 +93,8 @@ const AdminPurgeHistoryPage = lazy(() => import('@/pages/admin/purge-history'))
 const AdminDeliveryPage = lazy(() => import('@/pages/admin/delivery'))
 const AdminKillSwitchesPage = lazy(() => import('@/pages/admin/kill-switches'))
 const AdminMaintenancePage = lazy(() => import('@/pages/admin/maintenance'))
+const AdminAnnouncementsPage = lazy(() => import('@/pages/admin/announcements'))
+const AdminImpersonateListPage = lazy(() => import('@/pages/admin/impersonate-list'))
 
 function LazyFallback() {
   return (
@@ -136,10 +140,12 @@ export const router = createBrowserRouter([
           { path: '/apns', element: lazySuspense(ApnListPage) },
           { path: '/apns/:id', element: lazySuspense(ApnDetailPage) },
           { path: '/operators', element: lazySuspense(OperatorListPage) },
+          { path: '/operators/compare', element: lazySuspense(OperatorComparePage) },
           { path: '/operators/:id', element: lazySuspense(OperatorDetailPage) },
           { path: '/sessions', element: lazySuspense(SessionListPage) },
           { path: '/sessions/:id', element: lazySuspense(SessionDetailPage) },
           { path: '/policies', element: lazySuspense(PolicyListPage) },
+          { path: '/policies/compare', element: lazySuspense(PolicyComparePage) },
           { path: '/policies/:id', element: lazySuspense(PolicyEditorPage) },
           { path: '/esim', element: lazySuspense(EsimListPage) },
           { path: '/jobs', element: lazySuspense(JobListPage) },
@@ -191,6 +197,8 @@ export const router = createBrowserRouter([
           { path: '/admin/delivery', element: lazySuspense(AdminDeliveryPage) },
           { path: '/admin/kill-switches', element: lazySuspense(AdminKillSwitchesPage) },
           { path: '/admin/maintenance', element: lazySuspense(AdminMaintenancePage) },
+          { path: '/admin/announcements', element: lazySuspense(AdminAnnouncementsPage) },
+          { path: '/admin/impersonate', element: lazySuspense(AdminImpersonateListPage) },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

@@ -72,6 +72,10 @@ func (m *mockUserStore) SetPasswordChangeRequired(ctx context.Context, userID uu
 	return nil
 }
 
+func (m *mockUserStore) UpdateLocale(ctx context.Context, userID uuid.UUID, locale string) error {
+	return nil
+}
+
 type mockSessionStore struct {
 	revokeAllFn    func(ctx context.Context, userID uuid.UUID) error
 	getActiveFn    func(ctx context.Context, userID uuid.UUID) ([]store.UserSession, error)

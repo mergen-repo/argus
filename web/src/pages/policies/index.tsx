@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import type React from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useNavigate } from 'react-router-dom'
 import {
   Search,
@@ -12,6 +14,7 @@ import {
   Loader2,
   Trash2,
   Edit,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -49,6 +52,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { EmptyState } from '@/components/shared/empty-state'
+import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
+import { useExport } from '@/hooks/use-export'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Status' },
@@ -96,9 +102,21 @@ export default function PolicyListPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
   const [newPolicy, setNewPolicy] = useState({ name: '', description: '', scope: 'global' })
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < 3) next.add(id)
+      return next
+    })
+  }
 
   const createMutation = useCreatePolicy()
   const deleteMutation = useDeletePolicy()
+  const { exportCSV, exporting } = useExport('policies')
 
   const {
     data,
@@ -170,10 +188,27 @@ export default function PolicyListPage() {
           <Shield className="h-5 w-5 text-accent" />
           <h1 className="text-[16px] font-semibold text-text-primary">Policies</h1>
         </div>
-        <Button className="gap-2" size="sm" onClick={() => setCreateDialogOpen(true)}>
-          <Plus className="h-4 w-4" />
-          New Policy
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => navigate(`/policies/compare?ids=${Array.from(selectedIds).join(',')}`)}
+            >
+              Compare ({selectedIds.size})
+            </Button>
+          )}
+          <SavedViewsMenu page="policies" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV({ state: statusFilter, q: search })} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
+            New Policy
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -238,6 +273,7 @@ export default function PolicyListPage() {
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
+                <TableHead className="w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Active Version</TableHead>
@@ -251,6 +287,7 @@ export default function PolicyListPage() {
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-10" /></TableCell>
@@ -263,36 +300,44 @@ export default function PolicyListPage() {
 
               {!isLoading && allPolicies.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Shield className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No policies found</h3>
-                        <p className="text-xs text-text-secondary mb-4">
-                          {search || statusFilter ? 'Try adjusting your filters.' : 'Create your first policy to get started.'}
-                        </p>
-                        {search || statusFilter ? (
-                          <Button variant="outline" size="sm" onClick={() => { setSearch(''); setSearchInput(''); setStatusFilter('') }}>
-                            Clear Filters
-                          </Button>
-                        ) : (
-                          <Button size="sm" className="gap-2" onClick={() => setCreateDialogOpen(true)}>
-                            <Plus className="h-3.5 w-3.5" />
-                            New Policy
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                  <TableCell colSpan={8}>
+                    {search || statusFilter ? (
+                      <EmptyState
+                        icon={Search}
+                        title="No policies match your filters"
+                        description="Try adjusting your search or filter criteria."
+                        ctaLabel="Clear Filters"
+                        onCta={() => { setSearch(''); setSearchInput(''); setStatusFilter('') }}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={Shield}
+                        title="No policies yet"
+                        description="Create your first policy to start enforcing usage rules."
+                        ctaLabel="New Policy"
+                        onCta={() => setCreateDialogOpen(true)}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
 
-              {allPolicies.map((policy) => (
+              {allPolicies.map((policy, idx) => (
                 <TableRow
                   key={policy.id}
+                  data-row-index={idx}
+                  data-href={`/policies/${policy.id}`}
                   className="cursor-pointer"
                   onClick={() => navigate(`/policies/${policy.id}`)}
                 >
+                  <TableCell onClick={(e) => toggleSelect(policy.id, e)}>
+                    <Checkbox
+                      checked={selectedIds.has(policy.id)}
+                      onClick={(e: React.MouseEvent) => toggleSelect(policy.id, e)}
+                      disabled={!selectedIds.has(policy.id) && selectedIds.size >= 3}
+                      aria-label={`Select ${policy.name}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <RowQuickPeek
                       title={policy.name}

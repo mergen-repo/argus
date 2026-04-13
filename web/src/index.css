@@ -244,6 +244,10 @@
     animation: slide-up-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
+  [data-density='compact'] { --table-row-height: 32px; }
+  [data-density='comfortable'] { --table-row-height: 40px; }
+  [data-density='spacious'] { --table-row-height: 48px; }
+
   .density-compact th {
     height: 32px;
     padding-left: 8px;

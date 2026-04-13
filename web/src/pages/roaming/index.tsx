@@ -7,6 +7,8 @@ import {
   RefreshCw,
   Plus,
   AlertCircle,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,6 +26,8 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/table'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import { useRoamingAgreements, useCreateRoamingAgreement } from '@/hooks/use-roaming-agreements'
 import type { RoamingAgreement, AgreementType, AgreementState, CostTerms, SLATerms } from '@/types/roaming'
 
@@ -150,6 +154,7 @@ export default function RoamingAgreementsPage() {
 
   const expiringDays = expiringFilter ? parseInt(expiringFilter) : undefined
 
+  const { exportCSV, exporting } = useExport('roaming-agreements')
   const { data, isLoading, isError, refetch } = useRoamingAgreements({
     limit: 50,
     cursor,
@@ -213,6 +218,10 @@ export default function RoamingAgreementsPage() {
           <h1 className="text-[22px] font-semibold text-text-primary">Roaming Agreements</h1>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -265,10 +274,13 @@ export default function RoamingAgreementsPage() {
       )}
 
       {!isLoading && !isError && filteredAgreements.length === 0 && (
-        <Card className="p-8 text-center">
-          <Handshake className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
-          <p className="text-sm text-text-secondary">No agreements yet. Create one to customize SoR cost routing.</p>
-        </Card>
+        <EmptyState
+          icon={Handshake}
+          title="No roaming agreements"
+          description="Create an agreement to customize SoR cost routing."
+          ctaLabel="New Agreement"
+          onCta={() => setCreateOpen(true)}
+        />
       )}
 
       {!isLoading && !isError && filteredAgreements.length > 0 && (
@@ -286,11 +298,13 @@ export default function RoamingAgreementsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAgreements.map((ag: RoamingAgreement) => (
+              {filteredAgreements.map((ag: RoamingAgreement, idx: number) => (
                 <TableRow
                   key={ag.id}
                   className="cursor-pointer"
                   onClick={() => navigate(`/roaming-agreements/${ag.id}`)}
+                  data-row-index={idx}
+                  data-href={`/roaming-agreements/${ag.id}`}
                 >
                   <TableCell className="font-medium">{ag.partner_operator_name}</TableCell>
                   <TableCell className="font-mono text-xs text-text-secondary">{ag.operator_id.slice(0, 8)}</TableCell>

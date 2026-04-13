@@ -9,6 +9,7 @@ import {
   Shield, AlertCircle, AlertTriangle, Search, RefreshCw,
   ExternalLink, Clock, ChevronDown, ChevronUp,
   Activity, Ban, Tag, Bell, FileText, MoreHorizontal, CheckCircle2, BookOpen, ArrowUpRight,
+  Download, Loader2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +28,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { api } from '@/lib/api'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
 import type { ListResponse } from '@/types/sim'
@@ -199,6 +202,7 @@ export default function ViolationsPage() {
   const { data, isLoading, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useViolations(filters)
   const { data: counts } = useViolationCounts()
   const acknowledgeMutation = useAcknowledgeViolation()
+  const { exportCSV, exporting } = useExport('violations')
 
   const handleDismiss = useCallback(async (v: PolicyViolation) => {
     setDismissedIds((prev) => new Set([...prev, v.id]))
@@ -294,7 +298,13 @@ export default function ViolationsPage() {
             <h1 className="text-[16px] font-semibold text-text-primary">Policy Violations</h1>
             {totalCount > 0 && <Badge variant="danger" className="text-[10px]">{totalCount} in 24h</Badge>}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1.5 text-xs"><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Export
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1.5 text-xs"><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
+          </div>
         </div>
       </div>
 
@@ -399,19 +409,17 @@ export default function ViolationsPage() {
 
       {/* Violations List */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <div className="h-16 w-16 rounded-xl bg-success-dim border border-success/20 flex items-center justify-center">
-            <Shield className="h-8 w-8 text-success" />
-          </div>
-          <p className="text-sm font-medium text-text-primary">No violations</p>
-          <p className="text-xs text-text-secondary">{filters.violation_type || filters.severity ? 'Try adjusting filters' : 'No policy violations recorded.'}</p>
-        </div>
+        <EmptyState
+          icon={Shield}
+          title="No violations"
+          description={filters.violation_type || filters.severity ? 'Try adjusting your filters.' : 'No policy violations recorded. Well done!'}
+        />
       ) : (
         <div className="space-y-1.5">
-          {filtered.filter((v) => !dismissedIds.has(v.id) && !v.acknowledged_at).map((v) => {
+          {filtered.filter((v) => !dismissedIds.has(v.id) && !v.acknowledged_at).map((v, idx) => {
             const expanded = expandedIds.has(v.id)
             return (
-              <div key={v.id} className={cn(
+              <div key={v.id} data-row-index={idx} data-href={`/violations/${v.id}`} className={cn(
                 'rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden transition-colors',
                 v.severity === 'critical' && 'border-danger/30',
                 v.severity === 'warning' && 'border-warning/20',

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useExport } from '@/hooks/use-export'
+import { EmptyState } from '@/components/shared/empty-state'
 import {
   Bell,
   Building2,
@@ -11,6 +13,8 @@ import {
   Check,
   CheckCheck,
   Smartphone,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -78,6 +82,7 @@ export default function NotificationsPage() {
 
   const markAsRead = useMarkAsRead()
   const markAllAsRead = useMarkAllAsRead()
+  const { exportCSV, exporting } = useExport('notifications')
 
   const unreadCount = notifications.filter((n) => !n.read).length
   const filtered = tab === 'unread' ? notifications.filter((n) => !n.read) : notifications
@@ -89,12 +94,18 @@ export default function NotificationsPage() {
           <h1 className="text-lg font-semibold text-text-primary">Notifications</h1>
           <p className="text-sm text-text-secondary">{unreadCount} unread</p>
         </div>
-        {unreadCount > 0 && (
-          <Button variant="outline" size="sm" onClick={() => markAllAsRead.mutate()} className="gap-1.5">
-            <CheckCheck className="h-3.5 w-3.5" />
-            Mark all as read
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportCSV()} disabled={exporting} className="gap-1.5">
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Export
           </Button>
-        )}
+          {unreadCount > 0 && (
+            <Button variant="outline" size="sm" onClick={() => markAllAsRead.mutate()} className="gap-1.5">
+              <CheckCheck className="h-3.5 w-3.5" />
+              Mark all as read
+            </Button>
+          )}
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as NotificationsTab)}>
@@ -119,13 +130,14 @@ export default function NotificationsPage() {
         {(tab === 'unread' || tab === 'all') && (
         <TabsContent value={tab}>
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center py-16 text-text-tertiary">
-              <Bell className="mb-3 h-10 w-10" />
-              <p className="text-sm">{tab === 'unread' ? 'No unread notifications' : 'No notifications yet'}</p>
-            </div>
+            <EmptyState
+              icon={Bell}
+              title={tab === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+              description={tab === 'unread' ? 'All caught up!' : 'Notifications will appear here when triggered.'}
+            />
           ) : (
             <div className="mt-3 space-y-1">
-              {filtered.map((n) => {
+              {filtered.map((n, idx) => {
                 const Icon = categoryIcons[n.category] || AlertTriangle
                 const severityColor = severityColors[n.severity] || 'text-text-secondary'
                 const navPath = getNavigationPath(n)
@@ -133,6 +145,8 @@ export default function NotificationsPage() {
                 return (
                   <div
                     key={n.id}
+                    data-row-index={idx}
+                    data-href={navPath || undefined}
                     className={cn(
                       'group flex items-start gap-3 rounded-lg border border-border bg-bg-surface p-4 transition-colors',
                       !n.read && 'border-accent/20 bg-accent-dim/10',
