@@ -1634,3 +1634,43 @@ go build ./...  # Derleme hatasi olmamali
 cd web && npm run build  # Frontend build basarili olmali (Vite ~4s)
 npx tsc --noEmit  # TypeScript hata olmamali
 ```
+
+---
+
+## STORY-071: Roaming Agreement Management
+
+### Backend / Altyapi (10 senaryo)
+
+1. **Migration**: `psql` ile `\d roaming_agreements` → tum alanlar (id, tenant_id, operator_id, partner_operator_name, agreement_type, sla_terms, cost_terms, start_date, end_date, auto_renew, state, notes, terminated_at, created_by, created_at, updated_at) ve CHECK constraint'leri gorulmeli. `\di roaming_agreements*` ile `idx_roaming_agreements_active_unique` partial index ve `idx_roaming_agreements_expiry` index gorulmeli.
+2. **Anlaşma oluşturma**: `POST /api/v1/roaming-agreements` (`operator_manager` token ile) gecerli body → 201 Created + `{status:"success", data:{id,...}}` donmeli. `api_user` token ile ayni istek → 403 Forbidden donmeli.
+3. **Tekil aktif zorunluluğu**: Ayni `tenant_id + operator_id` icin ikinci `active` anlaşma olusturma denemesi → 409 Conflict + `roaming_agreement_overlap` hata kodu donmeli.
+4. **Tarih dogrulamasi**: `start_date >= end_date` olan body → 422 Unprocessable + `roaming_agreement_invalid_dates` donmeli.
+5. **Operator grant kontrolü**: Grant edilmemiş `operator_id` ile liste cekilmesi → 403 + `roaming_agreement_operator_not_granted` donmeli.
+6. **Fesih (terminate)**: `DELETE /api/v1/roaming-agreements/:id` → state `terminated` olmali, `terminated_at` set olmali. Tekrar DELETE → 409 (terminated anlaşma tekrar feshedilemez). Terminated anlaşmaya PATCH denemesi → 409 state guard.
+7. **SoR entegrasyonu**: Aktif anlaşması olan bir operator icin `SoR.Evaluate()` cagrisinda `decision.CostPerMB` anlaşmanin `cost_terms.cost_per_mb` ile override edilmeli, `decision.AgreementID` set olmali. Provider wired degilken (nil) SoR normal seyrinde devam etmeli.
+8. **Renewal cron**: `ROAMING_RENEWAL_ALERT_DAYS=30` env ayarliyken, `end_date` 30 gun icerisinde olan aktif anlaşma icin cron calişinca `bus.SubjectAlertTriggered` konusuna `AlertPayload` publish edilmeli. Redis'te `argus:dedup:roaming_renewal:{agreement_id}:{YYYY-MM}` anahtari olusturulmali (TTL ~35 gun). Ayni anlaşma icin ayni ay icinde ikinci cron cagrisi duplicate alert gondermemeli.
+9. **Audit log**: Create/Update/Terminate islemlerinde `audit_logs` tablosunda `action` = `roaming_agreement.create` / `.update` / `.terminate` satirlari olmali.
+10. **Migration reversibility**: `migrate down 1` → `20260414000001_roaming_agreements.down.sql` calismali; tablo, indexler ve RLS policy kalkmali.
+
+### Frontend (7 senaryo)
+
+11. **Liste sayfasi (SCR-150)**: `/roaming-agreements` sayfasini ac → anlaşma yoksa empty state (Handshake ikonu + aciklama) gorulmeli. Anlaşma varsa tablo satirlari `partner_operator_name`, `agreement_type` badge, `state` badge, `start_date`, `end_date` sutunlariyla gorulmeli. Satira tiklayinca `/roaming-agreements/:id` sayfasina yonlendirmeli.
+12. **Yeni anlaşma**: `operator_manager` rolundeyken "New Agreement" butonu → slide panel acilmali; form doldurulup submit edilince liste yenilenmeli. `api_user` rolundeyken buton gorulmemeli veya disabled olmali.
+13. **Detay sayfasi (SCR-151)**: `/roaming-agreements/:id` → SLA Terms (uptime, latency p95, max incidents), Cost Terms (rate, currency), gecerlilik suresi progress bar, auto_renew checkbox, notes textarea gorulmeli. Gecerlilik bar `start_date` ile `end_date` arasindaki yuzdeyi gostermeli.
+14. **Guncelleme**: Detay sayfasinda `operator_manager` rolundeyken notes veya auto_renew degistirip kaydetmek → `PATCH` istegi atilmali; toast success mesaji gorulmeli.
+15. **Fesih**: Detay sayfasinda "Terminate" butonu → onay dialogi acilmali; onay verilince `DELETE` istegi atilmali; state badge `terminated` guncellemeli.
+16. **Operator detay tab**: `/operators/:id` sayfasinda `Agreements` sekmesi → o operatora ait anlaşmalar mini-listesi gorulmeli. "New Agreement" butonu bu sayfadan da slide panel acmali.
+17. **Sidebar**: Sol kenar cubugunda OPERATIONS altinda "Roaming" menu ogesinin (Handshake ikonu) gorulmesi ve `/roaming-agreements` rotasina yonlendirmesi dogrulanmali.
+
+### Operations
+
+18. **Env vars**: `ROAMING_RENEWAL_ALERT_DAYS=7` set edilip cron el ile tetiklendiginde, `end_date` 7 gun icerisinde olan anlaşmalar icin alert publish edilmeli (30 gun uzerindekiler skip edilmeli).
+19. **Cron kapsamı**: `ROAMING_RENEWAL_CRON="*/5 * * * *"` (5 dakikada bir) set edilip argus yeniden baslatildiginda cron tablosunda `roaming_renewal_sweep` caydirici sikligi gozlemlenmeli.
+
+### Test command
+```bash
+make test   # 2651 test gecmeli
+go build ./...  # Derleme hatasi olmamali
+cd web && npm run build  # Frontend build basarili olmali
+npx tsc --noEmit  # TypeScript hata olmamali
+```

@@ -114,5 +114,5 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT
 - Phase: 10 (Cleanup & Production Hardening)
-- Story: STORY-070
+- Story: STORY-071
 - Step: Gate

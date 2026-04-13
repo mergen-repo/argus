@@ -639,3 +639,35 @@ func (s *UserStore) DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.U
 		PurgedAt:        time.Now().UTC(),
 	}, nil
 }
+
+func (s *UserStore) ListByRole(ctx context.Context, tenantID uuid.UUID, role string) ([]User, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
+			   state, last_login_at, failed_login_count, locked_until,
+			   password_change_required, password_changed_at, created_at, updated_at
+		FROM users
+		WHERE tenant_id = $1 AND role = $2 AND state = 'active'
+		ORDER BY created_at ASC`,
+		tenantID, role,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list users by role: %w", err)
+	}
+	defer rows.Close()
+
+	var results []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan user by role: %w", err)
+		}
+		results = append(results, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate users by role: %w", err)
+	}
+	return results, nil
+}

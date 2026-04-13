@@ -62,6 +62,9 @@ const WebhooksPage = lazy(() => import('@/pages/webhooks/index'))
 const SMSPage = lazy(() => import('@/pages/sms/index'))
 const DataPortabilityPage = lazy(() => import('@/pages/compliance/data-portability'))
 
+const RoamingAgreementsPage = lazy(() => import('@/pages/roaming/index'))
+const RoamingAgreementDetailPage = lazy(() => import('@/pages/roaming/detail'))
+
 function LazyFallback() {
   return (
     <div className="flex items-center justify-center h-full min-h-[200px]">
@@ -132,6 +135,8 @@ export const router = createBrowserRouter([
           { path: '/webhooks', element: lazySuspense(WebhooksPage) },
           { path: '/sms', element: lazySuspense(SMSPage) },
           { path: '/compliance/data-portability', element: lazySuspense(DataPortabilityPage) },
+          { path: '/roaming-agreements', element: lazySuspense(RoamingAgreementsPage) },
+          { path: '/roaming-agreements/:id', element: lazySuspense(RoamingAgreementDetailPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
           { path: '*', element: <NotFoundPage /> },

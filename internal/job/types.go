@@ -30,6 +30,7 @@ const (
 	JobTypeSMSOutboundSend           = "sms_outbound_send"
 	JobTypeWebhookRetry              = "webhook_retry"
 	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
+	JobTypeRoamingRenewal            = "roaming_renewal_sweep"
 )
 
 var AllJobTypes = []string{
@@ -62,4 +63,5 @@ var AllJobTypes = []string{
 	JobTypeSMSOutboundSend,
 	JobTypeWebhookRetry,
 	JobTypeScheduledReportSweeper,
+	JobTypeRoamingRenewal,
 }

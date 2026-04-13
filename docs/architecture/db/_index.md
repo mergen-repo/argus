@@ -50,13 +50,14 @@
 | TBL-40 | notification_preferences | Notifications | → TBL-01 (tenant_id); event_type × channel matrix; RLS enabled | No |
 | TBL-41 | notification_templates | Notifications | Global (no tenant_id); locale-keyed TR/EN; 28 seed rows | No |
 | TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled | No |
+| TBL-43 | roaming_agreements | Operator | → TBL-01 (tenant_id), → TBL-05/TBL-06 (operator_id); partial unique index on (tenant_id, operator_id) WHERE state='active'; RLS enabled | No |
 
 ## Domain Detail Files
 
 | Domain | File | Tables |
 |--------|------|--------|
 | Platform (Tenant, User, API Key) | [platform.md](platform.md) | TBL-01, TBL-02, TBL-03, TBL-04, TBL-34, TBL-35 |
-| Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23 |
+| Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23, TBL-43 |
 | SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
 | AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27, TBL-28 |

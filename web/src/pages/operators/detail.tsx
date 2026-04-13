@@ -16,6 +16,8 @@ import {
   Pencil,
   Trash2,
   Signal,
+  Handshake,
+  Plus,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -43,6 +45,14 @@ import {
 } from '@/components/ui/dialog'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/ui/table'
+import {
   useOperator,
   useOperatorHealth,
   useTestConnection,
@@ -50,6 +60,8 @@ import {
   useUpdateOperator,
 } from '@/hooks/use-operators'
 import { useOperatorHealthHistory, useOperatorMetrics } from '@/hooks/use-operator-detail'
+import { useOperatorRoamingAgreements } from '@/hooks/use-roaming-agreements'
+import type { RoamingAgreement, AgreementState, AgreementType } from '@/types/roaming'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { cn } from '@/lib/utils'
@@ -732,6 +744,78 @@ function EditOperatorDialog({
   )
 }
 
+function agreementStateBadge(state: AgreementState) {
+  switch (state) {
+    case 'active': return <Badge variant="success">active</Badge>
+    case 'draft': return <Badge variant="warning">draft</Badge>
+    case 'expired': return <Badge variant="danger">expired</Badge>
+    case 'terminated': return <Badge variant="secondary">terminated</Badge>
+    default: return <Badge variant="secondary">{state}</Badge>
+  }
+}
+
+function typeBadge(type: AgreementType) {
+  switch (type) {
+    case 'international': return <Badge variant="default">international</Badge>
+    case 'national': return <Badge variant="secondary">national</Badge>
+    case 'MVNO': return <Badge className="bg-purple-dim text-purple border-transparent">MVNO</Badge>
+    default: return <Badge variant="outline">{type}</Badge>
+  }
+}
+
+function AgreementsTab({ operatorId }: { operatorId: string }) {
+  const navigate = useNavigate()
+  const { data, isLoading, isError } = useOperatorRoamingAgreements(operatorId)
+  const agreements = data?.data ?? []
+
+  if (isLoading) return <div className="py-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+  if (isError) return <div className="py-4 text-sm text-danger flex items-center gap-2"><AlertCircle className="h-4 w-4" />Failed to load agreements.</div>
+
+  return (
+    <div className="space-y-3 py-2">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => navigate(`/roaming-agreements?operator_id=${operatorId}`)}>
+          <Plus className="h-4 w-4 mr-1" />
+          New Agreement
+        </Button>
+      </div>
+      {agreements.length === 0 ? (
+        <div className="text-center py-8">
+          <Handshake className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No roaming agreements for this operator.</p>
+        </div>
+      ) : (
+        <Card className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-bg-elevated hover:bg-bg-elevated">
+                <TableHead>Partner</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>End Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {agreements.map((ag: RoamingAgreement) => (
+                <TableRow
+                  key={ag.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/roaming-agreements/${ag.id}`)}
+                >
+                  <TableCell>{ag.partner_operator_name}</TableCell>
+                  <TableCell>{typeBadge(ag.agreement_type)}</TableCell>
+                  <TableCell>{agreementStateBadge(ag.state)}</TableCell>
+                  <TableCell className="text-text-secondary">{ag.end_date}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 export default function OperatorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -874,6 +958,10 @@ export default function OperatorDetailPage() {
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
           </TabsTrigger>
+          <TabsTrigger value="agreements" className="gap-1.5">
+            <Handshake className="h-3.5 w-3.5" />
+            Agreements
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -893,6 +981,9 @@ export default function OperatorDetailPage() {
         </TabsContent>
         <TabsContent value="traffic">
           <TrafficTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="agreements">
+          <AgreementsTab operatorId={operator.id} />
         </TabsContent>
       </Tabs>
 

@@ -28,6 +28,7 @@ import {
   Star,
   Clock,
   Lock,
+  Handshake,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -79,6 +80,7 @@ const navGroups: NavGroup[] = [
       { label: 'Notifications', icon: Bell, path: '/notifications' },
       { label: 'Reports', icon: FileBarChart, path: '/reports' },
       { label: 'Capacity', icon: HardDrive, path: '/capacity' },
+      { label: 'Roaming', icon: Handshake, path: '/roaming-agreements' },
       { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },

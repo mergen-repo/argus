@@ -37,6 +37,7 @@ import (
 	notifapi "github.com/btopcu/argus/internal/api/notification"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
 	reportsapi "github.com/btopcu/argus/internal/api/reports"
+	roamingapi "github.com/btopcu/argus/internal/api/roaming"
 	smsapi "github.com/btopcu/argus/internal/api/sms"
 	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
 	"github.com/btopcu/argus/internal/report"
@@ -939,6 +940,22 @@ func main() {
 		cronScheduler.AddEntry(job.CronEntry{Name: "scheduled_report_sweeper", Schedule: "*/1 * * * *", JobType: job.JobTypeScheduledReportSweeper})
 	}
 
+	// STORY-071 — Roaming Agreement Management
+	roamingAgreementStore := store.NewRoamingAgreementStore(pg.Pool)
+	roamingHandler := roamingapi.NewHandler(roamingAgreementStore, operatorStore, auditSvc, log.Logger)
+
+	roamingRenewalAlertDays := cfg.RoamingRenewalAlertDays
+	if roamingRenewalAlertDays <= 0 {
+		roamingRenewalAlertDays = 30
+	}
+	roamingRenewalProc := job.NewRoamingRenewalSweeper(roamingAgreementStore, userStore, jobStore, eventBus, rdb.Client, roamingRenewalAlertDays, log.Logger)
+	jobRunner.Register(roamingRenewalProc)
+	log.Info().Msg("STORY-071 roaming_renewal_sweep processor registered")
+
+	if cronScheduler != nil {
+		cronScheduler.AddEntry(job.CronEntry{Name: "roaming_renewal_sweep", Schedule: cfg.RoamingRenewalCron, JobType: job.JobTypeRoamingRenewal})
+	}
+
 	health := gateway.NewHealthHandler(pg, rdb, ns)
 	if radiusServer != nil {
 		health.SetAAAChecker(radiusServer)
@@ -1048,6 +1065,7 @@ func main() {
 		StatusHandler:       statusHandler,
 		CapacityHandler:     capacityHandler,
 		OnboardingHandler:   onboardingHandler,
+		RoamingHandler:      roamingHandler,
 		WebhookHandler:      webhookHandler,
 		SMSHandler:          smsHandler,
 		APIKeyStore:        apiKeyStore,

@@ -8,14 +8,15 @@ import (
 )
 
 type SoRDecision struct {
-	PrimaryOperatorID  uuid.UUID   `json:"primary_operator_id"`
+	PrimaryOperatorID   uuid.UUID   `json:"primary_operator_id"`
 	FallbackOperatorIDs []uuid.UUID `json:"fallback_operator_ids"`
-	Reason             string      `json:"reason"`
-	IMSIPrefix         string      `json:"imsi_prefix,omitempty"`
-	RATType            string      `json:"rat_type,omitempty"`
-	CostPerMB          float64     `json:"cost_per_mb,omitempty"`
-	EvaluatedAt        time.Time   `json:"evaluated_at"`
-	Cached             bool        `json:"cached"`
+	Reason              string      `json:"reason"`
+	IMSIPrefix          string      `json:"imsi_prefix,omitempty"`
+	RATType             string      `json:"rat_type,omitempty"`
+	CostPerMB           float64     `json:"cost_per_mb,omitempty"`
+	AgreementID         *uuid.UUID  `json:"agreement_id,omitempty"`
+	EvaluatedAt         time.Time   `json:"evaluated_at"`
+	Cached              bool        `json:"cached"`
 }
 
 type SoRRequest struct {
@@ -42,11 +43,12 @@ type CandidateOperator struct {
 }
 
 const (
-	ReasonIMSIPrefixMatch = "imsi_prefix_match"
-	ReasonCostOptimized   = "cost_optimized"
-	ReasonRATPreference   = "rat_preference"
-	ReasonManualLock      = "manual_lock"
-	ReasonDefault         = "default"
+	ReasonIMSIPrefixMatch    = "imsi_prefix_match"
+	ReasonCostOptimized      = "cost_optimized"
+	ReasonRATPreference      = "rat_preference"
+	ReasonManualLock         = "manual_lock"
+	ReasonDefault            = "default"
+	ReasonRoamingAgreement   = "roaming_agreement_applied"
 )
 
 var DefaultRATPreferenceOrder = []string{

@@ -353,4 +353,17 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 172 REST endpoints + 10 WebSocket event types**
+## Roaming Agreements (6 endpoints) — STORY-071
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-230 | POST | /api/v1/roaming-agreements | Create a new roaming agreement | JWT (operator_manager) | Validates dates, currency, cost_per_mb; enforces single-active-per-operator via partial unique index; audit: roaming_agreement.create |
+| API-231 | GET | /api/v1/roaming-agreements | List roaming agreements (cursor-paginated) | JWT (api_user) | Filters: operator_id, state, agreement_type; cursor pagination (limit+1 trick) |
+| API-232 | GET | /api/v1/roaming-agreements/{id} | Get single roaming agreement | JWT (api_user) | 404 roaming_agreement_not_found on missing/wrong-tenant |
+| API-233 | PATCH | /api/v1/roaming-agreements/{id} | Update roaming agreement fields | JWT (operator_manager) | State guard: terminated agreements cannot be updated; audit: roaming_agreement.update |
+| API-234 | DELETE | /api/v1/roaming-agreements/{id} | Terminate a roaming agreement | JWT (operator_manager) | Sets state=terminated, terminated_at=now; audit: roaming_agreement.terminate |
+| API-235 | GET | /api/v1/operators/{id}/roaming-agreements | List agreements for a specific operator | JWT (api_user) | Operator must be granted to tenant; 403 roaming_agreement_operator_not_granted otherwise |
+
+---
+
+**Total: 178 REST endpoints + 10 WebSocket event types**

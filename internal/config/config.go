@@ -115,6 +115,8 @@ type Config struct {
 	CronDataRetention         string        `envconfig:"CRON_DATA_RETENTION" default:"@daily"`
 	CronStorageMonitor        string        `envconfig:"CRON_STORAGE_MONITOR" default:"@hourly"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
+	RoamingRenewalAlertDays   int           `envconfig:"ROAMING_RENEWAL_ALERT_DAYS" default:"30"`
+	RoamingRenewalCron        string        `envconfig:"ROAMING_RENEWAL_CRON" default:"0 6 * * *"`
 
 	StorageAlertPct           float64       `envconfig:"STORAGE_ALERT_PCT" default:"80"`
 

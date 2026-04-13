@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-13
 > Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 14/22 stories
+> Overall progress: 100% (Dev + E2E) — Phase 10: 15/22 stories
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 14/22
-> Current story: STORY-071
+> Stories completed: 55/55 (100%) — Phase 10: 15/22
+> Current story: STORY-072
 > Current step: —
 
 ### Phase 1: Foundation [DONE]
@@ -146,8 +146,8 @@
 
 ## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
 
-> Stories completed: 14/22
-> Current story: STORY-071
+> Stories completed: 15/22
+> Current story: STORY-072
 > Current step: —
 > Mode: AUTOPILOT
 > Started: 2026-04-13
@@ -186,7 +186,7 @@
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-069 | Onboarding, Reporting & Notification Completeness | L | [x] DONE | — | STORY-059, STORY-063, STORY-065 | 2026-04-13 |
 | STORY-070 | Frontend Real-Data Wiring | L | [x] DONE | — | STORY-057, STORY-063, STORY-065, STORY-069 | 2026-04-13 |
-| STORY-071 | Roaming Agreement Management | M | [ ] PENDING | — | STORY-063 | — |
+| STORY-071 | Roaming Agreement Management | M | [x] DONE | — | STORY-063 | 2026-04-13 |
 | STORY-072 | Enterprise Observability Screens | XL | [ ] PENDING | — | STORY-065, STORY-066, STORY-067 | — |
 | STORY-073 | Multi-Tenant Admin & Compliance Screens | L | [ ] PENDING | — | STORY-068, STORY-069 | — |
 
@@ -221,6 +221,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-13 | REVIEW | STORY-071 review completed. 14 cross-doc findings — 8 fixed, 6 already-pass (zero-deferral). ARCHITECTURE.md: scale 172→178 APIs, 42→43 tables. api/_index.md: API-230..235 added (Roaming Agreements CRUD + operator-scoped list); footer 172→178 REST endpoints. db/_index.md: TBL-43 roaming_agreements added (Operator domain); Domain Detail Files Operator entry updated TBL-05/06/23 → TBL-05/06/23/43. GLOSSARY.md: 5 new terms (Roaming Agreement, Agreement State, SLA Terms (Roaming), Cost Terms (Roaming), SoR Agreement Hook). SCREENS.md: header 33→35 screens; SCR-150 (Roaming Agreements List) + SCR-151 (Roaming Agreement Detail) added. CONFIG.md: Roaming Agreements section added (ROAMING_RENEWAL_ALERT_DAYS, ROAMING_RENEWAL_CRON); embedded .env.example block updated with both vars. USERTEST.md: STORY-071 section added (19 scenarios — backend DB/API/SoR/cron, frontend list/detail/operator-tab, operations). decisions.md: DEV-209 (partial unique index for single-active roaming agreement per tenant+operator). ROUTEMAP: counter 14/22→15/22, STORY-071 marked DONE. Report: docs/stories/phase-10/STORY-071-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/db/_index.md, docs/GLOSSARY.md, docs/SCREENS.md, docs/architecture/CONFIG.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
+| 2026-04-13 | DONE | STORY-071 completed — Roaming Agreement Management. 5 ACs. New table roaming_agreements (TBL-43): 16 fields, JSONB sla_terms + cost_terms, partial unique index (single-active per tenant+operator), expiry index, RLS. 6 REST endpoints (API-230..235): CRUD + operator-scoped list, cursor pagination, RBAC (api_user read / operator_manager write), 4 new error codes. SoR engine hook: RoamingAgreementProvider interface, nil-safe, cost_per_mb override + AgreementID on decision, expired fallback warning log. Renewal cron (roaming_renewal_sweep): Redis dedup by {agreement_id}:{YYYY-MM} TTL 35d, publishes AlertPayload to bus.SubjectAlertTriggered, configurable ROAMING_RENEWAL_ALERT_DAYS + ROAMING_RENEWAL_CRON. FE: SCR-150 list + SCR-151 detail (shadcn atoms, design tokens, skeleton loaders, empty states, drill-down); operator-detail Agreements tab; sidebar Roaming entry. Gate 4 shadcn compliance fixes. 75 new tests (2576→2651). | internal/store/roaming_agreement.go, internal/api/roaming/handler.go, internal/operator/sor/{engine,types,roaming_test}.go, internal/job/roaming_renewal.go, migrations/20260414000001, web/src/{pages/roaming,hooks,types,router,components/layout/sidebar}.tsx |
 | 2026-04-13 | REVIEW | STORY-070 review completed. 11 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale line 166→172 APIs. api/_index.md: API-224..229 added (operator health-history, operator metrics, APN traffic, violation acknowledge, report definitions, system capacity); footer 166→172 REST endpoints. CONFIG.md: Capacity Targets section added (ARGUS_CAPACITY_SIM/SESSION/AUTH/GROWTH_SIMS_MONTHLY, defaults 15M/2M/5000/72000). .env.example: 4 ARGUS_CAPACITY_* entries added. GLOSSARY.md: 2 new terms (Traffic Heatmap, Violation Acknowledgment). USERTEST.md: STORY-070 section added (19 scenarios — backend verification, frontend walkthroughs, operations). decisions.md: DEV-206 (operators URL filter exclusion), DEV-207 (topology sim_count approximation), DEV-208 (report definitions hardcoded in handler) all ACCEPTED. ROUTEMAP: counter 13/22→14/22, STORY-070 marked DONE. Check #1 (next-story impact): DEV-201 constraint preserved; STORY-071 unblocked; STORY-072 hooks compatible; WS public API compatible. Zero-deferral. Report: docs/stories/phase-10/STORY-070-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/architecture/CONFIG.md, .env.example, docs/GLOSSARY.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
 | 2026-04-13 | DONE | STORY-070 completed — Frontend Real-Data Wiring. 14 ACs. Eliminated all Math.random(), mock data constants (mockTimeline, mockAuthData, mockSimCount, mockTrafficMB, mockPoolUsed, mockPoolTotal, generateMockTraffic, generateMockFrequency, REPORT_DEFINITIONS, SCHEDULED_REPORTS, placeholder.tsx). 6 new backend endpoints (GET /operators/:id/health-history, GET /operators/:id/metrics, GET /apns/:id/traffic, POST /policy-violations/:id/acknowledge, GET /reports/definitions, GET /system/capacity). 1 migration (20260413000003: acknowledged_at/by/note + partial index on policy_violations). 5 new frontend hooks (use-apn-traffic, use-operator-detail, use-capacity, useReportDefinitions, useAcknowledgeViolation). WS indicator (ws-indicator.tsx, wsClient.getStatus/onStatus/reconnectNow). URL filter persistence via useSearchParams on 7 pages (sims, apns, sessions, jobs, audit, violations, esim). APN list enrichment via 3 GROUP BY queries (no N+1). CDR aggregations from cdrs_hourly/cdrs_daily materialized views. Gate 3 fixes: ErrViolationNotFound sentinel, errors.Is comparison, esim useSearchParams. 2576 tests PASS. | internal/store/{cdr,policy_violation,ippool,sim}.go, internal/api/{operator,apn,violation,reports,system/capacity}_handler.go, migrations/20260413000003, web/src/{hooks,pages,components,types,lib/ws.ts}, internal/config/config.go |
 | 2026-04-13 | REVIEW | STORY-069 review completed. 10 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale line 144→166 APIs, 31→42 tables; internal/api/ tree +onboarding/, reports/, webhooks/, sms/. SCREENS.md: header 26→33 screens; SCR-003/SCR-113 updated (STORY-069 enhancements); SCR-130..134 added (Reports, Webhooks, SMS, Data Portability, Notification Preferences). db/_index.md: TBL-36..42 added (onboarding_sessions, scheduled_reports, webhook_configs, webhook_deliveries, notification_preferences, notification_templates, sms_outbound). api/_index.md: API-170/171 story reference STORY-029→STORY-069; footer 144→166 REST endpoints. PRODUCT.md: F-055 marked COVERED. GLOSSARY.md: 5 new terms (Onboarding Session, Scheduled Report, Webhook Delivery, Data Portability Export, KVKK Auto-Purge Scheduler). .env.example: RATE_LIMIT_SMS_PER_MINUTE added. ROUTEMAP: counter 12/22→13/22. Check #1 (next-story impact): DEV-201 emptyReportProvider constraint for STORY-070; STORY-073 now unblocked. Decisions DEV-198..205+DEC-205 all ACCEPTED. USERTEST 21 scenarios PASS. Zero-deferral. Report: docs/stories/phase-10/STORY-069-review.md | docs/ARCHITECTURE.md, docs/SCREENS.md, docs/architecture/db/_index.md, docs/architecture/api/_index.md, docs/PRODUCT.md, docs/GLOSSARY.md, .env.example |

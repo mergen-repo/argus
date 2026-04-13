@@ -21,12 +21,18 @@ type GrantProvider interface {
 	ListGrantsWithOperators(ctx context.Context, tenantID uuid.UUID) ([]store.GrantWithOperator, error)
 }
 
+type RoamingAgreementProvider interface {
+	ListActiveByTenant(ctx context.Context, tenantID uuid.UUID, now time.Time) ([]store.RoamingAgreement, error)
+	ListRecentlyExpiredByTenant(ctx context.Context, tenantID uuid.UUID, now time.Time, lookback time.Duration) ([]store.RoamingAgreement, error)
+}
+
 type Engine struct {
-	grantProvider GrantProvider
-	cache         *SoRCache
-	cbCheck       CircuitBreakerChecker
-	logger        zerolog.Logger
-	config        SoRConfig
+	grantProvider     GrantProvider
+	agreementProvider RoamingAgreementProvider
+	cache             *SoRCache
+	cbCheck           CircuitBreakerChecker
+	logger            zerolog.Logger
+	config            SoRConfig
 }
 
 func NewEngine(
@@ -93,6 +99,48 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 		return nil, fmt.Errorf("sor: all operators have open circuit breakers for tenant %s", req.TenantID)
 	}
 
+	now := time.Now()
+	var activeAgreementByOperator map[uuid.UUID]*store.RoamingAgreement
+	if e.agreementProvider != nil {
+		activeAgreements, err := e.agreementProvider.ListActiveByTenant(ctx, req.TenantID, now)
+		if err != nil {
+			e.logger.Warn().Err(err).Str("tenant_id", req.TenantID.String()).Msg("SoR: failed to list active roaming agreements")
+		} else {
+			activeAgreementByOperator = make(map[uuid.UUID]*store.RoamingAgreement, len(activeAgreements))
+			for i := range activeAgreements {
+				a := &activeAgreements[i]
+				activeAgreementByOperator[a.OperatorID] = a
+			}
+		}
+
+		recentlyExpired, err := e.agreementProvider.ListRecentlyExpiredByTenant(ctx, req.TenantID, now, 7*24*time.Hour)
+		if err != nil {
+			e.logger.Warn().Err(err).Str("tenant_id", req.TenantID.String()).Msg("SoR: failed to list recently expired roaming agreements")
+		} else {
+			for _, expired := range recentlyExpired {
+				hasActive := activeAgreementByOperator != nil && activeAgreementByOperator[expired.OperatorID] != nil
+				if !hasActive {
+					e.logger.Warn().
+						Str("agreement_id", expired.ID.String()).
+						Str("operator_id", expired.OperatorID.String()).
+						Str("end_date", expired.EndDate.Format("2006-01-02")).
+						Msg("roaming agreement expired — falling back to operator default cost")
+				}
+			}
+		}
+
+		if activeAgreementByOperator != nil {
+			for i := range candidates {
+				if ag, ok := activeAgreementByOperator[candidates[i].OperatorID]; ok {
+					ct, parseErr := ag.ParsedCostTerms()
+					if parseErr == nil {
+						candidates[i].CostPerMB = ct.CostPerMB
+					}
+				}
+			}
+		}
+	}
+
 	imsiMatched := e.filterByIMSIPrefix(candidates, req.IMSI)
 
 	var working []CandidateOperator
@@ -121,12 +169,23 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 		reason = ReasonCostOptimized
 	}
 
+	var agreementID *uuid.UUID
+	if activeAgreementByOperator != nil {
+		if ag, ok := activeAgreementByOperator[working[0].OperatorID]; ok {
+			agreementID = &ag.ID
+			if reason == ReasonDefault || reason == ReasonCostOptimized {
+				reason = ReasonRoamingAgreement
+			}
+		}
+	}
+
 	decision := &SoRDecision{
 		PrimaryOperatorID: working[0].OperatorID,
 		Reason:            reason,
 		RATType:           req.RequestedRAT,
 		CostPerMB:         working[0].CostPerMB,
-		EvaluatedAt:       time.Now(),
+		AgreementID:       agreementID,
+		EvaluatedAt:       now,
 		Cached:            false,
 	}
 
@@ -156,6 +215,10 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 		Msg("SoR decision made")
 
 	return decision, nil
+}
+
+func (e *Engine) SetAgreementProvider(p RoamingAgreementProvider) {
+	e.agreementProvider = p
 }
 
 func (e *Engine) InvalidateCache(ctx context.Context, tenantID uuid.UUID, imsi string) error {

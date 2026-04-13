@@ -245,6 +245,15 @@ These variables set the expected platform-wide capacity targets shown in the Sys
 
 ---
 
+## Roaming Agreements (SVC-06) — STORY-071
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ROAMING_RENEWAL_ALERT_DAYS` | int | `30` | No | Number of days before a roaming agreement's `end_date` at which the renewal sweeper publishes an alert to `bus.SubjectAlertTriggered`. Alerts are deduped per `{agreement_id}:{YYYY-MM}` via Redis SETNX (TTL 35 days). |
+| `ROAMING_RENEWAL_CRON` | string | `0 6 * * *` | No | Cron schedule for the `roaming_renewal_sweep` job. Default: daily at 06:00 UTC. Supports 5-field cron expressions or `@daily`/`@hourly` shorthands. |
+
+---
+
 ## Notifications
 
 ### Email (SMTP)
@@ -480,6 +489,10 @@ CRON_ENABLED=true
 CRON_PURGE_SWEEP=@daily
 CRON_IP_RECLAIM=@hourly
 CRON_SLA_REPORT=@daily
+
+# === Roaming Agreements ===
+ROAMING_RENEWAL_ALERT_DAYS=30
+ROAMING_RENEWAL_CRON=0 6 * * *
 
 # === eSIM SM-DP+ (optional) ===
 # ESIM_SMDP_PROVIDER=generic

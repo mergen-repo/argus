@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 33 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069
+> Total: 35 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
 
@@ -45,3 +45,5 @@
 | SCR-132 | SMS Gateway | Communications | /sms | JWT (sim_manager+) | STORY-069 AC-12: send form + outbound history table |
 | SCR-133 | Data Portability | Compliance | /compliance/data-portability | JWT (self or tenant_admin+) | STORY-069 AC-9: GDPR export request form + status |
 | SCR-134 | Notification Preferences | Settings | /settings/notifications#preferences | JWT (tenant_admin+) | STORY-069 AC-7/8: preferences matrix + templates editor (tabs on SCR-113) |
+| SCR-150 | Roaming Agreements List | Operator | /roaming-agreements | JWT (api_user+) | STORY-071: list with state/type badges, operator column, cursor pagination, empty state; New Agreement slide-panel; operator_manager can create |
+| SCR-151 | Roaming Agreement Detail | Operator | /roaming-agreements/:id | JWT (api_user+) | STORY-071: SLA terms, cost terms, validity timeline progress bar, auto-renew checkbox, notes; operator_manager can update/terminate |
