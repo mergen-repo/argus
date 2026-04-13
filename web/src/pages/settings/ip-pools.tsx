@@ -73,7 +73,7 @@ function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
 }
 
 function CreatePoolDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data: apns = [] } = useAPNList()
+  const { data: apns = [] } = useAPNList({})
   const create = useCreateIpPool()
   const [form, setForm] = useState({ apn_id: '', name: '', cidr_v4: '' })
 
@@ -96,10 +96,11 @@ function CreatePoolDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-text-secondary block mb-1">APN *</label>
-            <Select value={form.apn_id} onChange={(e) => setForm((f) => ({ ...f, apn_id: e.target.value }))}>
-              <option value="">Select APN...</option>
-              {apns.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </Select>
+            <Select
+              value={form.apn_id}
+              onChange={(e) => setForm((f) => ({ ...f, apn_id: e.target.value }))}
+              options={[{ value: '', label: 'Select APN...' }, ...apns.map((a) => ({ value: a.id, label: a.name }))]}
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-text-secondary block mb-1">Pool Name *</label>
