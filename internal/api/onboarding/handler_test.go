@@ -21,10 +21,11 @@ import (
 // Mocks
 
 type mockSessionStore struct {
-	CreateFn       func(ctx context.Context, tenantID, startedBy uuid.UUID) (*store.OnboardingSession, error)
-	GetByIDFn      func(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error)
-	UpdateStepFn   func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error
-	MarkCompletedFn func(ctx context.Context, id uuid.UUID) error
+	CreateFn             func(ctx context.Context, tenantID, startedBy uuid.UUID) (*store.OnboardingSession, error)
+	GetByIDFn            func(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error)
+	GetLatestByTenantFn  func(ctx context.Context, tenantID uuid.UUID) (*store.OnboardingSession, error)
+	UpdateStepFn         func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error
+	MarkCompletedFn      func(ctx context.Context, id uuid.UUID) error
 
 	UpdateStepCalled bool
 }
@@ -34,6 +35,13 @@ func (m *mockSessionStore) Create(ctx context.Context, tenantID, startedBy uuid.
 }
 func (m *mockSessionStore) GetByID(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error) {
 	return m.GetByIDFn(ctx, id)
+}
+func (m *mockSessionStore) GetLatestByTenant(ctx context.Context, tenantID uuid.UUID) (*store.OnboardingSession, error) {
+	if m.GetLatestByTenantFn != nil {
+		return m.GetLatestByTenantFn(ctx, tenantID)
+	}
+	// Match real store semantics: not-found returns (nil, nil), not an error.
+	return nil, nil
 }
 func (m *mockSessionStore) UpdateStep(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error {
 	m.UpdateStepCalled = true

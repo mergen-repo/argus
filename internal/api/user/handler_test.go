@@ -43,6 +43,10 @@ func (m *mockUserStore) CreateUser(ctx context.Context, p store.CreateUserParams
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockUserStore) CreateUserWithPassword(ctx context.Context, p store.CreateUserParams, passwordHash string) (*store.User, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m *mockUserStore) UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error) {
 	return nil, errors.New("not implemented")
 }
