@@ -54,6 +54,7 @@ import (
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
+	"github.com/btopcu/argus/internal/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/policy/rollout"
@@ -906,6 +907,11 @@ func main() {
 
 	if err := dashboardapi.RegisterDashboardInvalidator(eventBus, rdb.Client, log.Logger); err != nil {
 		log.Fatal().Err(err).Msg("failed to register dashboard cache invalidator")
+	}
+
+	policyMatcher := policy.NewMatcher(policyStore, simStore, apnStore, log.Logger)
+	if err := policyMatcher.Register(eventBus); err != nil {
+		log.Fatal().Err(err).Msg("failed to register policy matcher")
 	}
 
 	webhookConfigStore := store.NewWebhookConfigStore(pg.Pool, cfg.EncryptionKey)

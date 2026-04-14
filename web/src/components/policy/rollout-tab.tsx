@@ -20,7 +20,8 @@ interface RolloutTabProps {
   rolloutId?: string
 }
 
-const DEFAULT_STAGES = [1, 10, 100]
+const STAGED_STAGES = [1, 10, 100]
+const DIRECT_STAGES = [100]
 
 function RolloutProgress({ rollout }: { rollout: PolicyRollout }) {
   const stages: RolloutStage[] = typeof rollout.stages === 'string'
@@ -119,6 +120,7 @@ function RolloutProgress({ rollout }: { rollout: PolicyRollout }) {
 export function RolloutTab({ policyId, currentVersion, rolloutId: initialRolloutId }: RolloutTabProps) {
   const [rolloutId, setRolloutId] = useState(initialRolloutId)
   const [confirmAction, setConfirmAction] = useState<'start' | 'advance' | 'rollback' | null>(null)
+  const [mode, setMode] = useState<'direct' | 'staged'>('direct')
 
   const { data: rollout, refetch: refetchRollout } = useRollout(rolloutId)
   const startMutation = useStartRollout(policyId)
@@ -140,7 +142,7 @@ export function RolloutTab({ policyId, currentVersion, rolloutId: initialRollout
     try {
       const result = await startMutation.mutateAsync({
         versionId: currentVersion.id,
-        stages: DEFAULT_STAGES,
+        stages: mode === 'direct' ? DIRECT_STAGES : STAGED_STAGES,
       })
       setRolloutId(result.id)
       setConfirmAction(null)
@@ -215,29 +217,61 @@ export function RolloutTab({ policyId, currentVersion, rolloutId: initialRollout
         </>
       ) : (
         <div className="space-y-4">
-          <div className="rounded-[var(--radius-sm)] border border-border p-4 bg-bg-surface">
-            <h5 className="text-sm font-medium text-text-primary mb-2">Staged Rollout</h5>
-            <p className="text-xs text-text-secondary mb-3">
-              Roll out this policy version gradually: 1% then 10% then 100% of affected SIMs.
-            </p>
-            <div className="flex items-center gap-2">
-              {DEFAULT_STAGES.map((pct, i) => (
-                <div key={pct} className="flex items-center gap-1">
-                  <div className="px-3 py-1 rounded-full border border-border bg-bg-elevated text-xs font-semibold text-text-primary">
-                    {pct}%
-                  </div>
-                  {i < DEFAULT_STAGES.length - 1 && (
-                    <ChevronRight className="h-3 w-3 text-text-tertiary" />
-                  )}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setMode('direct')}
+              className={`text-left rounded-[var(--radius-md)] border p-4 transition-colors ${
+                mode === 'direct' ? 'border-accent bg-accent/5' : 'border-border bg-bg-surface hover:border-text-tertiary'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h5 className="text-sm font-medium text-text-primary">Direct Assign</h5>
+                <div className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center ${mode === 'direct' ? 'border-accent bg-accent' : 'border-border'}`}>
+                  {mode === 'direct' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </div>
-              ))}
-            </div>
+              </div>
+              <p className="text-xs text-text-secondary mb-3">
+                Apply immediately to all matching SIMs at once (100%).
+              </p>
+              <div className="inline-block px-3 py-1 rounded-full border border-border bg-bg-elevated text-xs font-semibold text-text-primary">
+                100%
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode('staged')}
+              className={`text-left rounded-[var(--radius-md)] border p-4 transition-colors ${
+                mode === 'staged' ? 'border-accent bg-accent/5' : 'border-border bg-bg-surface hover:border-text-tertiary'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h5 className="text-sm font-medium text-text-primary">Staged Rollout</h5>
+                <div className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center ${mode === 'staged' ? 'border-accent bg-accent' : 'border-border'}`}>
+                  {mode === 'staged' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </div>
+              </div>
+              <p className="text-xs text-text-secondary mb-3">
+                Canary rollout: 1% → 10% → 100% with manual advancement.
+              </p>
+              <div className="flex items-center gap-1">
+                {STAGED_STAGES.map((pct, i) => (
+                  <div key={pct} className="flex items-center gap-1">
+                    <div className="px-2 py-0.5 rounded-full border border-border bg-bg-elevated text-[10px] font-semibold text-text-primary">
+                      {pct}%
+                    </div>
+                    {i < STAGED_STAGES.length - 1 && <ChevronRight className="h-2.5 w-2.5 text-text-tertiary" />}
+                  </div>
+                ))}
+              </div>
+            </button>
           </div>
 
           {canStartRollout && (
             <Button className="w-full gap-2" onClick={() => setConfirmAction('start')}>
               <Play className="h-4 w-4" />
-              Start Rollout
+              {mode === 'direct' ? 'Assign to All Matching SIMs' : 'Start Staged Rollout'}
             </Button>
           )}
 
@@ -261,7 +295,9 @@ export function RolloutTab({ policyId, currentVersion, rolloutId: initialRollout
               {confirmAction === 'rollback' && 'Rollback'}
             </DialogTitle>
             <DialogDescription>
-              {confirmAction === 'start' && `Start staged rollout for v${currentVersion.version}? This will begin migrating SIMs at 1%.`}
+              {confirmAction === 'start' && (mode === 'direct'
+                ? `Apply v${currentVersion.version} to ALL matching SIMs immediately? This cannot be undone incrementally.`
+                : `Start staged rollout for v${currentVersion.version}? This will begin migrating SIMs at 1%.`)}
               {confirmAction === 'advance' && 'Advance to the next rollout stage? More SIMs will be migrated.'}
               {confirmAction === 'rollback' && 'Rollback this rollout? All migrated SIMs will revert to the previous policy version.'}
             </DialogDescription>

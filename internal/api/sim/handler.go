@@ -829,6 +829,23 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.activate", simID.String(), existing, sim, userID)
 
+	// Auto-match policy: find active policy whose DSL references this APN and assign its current version
+	if h.policyStore != nil && h.apnStore != nil && sim.APNID != nil && sim.PolicyVersionID == nil {
+		if apn, apnErr := h.apnStore.GetByID(r.Context(), tenantID, *sim.APNID); apnErr == nil {
+			if policies, _, pErr := h.policyStore.ListReferencingAPN(r.Context(), tenantID, apn.Name, 10, ""); pErr == nil {
+				for _, pol := range policies {
+					if pol.State == "active" && pol.CurrentVersionID != nil {
+						if setErr := h.simStore.SetIPAndPolicy(r.Context(), simID, sim.IPAddressID, pol.CurrentVersionID); setErr == nil {
+							sim.PolicyVersionID = pol.CurrentVersionID
+							h.createAuditEntry(r, "sim.policy_auto_assigned", simID.String(), nil, map[string]interface{}{"policy_id": pol.ID, "version_id": *pol.CurrentVersionID}, userID)
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
 	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
 }
 
