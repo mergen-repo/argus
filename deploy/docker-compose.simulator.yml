@@ -1,0 +1,42 @@
+# Compose overlay for the RADIUS traffic simulator (STORY-082).
+#
+# Used WITH deploy/docker-compose.yml:
+#
+#   docker compose -f deploy/docker-compose.yml \
+#                  -f deploy/docker-compose.simulator.yml \
+#                  up -d simulator
+#
+# Or via the Makefile: `make sim-up`, `make sim-down`, `make sim-logs`.
+#
+# The simulator is STRICTLY OPT-IN. Do not add it to the base compose file.
+
+services:
+  simulator:
+    build:
+      context: ..
+      dockerfile: deploy/simulator/Dockerfile
+    image: argus-simulator:latest
+    container_name: argus-simulator
+    restart: "no"
+    environment:
+      # Hard enable flag — simulator exits non-zero without this.
+      SIMULATOR_ENABLED: "true"
+      ARGUS_SIM_CONFIG: /etc/simulator/config.yaml
+      ARGUS_SIM_LOG_LEVEL: ${ARGUS_SIM_LOG_LEVEL:-info}
+    volumes:
+      - ./simulator/config.example.yaml:/etc/simulator/config.yaml:ro
+    ports:
+      - "9099:9099"  # Prometheus metrics
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9099/-/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - argus-net
+    depends_on:
+      argus:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy

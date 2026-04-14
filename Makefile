@@ -8,7 +8,8 @@ export
         test test-watch test-coverage typecheck lint lint-fix lint-sql \
         clean docker-clean dev start stop backup web-dev web-build \
         vuln-check web-audit \
-        test-web security-scan deploy-staging rollback ops-status build-ctl
+        test-web security-scan deploy-staging rollback ops-status build-ctl \
+        sim-build sim-up sim-down sim-logs sim-ps
 
 help:
 	@echo ""
@@ -67,6 +68,13 @@ help:
 	@echo "  Temizlik:"
 	@echo "    make clean           Build artifact'larini temizle"
 	@echo "    make docker-clean    Docker volume ve image'lari sil"
+	@echo ""
+	@echo "  Simulator (STORY-082):"
+	@echo "    make sim-build       Simulator imaji build"
+	@echo "    make sim-up          Simulator'u baslat (argus-app + postgres ayakta olmali)"
+	@echo "    make sim-down        Simulator'u durdur (sadece simulator — argus dokunulmaz)"
+	@echo "    make sim-logs        Simulator loglarini takip et"
+	@echo "    make sim-ps          Simulator durumu"
 	@echo ""
 	@echo "  Kisayollar:"
 	@echo "    make dev = deploy-dev    make start = up"
@@ -278,6 +286,31 @@ docker-clean:
 	@echo "Docker temizleniyor..."
 	@docker compose -f deploy/docker-compose.yml down -v --rmi local
 	@echo "Docker temizlendi."
+
+# ── Simulator (STORY-082) ──
+
+SIM_COMPOSE := -f deploy/docker-compose.yml -f deploy/docker-compose.simulator.yml
+
+sim-build:
+	@echo "Simulator imaji build ediliyor..."
+	@docker compose $(SIM_COMPOSE) build simulator
+	@echo "Simulator build tamamlandi."
+
+sim-up:
+	@echo "Simulator baslatiliyor..."
+	@docker compose $(SIM_COMPOSE) up -d simulator
+	@echo "Simulator baslatildi. Loglar: make sim-logs | Metrics: http://localhost:9099/metrics"
+
+sim-down:
+	@echo "Simulator durduruluyor..."
+	@docker compose $(SIM_COMPOSE) rm -sf simulator
+	@echo "Simulator durduruldu."
+
+sim-logs:
+	@docker compose $(SIM_COMPOSE) logs -f simulator
+
+sim-ps:
+	@docker compose $(SIM_COMPOSE) ps simulator
 
 # ── Kisayollar ──
 

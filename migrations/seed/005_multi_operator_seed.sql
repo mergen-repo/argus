@@ -223,6 +223,14 @@ BEGIN
     END IF;
 END$$;
 
+-- BYPASSRLS is required: STORY-064 added ENABLE + FORCE ROW LEVEL SECURITY
+-- on sims, apns, and several other tables. A normal read role cannot see
+-- rows unless `app.current_tenant` is set per-session. Since the simulator
+-- is a cross-tenant read-only dev tool (needs to discover SIMs across all
+-- tenants), BYPASSRLS is the pragmatic choice. Still read-only at the grant
+-- level; cannot modify anything.
+ALTER ROLE argus_sim BYPASSRLS;
+
 GRANT CONNECT ON DATABASE argus TO argus_sim;
 GRANT USAGE ON SCHEMA public TO argus_sim;
 GRANT SELECT ON tenants, operators, apns, sims, operator_grants, ip_pools TO argus_sim;

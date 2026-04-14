@@ -1,0 +1,63 @@
+# Argus Simulator — RADIUS Traffic Generator (STORY-082)
+#
+# This file is TEST-ONLY. Never commit production secrets. Env overrides
+# (ARGUS_SIM_DB_URL, ARGUS_SIM_RADIUS_SECRET, etc.) are available for
+# environment-specific values.
+
+argus:
+  radius_host: argus-app
+  radius_auth_port: 1812
+  radius_accounting_port: 1813
+  # MUST match Argus's RADIUS_SECRET env var (currently global; per-
+  # operator secrets tracked in STORY-086).
+  radius_shared_secret: change-me-radius-shared-secret
+  # Read-only PG role from migrations/seed/005_multi_operator_seed.sql.
+  db_url: postgres://argus_sim:sim_ro_pass@argus-postgres:5432/argus?sslmode=disable
+  db_refresh_interval: 5m
+
+# Per-operator NAS identity. Secret is shared globally (see STORY-086).
+operators:
+  - code: turkcell
+    nas_identifier: sim-turkcell
+    nas_ip: 10.99.0.1
+  - code: vodafone
+    nas_identifier: sim-vodafone
+    nas_ip: 10.99.0.2
+  - code: turk_telekom
+    nas_identifier: sim-turk-telekom
+    nas_ip: 10.99.0.3
+
+# Weighted-random scenario picker (weights must sum to ~1.0).
+scenarios:
+  - name: normal_browsing
+    weight: 0.7
+    session_duration_seconds: [600, 1800]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [1000000, 10000000]
+    bytes_per_interim_out: [500000, 5000000]
+
+  - name: heavy_user
+    weight: 0.2
+    session_duration_seconds: [3600, 7200]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [50000000, 200000000]
+    bytes_per_interim_out: [25000000, 100000000]
+
+  - name: idle
+    weight: 0.1
+    session_duration_seconds: [60, 300]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [100000, 1000000]
+    bytes_per_interim_out: [50000, 500000]
+
+# Global rate limit protects Argus from startup bursts.
+rate:
+  max_radius_requests_per_second: 5
+  initial_jitter_seconds: [0, 30]
+
+metrics:
+  listen: ":9099"
+
+log:
+  level: info      # debug | info | warn | error
+  format: console  # console | json
