@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { decodeToken } from '@/lib/jwt'
 
 export interface User {
   id: string
@@ -28,6 +29,13 @@ interface AuthState {
   logout: () => void
   hasPermission: (permission: string) => boolean
   setOnboardingCompleted: (completed: boolean) => void
+
+  // Derived from the current access token. Null when no token or the
+  // claim is absent. `activeTenantId` is null = System View; a non-null
+  // value = super_admin is viewing-as that tenant. `homeTenantId` is
+  // always the user's own tenant from the JWT `tenant_id` claim.
+  homeTenantId: () => string | null
+  activeTenantId: () => string | null
 }
 
 export const useAuthStore = create<AuthState>()(persist((set, get) => ({
@@ -90,6 +98,15 @@ export const useAuthStore = create<AuthState>()(persist((set, get) => ({
     set((s) => ({
       user: s.user ? { ...s.user, onboarding_completed: completed } : null,
     })),
+
+  homeTenantId: () => {
+    const payload = decodeToken(get().token)
+    return payload?.tenant_id ?? null
+  },
+  activeTenantId: () => {
+    const payload = decodeToken(get().token)
+    return payload?.active_tenant ?? null
+  },
 }), {
   name: 'argus-auth',
   partialize: (state) => ({

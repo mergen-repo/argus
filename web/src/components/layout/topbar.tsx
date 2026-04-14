@@ -10,6 +10,7 @@ import { useUnreadCount, useRealtimeNotifications } from '@/hooks/use-notificati
 import { useLogout } from '@/hooks/use-logout'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { WSIndicator } from '@/components/layout/ws-indicator'
+import { TenantSwitcher } from '@/components/layout/tenant-switcher'
 import { cn } from '@/lib/utils'
 import i18n from '@/lib/i18n'
 
@@ -77,17 +78,20 @@ export function Topbar() {
         sidebarCollapsed ? 'left-16' : 'left-60',
       )}
     >
-      <Button
-        variant="outline"
-        onClick={() => setCommandPaletteOpen(true)}
-        className="flex items-center gap-2 h-auto px-3 py-1.5 text-sm text-text-tertiary hover:border-text-tertiary hover:text-text-secondary"
-      >
-        <Search className="h-4 w-4" />
-        <span>Search...</span>
-        <kbd className="ml-4 rounded border border-border bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
-          Ctrl+K
-        </kbd>
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          onClick={() => setCommandPaletteOpen(true)}
+          className="flex items-center gap-2 h-auto px-3 py-1.5 text-sm text-text-tertiary hover:border-text-tertiary hover:text-text-secondary"
+        >
+          <Search className="h-4 w-4" />
+          <span>Search...</span>
+          <kbd className="ml-4 rounded border border-border bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
+            Ctrl+K
+          </kbd>
+        </Button>
+        <TenantSwitcher />
+      </div>
 
       <div className="flex items-center gap-1">
         <WSIndicator />
