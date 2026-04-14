@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-04-13
-> Current phase: Cleanup & Production Hardening [IN PROGRESS] — Zero-deferral + full prod readiness
-> Overall progress: 100% (Dev + E2E) — Phase 10: 20/22 stories
+> Last updated: 2026-04-14
+> Current phase: Cleanup & Production Hardening [DONE] — Phase Gate PASS 2026-04-13 (conditional, 8 follow-ups documented)
+> Overall progress: 100% (Dev + E2E + Phase 10) — Phase 10: 22/22 stories, Phase Gate PASS
 
 ---
 
@@ -27,7 +27,7 @@
 
 > Stories completed: 55/55 (100%) — Phase 10: 22/22 (100%)
 > Current story: —
-> Current step: Phase Gate
+> Current step: — (Phase 10 complete, ready for Documentation Phase)
 
 ### Phase 1: Foundation [DONE]
 
@@ -144,12 +144,13 @@
 
 ---
 
-## Phase 10: Cleanup & Production Hardening [IN PROGRESS]
+## Phase 10: Cleanup & Production Hardening [DONE]
 
 > Stories completed: 22/22 (100%)
-> Current story: — (Phase Gate pending)
+> Current story: — (Phase Gate PASS 2026-04-13, conditional with 8 follow-ups)
 > Mode: AUTOPILOT
 > Started: 2026-04-13
+> Closed: 2026-04-13
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
 ### Wave 1 — Runtime Critical & Data Completeness [sequential]
@@ -220,6 +221,8 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-14 | SYNC | ROUTEMAP reconciled with actual Phase 10 Gate outcome. Phase 10 marked DONE (was IN PROGRESS with "Phase Gate pending" despite gate having run). Phase status line updated (20/22→22/22 drift fixed). Gate: PASS (conditional) on 2026-04-13 per docs/reports/phase-10-gate.md — 22/22 stories DONE, 10/10 gate steps executed, 2787 Go tests PASS, Vite build clean, 2 in-gate fixes applied (nginx upstream, fresh DB migrations), 8 follow-ups documented (F-1..F-8) and deferred as non-blocking. No code changes — documentation sync only. | docs/ROUTEMAP.md |
+| 2026-04-13 | PHASE-GATE | Phase 10 Gate PASS (conditional). 22/22 stories wired and green, 2787 tests PASS across 86 packages, Vite build clean. 2 infra fixes in-gate (nginx argus-app-blue→argus-app upstream; fresh-DB migration batch apply). 8 follow-ups documented & deferred (F-1 argus migrate subcommand, F-2 CONCURRENTLY+RLS partitioned-table clash, F-3 comprehensive seed 003 abort, F-4 SIM compare pre-selection, F-5 Turkish i18n coverage, F-6 Policies Compare button, F-7 /dashboard→/ alias, F-8 Invalid session ID transient toast) — none block Phase 10 closure. Report: docs/reports/phase-10-gate.md. Evidence: docs/e2e-evidence/phase-10/. | docs/reports/phase-10-gate.md, docs/e2e-evidence/phase-10/ |
 | 2026-04-13 | REVIEW | STORY-062 review completed. 14 checks — all passed (zero-deferral). ARCHITECTURE.md: scale 204→201 APIs (recount; +api_index_fixed); Split Architecture Files table: 144→201 endpoints, 35→46 tables. USERTEST.md: STORY-062 section added (5 backend perf scenarios: dashboard cache TTL, MSISDN bulk import, active sessions Redis counter, audit date-range 400, sessions CSV export). decisions.md: DEV-225 (dashboard 30s TTL + NATS invalidation vs short-TTL polling), DEV-226 (sessions counter Redis INCR/DECR + hourly SET reconciler vs real-time DB count), DEV-227 (MSISDN batch chunk size 500). ROUTEMAP: STORY-062 marked DONE, counter 20/22→21/22, current story→STORY-078. Glossary terms reviewed — 3 implementation-detail terms (dashboard cache invalidator, sessions counter reconciler, date range bounds validation) deliberately excluded (not domain vocabulary). Report: docs/stories/phase-10/STORY-062-review.md | docs/ARCHITECTURE.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
 | 2026-04-13 | REVIEW | STORY-076 review completed. 14 checks — all passed (zero-deferral). ARCHITECTURE.md: scale 203→204 APIs (+1). api/_index.md: +API-261 GET /api/v1/search (Universal Search endpoint); footer 203→204. GLOSSARY.md: 5 new terms (Universal Search, Command Palette, Row Quick-Peek, Row Actions Menu, Favorites) in new "Universal Search & Navigation Terms" section. USERTEST.md: STORY-076 section added (16 scenarios — backend 3 API/tenant/rate-limit, frontend 13 palette/shortcuts/favorites/recent/row-actions/quick-peek/detail/build). decisions.md: DEV-217 (debounce 300ms vs spec 200ms), DEV-218 (500ms search timeout), DEV-219 (cmdk shouldFilter=false in entity mode), DEV-220 (recentSearches cap 10), DEV-221 (flat response shape vs per-type DTOs). ROUTEMAP: STORY-076 marked DONE, counter 18/22→19/22, current story→STORY-077, D-008 (flat search shape) + D-009 (data-row-index annotation) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-076-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/GLOSSARY.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
 | 2026-04-13 | REVIEW | STORY-075 review completed. 7 cross-doc findings — all fixed (zero-deferral). ARCHITECTURE.md: scale 198→203 APIs (+5). api/_index.md: Sessions section +API-256 (GET /sessions/:id); Auth & Users section +API-257 (GET /users/:id) + API-258 (GET /users/:id/activity); new Policy Violations section API-259/260; footer 198→203. GLOSSARY.md: 4 new terms (Entity Link, Copyable ID, Cross-Entity Context, Remediation Action). SCREENS.md: header 59→64; SCR-170..174 added (Session/User/Alert/Violation/Tenant detail pages). USERTEST.md: STORY-075 section added (16 scenarios — backend 5 API+RLS scenarios, frontend 11 component+page scenarios). decisions.md: DEV-214 (shared organism pattern), DEV-215 (EntityLink inline route map), DEV-216 (remediation vs acknowledgment distinction). ROUTEMAP: STORY-075 marked DONE, counter 17/22→18/22, current story→STORY-076, D-007 (APN Policies Referencing) added to Tech Debt targeting STORY-077. Report: docs/stories/phase-10/STORY-075-review.md | docs/ARCHITECTURE.md, docs/architecture/api/_index.md, docs/GLOSSARY.md, docs/SCREENS.md, docs/USERTEST.md, docs/brainstorming/decisions.md |
