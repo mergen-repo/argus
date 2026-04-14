@@ -206,6 +206,26 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 ---
 
+## Test Infrastructure [IN PROGRESS]
+
+> Standalone track for test/dev tooling — not a phase. Independent of Documentation Phase.
+> Stories: 5 planned (080, 082, 083, 084, 085). Approach A (dumb-client simulator) ships first; Approach B (reactive simulator) is planned but deferred.
+> Planning: 2026-04-14 (all 5 plans written, user-approved approach A-first sequencing).
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-080 | Realistic Multi-Operator Test Seed (3 op, 2 tenant, 16 SIMs, partitions, argus_sim role) | S-M | [ ] PENDING | Plan approved | — | — |
+| STORY-082 | Operator Simulator — RADIUS (A-minimal): cmd/simulator, docker-compose.simulator.yml, make sim-*, scenario engine, metrics; folds live-stream verification AC | L-XL | [ ] PENDING | Plan approved | STORY-080 | — |
+| STORY-083 | Simulator — Diameter client (Gx/Gy), per-operator opt-in | M-L | [ ] PENDING | Plan approved | STORY-082 | — |
+| STORY-084 | Simulator — 5G SBA client (AUSF/UDM), per-operator opt-in | M | [ ] PENDING | Plan approved | STORY-082 | — |
+| STORY-085 | Simulator — Reactive behavior (approach B): state machine, CoA listener, Session-Timeout respect, reject backoff, bandwidth cap reaction | L-XL | [ ] PENDING | Plan approved (deferred) | STORY-082 | — |
+
+Plans: `docs/stories/test-infra/STORY-0{80,82,83,84,85}-plan.md`
+
+Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 → 085 (optional B upgrade). 083/084 can swap; 085 only if reactive testing becomes a priority.
+
+---
+
 ## Documentation Phase [NOT STARTED]
 
 | Step | Name | Status | Completed |
@@ -221,6 +241,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-14 | PLAN | Test Infrastructure track opened — 5 stories planned (STORY-080, 082, 083, 084, 085). User-agreed approach-A-minimal simulator first (RADIUS-only, dumb client); approach B (reactive) planned but deferred to STORY-085. Execution sequence: 080 → 082 → {083, 084} → 085 (optional). Plans under docs/stories/test-infra/. Consulted advisor 2026-04-14: dropped originally-scoped STORY-081 (live-stream verification — folded into STORY-082 AC-7/8 since no FE mock generators found); RADIUS-first phasing to avoid multi-protocol rush; direct DB read-only discovery over API (dev tool pragmatism); explicit call-out for SIM partition requirement per new operator (seed 002 precedent). | docs/stories/test-infra/STORY-0{80,82,83,84,85}-plan.md, docs/ROUTEMAP.md |
 | 2026-04-14 | FEATURE | Tenant Context Switch (post-Phase-10, on-prem UX). Super_admin can pick a tenant from a topbar dropdown (right of global search) and every tenant-scoped endpoint operates as if scoped to that tenant. Home tenant preserved in Claims.TenantID for audit; active selection lives only on access token so idle/reload returns to System View. BE: Claims.ActiveTenantID + GenerateSwitchedToken (jwt.go); applyAuthContext() middleware helper (auth_middleware.go) — non-super_admin ActiveTenantID claims are ignored defensively; POST /api/v1/auth/switch-tenant (API-262) + POST /api/v1/auth/exit-tenant-context (API-263) mounted in super_admin group (internal/api/admin/switch_tenant.go, impersonate pattern); emits tenant.context_switched / tenant.context_exited audit with from/to metadata. FE: web/src/lib/jwt.ts (display-only payload decoder); auth store homeTenantId() + activeTenantId() selectors; useSwitchTenant / useExitTenantContext mutations (queryClient.clear + wsClient.reconnectNow on success); TenantSwitcher dropdown in topbar (System View ⇆ Tenant:<name> chip, Exit-to-System-View footer, filter input when >8 tenants); reuses existing GET /api/v1/tenants (no new list endpoint). AAA hot path and API keys untouched. Docs: GLOSSARY +2 terms (Tenant Context Switch, System View); api/_index.md Auth & Users 16→18, footer 201→203; ARCHITECTURE.md scale line 201→203 APIs. Tests: +5 (GenerateSwitchedToken with/without active, middleware effective-tenant for super_admin, non-super_admin override ignored, standard-token no-active). tsc clean, Vite build green. Commits cd41969 (backend), 99e44da (frontend), + this doc commit. | internal/auth/jwt.go, internal/apierr/apierr.go, internal/gateway/auth_middleware.go, internal/gateway/apikey_auth.go, internal/gateway/router.go, internal/api/admin/switch_tenant.go, web/src/{lib/jwt.ts,stores/auth.ts,hooks/use-tenant-switch.ts,components/layout/tenant-switcher.tsx,components/layout/topbar.tsx}, docs/{ARCHITECTURE,GLOSSARY,architecture/api/_index}.md |
 | 2026-04-14 | SYNC | ROUTEMAP reconciled with actual Phase 10 Gate outcome. Phase 10 marked DONE (was IN PROGRESS with "Phase Gate pending" despite gate having run). Phase status line updated (20/22→22/22 drift fixed). Gate: PASS (conditional) on 2026-04-13 per docs/reports/phase-10-gate.md — 22/22 stories DONE, 10/10 gate steps executed, 2787 Go tests PASS, Vite build clean, 2 in-gate fixes applied (nginx upstream, fresh DB migrations), 8 follow-ups documented (F-1..F-8) and deferred as non-blocking. No code changes — documentation sync only. | docs/ROUTEMAP.md |
 | 2026-04-13 | PHASE-GATE | Phase 10 Gate PASS (conditional). 22/22 stories wired and green, 2787 tests PASS across 86 packages, Vite build clean. 2 infra fixes in-gate (nginx argus-app-blue→argus-app upstream; fresh-DB migration batch apply). 8 follow-ups documented & deferred (F-1 argus migrate subcommand, F-2 CONCURRENTLY+RLS partitioned-table clash, F-3 comprehensive seed 003 abort, F-4 SIM compare pre-selection, F-5 Turkish i18n coverage, F-6 Policies Compare button, F-7 /dashboard→/ alias, F-8 Invalid session ID transient toast) — none block Phase 10 closure. Report: docs/reports/phase-10-gate.md. Evidence: docs/e2e-evidence/phase-10/. | docs/reports/phase-10-gate.md, docs/e2e-evidence/phase-10/ |
