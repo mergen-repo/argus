@@ -889,6 +889,11 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Get("/api/v1/admin/purge-history", deps.AdminHandler.ListPurgeHistory)
 			// Impersonation
 			r.Post("/api/v1/admin/impersonate/{user_id}", deps.AdminHandler.Impersonate)
+			// Tenant context switch (super_admin only — target tenant picker
+			// in topbar). Exits below in its own group since exit works
+			// even when no context is active.
+			r.Post("/api/v1/auth/switch-tenant", deps.AdminHandler.SwitchTenant)
+			r.Post("/api/v1/auth/exit-tenant-context", deps.AdminHandler.ExitTenantContext)
 		})
 
 		// super_admin + tenant_admin scoped endpoints

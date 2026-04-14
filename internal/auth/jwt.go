@@ -23,6 +23,10 @@ type Claims struct {
 	Reason         string     `json:"reason,omitempty"`
 	Impersonated   bool       `json:"impersonated,omitempty"`
 	ImpersonatedBy *uuid.UUID `json:"act_sub,omitempty"`
+	// ActiveTenantID is a super_admin-only tenant context override. When set
+	// and role == "super_admin", tenant-scoped middleware uses this instead
+	// of TenantID. TenantID always remains the admin's home tenant.
+	ActiveTenantID *uuid.UUID `json:"active_tenant,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -66,6 +70,28 @@ func GeneratePartialToken(secret string, userID, tenantID uuid.UUID, role string
 		},
 	}
 
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+// GenerateSwitchedToken mints a token identical to a standard access token
+// except that ActiveTenantID carries a super_admin-selected tenant context.
+// Pass activeTenantID=nil to clear an existing switch (exit tenant context).
+// homeTenantID must always be the user's original/home tenant.
+func GenerateSwitchedToken(secret string, userID, homeTenantID uuid.UUID, activeTenantID *uuid.UUID, role string, expiry time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UserID:         userID,
+		TenantID:       homeTenantID,
+		Role:           role,
+		ActiveTenantID: activeTenantID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "argus",
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		},
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
 }

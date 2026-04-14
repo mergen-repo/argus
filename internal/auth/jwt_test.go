@@ -244,6 +244,61 @@ func TestValidateTokenMulti_MetricHookCalledFailedSlot(t *testing.T) {
 	}
 }
 
+func TestGenerateSwitchedToken_WithActiveTenant(t *testing.T) {
+	userID := uuid.New()
+	homeTenantID := uuid.New()
+	activeTenantID := uuid.New()
+
+	token, err := GenerateSwitchedToken(testSecret, userID, homeTenantID, &activeTenantID, "super_admin", time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateSwitchedToken failed: %v", err)
+	}
+
+	claims, err := ValidateToken(token, testSecret)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.UserID != userID {
+		t.Errorf("UserID mismatch: got %v, want %v", claims.UserID, userID)
+	}
+	if claims.TenantID != homeTenantID {
+		t.Errorf("TenantID (home) should be preserved: got %v, want %v", claims.TenantID, homeTenantID)
+	}
+	if claims.ActiveTenantID == nil {
+		t.Fatal("ActiveTenantID should be set")
+	}
+	if *claims.ActiveTenantID != activeTenantID {
+		t.Errorf("ActiveTenantID mismatch: got %v, want %v", *claims.ActiveTenantID, activeTenantID)
+	}
+	if claims.Role != "super_admin" {
+		t.Errorf("Role mismatch: got %v", claims.Role)
+	}
+	if claims.Impersonated {
+		t.Error("Impersonated should not be set for tenant switch")
+	}
+}
+
+func TestGenerateSwitchedToken_NilClearsActiveTenant(t *testing.T) {
+	userID := uuid.New()
+	homeTenantID := uuid.New()
+
+	token, err := GenerateSwitchedToken(testSecret, userID, homeTenantID, nil, "super_admin", time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateSwitchedToken failed: %v", err)
+	}
+
+	claims, err := ValidateToken(token, testSecret)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.ActiveTenantID != nil {
+		t.Errorf("ActiveTenantID should be nil after exit, got %v", *claims.ActiveTenantID)
+	}
+	if claims.TenantID != homeTenantID {
+		t.Errorf("TenantID (home) should be preserved on exit: got %v, want %v", claims.TenantID, homeTenantID)
+	}
+}
+
 func TestValidateTokenMulti_EmptySecretsSkipped(t *testing.T) {
 	userID := uuid.New()
 	tenantID := uuid.New()

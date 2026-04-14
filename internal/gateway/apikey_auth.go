@@ -137,9 +137,7 @@ func CombinedAuth(jwtSecret string, apiKeyStore *store.APIKeyStore, logger zerol
 
 				ctx := r.Context()
 				ctx = context.WithValue(ctx, apierr.AuthTypeKey, "jwt")
-				ctx = context.WithValue(ctx, apierr.TenantIDKey, claims.TenantID)
-				ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
-				ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+				ctx = applyAuthContext(ctx, claims)
 
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return

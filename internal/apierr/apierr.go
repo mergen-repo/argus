@@ -9,7 +9,18 @@ type contextKey string
 
 const (
 	CorrelationIDKey contextKey = "correlation_id"
+	// TenantIDKey holds the EFFECTIVE tenant for the current request. For a
+	// super_admin with an active tenant-context switch, this is the selected
+	// tenant; for all other users it equals the user's home tenant.
 	TenantIDKey      contextKey = "tenant_id"
+	// HomeTenantIDKey holds the user's original/home tenant from the JWT.
+	// Audit consumers that need the admin's real tenant (not the active
+	// scope) should read this key.
+	HomeTenantIDKey  contextKey = "home_tenant_id"
+	// ActiveTenantIDKey is set only when a super_admin has switched into a
+	// tenant context. Absent otherwise. Presence of this key is the
+	// authoritative signal that "viewing-as-tenant" is active.
+	ActiveTenantIDKey contextKey = "active_tenant_id"
 	UserIDKey        contextKey = "user_id"
 	RoleKey          contextKey = "role"
 	AuthTypeKey      contextKey = "auth_type"

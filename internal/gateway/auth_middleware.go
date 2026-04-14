@@ -9,6 +9,24 @@ import (
 	"github.com/btopcu/argus/internal/auth"
 )
 
+// applyAuthContext sets TenantIDKey (effective), HomeTenantIDKey, UserIDKey,
+// RoleKey, and — when a super_admin has an active tenant-context switch —
+// ActiveTenantIDKey. The effective tenant equals claims.TenantID unless the
+// caller is a super_admin with a non-nil ActiveTenantID override.
+func applyAuthContext(ctx context.Context, claims *auth.Claims) context.Context {
+	ctx = context.WithValue(ctx, apierr.HomeTenantIDKey, claims.TenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
+	ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+
+	effectiveTenant := claims.TenantID
+	if claims.ActiveTenantID != nil && claims.Role == "super_admin" {
+		effectiveTenant = *claims.ActiveTenantID
+		ctx = context.WithValue(ctx, apierr.ActiveTenantIDKey, *claims.ActiveTenantID)
+	}
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, effectiveTenant)
+	return ctx
+}
+
 func JWTAuth(currentSecret, previousSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,10 +55,7 @@ func JWTAuth(currentSecret, previousSecret string) func(http.Handler) http.Handl
 				return
 			}
 
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, apierr.TenantIDKey, claims.TenantID)
-			ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+			ctx := applyAuthContext(r.Context(), claims)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -69,10 +84,7 @@ func JWTAuthAllowPartial(currentSecret, previousSecret string) func(http.Handler
 				return
 			}
 
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, apierr.TenantIDKey, claims.TenantID)
-			ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+			ctx := applyAuthContext(r.Context(), claims)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -110,10 +122,7 @@ func JWTAuthAllowForceChange(currentSecret, previousSecret string) func(http.Han
 				}
 			}
 
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, apierr.TenantIDKey, claims.TenantID)
-			ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+			ctx := applyAuthContext(r.Context(), claims)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
