@@ -7,7 +7,7 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
-## Auth & Users (16 endpoints)
+## Auth & Users (18 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -28,6 +28,8 @@
 | API-200 | POST | /api/v1/users/:id/reset-password | Admin reset: issue temp password (returned once), set force-change flag | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-3) |
 | API-257 | GET | /api/v1/users/:id | Get user detail (profile + totp_enabled + state + last_login + locked_until); cross-tenant 404 on mismatch | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 | API-258 | GET | /api/v1/users/:id/activity | Get user audit-log activity (cursor-paginated, filtered to actor_id); cross-tenant 404 | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
+| API-262 | POST | /api/v1/auth/switch-tenant | Super_admin-only: activate a tenant context so all subsequent tenant-scoped endpoints operate as if scoped to `{tenant_id}`. Returns new JWT with `active_tenant` claim. Target tenant must have `state='active'` (403 CodeTenantSuspended otherwise). Emits `tenant.context_switched` audit entry under target tenant. | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. Home tenant remains in `tenant_id` claim for audit. |
+| API-263 | POST | /api/v1/auth/exit-tenant-context | Super_admin-only: clear active tenant context and return to System View. Idempotent. Returns new JWT with `active_tenant` cleared. Emits `tenant.context_exited` audit entry under the previously-active tenant (if any). | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. |
 
 ## Tenants (5 endpoints)
 
@@ -443,4 +445,4 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 201 REST endpoints + 10 WebSocket event types**
+**Total: 203 REST endpoints + 10 WebSocket event types**

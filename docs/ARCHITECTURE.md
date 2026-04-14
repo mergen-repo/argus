@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (201 APIs, 46 tables, 10 services)
+> Scale: Large (203 APIs, 46 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -501,7 +501,7 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (201 endpoints + story links) |
+| [architecture/api/](architecture/api/_index.md) | API surface (203 endpoints + story links) |
 | [architecture/db/](architecture/db/_index.md) | Database schema (46 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
