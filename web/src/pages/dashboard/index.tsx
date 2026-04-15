@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Sparkline } from '@/components/ui/sparkline'
-import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics } from '@/hooks/use-dashboard'
+import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -210,6 +210,58 @@ const KPICard = React.memo(function KPICard({
 
 // ─── Operator Health Matrix ─────────────────────────────────────────────────
 
+// Stable reference so the selector below doesn't return a fresh empty
+// array on every render (Zustand uses strict equality → would infinite-loop).
+const EMPTY_BUCKET_ARRAY: Array<{ minute: number; count: number }> = []
+
+// OperatorActivitySparkline — per-operator 15-minute bar-style histogram
+// fed by useEventStore.operatorHistogram. Updates live as session.started/
+// updated/ended events stream in. Mirrors the topbar ActivitySparkline's
+// visual language (thin bars, last-minute highlighted) but scoped to a
+// single operator_id.
+function OperatorActivitySparkline({ operatorId }: { operatorId: string }) {
+  const histogram = useEventStore((s) => s.operatorHistogram[operatorId]) ?? EMPTY_BUCKET_ARRAY
+
+  const bars = useMemo(() => {
+    const now = Math.floor(Date.now() / 60_000)
+    const result: number[] = []
+    for (let i = 14; i >= 0; i--) {
+      const min = now - i
+      const bucket = histogram.find((b) => b.minute === min)
+      result.push(bucket?.count ?? 0)
+    }
+    return result
+  }, [histogram])
+
+  const max = Math.max(...bars, 1)
+  const recent = bars.slice(-3).reduce((a, b) => a + b, 0)
+  const total15m = bars.reduce((a, b) => a + b, 0)
+  const hasActivity = recent > 0
+
+  return (
+    <div className="flex items-center gap-2" title={`${total15m} events in last 15min · ${recent} in last 3min`}>
+      <div className="flex items-end gap-[1.5px] h-4">
+        {bars.map((v, i) => (
+          <div
+            key={i}
+            className={cn(
+              'w-[3px] rounded-t-[1px] transition-all duration-300',
+              i === bars.length - 1 && hasActivity ? 'bg-accent' : v > 0 ? 'bg-accent/50' : 'bg-text-tertiary/15',
+            )}
+            style={{ height: `${Math.max((v / max) * 100, 8)}%` }}
+          />
+        ))}
+      </div>
+      <span className={cn(
+        'font-mono text-[11px] tabular-nums w-[32px] text-right',
+        hasActivity ? 'text-accent' : 'text-text-tertiary/40',
+      )}>
+        {recent}
+      </span>
+    </div>
+  )
+}
+
 const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
   data,
 }: {
@@ -238,13 +290,6 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
     return 'text-danger'
   }
 
-  const slaStatus = (health: number, target: number) => {
-    const diff = health - target
-    if (diff >= 0.5) return { icon: <CheckCircle2 className="h-3.5 w-3.5 text-success" />, label: 'Met' }
-    if (diff >= 0) return { icon: <AlertTriangle className="h-3.5 w-3.5 text-warning" />, label: 'Close' }
-    return { icon: <XCircle className="h-3.5 w-3.5 text-danger" />, label: 'Breach' }
-  }
-
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '250ms' }}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -265,66 +310,57 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                 <TableRow className="border-b border-border">
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pr-3">Operator</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</TableHead>
-                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth/s</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</TableHead>
-                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-center">SLA</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-right">Activity</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.map((op) => {
-                  const sla = slaStatus(op.health_pct, op.sla_target || 99.5)
-                  return (
-                    <TableRow
-                      key={op.id}
-                      className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-bg-hover transition-colors group"
-                      onClick={() => navigate(`/operators/${op.id}`)}
-                    >
-                      <TableCell className="py-2.5 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] text-text-primary font-medium group-hover:text-accent transition-colors">
-                            {op.name}
-                          </span>
-                          {op.code && (
-                            <span className="text-[10px] font-mono text-text-tertiary">{op.code}</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-2.5 px-3 text-center">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span
-                            className="h-2 w-2 rounded-full pulse-dot"
-                            style={{
-                              backgroundColor: statusColor(op.status),
-                              boxShadow: `0 0 6px ${statusColor(op.status)}60`,
-                            }}
-                          />
-                          <span className="text-[11px] text-text-secondary capitalize">{op.status}</span>
+                {data.map((op) => (
+                  <TableRow
+                    key={op.id}
+                    className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-bg-hover transition-colors group"
+                    onClick={() => navigate(`/operators/${op.id}`)}
+                  >
+                    <TableCell className="py-2.5 pr-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-text-primary font-medium group-hover:text-accent transition-colors">
+                          {op.name}
                         </span>
-                      </TableCell>
-                      <TableCell className="py-2.5 px-3 text-right">
-                        <span className="font-mono text-[12px] text-text-primary">
-                          {formatNumber(Math.round(op.auth_rate || 0))}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2.5 px-3 text-right">
-                        <span className={cn('font-mono text-[12px]', uptimeColor(op.health_pct))}>
-                          {op.health_pct.toFixed(2)}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2.5 px-3 text-right">
-                        <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
-                          {(op.latency_ms || 0).toFixed(0)}ms
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2.5 pl-3 text-center">
-                        <span className="inline-flex items-center gap-1" title={sla.label}>
-                          {sla.icon}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                        {op.code && (
+                          <span className="text-[10px] font-mono text-text-tertiary">{op.code}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-center">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="h-2 w-2 rounded-full pulse-dot"
+                          style={{
+                            backgroundColor: statusColor(op.status),
+                            boxShadow: `0 0 6px ${statusColor(op.status)}60`,
+                          }}
+                        />
+                        <span className="text-[11px] text-text-secondary capitalize">{op.status}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-right">
+                      <span className={cn('font-mono text-[12px]', uptimeColor(op.health_pct))}>
+                        {op.health_pct.toFixed(2)}%
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-right">
+                      <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
+                        {(op.latency_ms || 0).toFixed(0)}ms
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 pl-3">
+                      <div className="flex justify-end">
+                        <OperatorActivitySparkline operatorId={op.id} />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
           </Table>
         )}
@@ -930,6 +966,7 @@ export default function DashboardPage() {
   useRealtimeAuthPerSec()
   useRealtimeAlerts()
   useRealtimeMetrics()
+  useRealtimeActiveSessions()
 
   const navigate = useNavigate()
 

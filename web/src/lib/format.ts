@@ -7,9 +7,13 @@ export function formatBytes(bytes: number): string {
 
 export function formatNumber(n: number | null | undefined): string {
   if (n == null) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
+  // Round to integer — this formatter is for count-style KPIs (SIMs,
+  // sessions, records). Percentage / decimal KPIs use their own
+  // formatters (e.g. `${n.toFixed(1)}%`) to preserve precision.
+  const r = Math.round(n)
+  if (r >= 1_000_000) return `${(r / 1_000_000).toFixed(1)}M`
+  if (r >= 1_000) return `${(r / 1_000).toFixed(1)}K`
+  return r.toLocaleString()
 }
 
 export function formatCurrency(n: number): string {

@@ -91,6 +91,33 @@ export function useRealtimeAuthPerSec() {
   return latestRef
 }
 
+// useRealtimeActiveSessions live-updates the Active Sessions KPI card
+// by mutating the dashboard query cache on session lifecycle events.
+// The global metrics.realtime pusher reports sum-across-tenants which
+// we don't want; instead we derive the delta from tenant-scoped WS
+// events (BroadcastToTenant already filters to the admin's tenant).
+// session.started → +1, session.ended → -1.
+export function useRealtimeActiveSessions() {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const apply = (delta: number) => {
+      queryClient.setQueryData<DashboardData>(DASHBOARD_KEY, (old) => {
+        if (!old) return old
+        const next = Math.max(0, (old.active_sessions ?? 0) + delta)
+        return {
+          ...old,
+          active_sessions: next,
+          metrics: { ...old.metrics, active_sessions: next },
+        }
+      })
+    }
+    const unsubStart = wsClient.on('session.started', () => apply(1))
+    const unsubEnd = wsClient.on('session.ended', () => apply(-1))
+    return () => { unsubStart(); unsubEnd() }
+  }, [queryClient])
+}
+
 export function useRealtimeAlerts() {
   const queryClient = useQueryClient()
 
