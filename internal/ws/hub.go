@@ -246,6 +246,7 @@ func natsSubjectToWSType(subject string) string {
 		"argus.events.operator.health":       "operator.health_changed",
 		"argus.events.alert.triggered":       "alert.new",
 		"argus.events.session.started":       "session.started",
+		"argus.events.session.updated":       "session.updated",
 		"argus.events.session.ended":         "session.ended",
 		"argus.events.sim.updated":           "sim.state_changed",
 		"argus.events.notification.dispatch": "notification.new",

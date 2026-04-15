@@ -21,7 +21,6 @@ import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetr
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { wsClient } from '@/lib/ws'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -35,15 +34,7 @@ const STATE_COLORS: Record<string, string> = {
   lost: 'var(--color-purple)',
 }
 
-interface LiveEvent {
-  id: string
-  type: string
-  message: string
-  severity: 'critical' | 'warning' | 'info'
-  timestamp: string
-  entity_type?: string
-  entity_id?: string
-}
+import { useEventStore, type LiveEvent } from '@/stores/events'
 
 // ─── System Status Strip ────────────────────────────────────────────────────
 
@@ -615,6 +606,36 @@ const TopAPNsByTraffic = React.memo(function TopAPNsByTraffic({
 
 // ─── Live Event Stream ──────────────────────────────────────────────────────
 
+// EventSourceChips renders IMSI / IP / Operator / APN / Policy / Job chips
+// derived from the LiveEvent payload. Highlights SIM-level context
+// (IMSI/IP) in accent colour; falls back to entity_type:entity_id when no
+// richer signal is present.
+function EventSourceChips({ event }: { event: LiveEvent }) {
+  const chips: Array<{ label: string; value: string; highlight?: boolean }> = []
+  if (event.imsi) chips.push({ label: 'IMSI', value: event.imsi, highlight: true })
+  if (event.framed_ip) chips.push({ label: 'IP', value: event.framed_ip, highlight: true })
+  if (event.msisdn) chips.push({ label: 'MSISDN', value: event.msisdn })
+  if (event.operator_id && !event.imsi) chips.push({ label: 'Op', value: event.operator_id.slice(0, 8) })
+  if (event.apn_id && !event.imsi) chips.push({ label: 'APN', value: event.apn_id.slice(0, 8) })
+  if (event.policy_id) chips.push({ label: 'Policy', value: event.policy_id.slice(0, 8) })
+  if (event.job_id) chips.push({ label: 'Job', value: event.job_id.slice(0, 8) })
+  if (typeof event.progress_pct === 'number') chips.push({ label: '%', value: `${Math.round(event.progress_pct)}` })
+  if (chips.length === 0 && event.entity_type && event.entity_id) {
+    chips.push({ label: event.entity_type, value: event.entity_id.slice(0, 8) })
+  }
+  if (chips.length === 0) return null
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+      {chips.map((c, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-mono">
+          <span className="text-text-tertiary opacity-60">{c.label}</span>
+          <span className={c.highlight ? 'text-accent' : 'text-text-secondary'}>{c.value}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function eventIcon(type: string) {
   switch (type) {
     case 'sim.activated':
@@ -641,31 +662,13 @@ function eventIcon(type: string) {
 
 function LiveEventStream() {
   const navigate = useNavigate()
-  const [events, setEvents] = useState<LiveEvent[]>([])
+  // Shared event store — DashboardLayout's useGlobalEventListener already
+  // subscribes to wsClient and enriches every event with source fields
+  // (imsi, framed_ip, msisdn, operator_id, apn_id, policy_id, job_id,
+  // progress_pct). Reusing the store avoids duplicate WS subscriptions
+  // and keeps this inline stream consistent with the drawer.
+  const events = useEventStore((s) => s.events).slice(0, 50)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const unsub = wsClient.on('*', (rawMsg: unknown) => {
-      const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
-      if (!msg.type) return
-
-      const evtData = msg.data || {}
-      const envelope = rawMsg as { id?: string; type?: string; data?: Record<string, unknown> }
-      const newEvent: LiveEvent = {
-        id: envelope.id || `fallback-${Date.now()}`,
-        type: msg.type,
-        message: (evtData.message as string) || msg.type.replace(/\./g, ' '),
-        severity: (evtData.severity as LiveEvent['severity']) || 'info',
-        timestamp: new Date().toISOString(),
-        entity_type: evtData.entity_type as string,
-        entity_id: evtData.entity_id as string,
-      }
-
-      setEvents((prev) => [newEvent, ...prev].slice(0, 50))
-    })
-
-    return unsub
-  }, [])
 
   const handleEventClick = useCallback((event: LiveEvent) => {
     if (event.entity_type && event.entity_id) {
@@ -714,27 +717,48 @@ function LiveEventStream() {
               <span>Waiting for events...</span>
             </div>
           ) : (
-            events.map((event, idx) => (
-              <div
-                key={event.id}
-                className={cn(
-                  'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors',
-                  idx === 0 && 'animate-slide-up-in',
-                )}
-                onClick={() => handleEventClick(event)}
-              >
-                {eventIcon(event.type)}
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0 w-[42px]">
-                    {new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <span className="text-[12px] text-text-primary truncate">{event.message}</span>
+            events.map((event, idx) => {
+              const ts = new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+              // Compact row for the per-second metrics heartbeat — keeps
+              // signal in the drawer without drowning substantive events.
+              if (event.type === 'metrics.realtime') {
+                return (
+                  <div
+                    key={event.id}
+                    className={cn(
+                      'flex items-center gap-2 py-0.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
+                      idx === 0 && 'animate-slide-up-in',
+                    )}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent/60 pulse-dot shrink-0" />
+                    <span className="text-[10px] font-mono text-text-tertiary">{ts}</span>
+                    <span className="text-[10px] text-text-tertiary">metrics pulse</span>
+                  </div>
+                )
+              }
+              return (
+                <div
+                  key={event.id}
+                  className={cn(
+                    'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors',
+                    idx === 0 && 'animate-slide-up-in',
+                  )}
+                  onClick={() => handleEventClick(event)}
+                >
+                  {eventIcon(event.type)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0">{ts}</span>
+                      <span className="text-[12px] text-text-primary truncate">{event.message}</span>
+                    </div>
+                    <EventSourceChips event={event} />
+                  </div>
+                  <Badge variant={severityVariant(event.severity)} className="text-[9px] flex-shrink-0 py-0">
+                    {event.severity}
+                  </Badge>
                 </div>
-                <Badge variant={severityVariant(event.severity)} className="text-[9px] flex-shrink-0 py-0">
-                  {event.severity}
-                </Badge>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </CardContent>

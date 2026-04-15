@@ -658,6 +658,7 @@ func main() {
 	wsHub := ws.NewHub(log.Logger)
 	if err := wsHub.SubscribeToNATS(&eventBusWSSubscriber{eventBus}, []string{
 		bus.SubjectSessionStarted,
+		bus.SubjectSessionUpdated,
 		bus.SubjectSessionEnded,
 		bus.SubjectSIMUpdated,
 		bus.SubjectOperatorHealthChanged,
