@@ -26,6 +26,12 @@ function useGlobalEventListener() {
     const unsub = wsClient.on('*', (rawMsg: unknown) => {
       const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
       if (!msg.type) return
+      // metrics.realtime is a 1Hz system-pulse heartbeat (auth/s, error%,
+      // active_sessions, latency) that drives the dashboard KPI cards
+      // and topbar activity sparkline. It carries no SIM-level context
+      // — excluding it here keeps the event stream focused on
+      // per-subscriber actions (auth, usage, disconnect, SIM state).
+      if (msg.type === 'metrics.realtime') return
       const d = msg.data || {}
       const envelope = rawMsg as { id?: string; type?: string; data?: Record<string, unknown> }
       const evt: LiveEvent = {

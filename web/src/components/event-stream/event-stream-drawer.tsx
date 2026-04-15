@@ -83,24 +83,9 @@ export function EventStreamDrawer() {
           </div>
         ) : (
           events.map((event, idx) => {
-            // metrics.realtime is a system-pulse signal pushed every second;
-            // render it as a single compact row (timestamp + pulse dot) so it
-            // doesn't drown out substantive events.
-            if (event.type === 'metrics.realtime') {
-              return (
-                <div
-                  key={event.id}
-                  className={cn(
-                    'flex items-center gap-2 py-0.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
-                    idx === 0 && 'animate-slide-up-in',
-                  )}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-accent/60 pulse-dot shrink-0" />
-                  <span className="font-mono text-[10px] text-text-tertiary">{formatTime(event.timestamp)}</span>
-                  <span className="text-[10px] text-text-tertiary">metrics pulse</span>
-                </div>
-              )
-            }
+            // metrics.realtime is filtered out at ingest (see dashboard-layout
+            // useGlobalEventListener) — it's a system heartbeat, not a
+            // subscriber-level event. Every row below is per-SIM / per-entity.
             return (
               <div
                 key={event.id}

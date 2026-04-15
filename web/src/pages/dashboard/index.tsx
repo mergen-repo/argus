@@ -719,23 +719,8 @@ function LiveEventStream() {
           ) : (
             events.map((event, idx) => {
               const ts = new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-              // Compact row for the per-second metrics heartbeat — keeps
-              // signal in the drawer without drowning substantive events.
-              if (event.type === 'metrics.realtime') {
-                return (
-                  <div
-                    key={event.id}
-                    className={cn(
-                      'flex items-center gap-2 py-0.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
-                      idx === 0 && 'animate-slide-up-in',
-                    )}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent/60 pulse-dot shrink-0" />
-                    <span className="text-[10px] font-mono text-text-tertiary">{ts}</span>
-                    <span className="text-[10px] text-text-tertiary">metrics pulse</span>
-                  </div>
-                )
-              }
+              // metrics.realtime filtered out at ingest — see
+              // dashboard-layout.tsx useGlobalEventListener.
               return (
                 <div
                   key={event.id}
