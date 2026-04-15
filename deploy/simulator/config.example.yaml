@@ -50,10 +50,13 @@ scenarios:
     bytes_per_interim_in: [100000, 1000000]
     bytes_per_interim_out: [50000, 500000]
 
-# Global rate limit protects Argus from startup bursts.
+# Global rate limit protects Argus from startup bursts. Sized for ~200
+# concurrent SIMs: auth (1×) + acct-start (1×) + interim (every 60s) +
+# acct-stop (1×). At 200 SIMs steady-state: ~3.3 interims/s → 20 req/s
+# cap leaves headroom for session churn.
 rate:
-  max_radius_requests_per_second: 5
-  initial_jitter_seconds: [0, 30]
+  max_radius_requests_per_second: 25
+  initial_jitter_seconds: [0, 60]
 
 metrics:
   listen: ":9099"
