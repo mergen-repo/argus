@@ -71,6 +71,7 @@ type sessionDTO struct {
 	OperatorName  string  `json:"operator_name,omitempty"`
 	APNID         string  `json:"apn_id,omitempty"`
 	APNName       string  `json:"apn_name,omitempty"`
+	ICCID         string  `json:"iccid,omitempty"`
 	IMSI          string  `json:"imsi"`
 	MSISDN        string  `json:"msisdn,omitempty"`
 	AcctSessionID string  `json:"acct_session_id"`
@@ -145,11 +146,22 @@ type bulkDisconnectResponse struct {
 	DisconnectedCount *int    `json:"disconnected_count,omitempty"`
 }
 
+// stripCIDR removes an optional "/N" suffix. PostgreSQL INET columns
+// round-trip as "10.0.0.1/32" even for host addresses; downstream
+// consumers want the bare IP.
+func stripCIDR(ip string) string {
+	if i := strings.Index(ip, "/"); i >= 0 {
+		return ip[:i]
+	}
+	return ip
+}
+
 func toSessionDTO(s *session.Session) sessionDTO {
 	duration := time.Since(s.StartedAt).Seconds()
 	if !s.EndedAt.IsZero() {
 		duration = s.EndedAt.Sub(s.StartedAt).Seconds()
 	}
+	framedIP := stripCIDR(s.FramedIP)
 	return sessionDTO{
 		ID:            s.ID,
 		SimID:         s.SimID,
@@ -159,14 +171,14 @@ func toSessionDTO(s *session.Session) sessionDTO {
 		IMSI:          s.IMSI,
 		MSISDN:        s.MSISDN,
 		AcctSessionID: s.AcctSessionID,
-		NASIP:         s.NASIP,
-		FramedIP:      s.FramedIP,
+		NASIP:         stripCIDR(s.NASIP),
+		FramedIP:      framedIP,
 		RATType:       s.RATType,
 		State:         s.SessionState,
 		BytesIn:       s.BytesIn,
 		BytesOut:      s.BytesOut,
 		DurationSec:   duration,
-		IPAddress:     s.FramedIP,
+		IPAddress:     framedIP,
 		StartedAt:     s.StartedAt.Format(timeFmt),
 	}
 }
@@ -174,11 +186,16 @@ func toSessionDTO(s *session.Session) sessionDTO {
 func (h *Handler) enrichSessionDTO(ctx context.Context, tenantIDStr string, s *session.Session, dto *sessionDTO) {
 	tenantID, _ := uuid.Parse(tenantIDStr)
 
-	if dto.IMSI == "" && h.simStore != nil && s.SimID != "" {
+	if h.simStore != nil && s.SimID != "" {
 		simID, err := uuid.Parse(s.SimID)
 		if err == nil {
 			if sim, err := h.simStore.GetByID(ctx, tenantID, simID); err == nil {
-				dto.IMSI = sim.IMSI
+				if dto.IMSI == "" {
+					dto.IMSI = sim.IMSI
+				}
+				if dto.ICCID == "" {
+					dto.ICCID = sim.ICCID
+				}
 				if dto.MSISDN == "" && sim.MSISDN != nil {
 					dto.MSISDN = *sim.MSISDN
 				}

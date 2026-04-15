@@ -125,15 +125,21 @@ function SessionRow({
       data-href={`/sessions/${session.id}`}
     >
       <TableCell>
+        <span className="font-mono text-xs text-accent">{session.iccid || '-'}</span>
+      </TableCell>
+      <TableCell>
         <span
-          className="font-mono text-xs text-accent hover:underline cursor-pointer"
+          className="font-mono text-xs text-text-secondary hover:underline cursor-pointer"
           onClick={(e) => { e.stopPropagation(); if (session.sim_id) onIMSIClick(session.sim_id) }}
         >
           {session.imsi}
         </span>
       </TableCell>
       <TableCell>
-        <span className="font-mono text-xs text-text-tertiary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
+        <span className="font-mono text-xs text-text-secondary">{session.msisdn || '-'}</span>
+      </TableCell>
+      <TableCell>
+        <span className="font-mono text-xs text-text-secondary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
       </TableCell>
       <TableCell>
         <span className="text-xs text-text-secondary">{session.operator_name || session.operator_id.slice(0, 8)}</span>
@@ -373,7 +379,9 @@ export default function SessionListPage() {
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
+                <TableHead>ICCID</TableHead>
                 <TableHead>IMSI</TableHead>
+                <TableHead>MSISDN</TableHead>
                 <TableHead>IP Address</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>APN</TableHead>
@@ -390,7 +398,7 @@ export default function SessionListPage() {
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 10 }).map((_, j) => (
+                    {Array.from({ length: 13 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
@@ -398,7 +406,7 @@ export default function SessionListPage() {
 
               {!isLoading && filteredSessions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10}>
+                  <TableCell colSpan={13}>
                     <EmptyState
                       icon={Wifi}
                       title="No active sessions"

@@ -6,6 +6,7 @@ export interface Session {
   operator_name?: string
   apn_id?: string
   apn_name?: string
+  iccid?: string
   imsi: string
   msisdn?: string
   acct_session_id: string

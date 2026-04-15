@@ -55,14 +55,17 @@ export interface OperatorSessionRow {
   id: string
   sim_id: string
   operator_id: string
-  apn_id: string | null
-  nas_ip: string | null
-  framed_ip: string | null
+  apn_id?: string
+  nas_ip: string
+  framed_ip?: string
+  imsi?: string
+  iccid?: string
+  msisdn?: string
   session_state: string
   started_at: string
+  duration_sec: number
   bytes_in: number
   bytes_out: number
-  imsi?: string
 }
 
 export function useOperatorSessions(id: string, limit: number = 50) {

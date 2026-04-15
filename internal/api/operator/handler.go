@@ -801,11 +801,83 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apierr.WriteList(w, http.StatusOK, sessions, apierr.ListMeta{
+	// Enrich with ICCID / IMSI / MSISDN by joining SIM data.
+	// Per-session SIM fetch — bounded by limit (≤100).
+	items := make([]operatorSessionDTO, 0, len(sessions))
+	now := time.Now()
+	for i := range sessions {
+		s := &sessions[i]
+		dto := operatorSessionDTO{
+			ID:            s.ID.String(),
+			SimID:         s.SimID.String(),
+			OperatorID:    s.OperatorID.String(),
+			NASIP:         stripCIDRSuffix(deref(s.NASIP)),
+			FramedIP:      stripCIDRSuffix(deref(s.FramedIP)),
+			SessionState:  s.SessionState,
+			StartedAt:     s.StartedAt.Format(time.RFC3339),
+			BytesIn:       s.BytesIn,
+			BytesOut:      s.BytesOut,
+			DurationSec:   int64(now.Sub(s.StartedAt).Seconds()),
+		}
+		if s.APNID != nil {
+			apnID := s.APNID.String()
+			dto.APNID = &apnID
+		}
+		if h.simStore != nil {
+			if sim, err := h.simStore.GetByID(r.Context(), tenantID, s.SimID); err == nil {
+				dto.IMSI = sim.IMSI
+				dto.ICCID = sim.ICCID
+				if sim.MSISDN != nil {
+					dto.MSISDN = *sim.MSISDN
+				}
+			}
+		}
+		items = append(items, dto)
+	}
+
+	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
 		Cursor:  nextCursor,
 		HasMore: nextCursor != "",
 		Limit:   limit,
 	})
+}
+
+// operatorSessionDTO is the enriched response shape for operator sessions:
+// joins RadiusSession + SIM (for IMSI / ICCID / MSISDN). Duration is
+// computed server-side so UI doesn't need clock sync.
+type operatorSessionDTO struct {
+	ID           string  `json:"id"`
+	SimID        string  `json:"sim_id"`
+	OperatorID   string  `json:"operator_id"`
+	APNID        *string `json:"apn_id,omitempty"`
+	NASIP        string  `json:"nas_ip"`
+	FramedIP     string  `json:"framed_ip,omitempty"`
+	IMSI         string  `json:"imsi,omitempty"`
+	ICCID        string  `json:"iccid,omitempty"`
+	MSISDN       string  `json:"msisdn,omitempty"`
+	SessionState string  `json:"session_state"`
+	StartedAt    string  `json:"started_at"`
+	DurationSec  int64   `json:"duration_sec"`
+	BytesIn      int64   `json:"bytes_in"`
+	BytesOut     int64   `json:"bytes_out"`
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// stripCIDRSuffix removes an optional "/N" (e.g. "10.0.0.1/32" → "10.0.0.1").
+// PostgreSQL INET columns serialise with the suffix even for host addresses.
+func stripCIDRSuffix(ip string) string {
+	for i, c := range ip {
+		if c == '/' {
+			return ip[:i]
+		}
+	}
+	return ip
 }
 
 // GetTraffic returns bytes-in/out time-series bucketed over the requested

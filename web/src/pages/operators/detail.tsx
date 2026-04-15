@@ -711,15 +711,19 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
   )
 }
 
-function SessionsTab({ operatorId }: { operatorId: string }) {
-  const { data: sessions = [], isLoading, isError } = useOperatorSessions(operatorId, 50)
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m < 60) return `${m}m ${s}s`
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return `${h}h ${mm}m`
+}
 
-  const fmtBytes = (n: number) => {
-    if (n >= 1e9) return (n / 1e9).toFixed(2) + ' GB'
-    if (n >= 1e6) return (n / 1e6).toFixed(2) + ' MB'
-    if (n >= 1e3) return (n / 1e3).toFixed(2) + ' KB'
-    return n + ' B'
-  }
+function SessionsTab({ operatorId }: { operatorId: string }) {
+  const navigate = useNavigate()
+  const { data: sessions = [], isLoading, isError } = useOperatorSessions(operatorId, 50)
 
   if (isError) {
     return (
@@ -737,43 +741,90 @@ function SessionsTab({ operatorId }: { operatorId: string }) {
         <span className="text-[11px] text-text-tertiary">{sessions.length} active</span>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-        </div>
-      ) : sessions.length === 0 ? (
-        <div className="rounded-lg border border-border bg-bg-surface p-8 text-center">
-          <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-2 opacity-40" />
-          <p className="text-[13px] text-text-secondary">No active sessions for this operator</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-[12px]">
-            <thead className="bg-bg-surface border-b border-border">
-              <tr>
-                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">IMSI</th>
-                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Framed IP</th>
-                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">NAS IP</th>
-                <th className="text-right p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Bytes In</th>
-                <th className="text-right p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Bytes Out</th>
-                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Started</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr key={s.id} className="border-b border-border-subtle last:border-b-0 hover:bg-bg-hover">
-                  <td className="p-2 font-mono text-text-primary">{s.imsi ?? '-'}</td>
-                  <td className="p-2 font-mono text-text-secondary">{s.framed_ip ?? '-'}</td>
-                  <td className="p-2 font-mono text-text-tertiary">{s.nas_ip ?? '-'}</td>
-                  <td className="p-2 text-right font-mono text-accent">{fmtBytes(s.bytes_in || 0)}</td>
-                  <td className="p-2 text-right font-mono text-success">{fmtBytes(s.bytes_out || 0)}</td>
-                  <td className="p-2 text-text-tertiary">{new Date(s.started_at).toLocaleTimeString()}</td>
-                </tr>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-bg-elevated">
+              <TableRow>
+                <TableHead>ICCID</TableHead>
+                <TableHead>IMSI</TableHead>
+                <TableHead>MSISDN</TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="text-right">Bytes In</TableHead>
+                <TableHead className="text-right">Bytes Out</TableHead>
+                <TableHead>Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading && Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+
+              {!isLoading && sessions.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No active sessions"
+                      description="No sessions are currently active for this operator."
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {sessions.map((s, idx) => (
+                <TableRow
+                  key={s.id}
+                  data-row-index={idx}
+                  data-href={`/sessions/${s.id}`}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/sessions/${s.id}`)}
+                >
+                  <TableCell>
+                    <span className="font-mono text-xs text-accent">{s.iccid || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.imsi || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.msisdn || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.framed_ip || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={s.session_state === 'active' ? 'default' : 'default'} className="gap-1">
+                      {s.session_state === 'active' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                      )}
+                      {s.session_state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-mono text-xs text-accent">{formatBytes(s.bytes_in || 0)}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-mono text-xs text-success">{formatBytes(s.bytes_out || 0)}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{formatDuration(s.duration_sec || 0)}</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
-      )}
+      </Card>
     </div>
   )
 }

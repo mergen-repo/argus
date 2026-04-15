@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,6 +71,16 @@ type ServerConfig struct {
 	AcctAddr       string
 	DefaultSecret  string
 	WorkerPoolSize int
+}
+
+// parseV4Address strips an optional CIDR suffix (e.g. "/32") before
+// parsing — PostgreSQL's INET type returns values in CIDR form, which
+// net.ParseIP rejects silently.
+func parseV4Address(s string) net.IP {
+	if i := strings.Index(s, "/"); i >= 0 {
+		s = s[:i]
+	}
+	return net.ParseIP(s)
 }
 
 func NewServer(
@@ -352,7 +363,10 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 			if sim.IPAddressID != nil {
 				ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
 				if err == nil && ipAddr.AddressV4 != nil {
-					if ip := net.ParseIP(*ipAddr.AddressV4); ip != nil {
+					// PostgreSQL INET type can return values with a CIDR
+					// suffix (e.g. "10.100.0.1/32") — strip it before
+					// net.ParseIP, which otherwise returns nil silently.
+					if ip := parseV4Address(*ipAddr.AddressV4); ip != nil {
 						rfc2865.FramedIPAddress_Set(accept, ip.To4())
 					}
 				}
@@ -544,7 +558,7 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 	if sim.IPAddressID != nil {
 		ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
 		if err == nil && ipAddr.AddressV4 != nil {
-			if ip := net.ParseIP(*ipAddr.AddressV4); ip != nil {
+			if ip := parseV4Address(*ipAddr.AddressV4); ip != nil {
 				rfc2865.FramedIPAddress_Set(accept, ip.To4())
 			}
 		}
