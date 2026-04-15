@@ -12,27 +12,28 @@ export function useDashboard() {
     queryFn: async () => {
       const res = await api.get<{ status: string; data: DashboardData }>('/dashboard')
       const d = res.data.data
-      if (!d.metrics) {
-        // Backend returns all metrics at the top level. The realtime WS
-        // pusher later overrides auth_per_sec / error_rate / active_sessions
-        // live; these fallbacks provide meaningful first-paint values.
-        const raw = d as unknown as {
-          ip_pool_usage_pct?: number
-          session_start_rate?: number
-          error_rate?: number
-          sim_velocity_per_hour?: number
-        }
-        d.metrics = {
-          total_sims: d.total_sims,
-          active_sessions: d.active_sessions,
-          auth_per_sec: d.auth_per_sec,
-          session_start_rate: raw.session_start_rate ?? 0,
-          error_rate: raw.error_rate ?? 0,
-          monthly_cost: d.monthly_cost,
-          ip_pool_usage_pct: raw.ip_pool_usage_pct ?? 0,
-          sim_velocity_per_hour: raw.sim_velocity_per_hour ?? 0,
-        }
+      // Backend returns all metrics at the top level. The realtime WS
+      // pusher pushes metrics.realtime events which can arrive BEFORE
+      // /dashboard resolves and create a partial metrics object. So we
+      // always merge the authoritative top-level values into metrics
+      // rather than short-circuiting when metrics already exists.
+      const raw = d as unknown as {
+        ip_pool_usage_pct?: number
+        session_start_rate?: number
+        error_rate?: number
+        sim_velocity_per_hour?: number
       }
+      const topLevelMetrics = {
+        total_sims: d.total_sims,
+        active_sessions: d.active_sessions,
+        auth_per_sec: d.auth_per_sec,
+        session_start_rate: raw.session_start_rate ?? 0,
+        error_rate: raw.error_rate ?? 0,
+        monthly_cost: d.monthly_cost,
+        ip_pool_usage_pct: raw.ip_pool_usage_pct ?? 0,
+        sim_velocity_per_hour: raw.sim_velocity_per_hour ?? 0,
+      }
+      d.metrics = { ...(d.metrics ?? {}), ...topLevelMetrics }
       if (!d.deltas) {
         d.deltas = {
           total_sims_delta: 0,
@@ -125,10 +126,15 @@ export function useRealtimeMetrics() {
       const d = data as Partial<DashboardMetrics>
       queryClient.setQueryData<DashboardData>(DASHBOARD_KEY, (old) => {
         if (!old) return old
+        // metrics.realtime payload carries GLOBAL counters (auth_per_sec,
+        // error_rate, active_sessions). For tenant-scoped views we only
+        // accept the rate metrics (auth_per_sec, error_rate, latency*).
+        // active_sessions would reflect all tenants; keep the tenant-
+        // scoped value from /dashboard instead.
+        const { active_sessions: _globalSessions, ...rateOnly } = d
         return {
           ...old,
-          metrics: { ...old.metrics, ...d },
-          active_sessions: d.active_sessions ?? old.active_sessions,
+          metrics: { ...old.metrics, ...rateOnly },
           auth_per_sec: d.auth_per_sec ?? old.auth_per_sec,
         }
       })
