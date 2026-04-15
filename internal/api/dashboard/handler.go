@@ -26,6 +26,7 @@ type Handler struct {
 	anomalyStore   *store.AnomalyStore
 	apnStore       *store.APNStore
 	cdrStore       *store.CDRStore
+	ippoolStore    *store.IPPoolStore
 	redisClient    *redis.Client
 	sessionCounter SessionCounter
 	logger         zerolog.Logger
@@ -42,6 +43,12 @@ func WithRedisClient(rc *redis.Client) HandlerOption {
 func WithCDRStore(cs *store.CDRStore) HandlerOption {
 	return func(h *Handler) {
 		h.cdrStore = cs
+	}
+}
+
+func WithIPPoolStore(ps *store.IPPoolStore) HandlerOption {
+	return func(h *Handler) {
+		h.ippoolStore = ps
 	}
 }
 
@@ -108,17 +115,21 @@ type trafficHeatmapCell struct {
 }
 
 type dashboardDTO struct {
-	TotalSIMs      int                   `json:"total_sims"`
-	ActiveSessions int64                 `json:"active_sessions"`
-	AuthPerSec     float64               `json:"auth_per_sec"`
-	MonthlyCost    float64               `json:"monthly_cost"`
-	SIMByState     []simByStateDTO       `json:"sim_by_state"`
-	OperatorHealth []operatorHealthDTO   `json:"operator_health"`
-	TopAPNs        []topAPNDTO           `json:"top_apns"`
-	RecentAlerts   []alertDTO            `json:"recent_alerts"`
-	Sparklines     map[string][]float64  `json:"sparklines"`
-	Deltas         map[string]float64    `json:"deltas"`
-	TrafficHeatmap []trafficHeatmapCell  `json:"traffic_heatmap"`
+	TotalSIMs          int                   `json:"total_sims"`
+	ActiveSessions     int64                 `json:"active_sessions"`
+	AuthPerSec         float64               `json:"auth_per_sec"`
+	MonthlyCost        float64               `json:"monthly_cost"`
+	IPPoolUsagePct     float64               `json:"ip_pool_usage_pct"`
+	SessionStartRate   float64               `json:"session_start_rate"`
+	ErrorRate          float64               `json:"error_rate"`
+	SIMVelocityPerHour float64               `json:"sim_velocity_per_hour"`
+	SIMByState         []simByStateDTO       `json:"sim_by_state"`
+	OperatorHealth     []operatorHealthDTO   `json:"operator_health"`
+	TopAPNs            []topAPNDTO           `json:"top_apns"`
+	RecentAlerts       []alertDTO            `json:"recent_alerts"`
+	Sparklines         map[string][]float64  `json:"sparklines"`
+	Deltas             map[string]float64    `json:"deltas"`
+	TrafficHeatmap     []trafficHeatmapCell  `json:"traffic_heatmap"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +155,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	wg.Add(6)
+	wg.Add(8)
 
 	go func() {
 		defer wg.Done()
@@ -300,6 +311,47 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			"active_sessions_delta":  activeSessionsDelta,
 			"monthly_cost_delta":     monthlyCostDelta,
 		}
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		if h.ippoolStore == nil {
+			return
+		}
+		pct, err := h.ippoolStore.TenantPoolUsage(ctx, tenantID)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("tenant ip pool usage")
+			return
+		}
+		mu.Lock()
+		resp.IPPoolUsagePct = pct
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Computed derived KPIs — initial snapshot; realtime WS pusher
+		// overwrites auth_per_sec + error_rate + active_sessions at 1s
+		// cadence, but we want meaningful first-paint values too.
+		var startRate, errRate, velocity float64
+		if h.cdrStore != nil {
+			if v, err := h.cdrStore.RecentSessionStartRate(ctx, tenantID, 5*time.Minute); err == nil {
+				startRate = v
+			}
+			if v, err := h.cdrStore.RecentErrorRatePct(ctx, tenantID, 15*time.Minute); err == nil {
+				errRate = v
+			}
+		}
+		if h.simStore != nil {
+			if v, err := h.simStore.RecentVelocityPerHour(ctx, tenantID); err == nil {
+				velocity = v
+			}
+		}
+		mu.Lock()
+		resp.SessionStartRate = startRate
+		resp.ErrorRate = errRate
+		resp.SIMVelocityPerHour = velocity
 		mu.Unlock()
 	}()
 

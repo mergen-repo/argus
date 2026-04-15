@@ -113,6 +113,21 @@ func NewSIMStore(db *pgxpool.Pool) *SIMStore {
 	return &SIMStore{db: db}
 }
 
+// RecentVelocityPerHour returns the average number of SIMs created per
+// hour over the last 24 hours. Used for the dashboard "SIM Velocity"
+// KPI card. Returns 0 when no SIMs were added in the window.
+func (s *SIMStore) RecentVelocityPerHour(ctx context.Context, tenantID uuid.UUID) (float64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sims
+		WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: sim velocity: %w", err)
+	}
+	return float64(count) / 24.0, nil
+}
+
 var simColumns = `id, tenant_id, operator_id, apn_id, iccid, imsi, msisdn,
 	ip_address_id, policy_version_id, esim_profile_id, sim_type, state, rat_type,
 	max_concurrent_sessions, session_idle_timeout_sec, session_hard_timeout_sec,

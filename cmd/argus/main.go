@@ -903,6 +903,7 @@ func main() {
 		dashboardapi.WithRedisClient(rdb.Client),
 		dashboardapi.WithCDRStore(cdrStore),
 		dashboardapi.WithSessionCounter(sessionCounter),
+		dashboardapi.WithIPPoolStore(ippoolStore),
 	)
 
 	if err := dashboardapi.RegisterDashboardInvalidator(eventBus, rdb.Client, log.Logger); err != nil {

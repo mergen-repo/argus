@@ -607,6 +607,48 @@ func (s *CDRStore) GetAPNTraffic(ctx context.Context, tenantID, apnID uuid.UUID,
 	return results, nil
 }
 
+// RecentSessionStartRate returns starts-per-second over the last `window`
+// seconds, computed from record_type='start' rows in the cdrs hot table.
+// Used by the dashboard "Session Start/s" KPI at initial load.
+func (s *CDRStore) RecentSessionStartRate(ctx context.Context, tenantID uuid.UUID, window time.Duration) (float64, error) {
+	since := time.Now().UTC().Add(-window)
+	var count int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM cdrs
+		WHERE tenant_id = $1 AND record_type = 'start' AND timestamp >= $2
+	`, tenantID, since).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: recent session start rate: %w", err)
+	}
+	secs := window.Seconds()
+	if secs <= 0 {
+		return 0, nil
+	}
+	return float64(count) / secs, nil
+}
+
+// RecentErrorRatePct returns (auth_fail+reject) / all auth records × 100
+// over the given window. Returns 0 when no auth records exist.
+func (s *CDRStore) RecentErrorRatePct(ctx context.Context, tenantID uuid.UUID, window time.Duration) (float64, error) {
+	since := time.Now().UTC().Add(-window)
+	var total, errs int64
+	err := s.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE record_type IN ('auth', 'auth_fail', 'reject')),
+			COUNT(*) FILTER (WHERE record_type IN ('auth_fail', 'reject'))
+		FROM cdrs
+		WHERE tenant_id = $1 AND timestamp >= $2
+	`, tenantID, since).Scan(&total, &errs)
+	if err != nil {
+		return 0, fmt.Errorf("store: recent error rate: %w", err)
+	}
+	if total == 0 {
+		return 0, nil
+	}
+	return float64(errs) / float64(total) * 100, nil
+}
+
 // GetOperatorTraffic returns bytes-in/out + record counts bucketed over
 // the requested period, scoped to one operator within a tenant. Mirrors
 // GetAPNTraffic: uses cdrs_hourly for short periods (≤24h) and raw cdrs
@@ -680,10 +722,15 @@ func (s *CDRStore) GetOperatorTraffic(ctx context.Context, tenantID, operatorID 
 }
 
 func (s *CDRStore) GetTrafficHeatmap7x24(ctx context.Context, tenantID uuid.UUID) ([][]float64, error) {
+	// Frontend expects dow 0=Monday..6=Sunday in LOCAL time (Europe/Istanbul
+	// per the deployment target). Postgres' EXTRACT(DOW) returns 0=Sun..6=Sat
+	// in UTC by default — combining that mismatch + TZ skew caused the
+	// heatmap to show different cells each deploy. Fix: convert bucket to
+	// Istanbul TZ first, then use ISODOW (1=Mon..7=Sun) minus 1.
 	rows, err := s.db.Query(ctx, `
 		SELECT
-			EXTRACT(DOW FROM bucket)::int AS dow,
-			EXTRACT(HOUR FROM bucket)::int AS hour,
+			(EXTRACT(ISODOW FROM (bucket AT TIME ZONE 'Europe/Istanbul'))::int - 1) AS dow,
+			EXTRACT(HOUR FROM (bucket AT TIME ZONE 'Europe/Istanbul'))::int AS hour,
 			COALESCE(SUM(total_bytes_in + total_bytes_out), 0) AS total_bytes
 		FROM cdrs_hourly
 		WHERE tenant_id = $1

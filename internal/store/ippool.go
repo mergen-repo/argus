@@ -39,6 +39,25 @@ type IPPool struct {
 	CreatedAt               time.Time  `json:"created_at"`
 }
 
+// TenantPoolUsage returns the tenant-wide IP pool utilization percentage.
+// (SUM(used_addresses) / SUM(total_addresses)) * 100. Returns 0 when no
+// pools exist or total_addresses sums to zero. Used by the dashboard KPI.
+func (s *IPPoolStore) TenantPoolUsage(ctx context.Context, tenantID uuid.UUID) (float64, error) {
+	var used, total int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(used_addresses),0), COALESCE(SUM(total_addresses),0)
+		FROM ip_pools
+		WHERE tenant_id = $1 AND state = 'active'
+	`, tenantID).Scan(&used, &total)
+	if err != nil {
+		return 0, fmt.Errorf("store: tenant pool usage: %w", err)
+	}
+	if total == 0 {
+		return 0, nil
+	}
+	return float64(used) / float64(total) * 100, nil
+}
+
 type IPAddress struct {
 	ID             uuid.UUID  `json:"id"`
 	PoolID         uuid.UUID  `json:"pool_id"`

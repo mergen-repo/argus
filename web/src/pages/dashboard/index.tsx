@@ -22,7 +22,6 @@ import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState,
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { wsClient } from '@/lib/ws'
-import { FirstRunChecklist } from '@/components/shared/first-run-checklist'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -507,7 +506,14 @@ const SIMDistributionDonut = React.memo(function SIMDistributionDonut({
                       color: 'var(--color-text-primary)',
                       fontSize: '12px',
                     }}
-                    formatter={(value) => [formatNumber(Number(value)), 'Count']}
+                    formatter={(value, _name, props) => {
+                      // Recharts passes the raw numeric value; the entry's
+                      // "name" (Active / Ordered / Suspended …) is on
+                      // props.payload. Substitute it for the generic
+                      // "Count" label so the tooltip reads e.g. "Active: 8".
+                      const label = (props?.payload as { name?: string } | undefined)?.name ?? 'Count'
+                      return [formatNumber(Number(value)), label]
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -953,8 +959,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      <FirstRunChecklist />
-
       {/* ── System Status Strip ──────────────────────────────────── */}
       <SystemStatusStrip
         status={data.system_status || 'operational'}
