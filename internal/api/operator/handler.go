@@ -747,6 +747,132 @@ func (h *Handler) DeleteGrant(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetSessions returns currently-active RADIUS sessions for a single operator.
+// Tenant-scoped via the middleware-populated TenantIDKey. Cursor paginated.
+//
+// Route: GET /api/v1/operators/:id/sessions?limit=N&cursor=UUID
+// Role:  api_user+ (read)
+func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	operatorID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator ID format")
+		return
+	}
+
+	// Tenant scoping: verify the caller's tenant has a grant on this operator.
+	if _, err := h.operatorStore.GetByID(r.Context(), operatorID); err != nil {
+		if errors.Is(err, store.ErrOperatorNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Operator not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator for sessions")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.sessionStore == nil {
+		apierr.WriteList(w, http.StatusOK, []interface{}{}, apierr.ListMeta{HasMore: false})
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	cursor := r.URL.Query().Get("cursor")
+
+	params := store.ListActiveSessionsParams{
+		TenantID:   &tenantID,
+		OperatorID: &operatorID,
+		Limit:      limit,
+		Cursor:     cursor,
+	}
+	sessions, nextCursor, err := h.sessionStore.ListActiveFiltered(r.Context(), params)
+	if err != nil {
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("list operator sessions")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to list sessions")
+		return
+	}
+
+	apierr.WriteList(w, http.StatusOK, sessions, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
+	})
+}
+
+// GetTraffic returns bytes-in/out time-series bucketed over the requested
+// period for a single operator. Same validPeriods surface as APN traffic
+// (15m / 1h / 6h / 24h / 7d / 30d). Uses cdrs_hourly for short periods,
+// raw cdrs for 7d/30d.
+//
+// Route: GET /api/v1/operators/:id/traffic?period=24h
+// Role:  api_user+
+func (h *Handler) GetTraffic(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	operatorID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid operator ID format")
+		return
+	}
+
+	validPeriods := map[string]bool{"15m": true, "1h": true, "6h": true, "24h": true, "7d": true, "30d": true}
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "24h"
+	}
+	if !validPeriods[period] {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "period must be one of: 15m, 1h, 6h, 24h, 7d, 30d")
+		return
+	}
+
+	if _, err := h.operatorStore.GetByID(r.Context(), operatorID); err != nil {
+		if errors.Is(err, store.ErrOperatorNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Operator not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator for traffic")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if h.cdrStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"period": period,
+			"series": []store.APNTrafficBucket{},
+		})
+		return
+	}
+
+	series, err := h.cdrStore.GetOperatorTraffic(r.Context(), tenantID, operatorID, period)
+	if err != nil {
+		h.logger.Error().Err(err).Str("operator_id", idStr).Msg("get operator traffic")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to retrieve operator traffic")
+		return
+	}
+	if series == nil {
+		series = []store.APNTrafficBucket{}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"period": period,
+		"series": series,
+	})
+}
+
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}) {
 	if h.auditSvc == nil {
 		return

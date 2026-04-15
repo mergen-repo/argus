@@ -153,6 +153,31 @@ export function useSegmentCount(segmentId: string) {
   })
 }
 
+export interface SIMCurrentIP {
+  allocated: boolean
+  ip_id?: string
+  address_v4?: string | null
+  address_v6?: string | null
+  state?: string
+  allocation_type?: string
+  allocated_at?: string | null
+  pool_id?: string
+  pool_name?: string
+  pool_cidr_v4?: string
+}
+
+export function useSIMCurrentIP(simId: string) {
+  return useQuery({
+    queryKey: ['sims', 'ip-current', simId],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<SIMCurrentIP>>(`/sims/${simId}/ip-current`)
+      return res.data.data
+    },
+    enabled: !!simId,
+    staleTime: 30_000,
+  })
+}
+
 export function useSIMStateAction() {
   const queryClient = useQueryClient()
 

@@ -607,6 +607,78 @@ func (s *CDRStore) GetAPNTraffic(ctx context.Context, tenantID, apnID uuid.UUID,
 	return results, nil
 }
 
+// GetOperatorTraffic returns bytes-in/out + record counts bucketed over
+// the requested period, scoped to one operator within a tenant. Mirrors
+// GetAPNTraffic: uses cdrs_hourly for short periods (≤24h) and raw cdrs
+// for 7d/30d. Reuses APNTrafficBucket shape — the caller doesn't need a
+// separate type since the field set is identical.
+func (s *CDRStore) GetOperatorTraffic(ctx context.Context, tenantID, operatorID uuid.UUID, period string) ([]APNTrafficBucket, error) {
+	var since time.Time
+	now := time.Now().UTC()
+
+	switch period {
+	case "15m":
+		since = now.Add(-15 * time.Minute)
+	case "1h":
+		since = now.Add(-1 * time.Hour)
+	case "6h":
+		since = now.Add(-6 * time.Hour)
+	case "7d":
+		since = now.AddDate(0, 0, -7)
+	case "30d":
+		since = now.AddDate(0, 0, -30)
+	default:
+		since = now.Add(-24 * time.Hour)
+	}
+
+	useHourly := period == "15m" || period == "1h" || period == "6h" || period == "24h" || period == ""
+
+	if useHourly {
+		r, err := s.db.Query(ctx, `
+			SELECT bucket, COALESCE(SUM(total_bytes_in),0), COALESCE(SUM(total_bytes_out),0), COALESCE(SUM(record_count),0)
+			FROM cdrs_hourly
+			WHERE tenant_id = $1 AND operator_id = $2 AND bucket >= $3
+			GROUP BY bucket
+			ORDER BY bucket ASC
+		`, tenantID, operatorID, since)
+		if err != nil {
+			return nil, fmt.Errorf("store: get operator traffic (hourly): %w", err)
+		}
+		defer r.Close()
+		var results []APNTrafficBucket
+		for r.Next() {
+			var b APNTrafficBucket
+			if err := r.Scan(&b.Ts, &b.BytesIn, &b.BytesOut, &b.AuthCount); err != nil {
+				return nil, fmt.Errorf("store: scan operator traffic bucket: %w", err)
+			}
+			results = append(results, b)
+		}
+		return results, nil
+	}
+
+	r, err := s.db.Query(ctx, `
+		SELECT date_trunc('day', timestamp) AS bucket,
+			COALESCE(SUM(bytes_in),0), COALESCE(SUM(bytes_out),0), COUNT(*)
+		FROM cdrs
+		WHERE tenant_id = $1 AND operator_id = $2 AND timestamp >= $3
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, tenantID, operatorID, since)
+	if err != nil {
+		return nil, fmt.Errorf("store: get operator traffic (daily): %w", err)
+	}
+	defer r.Close()
+	var results []APNTrafficBucket
+	for r.Next() {
+		var b APNTrafficBucket
+		if err := r.Scan(&b.Ts, &b.BytesIn, &b.BytesOut, &b.AuthCount); err != nil {
+			return nil, fmt.Errorf("store: scan operator traffic daily bucket: %w", err)
+		}
+		results = append(results, b)
+	}
+	return results, nil
+}
+
 func (s *CDRStore) GetTrafficHeatmap7x24(ctx context.Context, tenantID uuid.UUID) ([][]float64, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT

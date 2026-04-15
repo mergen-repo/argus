@@ -746,6 +746,22 @@ func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctS
 		return
 	}
 
+	if s.eventBus != nil {
+		payload := map[string]interface{}{
+			"session_id":  sess.ID,
+			"sim_id":      sess.SimID,
+			"tenant_id":   sess.TenantID,
+			"operator_id": sess.OperatorID,
+			"imsi":        sess.IMSI,
+			"bytes_in":    bytesIn,
+			"bytes_out":   bytesOut,
+			"updated_at":  time.Now().Format(time.RFC3339),
+		}
+		if err := s.eventBus.Publish(ctx, bus.SubjectSessionUpdated, payload); err != nil {
+			logger.Warn().Err(err).Msg("failed to publish session.updated event")
+		}
+	}
+
 	if s.policyEnforcer != nil && sess.SimID != "" {
 		simID, parseErr := uuid.Parse(sess.SimID)
 		if parseErr == nil {

@@ -328,6 +328,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("api_user"))
 			r.Get("/api/v1/operators", deps.OperatorHandler.List)
 			r.Get("/api/v1/operators/export.csv", deps.OperatorHandler.ExportCSV)
+			r.Get("/api/v1/operators/{id}/sessions", deps.OperatorHandler.GetSessions)
+			r.Get("/api/v1/operators/{id}/traffic", deps.OperatorHandler.GetTraffic)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -423,6 +425,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Patch("/api/v1/sims/{id}", deps.SIMHandler.Patch)
 			r.Get("/api/v1/sims/{id}/history", deps.SIMHandler.GetHistory)
 			r.Get("/api/v1/sims/{id}/sessions", deps.SIMHandler.GetSessions)
+			r.Get("/api/v1/sims/{id}/ip-current", deps.SIMHandler.GetCurrentIP)
 			r.Post("/api/v1/sims/{id}/activate", deps.SIMHandler.Activate)
 			r.Post("/api/v1/sims/{id}/suspend", deps.SIMHandler.Suspend)
 			r.Post("/api/v1/sims/{id}/resume", deps.SIMHandler.Resume)

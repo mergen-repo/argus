@@ -640,6 +640,85 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetCurrentIP returns the SIM's currently-allocated IP with enrichment:
+// pool name, CIDR, allocation type, state, allocated_at. Returns an
+// explicit null-ish payload when the SIM has no IP (keeps FE branching
+// simple). Full historical IP allocation timeline (as distinct from
+// "current") is out of scope — tracked as STORY-087 follow-up.
+//
+// Route: GET /api/v1/sims/:id/ip-current
+// Role:  api_user+
+func (h *Handler) GetCurrentIP(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	simID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid SIM ID format")
+		return
+	}
+
+	sim, err := h.simStore.GetByID(r.Context(), tenantID, simID)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for ip-current")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	if sim.IPAddressID == nil {
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"allocated": false,
+		})
+		return
+	}
+
+	if h.ippoolStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"allocated": true,
+			"ip_id":     sim.IPAddressID.String(),
+		})
+		return
+	}
+
+	ipAddr, err := h.ippoolStore.GetIPAddressByID(r.Context(), *sim.IPAddressID)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("sim_id", idStr).Msg("get ip address for current")
+		apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+			"allocated": true,
+			"ip_id":     sim.IPAddressID.String(),
+		})
+		return
+	}
+
+	resp := map[string]interface{}{
+		"allocated":       true,
+		"ip_id":           ipAddr.ID.String(),
+		"address_v4":      ipAddr.AddressV4,
+		"address_v6":      ipAddr.AddressV6,
+		"state":           ipAddr.State,
+		"allocation_type": ipAddr.AllocationType,
+		"allocated_at":    ipAddr.AllocatedAt,
+	}
+
+	if pool, err := h.ippoolStore.GetByID(r.Context(), tenantID, ipAddr.PoolID); err == nil {
+		resp["pool_id"] = pool.ID.String()
+		resp["pool_name"] = pool.Name
+		if pool.CIDRv4 != nil {
+			resp["pool_cidr_v4"] = *pool.CIDRv4
+		}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
 type simSessionResponse struct {
 	ID            string  `json:"id"`
 	SimID         string  `json:"sim_id"`

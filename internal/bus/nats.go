@@ -180,8 +180,17 @@ func (eb *EventBus) SetMetrics(reg *metrics.Registry) {
 
 // publishMsg builds a nats.Msg with an empty Header map, injects the
 // current trace context into that header, opens a producer span, and
-// hands the message to JetStream. It is the shared path for Publish and
-// PublishRaw.
+// hands the message to core NATS. Core publish is used instead of
+// jetstream.JetStream.PublishMsg because the new jetstream API writes
+// directly to stream storage and does NOT fan out to core subscribers.
+// All existing event consumers (ws hub, CDR consumer, notification
+// service, policy matcher) use core NATS QueueSubscribe; JetStream-only
+// publish would silently drop events for all of them.
+//
+// The EVENTS JetStream stream (Subjects: ["argus.events.>"]) still
+// persists messages automatically: JetStream streams subscribe to their
+// configured subjects via core NATS, so core publishes are captured and
+// stored for future durable-consumer replay.
 func (eb *EventBus) publishMsg(ctx context.Context, subject string, data []byte) error {
 	msg := &nats.Msg{
 		Subject: subject,
@@ -190,7 +199,7 @@ func (eb *EventBus) publishMsg(ctx context.Context, subject string, data []byte)
 	}
 	otel.GetTextMapPropagator().Inject(ctx, natsHeaderCarrier(msg.Header))
 
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "nats.publish",
+	_, span := otel.Tracer(tracerName).Start(ctx, "nats.publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
 			semconv.MessagingSystemKey.String("nats"),
@@ -200,7 +209,7 @@ func (eb *EventBus) publishMsg(ctx context.Context, subject string, data []byte)
 	)
 	defer span.End()
 
-	if _, err := eb.js.PublishMsg(ctx, msg); err != nil {
+	if err := eb.conn.PublishMsg(msg); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("bus: publish %s: %w", subject, err)

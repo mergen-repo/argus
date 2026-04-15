@@ -13,6 +13,7 @@ import {
   Loader2,
   Lock,
   Activity,
+  TrendingUp,
   Plus,
   Shield,
   Layers,
@@ -568,8 +569,8 @@ function SIMsTab({ apnId }: { apnId: string }) {
 }
 
 function TrafficTab({ apnId }: { apnId: string }) {
-  const [timeframe, setTimeframe] = useState('24h')
-  const { data: trafficData, isLoading: trafficLoading, isError: trafficError } = useAPNTraffic(apnId, timeframe)
+  const [period, setPeriod] = useState('24h')
+  const { data: trafficData, isLoading, isError } = useAPNTraffic(apnId, period)
 
   const series = useMemo(() => {
     if (!trafficData?.series) return []
@@ -577,9 +578,17 @@ function TrafficTab({ apnId }: { apnId: string }) {
       label: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
       bytes_in: b.bytes_in,
       bytes_out: b.bytes_out,
+      total: b.bytes_in + b.bytes_out,
       auth_count: b.auth_count,
     }))
   }, [trafficData])
+
+  const totals = useMemo(() => {
+    const tIn = series.reduce((a, b) => a + b.bytes_in, 0)
+    const tOut = series.reduce((a, b) => a + b.bytes_out, 0)
+    const tRec = series.reduce((a, b) => a + b.auth_count, 0)
+    return { tIn, tOut, tTotal: tIn + tOut, tRec }
+  }, [series])
 
   const tooltipStyle = {
     backgroundColor: 'var(--color-bg-elevated)',
@@ -589,7 +598,7 @@ function TrafficTab({ apnId }: { apnId: string }) {
     fontSize: '12px',
   }
 
-  if (trafficError) {
+  if (isError) {
     return (
       <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
         <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
@@ -598,39 +607,113 @@ function TrafficTab({ apnId }: { apnId: string }) {
     )
   }
 
+  const periodOptions = [
+    { value: '1h', label: 'Last 1 hour' },
+    { value: '6h', label: 'Last 6 hours' },
+    { value: '24h', label: 'Last 24 hours' },
+    { value: '7d', label: 'Last 7 days' },
+    { value: '30d', label: 'Last 30 days' },
+  ]
+
   return (
     <div className="space-y-4">
+      {/* Header with period selector */}
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">Traffic & Request Metrics</span>
-        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
+          <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
+        </div>
+        <Select
+          options={periodOptions}
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          className="w-40 h-8 text-xs"
+        />
       </div>
 
+      {/* KPI strip */}
+      <div className="grid grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-accent" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes In</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tIn)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-success" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes Out</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tOut)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Total Volume</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tTotal)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">CDR Records</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{totals.tRec.toLocaleString()}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main traffic chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Traffic Trend</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Bytes Over Time</CardTitle>
+            <div className="flex items-center gap-3 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-accent" /><span className="text-text-tertiary">In</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-success" /><span className="text-text-tertiary">Out</span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {trafficLoading ? (
+          {isLoading ? (
             <Skeleton className="h-[280px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[280px] flex flex-col items-center justify-center gap-2">
+              <TrendingUp className="h-8 w-8 text-text-tertiary opacity-40" />
+              <p className="text-[12px] text-text-secondary">No traffic in this period</p>
+              <p className="text-[10px] text-text-tertiary">CDR rollups refresh every 30 minutes</p>
+            </div>
           ) : (
             <div className="h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={series}>
                   <defs>
-                    <linearGradient id="apnGradIn" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    <linearGradient id="apnBytesInHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.02} />
                     </linearGradient>
-                    <linearGradient id="apnGradOut" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
+                    <linearGradient id="apnBytesOutHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
-                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={65} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatBytes(Number(value))]} />
-                  <Area type="monotone" dataKey="bytes_in" stroke="var(--color-accent)" fill="url(#apnGradIn)" strokeWidth={2} name="Bytes In" />
-                  <Area type="monotone" dataKey="bytes_out" stroke="var(--color-purple)" fill="url(#apnGradOut)" strokeWidth={2} name="Bytes Out" />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatBytes(Number(value)), name]} />
+                  <Area type="monotone" dataKey="bytes_in" stackId="1" stroke="var(--color-accent)" fill="url(#apnBytesInHero)" strokeWidth={2} name="In" />
+                  <Area type="monotone" dataKey="bytes_out" stackId="1" stroke="var(--color-success)" fill="url(#apnBytesOutHero)" strokeWidth={2} name="Out" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -638,78 +721,41 @@ function TrafficTab({ apnId }: { apnId: string }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">{formatBytes(series.reduce((a, d) => a + d.bytes_in, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-purple">{formatBytes(series.reduce((a, d) => a + d.bytes_out, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(series.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4 text-accent" />
-              <CardTitle>Access-Request Frequency</CardTitle>
+      {/* Record count chart */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>CDR Records Per Bucket</CardTitle>
+            <span className="text-[10px] text-text-tertiary">Auth + Accounting events</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-[180px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-[12px] text-text-tertiary">
+              No records yet
             </div>
-          </CardHeader>
-          <CardContent>
-            {trafficLoading ? (
-              <Skeleton className="h-[200px] w-full" />
-            ) : (
-              <div className="h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={series}>
-                    <defs>
-                      <linearGradient id="apnGradAuth" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 6) - 1)} />
-                    <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Requests']} />
-                    <Area type="monotone" dataKey="auth_count" stroke="var(--color-success)" fill="url(#apnGradAuth)" strokeWidth={2} name="Auth Requests" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-            {!trafficLoading && series.length > 0 && (
-              <div className="text-center mt-2">
-                <span className="font-mono text-sm font-semibold text-success">{Math.round(series.reduce((a, d) => a + d.auth_count, 0) / series.length)}/interval avg</span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-warning" />
-              <CardTitle>Accounting-Update Frequency</CardTitle>
+          ) : (
+            <div className="h-[180px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series}>
+                  <defs>
+                    <linearGradient id="apnRecordCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Records']} />
+                  <Area type="monotone" dataKey="auth_count" stroke="var(--color-accent)" fill="url(#apnRecordCount)" strokeWidth={2} name="Records" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-center h-[200px] text-text-tertiary text-xs">
-              Accounting data not available in current CDR schema.
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

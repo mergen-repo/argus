@@ -21,6 +21,7 @@ import {
   Layers,
   Bell,
   Wifi,
+  Radio,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -62,8 +63,9 @@ import {
   useRealtimeOperatorHealth,
   useUpdateOperator,
 } from '@/hooks/use-operators'
-import { useOperatorHealthHistory, useOperatorMetrics } from '@/hooks/use-operator-detail'
+import { useOperatorHealthHistory, useOperatorMetrics, useOperatorSessions, useOperatorTraffic } from '@/hooks/use-operator-detail'
 import { useOperatorRoamingAgreements } from '@/hooks/use-roaming-agreements'
+import { formatBytes } from '@/lib/format'
 import type { RoamingAgreement, AgreementState, AgreementType } from '@/types/roaming'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
@@ -495,27 +497,35 @@ const tooltipStyle = {
 }
 
 function TrafficTab({ operatorId }: { operatorId: string }) {
-  const [window, setWindow] = useState('1h')
-  const { data: metricsData, isLoading, isError } = useOperatorMetrics(operatorId, window)
+  const [period, setPeriod] = useState('24h')
+  const { data: trafficSeries = [], isLoading: trafficLoading, isError: trafficError } = useOperatorTraffic(operatorId, period)
+  const { data: metricsData, isError: metricsError } = useOperatorMetrics(operatorId, period === '7d' || period === '30d' ? '24h' : period)
 
-  const series = useMemo(() => {
-    if (!metricsData?.buckets) return []
-    return metricsData.buckets.map((b) => ({
-      ts: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      auth_rate: parseFloat(b.auth_rate_per_sec.toFixed(2)),
-      error_rate: parseFloat(b.error_rate_per_sec.toFixed(2)),
-    }))
+  const series = useMemo(() => trafficSeries.map((b) => ({
+    label: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    ts: b.ts,
+    bytes_in: b.bytes_in,
+    bytes_out: b.bytes_out,
+    total: b.bytes_in + b.bytes_out,
+    auth_count: b.auth_count,
+  })), [trafficSeries])
+
+  const totals = useMemo(() => {
+    const tIn = series.reduce((a, b) => a + b.bytes_in, 0)
+    const tOut = series.reduce((a, b) => a + b.bytes_out, 0)
+    const tRec = series.reduce((a, b) => a + b.auth_count, 0)
+    return { tIn, tOut, tTotal: tIn + tOut, tRec }
+  }, [series])
+
+  const errorPct = useMemo(() => {
+    if (!metricsData?.buckets || metricsData.buckets.length === 0) return null
+    const totalAuth = metricsData.buckets.reduce((a, b) => a + b.auth_rate_per_sec, 0)
+    const totalErr = metricsData.buckets.reduce((a, b) => a + b.error_rate_per_sec, 0)
+    if (totalAuth === 0) return 0
+    return Math.round((totalErr / totalAuth) * 1000) / 10
   }, [metricsData])
 
-  const avgAuth = useMemo(() => series.length > 0
-    ? parseFloat((series.reduce((a, d) => a + d.auth_rate, 0) / series.length).toFixed(1))
-    : 0, [series])
-
-  const avgError = useMemo(() => series.length > 0
-    ? parseFloat((series.reduce((a, d) => a + d.error_rate, 0) / series.length).toFixed(2))
-    : 0, [series])
-
-  if (isError) {
+  if (trafficError && metricsError) {
     return (
       <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
         <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
@@ -524,36 +534,115 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
     )
   }
 
+  const periodOptions = [
+    { value: '1h', label: 'Last 1 hour' },
+    { value: '6h', label: 'Last 6 hours' },
+    { value: '24h', label: 'Last 24 hours' },
+    { value: '7d', label: 'Last 7 days' },
+    { value: '30d', label: 'Last 30 days' },
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      {/* Header with period selector */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
+          <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
+        </div>
         <Select
-          options={WINDOW_OPTIONS}
-          value={window}
-          onChange={(e) => setWindow(e.target.value)}
-          className="w-32 h-7 text-xs"
+          options={periodOptions}
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          className="w-40 h-8 text-xs"
         />
       </div>
 
+      {/* KPI strip */}
+      <div className="grid grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-accent" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes In</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tIn)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-success" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes Out</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tOut)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <BarChart3 className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Total Volume</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tTotal)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Signal className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">CDR Records</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{totals.tRec.toLocaleString()}</div>
+            {errorPct !== null && (
+              <div className={`text-[10px] mt-1 ${errorPct > 1 ? 'text-warning' : 'text-text-tertiary'}`}>
+                {errorPct}% error rate
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main traffic chart — bytes in/out stacked area */}
       <Card>
         <CardHeader>
-          <CardTitle>Authentication Rate</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Bytes Over Time</CardTitle>
+            <div className="flex items-center gap-3 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-accent" /><span className="text-text-tertiary">In</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-success" /><span className="text-text-tertiary">Out</span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {trafficLoading ? (
             <Skeleton className="h-[280px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[280px] flex flex-col items-center justify-center gap-2">
+              <BarChart3 className="h-8 w-8 text-text-tertiary opacity-40" />
+              <p className="text-[12px] text-text-secondary">No traffic in this period</p>
+              <p className="text-[10px] text-text-tertiary">CDR rollups refresh every 30 minutes</p>
+            </div>
           ) : (
             <div className="h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={series}>
                   <defs>
-                    <linearGradient id="opGradAuth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    <linearGradient id="opBytesInHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="opBytesOutHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <XAxis
-                    dataKey="ts"
+                    dataKey="label"
                     tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
@@ -563,10 +652,12 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
                     tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
-                    width={40}
+                    tickFormatter={(v) => formatBytes(v)}
+                    width={70}
                   />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [value, name === 'auth_rate' ? 'Auth/s' : 'Errors/s']} />
-                  <Area type="monotone" dataKey="auth_rate" stroke="var(--color-accent)" fill="url(#opGradAuth)" strokeWidth={2} name="auth_rate" />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatBytes(Number(value)), name]} />
+                  <Area type="monotone" dataKey="bytes_in" stackId="1" stroke="var(--color-accent)" fill="url(#opBytesInHero)" strokeWidth={2} name="In" />
+                  <Area type="monotone" dataKey="bytes_out" stackId="1" stroke="var(--color-success)" fill="url(#opBytesOutHero)" strokeWidth={2} name="Out" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -574,19 +665,27 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
         </CardContent>
       </Card>
 
+      {/* Record count chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Error Rate</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>CDR Records Per Bucket</CardTitle>
+            <span className="text-[10px] text-text-tertiary">Auth + Accounting events</span>
+          </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-[200px] w-full" />
+          {trafficLoading ? (
+            <Skeleton className="h-[180px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-[12px] text-text-tertiary">
+              No records yet
+            </div>
           ) : (
-            <div className="h-[200px]">
+            <div className="h-[180px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={series}>
                   <XAxis
-                    dataKey="ts"
+                    dataKey="label"
                     tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
@@ -598,35 +697,81 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
                     axisLine={false}
                     width={40}
                   />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Errors/s']} />
-                  <Line type="monotone" dataKey="error_rate" stroke="var(--color-danger)" strokeWidth={2} dot={false} name="error_rate" />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Records']} />
+                  <Line type="monotone" dataKey="auth_count" stroke="var(--color-accent)" strokeWidth={2} dot={false} name="Records" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
 
-      <div className="grid grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Signal className="h-4 w-4 text-accent" />
-              <div className="font-mono text-xl font-bold text-accent">{avgAuth}/s</div>
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Avg Auth Rate</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <AlertCircle className="h-4 w-4 text-danger" />
-              <div className="font-mono text-xl font-bold text-danger">{avgError}/s</div>
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Avg Error Rate</div>
-          </CardContent>
-        </Card>
+function SessionsTab({ operatorId }: { operatorId: string }) {
+  const { data: sessions = [], isLoading, isError } = useOperatorSessions(operatorId, 50)
+
+  const fmtBytes = (n: number) => {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + ' GB'
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + ' MB'
+    if (n >= 1e3) return (n / 1e3).toFixed(2) + ' KB'
+    return n + ' B'
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center mt-4">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load active sessions</p>
       </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium">Active Sessions</p>
+        <span className="text-[11px] text-text-tertiary">{sessions.length} active</span>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="rounded-lg border border-border bg-bg-surface p-8 text-center">
+          <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-2 opacity-40" />
+          <p className="text-[13px] text-text-secondary">No active sessions for this operator</p>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-[12px]">
+            <thead className="bg-bg-surface border-b border-border">
+              <tr>
+                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">IMSI</th>
+                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Framed IP</th>
+                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">NAS IP</th>
+                <th className="text-right p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Bytes In</th>
+                <th className="text-right p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Bytes Out</th>
+                <th className="text-left p-2 text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium">Started</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => (
+                <tr key={s.id} className="border-b border-border-subtle last:border-b-0 hover:bg-bg-hover">
+                  <td className="p-2 font-mono text-text-primary">{s.imsi ?? '-'}</td>
+                  <td className="p-2 font-mono text-text-secondary">{s.framed_ip ?? '-'}</td>
+                  <td className="p-2 font-mono text-text-tertiary">{s.nas_ip ?? '-'}</td>
+                  <td className="p-2 text-right font-mono text-accent">{fmtBytes(s.bytes_in || 0)}</td>
+                  <td className="p-2 text-right font-mono text-success">{fmtBytes(s.bytes_out || 0)}</td>
+                  <td className="p-2 text-text-tertiary">{new Date(s.started_at).toLocaleTimeString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -1039,6 +1184,10 @@ export default function OperatorDetailPage() {
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
           </TabsTrigger>
+          <TabsTrigger value="sessions" className="gap-1.5">
+            <Radio className="h-3.5 w-3.5" />
+            Sessions
+          </TabsTrigger>
           <TabsTrigger value="agreements" className="gap-1.5">
             <Handshake className="h-3.5 w-3.5" />
             Agreements
@@ -1078,6 +1227,9 @@ export default function OperatorDetailPage() {
         </TabsContent>
         <TabsContent value="traffic">
           <TrafficTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="sessions">
+          <SessionsTab operatorId={operator.id} />
         </TabsContent>
         <TabsContent value="agreements">
           <AgreementsTab operatorId={operator.id} />
