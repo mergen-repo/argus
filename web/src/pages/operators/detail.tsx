@@ -75,8 +75,10 @@ import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
 import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle, EmptyState } from '@/components/shared'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { useSIMList } from '@/hooks/use-sims'
-import { stateVariant } from '@/lib/sim-utils'
+import { stateVariant, stateLabel } from '@/lib/sim-utils'
+import { RATBadge } from '@/components/ui/rat-badge'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -969,64 +971,120 @@ function AgreementsTab({ operatorId }: { operatorId: string }) {
 }
 
 function OperatorSimsTab({ operatorId }: { operatorId: string }) {
+  const navigate = useNavigate()
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useSIMList({ operator_id: operatorId })
   const sims = data?.pages.flatMap((p) => p.data) ?? []
 
-  if (isLoading) {
-    return (
-      <div className="mt-4 space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-10 w-full bg-bg-surface rounded-[10px] animate-pulse" />
-        ))}
-      </div>
-    )
-  }
-
-  if (sims.length === 0) {
-    return (
-      <EmptyState
-        icon={Wifi}
-        title="No SIMs connected"
-        description="No SIM cards are connected to this operator."
-      />
-    )
-  }
-
   return (
-    <div className="mt-4">
-      <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
-        Connected SIMs — {sims.length}{hasNextPage ? '+' : ''} total
-      </p>
-      <Table>
-        <TableHeader>
-          <TableRow className="border-b border-border-subtle hover:bg-transparent">
-            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">ICCID</TableHead>
-            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">IMSI</TableHead>
-            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
-            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">APN</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sims.map((sim) => (
-            <TableRow key={sim.id} className="hover:bg-bg-hover transition-colors duration-150">
-              <TableCell className="py-2.5">
-                <EntityLink entityType="sim" entityId={sim.id} label={sim.iccid} truncate />
-              </TableCell>
-              <TableCell className="py-2.5">
-                <span className="text-[12px] font-mono text-text-secondary">{sim.imsi}</span>
-              </TableCell>
-              <TableCell className="py-2.5">
-                <Badge variant={stateVariant(sim.state)} className="text-[10px]">{sim.state}</Badge>
-              </TableCell>
-              <TableCell className="py-2.5">
-                <span className="text-[12px] text-text-secondary">{sim.apn_name ?? '—'}</span>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium">
+          Connected SIMs — {sims.length}{hasNextPage ? '+' : ''} total
+        </p>
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-bg-elevated">
+              <TableRow>
+                <TableHead>ICCID</TableHead>
+                <TableHead>IMSI</TableHead>
+                <TableHead>MSISDN</TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>APN</TableHead>
+                <TableHead>RAT</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading &&
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-14" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  </TableRow>
+                ))}
+
+              {!isLoading && sims.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No SIMs connected"
+                      description="No SIM cards are connected to this operator."
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {sims.map((sim, idx) => (
+                <TableRow
+                  key={sim.id}
+                  data-row-index={idx}
+                  data-href={`/sims/${sim.id}`}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/sims/${sim.id}`)}
+                >
+                  <TableCell>
+                    <RowQuickPeek
+                      title={sim.iccid}
+                      fields={[
+                        { label: 'IMSI', value: sim.imsi },
+                        { label: 'State', value: sim.state },
+                        { label: 'APN', value: sim.apn_name || '—' },
+                        { label: 'Created', value: new Date(sim.created_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <span className="font-mono text-xs text-accent hover:underline">{sim.iccid}</span>
+                    </RowQuickPeek>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.imsi}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.msisdn ?? '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.ip_address || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={stateVariant(sim.state)} className="gap-1">
+                      {sim.state === 'active' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                      )}
+                      {stateLabel(sim.state)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-secondary truncate max-w-[120px] block">
+                      {sim.apn_name || <span className="text-text-tertiary">—</span>}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <RATBadge ratType={sim.rat_type} />
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-secondary">
+                      {new Date(sim.created_at).toLocaleDateString()}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
       {hasNextPage && (
-        <div className="mt-3 text-center">
+        <div className="text-center">
           <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
             {isFetchingNextPage ? 'Loading…' : 'Load more'}
           </Button>
