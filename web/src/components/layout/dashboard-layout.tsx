@@ -20,6 +20,9 @@ function useGlobalEventListener() {
   const addEvent = useEventStore((s) => s.addEvent)
 
   useEffect(() => {
+    const pickString = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
+    const pickNumber = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+
     const unsub = wsClient.on('*', (rawMsg: unknown) => {
       const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
       if (!msg.type) return
@@ -28,11 +31,25 @@ function useGlobalEventListener() {
       const evt: LiveEvent = {
         id: envelope.id || `fallback-${Date.now()}`,
         type: msg.type,
-        message: (d.message as string) || msg.type.replace(/\./g, ' '),
-        severity: (d.severity as LiveEvent['severity']) || 'info',
+        message: pickString(d.message) || msg.type.replace(/\./g, ' '),
+        severity: (pickString(d.severity) as LiveEvent['severity']) || 'info',
         timestamp: new Date().toISOString(),
-        entity_type: d.entity_type as string,
-        entity_id: d.entity_id as string,
+        entity_type: pickString(d.entity_type),
+        entity_id: pickString(d.entity_id),
+        // Source context — copy every known field from the payload so the
+        // drawer can render IMSI / IP / operator chips without round-tripping
+        // to the API.
+        imsi: pickString(d.imsi),
+        msisdn: pickString(d.msisdn),
+        framed_ip: pickString(d.framed_ip),
+        nas_ip: pickString(d.nas_ip),
+        operator_id: pickString(d.operator_id),
+        apn_id: pickString(d.apn_id),
+        policy_id: pickString(d.policy_id),
+        job_id: pickString(d.job_id),
+        sim_id: pickString(d.sim_id),
+        tenant_id: pickString(d.tenant_id),
+        progress_pct: pickNumber(d.progress_pct),
       }
       addEvent(evt)
     })

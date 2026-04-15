@@ -8,6 +8,22 @@ export interface LiveEvent {
   timestamp: string
   entity_type?: string
   entity_id?: string
+  // Source context (optional — populated from NATS payload when present).
+  // Session events carry imsi/framed_ip/msisdn; SIM/Operator/APN events
+  // carry sim_id/operator_id/apn_id; policy/job events carry the
+  // corresponding IDs + progress. All surfaced in the drawer via
+  // <SourceChips /> so users see the source without clicking through.
+  imsi?: string
+  msisdn?: string
+  framed_ip?: string
+  nas_ip?: string
+  operator_id?: string
+  apn_id?: string
+  policy_id?: string
+  job_id?: string
+  sim_id?: string
+  tenant_id?: string
+  progress_pct?: number
 }
 
 interface MinuteBucket {

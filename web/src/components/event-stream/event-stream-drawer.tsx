@@ -82,36 +82,85 @@ export function EventStreamDrawer() {
             <span>Waiting for events...</span>
           </div>
         ) : (
-          events.map((event, idx) => (
-            <div
-              key={event.id}
-              className={cn(
-                'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
-                event.entity_type && event.entity_id && 'cursor-pointer',
-                idx === 0 && 'animate-slide-up-in',
-              )}
-              onClick={() => handleClick(event)}
-            >
-              <span className={cn('mt-0.5 shrink-0', severityColor(event.severity))}>
-                {eventIcon(event.type)}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] text-text-tertiary shrink-0">{formatTime(event.timestamp)}</span>
-                  <span className="text-xs text-text-primary truncate">{event.message}</span>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-text-tertiary font-mono">{event.type}</span>
-                  {event.entity_type && (
-                    <span className="text-[10px] text-accent font-mono">{event.entity_type}:{event.entity_id?.slice(0, 8)}</span>
+          events.map((event, idx) => {
+            // metrics.realtime is a system-pulse signal pushed every second;
+            // render it as a single compact row (timestamp + pulse dot) so it
+            // doesn't drown out substantive events.
+            if (event.type === 'metrics.realtime') {
+              return (
+                <div
+                  key={event.id}
+                  className={cn(
+                    'flex items-center gap-2 py-0.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
+                    idx === 0 && 'animate-slide-up-in',
                   )}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent/60 pulse-dot shrink-0" />
+                  <span className="font-mono text-[10px] text-text-tertiary">{formatTime(event.timestamp)}</span>
+                  <span className="text-[10px] text-text-tertiary">metrics pulse</span>
                 </div>
+              )
+            }
+            return (
+              <div
+                key={event.id}
+                className={cn(
+                  'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover transition-colors',
+                  event.entity_type && event.entity_id && 'cursor-pointer',
+                  idx === 0 && 'animate-slide-up-in',
+                )}
+                onClick={() => handleClick(event)}
+              >
+                <span className={cn('mt-0.5 shrink-0', severityColor(event.severity))}>
+                  {eventIcon(event.type)}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] text-text-tertiary shrink-0">{formatTime(event.timestamp)}</span>
+                    <span className="text-xs text-text-primary truncate">{event.message}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className="text-[10px] text-text-tertiary font-mono">{event.type}</span>
+                    <SourceChips event={event} />
+                  </div>
+                </div>
+                <Badge variant={severityVariant(event.severity)} className="text-[9px] shrink-0 mt-0.5">{event.severity}</Badge>
               </div>
-              <Badge variant={severityVariant(event.severity)} className="text-[9px] shrink-0 mt-0.5">{event.severity}</Badge>
-            </div>
-          ))
+            )
+          })
         )}
       </div>
     </Sheet>
+  )
+}
+
+// SourceChips renders a line of inline `Label value` pairs derived from the
+// LiveEvent's payload (IMSI, IP, MSISDN, operator_id, etc.). Priority:
+// SIM-level chips (IMSI/IP/MSISDN) come first for session events; then
+// operator/apn/policy/job IDs; finally entity_type:entity_id as a fallback
+// so legacy events with no specific context still show something.
+function SourceChips({ event }: { event: LiveEvent }) {
+  const chips: Array<{ label: string; value: string; highlight?: boolean }> = []
+  if (event.imsi) chips.push({ label: 'IMSI', value: event.imsi, highlight: true })
+  if (event.framed_ip) chips.push({ label: 'IP', value: event.framed_ip, highlight: true })
+  if (event.msisdn) chips.push({ label: 'MSISDN', value: event.msisdn })
+  if (event.operator_id && !event.imsi) chips.push({ label: 'Op', value: event.operator_id.slice(0, 8) })
+  if (event.apn_id && !event.imsi) chips.push({ label: 'APN', value: event.apn_id.slice(0, 8) })
+  if (event.policy_id) chips.push({ label: 'Policy', value: event.policy_id.slice(0, 8) })
+  if (event.job_id) chips.push({ label: 'Job', value: event.job_id.slice(0, 8) })
+  if (typeof event.progress_pct === 'number') chips.push({ label: '%', value: `${Math.round(event.progress_pct)}` })
+  if (chips.length === 0 && event.entity_type && event.entity_id) {
+    chips.push({ label: event.entity_type, value: event.entity_id.slice(0, 8) })
+  }
+  if (chips.length === 0) return null
+  return (
+    <>
+      {chips.map((c, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-mono">
+          <span className="text-text-tertiary opacity-60">{c.label}</span>
+          <span className={c.highlight ? 'text-accent' : 'text-text-secondary'}>{c.value}</span>
+        </span>
+      ))}
+    </>
   )
 }
