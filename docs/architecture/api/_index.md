@@ -7,7 +7,7 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
-## Auth & Users (18 endpoints)
+## Auth & Users (20 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -21,6 +21,8 @@
 | API-008 | PATCH | /api/v1/users/:id | Update user | JWT (tenant_admin+ or self) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-195 | DELETE | /api/v1/users/:id?gdpr=1 | GDPR right-to-erasure: nulls PII, sets state=purged, emits system audit event | JWT (super_admin) | See [STORY-067](../../stories/phase-10/STORY-067-cicd-ops.md) (scope addition) |
 | API-186 | GET | /api/v1/auth/sessions | List active portal sessions for current user (cursor-paginated) | JWT (api_user+) | See [STORY-064](../../stories/phase-10/STORY-064-db-hardening.md) |
+| API-267 | DELETE | /api/v1/auth/sessions/:id | Revoke a specific portal session for the current user (self-service) | JWT (api_user+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md); doc entry added by audit 2026-04-17 |
+| API-268 | GET | /api/v1/auth/2fa/backup-codes/remaining | Remaining (unused) TOTP backup code count + `totp_enabled` flag for current user | JWT | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) AC-4; doc entry added by audit 2026-04-17 |
 | API-196 | POST | /api/v1/auth/password/change | Change password (current → new) with history/complexity checks; rotates session on success | JWT (partial allowed) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-1, AC-2, AC-3) |
 | API-197 | POST | /api/v1/auth/2fa/backup-codes | Generate/regenerate 10 TOTP backup codes (plaintext returned once, bcrypt-stored) | JWT | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-4) |
 | API-198 | POST | /api/v1/users/:id/unlock | Admin unlock locked account; clears failed_login_count + locked_until | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-10) |
@@ -28,8 +30,8 @@
 | API-200 | POST | /api/v1/users/:id/reset-password | Admin reset: issue temp password (returned once), set force-change flag | JWT (tenant_admin+) | See [STORY-068](../../stories/phase-10/STORY-068-enterprise-auth.md) (AC-3) |
 | API-257 | GET | /api/v1/users/:id | Get user detail (profile + totp_enabled + state + last_login + locked_until); cross-tenant 404 on mismatch | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 | API-258 | GET | /api/v1/users/:id/activity | Get user audit-log activity (cursor-paginated, filtered to actor_id); cross-tenant 404 | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
-| API-262 | POST | /api/v1/auth/switch-tenant | Super_admin-only: activate a tenant context so all subsequent tenant-scoped endpoints operate as if scoped to `{tenant_id}`. Returns new JWT with `active_tenant` claim. Target tenant must have `state='active'` (403 CodeTenantSuspended otherwise). Emits `tenant.context_switched` audit entry under target tenant. | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. Home tenant remains in `tenant_id` claim for audit. |
-| API-263 | POST | /api/v1/auth/exit-tenant-context | Super_admin-only: clear active tenant context and return to System View. Idempotent. Returns new JWT with `active_tenant` cleared. Emits `tenant.context_exited` audit entry under the previously-active tenant (if any). | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. |
+| API-264 | POST | /api/v1/auth/switch-tenant | Super_admin-only: activate a tenant context so all subsequent tenant-scoped endpoints operate as if scoped to `{tenant_id}`. Returns new JWT with `active_tenant` claim. Target tenant must have `state='active'` (403 CodeTenantSuspended otherwise). Emits `tenant.context_switched` audit entry under target tenant. | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. Home tenant remains in `tenant_id` claim for audit. |
+| API-265 | POST | /api/v1/auth/exit-tenant-context | Super_admin-only: clear active tenant context and return to System View. Idempotent. Returns new JWT with `active_tenant` cleared. Emits `tenant.context_exited` audit entry under the previously-active tenant (if any). | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. |
 
 ## Tenants (5 endpoints)
 
@@ -54,7 +56,7 @@
 | API-026 | POST | /api/v1/operator-grants | Grant operator access to tenant | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 | API-027 | DELETE | /api/v1/operator-grants/:id | Revoke operator grant | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 
-## APNs (6 endpoints)
+## APNs (7 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -64,8 +66,9 @@
 | API-033 | PATCH | /api/v1/apns/:id | Update APN | JWT (tenant_admin+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) |
 | API-034 | DELETE | /api/v1/apns/:id | Archive APN (soft-delete) | JWT (tenant_admin) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) |
 | API-035 | GET | /api/v1/apns/:id/sims | List SIMs on this APN | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
+| API-270 | GET | /api/v1/apns/:id/referencing-policies | Policies whose DSL references this APN by name (ILIKE match on policy_versions.dsl_compiled, cursor-paginated) | JWT (policy_editor+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) D-007; doc entry added by audit 2026-04-17 |
 
-## SIMs (14 endpoints)
+## SIMs (15 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -83,6 +86,7 @@
 | API-051 | GET | /api/v1/sims/:id/sessions | Get SIM session history | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-052 | GET | /api/v1/sims/:id/usage | Get SIM usage analytics | JWT (analyst+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-053 | POST | /api/v1/sims/compare | Compare 2 SIMs side-by-side | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
+| API-269 | GET | /api/v1/sims/:id/ip-current | Current IP lease + pool metadata for a SIM's active session (nil when no active IP) | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); doc entry added by audit 2026-04-17 |
 
 ## SIM Segments & Bulk (10 endpoints)
 
@@ -284,10 +288,11 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-## Onboarding (4 endpoints) — STORY-069
+## Onboarding (5 endpoints) — STORY-069
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
+| API-273 | GET | /api/v1/onboarding/status | Latest onboarding session state for the caller's tenant (nil if none) | JWT (api_user) | See [STORY-069](../../stories/phase-10/STORY-069-onboarding-reporting.md); doc entry added by audit 2026-04-17 |
 | API-202 | POST | /api/v1/onboarding/start | Create a new onboarding session for the caller's tenant | JWT (api_user) | Returns `{session_id, current_step:1, steps_total:5}` |
 | API-203 | GET | /api/v1/onboarding/:id | Hydrate session state for resume | JWT (api_user, same tenant) | Returns `current_step` + `data_by_step` map |
 | API-204 | POST | /api/v1/onboarding/:id/step/:n | Submit step n payload (1..5); atomic side-effects per step | JWT (api_user, same tenant) | 422 with `details[]` on validation failure |
@@ -341,6 +346,8 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
 | API-226 | GET | /api/v1/apns/:id/traffic | APN CDR traffic series (bytes in/out by hour, configurable period) | JWT (api_user) | Sourced from `cdrs_hourly`/`cdrs_daily` materialized views |
+| API-271 | GET | /api/v1/operators/:id/sessions | Active sessions scoped to operator (cursor-paginated) | JWT (operator_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); doc entry added by audit 2026-04-17 |
+| API-272 | GET | /api/v1/operators/:id/traffic | Operator CDR traffic series (bytes in/out by hour, configurable period) | JWT (api_user) | Sourced from `cdrs_hourly`/`cdrs_daily`; doc entry added by audit 2026-04-17 |
 
 ## Violation Remediation (1 endpoint) — STORY-070
 
@@ -416,12 +423,13 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-## Policy Violations (4 endpoints) — STORY-025, STORY-075
+## Policy Violations (5 endpoints) — STORY-025, STORY-075
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
 | API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated) | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-263 | GET | /api/v1/policy-violations/counts | Violation counts grouped by type/severity | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
+| API-266 | GET | /api/v1/policy-violations/export.csv | Stream policy violations as CSV (respects current filters) | JWT (api_user+) | Code already wired in `internal/gateway/router.go:622`; doc entry added by audit (2026-04-15) |
 | API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 | API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
 
@@ -445,4 +453,71 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-**Total: 203 REST endpoints + 10 WebSocket event types**
+## Saved Views & User Preferences (5 endpoints) — STORY-077
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-274 | GET | /api/v1/users/me/views?page=<page> | List the current user's saved views for a page (max 20/page). | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-1 |
+| API-275 | POST | /api/v1/users/me/views | Create a saved view: `{page, name, filters_json}`. Unique per (user_id,page,name); partial unique on default. | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-1 |
+| API-276 | PATCH | /api/v1/users/me/views/:view_id | Rename / update filters_json on an owned view. | JWT (owner) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-1 |
+| API-277 | DELETE | /api/v1/users/me/views/:view_id | Delete a saved view. | JWT (owner) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-1 |
+| API-278 | POST | /api/v1/users/me/views/:view_id/default | Mark a view as the default for its page (enforced by partial unique index). | JWT (owner) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-1 |
+| API-279 | PATCH | /api/v1/users/me/preferences | Upsert the caller's UI preferences (table density, column visibility, language). Payload merged into `user_column_preferences`. | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-8/9 |
+
+## Undo (1 endpoint) — STORY-077
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-280 | POST | /api/v1/undo/:action_id | Execute the inverse of a previously-registered destructive action (bulk state change, policy delete, apikey revoke, segment delete). Idempotent; expires after 5 minutes. Emits `audit.undone` event. | JWT (original actor) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-2 |
+
+## Announcements (5 endpoints) — STORY-077
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-281 | GET | /api/v1/announcements/active | Active (un-dismissed) announcements for the caller's tenant. Joins `announcement_dismissals`. | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+| API-282 | POST | /api/v1/announcements/:id/dismiss | Dismiss an announcement for the current user. | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+| API-283 | GET | /api/v1/announcements | List all announcements (admin view, cursor-paginated). | JWT (tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+| API-284 | POST | /api/v1/announcements | Create announcement: `{severity, target(all|tenant), starts_at, ends_at, body, dismissible}`. | JWT (super_admin for target=all; tenant_admin for own tenant) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+| API-285 | PATCH | /api/v1/announcements/:id | Update fields (body, starts_at, ends_at, severity, dismissible). | JWT (super_admin / tenant_admin) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+| API-286 | DELETE | /api/v1/announcements/:id | Hard-delete an announcement. | JWT (super_admin / tenant_admin) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-10 |
+
+## Chart Annotations (3 endpoints) — STORY-077
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-287 | GET | /api/v1/analytics/charts/:chart_key/annotations | List annotations for a chart (tenant-scoped). | JWT (analyst+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-11 |
+| API-288 | POST | /api/v1/analytics/charts/:chart_key/annotations | Create an annotation: `{timestamp, label, severity, body}`. | JWT (analyst+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-11 |
+| API-289 | DELETE | /api/v1/analytics/charts/:chart_key/annotations/:annotation_id | Delete an annotation owned by the caller (tenant_admin can delete any). | JWT (owner or tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-11 |
+
+## Impersonation (2 endpoints) — STORY-077
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-290 | POST | /api/v1/admin/impersonate/:user_id | Start impersonation of a target user: issues a new JWT with `act.sub=original_admin_id` and `impersonated=true`, 1h TTL, read-only enforcement in middleware. | JWT (super_admin) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-12 |
+| API-291 | POST | /api/v1/admin/impersonate/exit | Exit impersonation; re-issues the original admin JWT via the server-held refresh binding. | JWT (impersonated session) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-12 |
+
+## CSV Export — List Resources (13 endpoints) — STORY-062 + STORY-077
+
+Streaming CSV export for every list resource. Each endpoint reuses its list handler's filter parsing and cursor-paginates internally via `export.StreamCSV`. Response: `Content-Type: text/csv`, `Content-Disposition: attachment; filename=<resource>_<filters>_<date>.csv`. No in-memory buffering — memory stays flat under 10M-row exports.
+
+| ID | Method | Path | Resource | Auth | Notes |
+|----|--------|------|----------|------|-------|
+| API-292 | GET | /api/v1/sims/export.csv | SIMs | JWT (sim_manager+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-293 | GET | /api/v1/apns/export.csv | APNs | JWT (sim_manager+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-294 | GET | /api/v1/operators/export.csv | Operators | JWT (operator_manager+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-295 | GET | /api/v1/policies/export.csv | Policies | JWT (policy_editor+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-296 | GET | /api/v1/sessions/export.csv | Sessions | JWT (sim_manager+) | See [STORY-062](../../stories/phase-10/STORY-062-perf-doc-drift.md) D-010 |
+| API-297 | GET | /api/v1/jobs/export.csv | Jobs | JWT (sim_manager+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-298 | GET | /api/v1/audit-logs/export.csv | Audit logs | JWT (tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-299 | GET | /api/v1/cdrs/export.csv | CDRs | JWT (analyst+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-300 | GET | /api/v1/notifications/export.csv | Notifications | JWT (any) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-301 | GET | /api/v1/analytics/anomalies/export.csv | Anomalies | JWT (analyst+) | See [STORY-062](../../stories/phase-10/STORY-062-perf-doc-drift.md) D-010 (FE useExport alias fix) |
+| API-302 | GET | /api/v1/users/export.csv | Users | JWT (tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| API-303 | GET | /api/v1/api-keys/export.csv | API keys | JWT (tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
+| (API-266) | GET | /api/v1/policy-violations/export.csv | Policy violations | JWT (api_user+) | Already indexed under Policy Violations section (D-024) |
+
+---
+
+**Total: 241 REST endpoints + 11 WebSocket event types**
+
+> Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.

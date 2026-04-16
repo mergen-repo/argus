@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 66 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077
+> Total: 78 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191)
 > Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
@@ -77,3 +77,15 @@
 | SCR-174 | Tenant Detail | System | /system/tenants/:id | JWT (super_admin) | STORY-075: AnimatedCounter stats, overview/audit/alerts tabs, super_admin guard |
 | SCR-175 | Announcements | Admin | /admin/announcements | JWT (super_admin) | STORY-077: CRUD for system announcements (info/warning/critical), target all or specific tenant, starts_at/ends_at scheduling, dismissible flag |
 | SCR-176 | Impersonate User | Admin | /admin/impersonate | JWT (super_admin) | STORY-077: user list with "Impersonate" button per row; triggers 1h read-only JWT + purple banner |
+| SCR-180 | SIM Compare | SIM | /sims/compare | JWT (sim_manager+) | STORY-078/077: two-SIM side-by-side diff; `?sim_id_a=&sim_id_b=` pre-populate (F-4 = D-016 OPEN against STORY-079) |
+| SCR-181 | Operator Compare | Operator | /operators/compare | JWT (operator_manager+) | STORY-077: two-operator side-by-side comparison |
+| SCR-182 | Policy Compare | Policy | /policies/compare | JWT (policy_editor+) | STORY-077: two-policy version diff (DSL + metadata) |
+| SCR-183 | Alerts List | Alerts | /alerts | JWT (sim_manager+) | STORY-075/077: alert feed with severity filters; drill-down to SCR-172 |
+| SCR-184 | Violations List | Violations | /violations | JWT (sim_manager+) | STORY-070/075: policy violations list with acknowledge/remediate actions; drill-down to SCR-173 |
+| SCR-185 | SLA Dashboard | Analytics/SLA | /sla | JWT (tenant_admin+) | STORY-072/063: operator SLA reports, uptime trend, violation events |
+| SCR-186 | Topology | System | /topology | JWT (super_admin) | STORY-072: live topology — tenants ↔ operators ↔ APNs ↔ pools with health tinting |
+| SCR-187 | Capacity Planner | Analytics | /capacity | JWT (super_admin) | STORY-070: SIMs / sessions / auth-rate / monthly-growth vs `ARGUS_CAPACITY_*` targets |
+| SCR-188 | Reports (ad-hoc + scheduled) | Reporting | /reports | JWT (api_user+) | STORY-069 AC-2/3: alias to SCR-130; route-level indexing for router parity |
+| SCR-189 | Webhooks (list) | Integrations | /webhooks | JWT (tenant_admin+) | STORY-069 AC-5/6: alias to SCR-131 via `/webhooks` route; kept separate for router parity |
+| SCR-190 | Knowledge Base | Settings | /settings/knowledgebase | JWT (any) | STORY-077: in-app help articles / troubleshooting guide |
+| SCR-191 | Reliability | Settings | /settings/reliability | JWT (super_admin) | STORY-066: backup/restore history, PITR runbook link, JWT rotation status |

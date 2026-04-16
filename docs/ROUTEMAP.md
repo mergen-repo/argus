@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-04-14
-> Current phase: Cleanup & Production Hardening [DONE] — Phase Gate PASS 2026-04-13 (conditional, 8 follow-ups documented)
-> Overall progress: 100% (Dev + E2E + Phase 10) — Phase 10: 22/22 stories, Phase Gate PASS
+> Last updated: 2026-04-17
+> Current phase: Cleanup & Production Hardening [DONE — 2 audit-gap sweeps PENDING] — Phase Gate PASS 2026-04-13 (conditional, 8 follow-ups now tracked as STORY-079; sms_outbound runtime bug tracked as STORY-086)
+> Overall progress: Phase 10 — 22/24 stories (Phase Gate PASS for 22 DONE; STORY-079 + STORY-086 audit sweeps PENDING before Documentation Phase)
 
 ---
 
@@ -144,13 +144,14 @@
 
 ---
 
-## Phase 10: Cleanup & Production Hardening [DONE]
+## Phase 10: Cleanup & Production Hardening [DONE — 2 audit-gap stories PENDING]
 
-> Stories completed: 22/22 (100%)
-> Current story: — (Phase Gate PASS 2026-04-13, conditional with 8 follow-ups)
+> Stories completed: 22/24 (STORY-079 PENDING — post-gate audit sweep added 2026-04-15 to close Phase 10 Gate F-1..F-8 + DEV-191; STORY-086 PENDING — sms_outbound recovery added 2026-04-17 by compliance audit)
+> Current story: STORY-079 + STORY-086 (both PENDING — audit-gap backlog to close before Documentation Phase)
 > Mode: AUTOPILOT
 > Started: 2026-04-13
-> Closed: 2026-04-13
+> Gate: PASS (conditional) 2026-04-13 — 22 stories DONE, 8 follow-ups documented
+> Audit: 2026-04-15 formalised F-1..F-8 + DEV-191 into STORY-079 (D-013..D-021) before Documentation Phase
 > Policy: Zero-deferral before Documentation Phase. Every non-blocking review/gate finding, every deferred item from Phases 1–9, and every gap surfaced by the comprehensive 6-agent gap scan (2026-04-11) must be closed here.
 
 ### Wave 1 — Runtime Critical & Data Completeness [sequential]
@@ -199,10 +200,12 @@
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [x] DONE | — | STORY-075, STORY-076 | 2026-04-13 |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [x] DONE | — | STORY-056..077 | 2026-04-13 |
 | STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [x] DONE | — | STORY-011, STORY-001 | 2026-04-13 |
+| STORY-079 | [AUDIT-GAP] Phase 10 Post-Gate Follow-up Sweep (F-1..F-8 + DEV-191) | M | [ ] PENDING | — | STORY-056..078 | — |
+| STORY-086 | [AUDIT-GAP] Restore `sms_outbound` table + boot-time schema-integrity check | S | [ ] PENDING | — | STORY-069 | — |
 
-Source: docs/stories/phase-10/STORY-056..077-*.md
+Source: docs/stories/phase-10/STORY-056..086-*.md
 
-Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stories.
+Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stories + 2 audit sweeps (STORY-079 added 2026-04-15, STORY-086 added 2026-04-17 by compliance audit).
 
 ---
 
@@ -241,6 +244,8 @@ Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 �
 
 | Date | Type | Description | Affected |
 |------|------|-------------|----------|
+| 2026-04-17 | AUDIT | Manual compliance audit (78 DONE stories, Docker stack Up → runtime verification ENABLED). 29 doc-drift entries auto-fixed in a single commit (`fix(audit): sync architecture indexes with STORY-077/068/069/070/075 shipped endpoints/tables/screens`): api/_index.md +37 rows across 6 new sections (Saved Views/Preferences API-274..279, Undo API-280, Announcements API-281..286, Chart Annotations API-287..289, Impersonation API-290..291, CSV Exports API-292..303) + 7 backfills in existing sections (API-267 DELETE /auth/sessions/:id, API-268 /auth/2fa/backup-codes/remaining, API-269 /sims/:id/ip-current, API-270 /apns/:id/referencing-policies, API-271 /operators/:id/sessions, API-272 /operators/:id/traffic, API-273 /onboarding/status); db/_index.md +5 TBL rows (TBL-47..51 announcements, announcement_dismissals, chart_annotations, user_views, user_column_preferences); SCREENS.md +12 SCR rows (SCR-180..191); ARCHITECTURE scale `204 → 241 APIs, 46 → 51 tables, 66 → 78 screens`. One runtime bug discovered: `GET /api/v1/sms/history` returns 500 because `sms_outbound` table (TBL-42) is documented + migration exists but relation absent from live DB — formalised as new STORY-086 [AUDIT-GAP] + D-025. D-026 tracked as RESOLVED in-audit. Phase 10 counter 22/23 → 22/24. STORY-079's 9 ACs (D-013..D-021) re-verified — all 9 still OPEN. Report: docs/reports/compliance-audit-report.md | docs/architecture/api/_index.md, docs/architecture/db/_index.md, docs/SCREENS.md, docs/ARCHITECTURE.md, docs/ROUTEMAP.md, docs/stories/phase-10/STORY-086-audit-sms-outbound-repair.md, docs/reports/compliance-audit-report.md |
+| 2026-04-15 | AUDIT | Manual compliance audit (78 DONE stories, no agent dispatch per user). Three doc-drift fixes auto-applied: API-262/263 double-assignment (Tenant Context Switch collided with Policy Violations List/Counts) → Tenant Switch renumbered to API-264/API-265; `GET /policy-violations/export.csv` (router line 622) missing from api/_index.md → added as API-266; `session.updated` WS event (SubjectSessionUpdated + commit 52208ea relay) missing from WEBSOCKET_EVENTS.md → added as event 2a; footer `203/10 → 204/11`; ARCHITECTURE scale `203 → 204 APIs`. Eight Phase-10 Gate follow-ups (F-1..F-8) + STORY-067 DEV-191 formalised as D-013..D-021 targeting new STORY-079 [AUDIT-GAP] (PENDING, Phase 10). D-022..D-024 tracked as RESOLVED in-audit. Phase 10 counter 22/22 → 22/23. Runtime verification and Codex MCP both skipped (Docker down, user disabled agent dispatch). Report: docs/reports/compliance-audit-report.md | docs/architecture/api/_index.md, docs/architecture/WEBSOCKET_EVENTS.md, docs/ARCHITECTURE.md, docs/ROUTEMAP.md, docs/reports/compliance-audit-report.md, docs/stories/phase-10/STORY-079-audit-post-gate-sweep.md |
 | 2026-04-14 | DONE | STORY-082 simulator shipped — cmd/simulator binary + internal/simulator/{config,discovery,scenario,radius,engine,metrics} packages, deploy/simulator/ Dockerfile + config + docker-compose overlay, 5 Makefile targets (sim-build/up/down/logs/ps). Verified live: 16 active sessions (turkcell=6, vodafone=6, turk_telekom=4), 8 sessions per tenant (XYZ + ABC) confirming tenant switcher + isolation, 82 RADIUS events in 200 log-line sample (Access-Accept + session started/stopped + interim), 190 simulator_* Prometheus metric lines on :9099/metrics. STORY-081 live-stream verification folded in as AC-7/8 (no FE mock generators — stream is real). 13 new unit tests; full Go suite 2847 PASS/94 pkgs (was 2827, zero regressions). Per-operator RADIUS secrets + UI integration tab tracked separately as STORY-086 (user decision). Commits: ba213a1 (simulator). | cmd/simulator/, internal/simulator/, deploy/simulator/, deploy/docker-compose.simulator.yml, Makefile, go.mod, go.sum, migrations/seed/005_multi_operator_seed.sql |
 | 2026-04-14 | DONE | STORY-080 seed shipped — migrations/seed/005_multi_operator_seed.sql (idempotent). Renamed demo tenant → XYZ Edaş, added ABC Edaş. 3 operators (Turkcell/Vodafone/TT, MCC 286, adapter_type=mock). Created 3 SIM partitions (sims_turkcell/vodafone/turk_telekom — sims is LIST-partitioned by operator_id). 6 operator_grants, 6 APNs, 4 IP pools (10.100.0.0/22, 10.200.0.0/22 ranges), 16 SIMs (8 per tenant, round-robin 3/3/2 across operators), 4 policies + activated v1 versions. Added argus_sim PG role with BYPASSRLS + SELECT grants (BYPASSRLS needed because STORY-064 enabled FORCE ROW LEVEL SECURITY on sims/apns). Applied via `docker compose exec postgres psql` (argus seed subcommand missing — F-1 Phase 10 follow-up). Second run produces 8× "INSERT 0 0" → idempotency verified. Commits: 2ed0b21 (seed). | migrations/seed/005_multi_operator_seed.sql |
 | 2026-04-14 | PLAN | Test Infrastructure track opened — 5 stories planned (STORY-080, 082, 083, 084, 085). User-agreed approach-A-minimal simulator first (RADIUS-only, dumb client); approach B (reactive) planned but deferred to STORY-085. Execution sequence: 080 → 082 → {083, 084} → 085 (optional). Plans under docs/stories/test-infra/. Consulted advisor 2026-04-14: dropped originally-scoped STORY-081 (live-stream verification — folded into STORY-082 AC-7/8 since no FE mock generators found); RADIUS-first phasing to avoid multi-protocol rush; direct DB read-only discovery over API (dev tool pragmatism); explicit call-out for SIM partition requirement per new operator (seed 002 precedent). | docs/stories/test-infra/STORY-0{80,82,83,84,85}-plan.md, docs/ROUTEMAP.md |
@@ -352,6 +357,20 @@ Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 �
 | D-010 | STORY-077 Gate | Sessions and alerts CSV export missing (2 of 14 entities lack export endpoints per AC-4) | STORY-062 | ✓ RESOLVED (2026-04-13) |
 | D-011 | STORY-077 Gate | ImpersonateExit no JWT in response body — forces admin re-login instead of restoring original session (AC-9 degraded UX) | STORY-062 | ✓ RESOLVED (2026-04-13) |
 | D-012 | STORY-077 Gate | `impersonatedBy` always null in frontend — `act_sub` flat claim vs `payload.act?.sub` nested access mismatch | STORY-062 | ✓ RESOLVED (2026-04-13) |
+| D-013 | Phase 10 Gate F-1 | `argus migrate` subcommand not wired — `make db-migrate` silently falls through to `serve` | STORY-079 | [ ] PENDING |
+| D-014 | Phase 10 Gate F-2 | CONCURRENTLY/RLS incompatibilities with partitioned tables — fresh deploy needs manual `force` bump | STORY-079 | [ ] PENDING |
+| D-015 | Phase 10 Gate F-3 | `migrations/seed/003_comprehensive_seed.sql` aborts on fresh volume — no demo data for onboarding/simulator | STORY-079 | [ ] PENDING |
+| D-016 | Phase 10 Gate F-4 | `/sims/compare` does not pre-populate from `?sim_id_a=&sim_id_b=` — "Compare" navigation is half-wired (no `useSearchParams` in `compare.tsx`) | STORY-079 | [ ] PENDING |
+| D-017 | Phase 10 Gate F-5 | Turkish i18n toggle present but coverage is English-only beyond the EN/TR indicator — decision needed on posture (defer / partial / drop) | STORY-079 | [ ] PENDING (decision) |
+| D-018 | Phase 10 Gate F-6 | `/policies` lacks a Compare button — scope question left unresolved at gate | STORY-079 | [ ] PENDING (decision) |
+| D-019 | Phase 10 Gate F-7 | `/dashboard` route returns 404 (dashboard mounted at `/`) — bookmarks/deep-links break | STORY-079 | [ ] PENDING |
+| D-020 | Phase 10 Gate F-8 | Transient `"Invalid session ID format"` toast on first dashboard paint — empty `:id` hits `internal/api/auth/handler.go:375` | STORY-079 | [ ] PENDING |
+| D-021 | STORY-067 Review DEV-191 | `/api/v1/status/details.recent_error_5m` hardcoded to 0 — field is client-visible but not wired to Prometheus counter | STORY-079 | [ ] PENDING |
+| D-022 | Audit 2026-04-15 | `session.updated` WS event documented in code (NATS SubjectSessionUpdated + WS relay, commit 52208ea) but missing from WEBSOCKET_EVENTS.md and API index WS count — fixed in-audit | — | ✓ RESOLVED (2026-04-15) |
+| D-023 | Audit 2026-04-15 | API-262/API-263 double-assignment in api/_index.md — Tenant Context Switch (2026-04-14 bd3ca1d) collided with Policy Violations List/Counts (STORY-062 doc sweep); Tenant Switch renumbered to API-264/API-265 | — | ✓ RESOLVED (2026-04-15) |
+| D-024 | Audit 2026-04-15 | `GET /api/v1/policy-violations/export.csv` wired in `internal/gateway/router.go:622` but missing from api/_index.md — added as API-266 in-audit | — | ✓ RESOLVED (2026-04-15) |
+| D-025 | Audit 2026-04-17 | `sms_outbound` table documented as TBL-42 and referenced by STORY-069 handler at `internal/api/sms/handler.go`, but absent from live PG despite `schema_migrations=20260417000003 dirty=f`. `GET /api/v1/sms/history` returns 500. Sibling STORY-069 tables (onboarding_sessions, scheduled_reports, webhook_configs, etc) all present. Root cause unclear — possibly partial migration apply or manual DROP. | STORY-086 | [ ] PENDING |
+| D-026 | Audit 2026-04-17 | Architecture indexes (api/_index.md, db/_index.md, SCREENS.md) out of sync with STORY-077 deliverables: 13 backend endpoints (saved views, preferences, undo, announcements, chart annotations, impersonation, 12 CSV exports), 5 tables (TBL-47..51), and 12 frontend routes shipped without index rows. Fixed in-audit via 37 API rows + 5 TBL rows + 12 SCR rows + ARCHITECTURE header bump. | — | ✓ RESOLVED (2026-04-17) |
 
 ---
 

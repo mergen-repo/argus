@@ -49,11 +49,16 @@
 | TBL-39 | webhook_deliveries | Notifications | → TBL-38 (webhook_config_id); retry state machine; RLS enabled | No |
 | TBL-40 | notification_preferences | Notifications | → TBL-01 (tenant_id); event_type × channel matrix; RLS enabled | No |
 | TBL-41 | notification_templates | Notifications | Global (no tenant_id); locale-keyed TR/EN; 28 seed rows | No |
-| TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled | No |
+| TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled. **NOTE (audit 2026-04-17):** migration 20260413000001 creates this table but it is absent from the current live DB — tracked as STORY-086 for root-cause + repair. | No |
 | TBL-43 | roaming_agreements | Operator | → TBL-01 (tenant_id), → TBL-05/TBL-06 (operator_id); partial unique index on (tenant_id, operator_id) WHERE state='active'; RLS enabled | No |
 | TBL-44 | anomaly_comments | Analytics/Anomalies | → TBL-28 (anomaly_id), → TBL-02 (author_id); body varchar(2000); index on (anomaly_id, created_at DESC); RLS via app.current_tenant | No |
 | TBL-45 | kill_switches | Admin/Operations | System-level (no tenant_id); key + enabled + reason + toggled_by + toggled_at; 5 canonical keys seeded | No |
 | TBL-46 | maintenance_windows | Admin/Operations | → TBL-01 (tenant_id nullable — may be system-wide); affected_services JSONB; notify_plan JSONB; RLS enabled | No |
+| TBL-47 | announcements | Admin/Ops | → TBL-01 (tenant_id nullable for target='all'); severity + starts_at + ends_at + dismissible; RLS where scoped | No |
+| TBL-48 | announcement_dismissals | Admin/Ops | → TBL-47 (announcement_id), → TBL-02 (user_id); unique(user_id, announcement_id) | No |
+| TBL-49 | chart_annotations | Analytics | → TBL-01 (tenant_id), → TBL-02 (author_id); chart_key + timestamp + label + severity + body; RLS enabled | No |
+| TBL-50 | user_views | Platform/UX | → TBL-02 (user_id); page + name + filters_json; partial unique index (user_id,page) WHERE is_default=true | No |
+| TBL-51 | user_column_preferences | Platform/UX | → TBL-02 (user_id); page + preferences_json (density, columns, language) | No |
 
 ## Domain Detail Files
 
@@ -66,6 +71,7 @@
 | AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27, TBL-28 |
 | Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26, TBL-29, TBL-30, TBL-31 |
 | Backup | [platform-services.md](platform-services.md) | TBL-32, TBL-33 |
+| UX / Personalization (STORY-077) | (no dedicated file yet) | TBL-47, TBL-48, TBL-49, TBL-50, TBL-51 |
 
 ## Entity Relationship Diagram
 
