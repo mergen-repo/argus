@@ -300,6 +300,29 @@ func (s *PolicyStore) SoftDelete(ctx context.Context, tenantID, id uuid.UUID) er
 	return nil
 }
 
+func (s *PolicyStore) RestoreState(ctx context.Context, tenantID, id uuid.UUID, state string) (*Policy, error) {
+	if state == "" {
+		state = "draft"
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE policies
+		SET state = $3, updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+policyColumns,
+		id, tenantID, state,
+	)
+
+	policy, err := scanPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPolicyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: restore policy state: %w", err)
+	}
+	return policy, nil
+}
+
 func (s *PolicyStore) CreateVersion(ctx context.Context, p CreateVersionParams) (*PolicyVersion, error) {
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, created_by)

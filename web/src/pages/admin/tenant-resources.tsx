@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { RefreshCw, AlertCircle, Users, Wifi, Database, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,7 @@ function formatBytes(bytes: number) {
 }
 
 export default function TenantResourcesPage() {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const isSuperAdmin = user?.role === 'super_admin'
   const [view, setView] = useState<'cards' | 'table'>('cards')
@@ -107,7 +109,11 @@ export default function TenantResourcesPage() {
       ) : view === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {(tenants ?? []).map((t) => (
-            <Card key={t.tenant_id} className="bg-bg-surface border-border">
+            <Card
+              key={t.tenant_id}
+              className="bg-bg-surface border-border cursor-pointer transition-colors hover:border-accent/40"
+              onClick={() => navigate(`/system/tenants/${t.tenant_id}`)}
+            >
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-text-primary flex items-center justify-between">
                   {t.tenant_name}
@@ -157,7 +163,11 @@ export default function TenantResourcesPage() {
             </TableHeader>
             <TableBody>
               {(tenants ?? []).map((t) => (
-                <TableRow key={t.tenant_id}>
+                <TableRow
+                  key={t.tenant_id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/system/tenants/${t.tenant_id}`)}
+                >
                   <TableCell>
                     <div className="font-medium text-text-primary">{t.tenant_name}</div>
                     <div className="text-xs text-text-tertiary font-mono">{t.tenant_id.slice(0, 8)}</div>

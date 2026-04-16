@@ -74,7 +74,8 @@ export function useDeletePolicy() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/policies/${id}`)
+      const res = await api.delete<{ status: string; data: { deleted: boolean }; meta?: { undo_action_id?: string } }>(`/policies/${id}`)
+      return { undoActionId: res.data.meta?.undo_action_id }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: POLICIES_KEY })

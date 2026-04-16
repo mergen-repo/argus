@@ -13,6 +13,7 @@ import (
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/cache"
 	"github.com/btopcu/argus/internal/store"
+	undopkg "github.com/btopcu/argus/internal/undo"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -40,6 +41,7 @@ type Handler struct {
 	cdrStore      *store.CDRStore
 	sessionStore  *store.RadiusSessionStore
 	nameCache     *cache.NameCache
+	undoRegistry  *undopkg.Registry
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
@@ -78,6 +80,12 @@ func WithPolicyStore(ps *store.PolicyStore) func(*Handler) {
 func WithNameCache(nc *cache.NameCache) func(*Handler) {
 	return func(h *Handler) {
 		h.nameCache = nc
+	}
+}
+
+func WithUndoRegistry(r *undopkg.Registry) func(*Handler) {
+	return func(h *Handler) {
+		h.undoRegistry = r
 	}
 }
 
@@ -971,8 +979,7 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.suspend", simID.String(), existing, sim, userID)
-
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
 }
 
 func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
@@ -1015,8 +1022,7 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.resume", simID.String(), existing, sim, userID)
-
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
 }
 
 func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
@@ -1116,8 +1122,32 @@ func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.report_lost", simID.String(), existing, sim, userID)
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
+}
 
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+func (h *Handler) writeSIMWithUndo(w http.ResponseWriter, r *http.Request, simID uuid.UUID, previousState string, data interface{}) {
+	meta := map[string]string{}
+	if h.undoRegistry != nil {
+		userID := userIDFromCtx(r)
+		tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+		if userID != nil && tenantID != uuid.Nil {
+			actionID, err := h.undoRegistry.Register(r.Context(), tenantID, *userID, "sim_state_restore", map[string]string{
+				"sim_id": simID.String(),
+				"state":  previousState,
+			})
+			if err != nil {
+				h.logger.Warn().Err(err).Str("sim_id", simID.String()).Msg("register undo for sim state change")
+			} else {
+				meta["undo_action_id"] = actionID
+			}
+		}
+	}
+
+	apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+		Status: "success",
+		Data:   data,
+		Meta:   meta,
+	})
 }
 
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {

@@ -16,6 +16,7 @@ type Handler struct {
 	ksStore    *store.KillSwitchStore
 	mwStore    *store.MaintenanceWindowStore
 	tenantStore *store.TenantStore
+	cdrStore    *store.CDRStore
 	sessionStore *store.SessionStore
 	apiKeyStore  *store.APIKeyStore
 	jobStore     *store.JobStore
@@ -77,6 +78,11 @@ func NewHandler(
 
 func (h *Handler) WithUserStore(s *store.UserStore) *Handler {
 	h.userStore = s
+	return h
+}
+
+func (h *Handler) WithCDRStore(s *store.CDRStore) *Handler {
+	h.cdrStore = s
 	return h
 }
 

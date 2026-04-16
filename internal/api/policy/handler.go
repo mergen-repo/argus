@@ -16,6 +16,7 @@ import (
 	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/store"
+	undopkg "github.com/btopcu/argus/internal/undo"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -41,6 +42,7 @@ type Handler struct {
 	jobStore    *store.JobStore
 	eventBus    *bus.EventBus
 	auditSvc    audit.Auditor
+	undoRegistry *undopkg.Registry
 	logger      zerolog.Logger
 }
 
@@ -62,6 +64,11 @@ func NewHandler(
 		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "policy_handler").Logger(),
 	}
+}
+
+func (h *Handler) WithUndoRegistry(r *undopkg.Registry) *Handler {
+	h.undoRegistry = r
+	return h
 }
 
 type policyResponse struct {
@@ -440,9 +447,27 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "policy.delete", id.String(), existing, nil)
+	meta := map[string]string{}
+	if h.undoRegistry != nil {
+		userID := userIDFromContext(r)
+		if userID != nil {
+			actionID, regErr := h.undoRegistry.Register(r.Context(), tenantID, *userID, "policy_restore", map[string]string{
+				"policy_id": id.String(),
+				"state":     existing.State,
+			})
+			if regErr != nil {
+				h.logger.Warn().Err(regErr).Str("policy_id", id.String()).Msg("register undo for policy delete")
+			} else {
+				meta["undo_action_id"] = actionID
+			}
+		}
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNoContent)
+	apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+		Status: "success",
+		Data:   map[string]bool{"deleted": true},
+		Meta:   meta,
+	})
 }
 
 func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {

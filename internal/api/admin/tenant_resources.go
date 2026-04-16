@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"context"
+	"math"
 	"net/http"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
@@ -46,20 +49,68 @@ func (h *Handler) ListTenantResources(w http.ResponseWriter, r *http.Request) {
 			stats = &store.TenantStats{}
 		}
 
+		spark := make([]int, 0, 7)
+		if h.cdrStore != nil {
+			if sparklines, sparkErr := h.cdrStore.GetDailyKPISparklines(r.Context(), t.ID, 7); sparkErr != nil {
+				h.logger.Warn().Err(sparkErr).Str("tenant_id", t.ID.String()).Msg("get tenant sparkline")
+			} else {
+				for _, point := range sparklines["total_sims"] {
+					spark = append(spark, int(math.Round(point)))
+				}
+			}
+		}
+		if len(spark) == 0 {
+			spark = make([]int, 7)
+		}
+
 		items = append(items, tenantResourceItem{
 			TenantID:       t.ID,
 			TenantName:     t.Name,
 			State:          t.State,
 			SimCount:       stats.SimCount,
+			APIRPS:         h.estimateTenantAPIRPS(r.Context(), t.ID),
 			ActiveSessions: stats.ActiveSessions,
-			// Spark is a flat 7-day trend sparkline. Time-series integration is
-			// handled out-of-band in a future story; always emit a zero array so
-			// the FE renders a placeholder.
-			Spark: make([]int, 7),
+			CDRBytes30d:    h.cdrBytes30d(r.Context(), t.ID),
+			StorageBytes:   int64(stats.StorageBytes),
+			Spark:          spark,
 		})
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, items)
+}
+
+func (h *Handler) estimateTenantAPIRPS(ctx context.Context, tenantID uuid.UUID) float64 {
+	if h.db == nil {
+		return 0
+	}
+	var count float64
+	err := h.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM audit_logs
+		WHERE tenant_id = $1
+		  AND api_key_id IS NOT NULL
+		  AND created_at >= NOW() - INTERVAL '5 minutes'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		return 0
+	}
+	return count / float64((5 * time.Minute).Seconds())
+}
+
+func (h *Handler) cdrBytes30d(ctx context.Context, tenantID uuid.UUID) int64 {
+	if h.db == nil {
+		return 0
+	}
+	var total int64
+	err := h.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(bytes_in + bytes_out), 0)
+		FROM cdrs
+		WHERE tenant_id = $1 AND timestamp >= NOW() - INTERVAL '30 days'
+	`, tenantID).Scan(&total)
+	if err != nil {
+		return 0
+	}
+	return total
 }
 
 // tenantQuotaItem is the wire shape for /admin/tenants/quotas. The FE uses four
@@ -135,7 +186,7 @@ func (h *Handler) ListTenantQuotas(w http.ResponseWriter, r *http.Request) {
 		simPct := calcPct(stats.SimCount, t.MaxSims)
 		apiPct := calcPct(0, apiRpsMax)
 		sessPct := calcPct(stats.ActiveSessions, sessionsMax)
-		storagePct := calcPct(0, storageMax)
+		storagePct := calcPct(stats.StorageBytes, storageMax)
 
 		items = append(items, tenantQuotaItem{
 			TenantID:     t.ID,
@@ -143,7 +194,7 @@ func (h *Handler) ListTenantQuotas(w http.ResponseWriter, r *http.Request) {
 			SIMs:         quotaMetric{Current: stats.SimCount, Max: t.MaxSims, Pct: simPct, Status: quotaStatus(simPct)},
 			APIRPS:       quotaMetric{Current: 0, Max: apiRpsMax, Pct: apiPct, Status: quotaStatus(apiPct)},
 			Sessions:     quotaMetric{Current: stats.ActiveSessions, Max: sessionsMax, Pct: sessPct, Status: quotaStatus(sessPct)},
-			StorageBytes: quotaMetric{Current: 0, Max: storageMax, Pct: storagePct, Status: quotaStatus(storagePct)},
+			StorageBytes: quotaMetric{Current: stats.StorageBytes, Max: storageMax, Pct: storagePct, Status: quotaStatus(storagePct)},
 		})
 	}
 

@@ -19,6 +19,9 @@ type Claims struct {
 	UserID         uuid.UUID  `json:"sub"`
 	TenantID       uuid.UUID  `json:"tenant_id"`
 	Role           string     `json:"role"`
+	AuthType       string     `json:"auth_type,omitempty"`
+	Scopes         []string   `json:"scopes,omitempty"`
+	APIKeyID       *uuid.UUID `json:"api_key_id,omitempty"`
 	Partial        bool       `json:"partial,omitempty"`
 	Reason         string     `json:"reason,omitempty"`
 	Impersonated   bool       `json:"impersonated,omitempty"`
@@ -65,6 +68,27 @@ func GeneratePartialToken(secret string, userID, tenantID uuid.UUID, role string
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "argus",
 			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+func GenerateOAuthToken(secret string, apiKeyID, tenantID uuid.UUID, scopes []string, expiry time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UserID:   apiKeyID,
+		TenantID: tenantID,
+		Role:     "api_user",
+		AuthType: "oauth2",
+		Scopes:   scopes,
+		APIKeyID: &apiKeyID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "argus",
+			Subject:   apiKeyID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
 		},

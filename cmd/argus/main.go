@@ -22,69 +22,69 @@ import (
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
+	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	announcementapi "github.com/btopcu/argus/internal/api/announcement"
-	undoapi "github.com/btopcu/argus/internal/api/undo"
-	searchapi "github.com/btopcu/argus/internal/api/search"
+	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	apikeyapi "github.com/btopcu/argus/internal/api/apikey"
 	apnapi "github.com/btopcu/argus/internal/api/apn"
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
-	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
-	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
-	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	complianceapi "github.com/btopcu/argus/internal/api/compliance"
-	violationapi "github.com/btopcu/argus/internal/api/violation"
+	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
+	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
+	jobapi "github.com/btopcu/argus/internal/api/job"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
+	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	notifapi "github.com/btopcu/argus/internal/api/notification"
 	onboardingapi "github.com/btopcu/argus/internal/api/onboarding"
-	opsapi "github.com/btopcu/argus/internal/api/ops"
-	reportsapi "github.com/btopcu/argus/internal/api/reports"
-	roamingapi "github.com/btopcu/argus/internal/api/roaming"
-	smsapi "github.com/btopcu/argus/internal/api/sms"
-	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
-	"github.com/btopcu/argus/internal/report"
-	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
-	slaapi "github.com/btopcu/argus/internal/api/sla"
-	systemapi "github.com/btopcu/argus/internal/api/system"
-	jobapi "github.com/btopcu/argus/internal/api/job"
-	msisdnapi "github.com/btopcu/argus/internal/api/msisdn"
 	operatorapi "github.com/btopcu/argus/internal/api/operator"
+	opsapi "github.com/btopcu/argus/internal/api/ops"
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
+	reportsapi "github.com/btopcu/argus/internal/api/reports"
+	roamingapi "github.com/btopcu/argus/internal/api/roaming"
+	searchapi "github.com/btopcu/argus/internal/api/search"
+	segmentapi "github.com/btopcu/argus/internal/api/segment"
+	sessionapi "github.com/btopcu/argus/internal/api/session"
+	simapi "github.com/btopcu/argus/internal/api/sim"
+	slaapi "github.com/btopcu/argus/internal/api/sla"
+	smsapi "github.com/btopcu/argus/internal/api/sms"
+	systemapi "github.com/btopcu/argus/internal/api/system"
+	tenantapi "github.com/btopcu/argus/internal/api/tenant"
+	undoapi "github.com/btopcu/argus/internal/api/undo"
+	userapi "github.com/btopcu/argus/internal/api/user"
+	violationapi "github.com/btopcu/argus/internal/api/violation"
+	webhookapi "github.com/btopcu/argus/internal/api/webhooks"
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/auth"
+	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/cache"
+	"github.com/btopcu/argus/internal/compliance"
+	"github.com/btopcu/argus/internal/config"
+	diagnosticspkg "github.com/btopcu/argus/internal/diagnostics"
+	esimpkg "github.com/btopcu/argus/internal/esim"
+	"github.com/btopcu/argus/internal/gateway"
+	"github.com/btopcu/argus/internal/geoip"
+	"github.com/btopcu/argus/internal/job"
+	"github.com/btopcu/argus/internal/killswitch"
+	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/observability"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/operator"
+	"github.com/btopcu/argus/internal/operator/adapter"
+	"github.com/btopcu/argus/internal/ota"
 	"github.com/btopcu/argus/internal/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/policy/rollout"
-	segmentapi "github.com/btopcu/argus/internal/api/segment"
-	sessionapi "github.com/btopcu/argus/internal/api/session"
-	simapi "github.com/btopcu/argus/internal/api/sim"
-	tenantapi "github.com/btopcu/argus/internal/api/tenant"
-	userapi "github.com/btopcu/argus/internal/api/user"
-	"github.com/btopcu/argus/internal/audit"
-	"github.com/btopcu/argus/internal/compliance"
-	"github.com/btopcu/argus/internal/killswitch"
-	"github.com/btopcu/argus/internal/auth"
-	"github.com/btopcu/argus/internal/bus"
-	"github.com/btopcu/argus/internal/cache"
-	diagnosticspkg "github.com/btopcu/argus/internal/diagnostics"
-	esimpkg "github.com/btopcu/argus/internal/esim"
-	"github.com/btopcu/argus/internal/config"
-	"github.com/btopcu/argus/internal/geoip"
-	"github.com/btopcu/argus/internal/gateway"
-	"github.com/btopcu/argus/internal/job"
-	"github.com/btopcu/argus/internal/undo"
-	"github.com/btopcu/argus/internal/notification"
-	"github.com/btopcu/argus/internal/observability"
-	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
-	"github.com/btopcu/argus/internal/ota"
-	"github.com/btopcu/argus/internal/operator"
-	"github.com/btopcu/argus/internal/operator/adapter"
-	"github.com/btopcu/argus/internal/ws"
+	"github.com/btopcu/argus/internal/report"
 	"github.com/btopcu/argus/internal/storage"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/btopcu/argus/internal/undo"
+	"github.com/btopcu/argus/internal/ws"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -275,6 +275,8 @@ func main() {
 	var userHandler *userapi.Handler
 
 	apiKeyStore := store.NewAPIKeyStore(pg.Pool)
+	authHandler.WithAPIKeyStore(apiKeyStore)
+	authHandler.WithJWTSecret(cfg.JWTSecret, cfg.JWTExpiry)
 	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
 
 	operatorStore := store.NewOperatorStore(pg.Pool)
@@ -423,7 +425,7 @@ func main() {
 	rolloutStageProc := job.NewRolloutStageProcessor(rolloutSvc, policyStore, jobStore, eventBus, log.Logger)
 	jobRunner := job.NewRunner(jobStore, eventBus, distLock, job.RunnerConfig{
 		MaxConcurrentPerTenant: cfg.JobMaxConcurrentPerTenant,
-		LockRenewInterval:     cfg.JobLockRenewInterval,
+		LockRenewInterval:      cfg.JobLockRenewInterval,
 	}, log.Logger)
 	jobRunner.SetMetrics(metricsReg)
 	jobRunner.Register(importProcessor)
@@ -966,7 +968,7 @@ func main() {
 	kvkkPurgeProc := job.NewKVKKPurgeProcessor(pg.Pool, dataLifecycleStore, tenantStore, auditStore, jobStore, eventBus, metricsReg, log.Logger)
 	ipGraceReleaseProc := job.NewIPGraceReleaseProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, metricsReg, log.Logger)
 	webhookRetryProc := job.NewWebhookRetryProcessor(webhookDeliveryStore, webhookConfigStore, jobStore, eventBus, metricsReg, log.Logger)
-	scheduledReportEngine := report.NewEngine(&emptyReportProvider{})
+	scheduledReportEngine := report.NewEngine(report.NewStoreProvider(complianceStore, cdrStore, auditStore, simStore, slaReportStore))
 	scheduledReportProc := job.NewScheduledReportProcessor(jobStore, scheduledReportStore, scheduledReportEngine, &nullReportStorage{impl: s3Impl}, eventBus, metricsReg, log.Logger)
 	scheduledReportSweeper := job.NewScheduledReportSweeper(jobStore, scheduledReportStore, jobStore, eventBus, log.Logger)
 	dataPortabilityProc := job.NewDataPortabilityProcessor(jobStore, userStore, tenantStore, cdrStore, auditStore, &nullReportStorage{impl: s3Impl}, eventBus, pg.Pool, auditSvc, log.Logger)
@@ -1036,6 +1038,7 @@ func main() {
 	if geoipLookup != nil {
 		adminHandler.WithGeoIP(geoipLookup)
 	}
+	adminHandler.WithCDRStore(cdrStore)
 
 	announcementStore := store.NewAnnouncementStore(pg.Pool)
 	announcementHandler := announcementapi.NewHandler(announcementStore, auditSvc, log.Logger)
@@ -1043,6 +1046,38 @@ func main() {
 
 	undoRegistry := undo.NewRegistry(rdb.Client)
 	undoHandler := undoapi.NewHandler(undoRegistry, auditSvc, log.Logger)
+	simapi.WithUndoRegistry(undoRegistry)(simHandler)
+	policyHandler.WithUndoRegistry(undoRegistry)
+	undoHandler.RegisterExecutor("sim_state_restore", func(ctx context.Context, tenantID, _ uuid.UUID, payload json.RawMessage) error {
+		var req struct {
+			SimID string `json:"sim_id"`
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return err
+		}
+		simID, err := uuid.Parse(req.SimID)
+		if err != nil {
+			return err
+		}
+		_, err = simStore.RestoreState(ctx, tenantID, simID, req.State)
+		return err
+	})
+	undoHandler.RegisterExecutor("policy_restore", func(ctx context.Context, tenantID, _ uuid.UUID, payload json.RawMessage) error {
+		var req struct {
+			PolicyID string `json:"policy_id"`
+			State    string `json:"state"`
+		}
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return err
+		}
+		policyID, err := uuid.Parse(req.PolicyID)
+		if err != nil {
+			return err
+		}
+		_, err = policyStore.RestoreState(ctx, tenantID, policyID, req.State)
+		return err
+	})
 	_ = undoHandler
 	_ = announcementHandler
 	log.Info().Msg("STORY-077 UX polish handlers wired")
@@ -1150,57 +1185,57 @@ func main() {
 	)
 
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
-		Health:             health,
-		AuthHandler:        authHandler,
-		TenantHandler:      tenantHandler,
-		UserHandler:        userHandler,
-		AuditHandler:       auditHandler,
-		APIKeyHandler:      apiKeyHandler,
-		OperatorHandler:    operatorHandler,
-		APNHandler:         apnHandler,
-		IPPoolHandler:      ippoolHandler,
-		SIMHandler:         simHandler,
-		ESimHandler:        esimHandler,
-		SegmentHandler:     segmentHandler,
-		BulkHandler:        bulkHandler,
-		JobHandler:         jobHandler,
-		MSISDNHandler:      msisdnHandler,
-		SessionHandler:     sessionHandler,
-		PolicyHandler:      policyHandler,
-		OTAHandler:         otaHandler,
-		DiagnosticsHandler: diagHandler,
-		CDRHandler:         cdrHandler,
-		AnalyticsHandler:   analyticsHandler,
-		AnomalyHandler:      anomalyHandler,
-		NotificationHandler: notifHandler,
-		MetricsHandler:      metricsHandler,
-		ComplianceHandler:   complianceHandler,
-		ViolationHandler:    violationHandler,
-		DashboardHandler:    dashboardHandler,
-		SLAHandler:          slaHandler,
-		ReportsHandler:      reportsHandler,
-		ReliabilityHandler:  reliabilityHandler,
-		StatusHandler:       statusHandler,
-		SystemConfigHandler: systemConfigHandler,
-		CapacityHandler:     capacityHandler,
-		OnboardingHandler:   onboardingHandler,
-		RoamingHandler:      roamingHandler,
-		WebhookHandler:      webhookHandler,
-		SMSHandler:          smsHandler,
-		OpsHandler:          opsHandler,
-		AdminHandler:        adminHandler,
-		SearchHandler:       searchHandler,
-		AnnouncementHandler: announcementHandler,
-		UndoHandler:         undoHandler,
-		KillSwitchSvc:       killSwitchSvc,
-		APIKeyStore:        apiKeyStore,
-		TenantLimits:       tenantLimits,
-		RedisClient:        rdb.Client,
-		RateLimitPerMinute: cfg.RateLimitPerMinute,
-		RateLimitPerHour:   cfg.RateLimitPerHour,
-		JWTSecret:          cfg.JWTSecret,
-		JWTSecretPrevious:  cfg.JWTSecretPrevious,
-		Logger:             log.Logger,
+		Health:               health,
+		AuthHandler:          authHandler,
+		TenantHandler:        tenantHandler,
+		UserHandler:          userHandler,
+		AuditHandler:         auditHandler,
+		APIKeyHandler:        apiKeyHandler,
+		OperatorHandler:      operatorHandler,
+		APNHandler:           apnHandler,
+		IPPoolHandler:        ippoolHandler,
+		SIMHandler:           simHandler,
+		ESimHandler:          esimHandler,
+		SegmentHandler:       segmentHandler,
+		BulkHandler:          bulkHandler,
+		JobHandler:           jobHandler,
+		MSISDNHandler:        msisdnHandler,
+		SessionHandler:       sessionHandler,
+		PolicyHandler:        policyHandler,
+		OTAHandler:           otaHandler,
+		DiagnosticsHandler:   diagHandler,
+		CDRHandler:           cdrHandler,
+		AnalyticsHandler:     analyticsHandler,
+		AnomalyHandler:       anomalyHandler,
+		NotificationHandler:  notifHandler,
+		MetricsHandler:       metricsHandler,
+		ComplianceHandler:    complianceHandler,
+		ViolationHandler:     violationHandler,
+		DashboardHandler:     dashboardHandler,
+		SLAHandler:           slaHandler,
+		ReportsHandler:       reportsHandler,
+		ReliabilityHandler:   reliabilityHandler,
+		StatusHandler:        statusHandler,
+		SystemConfigHandler:  systemConfigHandler,
+		CapacityHandler:      capacityHandler,
+		OnboardingHandler:    onboardingHandler,
+		RoamingHandler:       roamingHandler,
+		WebhookHandler:       webhookHandler,
+		SMSHandler:           smsHandler,
+		OpsHandler:           opsHandler,
+		AdminHandler:         adminHandler,
+		SearchHandler:        searchHandler,
+		AnnouncementHandler:  announcementHandler,
+		UndoHandler:          undoHandler,
+		KillSwitchSvc:        killSwitchSvc,
+		APIKeyStore:          apiKeyStore,
+		TenantLimits:         tenantLimits,
+		RedisClient:          rdb.Client,
+		RateLimitPerMinute:   cfg.RateLimitPerMinute,
+		RateLimitPerHour:     cfg.RateLimitPerHour,
+		JWTSecret:            cfg.JWTSecret,
+		JWTSecretPrevious:    cfg.JWTSecretPrevious,
+		Logger:               log.Logger,
 		SecurityHeadersCfg:   &secHeadersCfg,
 		CORSConfig:           &corsCfg,
 		BruteForceCfg:        &bfCfg,

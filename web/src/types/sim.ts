@@ -157,3 +157,21 @@ export interface SIMUsageData {
   series: SIMUsageSeriesBucket[]
   top_sessions: SIMUsageTopSession[]
 }
+
+export interface SIMCDR {
+  id: number
+  session_id: string
+  sim_id: string
+  operator_id: string
+  apn_id?: string
+  rat_type?: string
+  record_type: string
+  bytes_in: number
+  bytes_out: number
+  duration_sec: number
+  usage_cost?: string | null
+  carrier_cost?: string | null
+  rate_per_mb?: string | null
+  rat_multiplier?: string | null
+  timestamp: string
+}

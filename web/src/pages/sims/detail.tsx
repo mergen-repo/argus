@@ -62,14 +62,16 @@ import {
   useSIMDiagnostics,
   useSIMStateAction,
   useSIMUsage,
+  useSIMCDRs,
 } from '@/hooks/use-sims'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
-import type { SIM, SIMState, DiagnosticResult, SIMUsageData } from '@/types/sim'
+import type { SIM, SIMState, DiagnosticResult, SIMUsageData, SIMCDR } from '@/types/sim'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
+import { useUndo } from '@/hooks/use-undo'
 import { formatBytes, formatDuration, timeAgo } from '@/lib/format'
 import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
@@ -311,7 +313,18 @@ function SessionsTab({ simId }: { simId: string }) {
 function UsageTab({ simId }: { simId: string }) {
   const [timeframe, setTimeframe] = useState('30d')
   const { data: usageData, isLoading } = useSIMUsage(simId, timeframe)
+  const {
+    data: cdrPages,
+    isLoading: isCDRsLoading,
+    isFetchingNextPage: isFetchingMoreCDRs,
+    hasNextPage,
+    fetchNextPage,
+  } = useSIMCDRs(simId)
   const usage = usageData as SIMUsageData | undefined
+  const cdrs = useMemo(
+    () => cdrPages?.pages.flatMap((page) => page.data) ?? [],
+    [cdrPages],
+  )
 
   const chartData = useMemo(() => {
     if (!usage?.series?.length) return []
@@ -424,6 +437,86 @@ function UsageTab({ simId }: { simId: string }) {
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>CDR History</CardTitle>
+          <span className="text-xs text-text-tertiary">{cdrs.length} records loaded</span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {isCDRsLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : cdrs.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-bg-surface p-6 text-center text-sm text-text-tertiary">
+              No CDR records found for this SIM.
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Timestamp</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Session</TableHead>
+                    <TableHead className="text-right">In</TableHead>
+                    <TableHead className="text-right">Out</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cdrs.map((cdr: SIMCDR) => (
+                    <TableRow key={cdr.id}>
+                      <TableCell className="text-xs text-text-secondary">
+                        {new Date(cdr.timestamp).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px] uppercase">
+                          {cdr.record_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-text-secondary">
+                        {cdr.session_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-success">
+                        {formatBytes(cdr.bytes_in)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-accent">
+                        {formatBytes(cdr.bytes_out)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-text-secondary">
+                        {formatDuration(cdr.duration_sec)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-text-primary">
+                        {cdr.usage_cost ? `$${cdr.usage_cost}` : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {hasNextPage && (
+                <div className="flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingMoreCDRs}
+                    className="gap-2"
+                  >
+                    {isFetchingMoreCDRs && <Spinner className="h-3 w-3" />}
+                    {isFetchingMoreCDRs ? 'Loading...' : 'Load more CDRs'}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -640,6 +733,7 @@ export default function SimDetailPage() {
 
   const { data: sim, isLoading, isError, refetch } = useSIM(id ?? '')
   const stateAction = useSIMStateAction()
+  const { register: registerUndo } = useUndo([['sims']])
   const addRecentItem = useUIStore((s) => s.addRecentItem)
 
   useEffect(() => {
@@ -651,11 +745,14 @@ export default function SimDetailPage() {
   const handleStateAction = async () => {
     if (!actionDialog || !id) return
     try {
-      await stateAction.mutateAsync({
+      const result = await stateAction.mutateAsync({
         simId: id,
         action: actionDialog.action as 'activate' | 'suspend' | 'resume' | 'terminate' | 'report-lost',
         reason: actionReason || undefined,
       })
+      if (result.undoActionId) {
+        registerUndo(result.undoActionId, `SIM ${actionDialog.label.toLowerCase()}`)
+      }
       setActionDialog(null)
       setActionReason('')
       refetch()

@@ -17,6 +17,17 @@ func applyAuthContext(ctx context.Context, claims *auth.Claims) context.Context 
 	ctx = context.WithValue(ctx, apierr.HomeTenantIDKey, claims.TenantID)
 	ctx = context.WithValue(ctx, apierr.UserIDKey, claims.UserID)
 	ctx = context.WithValue(ctx, apierr.RoleKey, claims.Role)
+	authType := claims.AuthType
+	if authType == "" {
+		authType = "jwt"
+	}
+	ctx = context.WithValue(ctx, apierr.AuthTypeKey, authType)
+	if len(claims.Scopes) > 0 {
+		ctx = context.WithValue(ctx, apierr.ScopesKey, claims.Scopes)
+	}
+	if claims.APIKeyID != nil {
+		ctx = context.WithValue(ctx, apierr.APIKeyIDKey, claims.APIKeyID.String())
+	}
 
 	effectiveTenant := claims.TenantID
 	if claims.ActiveTenantID != nil && claims.Role == "super_admin" {

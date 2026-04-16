@@ -307,6 +307,29 @@ func (s *TenantStore) GetStats(ctx context.Context, tenantID uuid.UUID) (*Tenant
 		return nil, fmt.Errorf("store: count apns: %w", err)
 	}
 
+	err = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE tenant_id = $1 AND session_state = 'active'`, tenantID).Scan(&stats.ActiveSessions)
+	if err != nil {
+		return nil, fmt.Errorf("store: count active sessions: %w", err)
+	}
+
+	err = s.db.QueryRow(ctx, `
+		SELECT
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM sims t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM users t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM apns t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM api_keys t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM sessions t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM cdrs t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM audit_logs t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM notifications t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM jobs t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(t)) FROM policies t WHERE t.tenant_id = $1), 0) +
+			COALESCE((SELECT SUM(pg_column_size(pv)) FROM policy_versions pv JOIN policies p ON p.id = pv.policy_id WHERE p.tenant_id = $1), 0)
+	`, tenantID).Scan(&stats.StorageBytes)
+	if err != nil {
+		return nil, fmt.Errorf("store: estimate tenant storage: %w", err)
+	}
+
 	return &stats, nil
 }
 

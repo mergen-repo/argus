@@ -218,6 +218,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		}
 		r.Post("/api/v1/auth/login", deps.AuthHandler.Login)
 		r.Post("/api/v1/auth/refresh", deps.AuthHandler.Refresh)
+		r.Post("/api/v1/oauth/token", deps.AuthHandler.OAuthToken)
 	})
 
 	r.Group(func(r chi.Router) {

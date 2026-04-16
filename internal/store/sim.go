@@ -21,29 +21,29 @@ var (
 )
 
 type SIM struct {
-	ID                     uuid.UUID       `json:"id"`
-	TenantID               uuid.UUID       `json:"tenant_id"`
-	OperatorID             uuid.UUID       `json:"operator_id"`
-	APNID                  *uuid.UUID      `json:"apn_id"`
-	ICCID                  string          `json:"iccid"`
-	IMSI                   string          `json:"imsi"`
-	MSISDN                 *string         `json:"msisdn"`
-	IPAddressID            *uuid.UUID      `json:"ip_address_id"`
-	PolicyVersionID        *uuid.UUID      `json:"policy_version_id"`
-	ESimProfileID          *uuid.UUID      `json:"esim_profile_id"`
-	SimType                string          `json:"sim_type"`
-	State                  string          `json:"state"`
-	RATType                *string         `json:"rat_type"`
-	MaxConcurrentSessions  int             `json:"max_concurrent_sessions"`
-	SessionIdleTimeoutSec  int             `json:"session_idle_timeout_sec"`
-	SessionHardTimeoutSec  int             `json:"session_hard_timeout_sec"`
-	Metadata               json.RawMessage `json:"metadata"`
-	ActivatedAt            *time.Time      `json:"activated_at"`
-	SuspendedAt            *time.Time      `json:"suspended_at"`
-	TerminatedAt           *time.Time      `json:"terminated_at"`
-	PurgeAt                *time.Time      `json:"purge_at"`
-	CreatedAt              time.Time       `json:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at"`
+	ID                    uuid.UUID       `json:"id"`
+	TenantID              uuid.UUID       `json:"tenant_id"`
+	OperatorID            uuid.UUID       `json:"operator_id"`
+	APNID                 *uuid.UUID      `json:"apn_id"`
+	ICCID                 string          `json:"iccid"`
+	IMSI                  string          `json:"imsi"`
+	MSISDN                *string         `json:"msisdn"`
+	IPAddressID           *uuid.UUID      `json:"ip_address_id"`
+	PolicyVersionID       *uuid.UUID      `json:"policy_version_id"`
+	ESimProfileID         *uuid.UUID      `json:"esim_profile_id"`
+	SimType               string          `json:"sim_type"`
+	State                 string          `json:"state"`
+	RATType               *string         `json:"rat_type"`
+	MaxConcurrentSessions int             `json:"max_concurrent_sessions"`
+	SessionIdleTimeoutSec int             `json:"session_idle_timeout_sec"`
+	SessionHardTimeoutSec int             `json:"session_hard_timeout_sec"`
+	Metadata              json.RawMessage `json:"metadata"`
+	ActivatedAt           *time.Time      `json:"activated_at"`
+	SuspendedAt           *time.Time      `json:"suspended_at"`
+	TerminatedAt          *time.Time      `json:"terminated_at"`
+	PurgeAt               *time.Time      `json:"purge_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 type SimStateHistory struct {
@@ -610,6 +610,40 @@ func (s *SIMStore) ReportLost(ctx context.Context, tenantID, simID uuid.UUID, us
 		return nil, fmt.Errorf("store: commit report lost: %w", err)
 	}
 
+	return sim, nil
+}
+
+func (s *SIMStore) RestoreState(ctx context.Context, tenantID, simID uuid.UUID, state string) (*SIM, error) {
+	if state != "active" && state != "suspended" {
+		return nil, ErrInvalidStateTransition
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE sims
+		SET state = $3,
+			activated_at = CASE
+				WHEN $3 = 'active' THEN COALESCE(activated_at, NOW())
+				ELSE activated_at
+			END,
+			suspended_at = CASE
+				WHEN $3 = 'suspended' THEN COALESCE(suspended_at, NOW())
+				ELSE NULL
+			END,
+			terminated_at = NULL,
+			purge_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+simColumns,
+		simID, tenantID, state,
+	)
+
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: restore sim state: %w", err)
+	}
 	return sim, nil
 }
 

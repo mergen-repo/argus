@@ -156,6 +156,31 @@ Fired when an AAA session terminates (RADIUS Accounting-Stop or Diameter CCR-T).
 
 `terminate_cause` values: `user_request`, `idle_timeout`, `session_timeout`, `admin_disconnect`, `policy_disconnect`, `nas_reboot`, `nas_error`, `operator_disconnect`, `lost_carrier`, `port_error`.
 
+### 2a. session.updated
+
+Fired on RADIUS Acct-Interim-Update and Diameter CCR-U. Carries running byte/duration counters so dashboards can animate in-flight sessions without polling. NATS subject: `argus.events.session.updated` (shared with CDR consumer per STORY-032). Relay-to-WS added in commit `52208ea` (post-Phase-10 dashboard wiring).
+
+```json
+{
+  "type": "session.updated",
+  "id": "evt_u1u2u3u4",
+  "timestamp": "2026-03-18T14:32:15.789Z",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sim_id": "660e8400-e29b-41d4-a716-446655440001",
+    "tenant_id": "770e8400-e29b-41d4-a716-446655440009",
+    "operator_id": "770e8400-e29b-41d4-a716-446655440002",
+    "operator_name": "turkcell",
+    "apn_id": "880e8400-e29b-41d4-a716-446655440003",
+    "rat_type": "lte_m",
+    "bytes_in": 845216,
+    "bytes_out": 127302,
+    "duration_sec": 1815,
+    "updated_at": "2026-03-18T14:32:15.789Z"
+  }
+}
+```
+
 ### 3. sim.state_changed
 
 Fired when a SIM transitions between states.

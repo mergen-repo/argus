@@ -6,10 +6,13 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/api/apikey"
 	authpkg "github.com/btopcu/argus/internal/auth"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -26,6 +29,9 @@ type AuthHandler struct {
 	svc           *authpkg.Service
 	refreshMaxAge int
 	secureCookie  bool
+	apiKeyStore   *store.APIKeyStore
+	jwtSecret     string
+	jwtExpiry     time.Duration
 }
 
 func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCookie bool) *AuthHandler {
@@ -33,7 +39,21 @@ func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCoo
 		svc:           svc,
 		refreshMaxAge: int(refreshExpiry.Seconds()),
 		secureCookie:  secureCookie,
+		jwtExpiry:     time.Hour,
 	}
+}
+
+func (h *AuthHandler) WithAPIKeyStore(s *store.APIKeyStore) *AuthHandler {
+	h.apiKeyStore = s
+	return h
+}
+
+func (h *AuthHandler) WithJWTSecret(secret string, expiry time.Duration) *AuthHandler {
+	h.jwtSecret = secret
+	if expiry > 0 {
+		h.jwtExpiry = expiry
+	}
+	return h
 }
 
 type loginRequest struct {
@@ -71,6 +91,116 @@ type generateBackupCodesResponse struct {
 
 type verify2FAResponse struct {
 	Token string `json:"token"`
+}
+
+type oauthTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope,omitempty"`
+}
+
+func (h *AuthHandler) OAuthToken(w http.ResponseWriter, r *http.Request) {
+	if h.apiKeyStore == nil || h.jwtSecret == "" {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "OAuth2 token service is not configured")
+		return
+	}
+
+	clientID, clientSecret, grantType, scopeStr := oauthClientCredentials(r)
+	if grantType != "client_credentials" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "grant_type must be client_credentials")
+		return
+	}
+	if clientID == "" || clientSecret == "" {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client_id and client_secret are required")
+		return
+	}
+
+	key, err := h.apiKeyStore.GetByPrefix(r.Context(), clientID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "invalid client credentials")
+		return
+	}
+	if key.RevokedAt != nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client credentials revoked")
+		return
+	}
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client credentials expired")
+		return
+	}
+
+	clientHash := apikey.HashAPIKey(clientSecret)
+	valid := clientHash == key.KeyHash
+	if !valid && key.PreviousKeyHash != nil && key.KeyRotatedAt != nil {
+		if clientHash == *key.PreviousKeyHash && time.Now().Before(key.KeyRotatedAt.Add(24*time.Hour)) {
+			valid = true
+		}
+	}
+	if !valid {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "invalid client credentials")
+		return
+	}
+
+	tokenScopes := key.Scopes
+	if scopeStr != "" {
+		requested := strings.Fields(scopeStr)
+		if !oauthScopesAllowed(key.Scopes, requested) {
+			apierr.WriteError(w, http.StatusForbidden, apierr.CodeScopeDenied, "requested scope exceeds client grants")
+			return
+		}
+		tokenScopes = requested
+	}
+
+	token, err := authpkg.GenerateOAuthToken(h.jwtSecret, key.ID, key.TenantID, tokenScopes, h.jwtExpiry)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to issue access token")
+		return
+	}
+
+	_ = h.apiKeyStore.UpdateUsage(r.Context(), key.ID)
+
+	apierr.WriteJSON(w, http.StatusOK, oauthTokenResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(h.jwtExpiry.Seconds()),
+		Scope:       strings.Join(tokenScopes, " "),
+	})
+}
+
+func oauthClientCredentials(r *http.Request) (clientID, clientSecret, grantType, scope string) {
+	clientID, clientSecret, _ = r.BasicAuth()
+	_ = r.ParseForm()
+	if clientID == "" {
+		clientID = r.FormValue("client_id")
+	}
+	if clientSecret == "" {
+		clientSecret = r.FormValue("client_secret")
+	}
+	grantType = r.FormValue("grant_type")
+	scope = r.FormValue("scope")
+	return clientID, clientSecret, grantType, scope
+}
+
+func oauthScopesAllowed(granted, requested []string) bool {
+	for _, req := range requested {
+		allowed := false
+		for _, have := range granted {
+			if have == "*" || have == req {
+				allowed = true
+				break
+			}
+			parts := strings.SplitN(req, ":", 2)
+			if len(parts) == 2 && have == parts[0]+":*" {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {

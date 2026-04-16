@@ -41,7 +41,7 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authType, _ := r.Context().Value(apierr.AuthTypeKey).(string)
-			if authType != "api_key" {
+			if authType != "api_key" && authType != "oauth2" {
 				next.ServeHTTP(w, r)
 				return
 			}

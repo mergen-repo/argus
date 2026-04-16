@@ -47,6 +47,7 @@ import {
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { usePolicyList, useCreatePolicy, useDeletePolicy } from '@/hooks/use-policies'
+import { useUndo } from '@/hooks/use-undo'
 import type { PolicyListItem } from '@/types/policy'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -116,6 +117,7 @@ export default function PolicyListPage() {
 
   const createMutation = useCreatePolicy()
   const deleteMutation = useDeletePolicy()
+  const { register: registerUndo } = useUndo([['policies']])
   const { exportCSV, exporting } = useExport('policies')
 
   const {
@@ -158,7 +160,10 @@ export default function PolicyListPage() {
   const handleDelete = async () => {
     if (!deleteDialogOpen) return
     try {
-      await deleteMutation.mutateAsync(deleteDialogOpen)
+      const result = await deleteMutation.mutateAsync(deleteDialogOpen)
+      if (result?.undoActionId) {
+        registerUndo(result.undoActionId, 'Policy deleted')
+      }
       setDeleteDialogOpen(null)
     } catch {
       // handled by api interceptor

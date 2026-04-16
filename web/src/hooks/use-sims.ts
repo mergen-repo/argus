@@ -10,6 +10,7 @@ import type {
   SIMListFilters,
   SIMUsageData,
   SIMCompareResult,
+  SIMCDR,
   ListResponse,
   ApiResponse,
 } from '@/types/sim'
@@ -116,6 +117,25 @@ export function useSIMUsage(simId: string, period: string = '30d') {
   })
 }
 
+export function useSIMCDRs(simId: string) {
+  return useInfiniteQuery({
+    queryKey: [...SIMS_KEY, 'cdrs', simId],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams()
+      if (pageParam) params.set('cursor', pageParam as string)
+      params.set('limit', '20')
+      params.set('sim_id', simId)
+      const res = await api.get<ListResponse<SIMCDR>>(`/cdrs?${params.toString()}`)
+      return res.data
+    },
+    initialPageParam: '' as string,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.has_more ? lastPage.meta.cursor : undefined,
+    enabled: !!simId,
+    staleTime: 60_000,
+  })
+}
+
 export function useSIMDiagnostics(simId: string) {
   return useMutation({
     mutationFn: async (includeTestAuth: boolean = false) => {
@@ -191,11 +211,14 @@ export function useSIMStateAction() {
       action: 'activate' | 'suspend' | 'resume' | 'terminate' | 'report-lost'
       reason?: string
     }) => {
-      const res = await api.post<ApiResponse<SIM>>(
+      const res = await api.post<ApiResponse<SIM> & { meta?: { undo_action_id?: string } }>(
         `/sims/${simId}/${action}`,
         reason ? { reason } : {},
       )
-      return res.data.data
+      return {
+        sim: res.data.data,
+        undoActionId: res.data.meta?.undo_action_id,
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
