@@ -163,3 +163,4 @@
 - Format: `YYYYMMDDHHMMSS_description.up.sql` / `YYYYMMDDHHMMSS_description.down.sql`
 - Tool: golang-migrate
 - All migrations reversible (up + down)
+- D-032 remediation chain: STORY-069 original (`20260413000001`) → STORY-086 repair (`20260417000004`) → STORY-087 pre-069 shim (`20260412999999`).

@@ -1,0 +1,5 @@
+STEP_1 PLAN: EXECUTED | items=7 tasks, 1 wave, 9 ACs | evidence=docs/stories/test-infra/STORY-087-plan.md | result=PASS
+2026-04-17T18:34:59Z STEP_2 DEV: EXECUTED | items=7 tasks (SQL shim, DEV-243 decision, 3 tests, ROUTEMAP, db doc) | evidence=migrations/20260412999999 internal/store/migration_freshvol_test.go | result=PASS
+2026-04-17T18:34:59Z STEP_2.5 LINT: EXECUTED | items=2 (build, vet) | evidence=all clean | result=PASS
+2026-04-17T18:50:33Z STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) | evidence=docs/stories/test-infra/STORY-087-gate.md | result=PASS
+2026-04-17T18:55:53Z STEP_4 REVIEW: EXECUTED | items=4 findings all FIXED | evidence=docs/stories/test-infra/STORY-087-review.md | result=PASS

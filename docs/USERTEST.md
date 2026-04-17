@@ -2342,3 +2342,100 @@ make sim-down
 curl -s http://localhost:9099/metrics 2>&1 | head -3
 # Beklenen: bağlantı reddedilmeli (simülatör down)
 ```
+
+---
+
+## STORY-087: [TECH-DEBT] D-032 Pre-069 sms_outbound Shim (Temiz Volume Bootstrap)
+
+Bu story backend/altyapi odaklıdır (UI değişikliği yok). Test senaryoları temiz volume (fresh volume) ortamında ve mevcut canlı DB üzerinde doğrulama yapılmasını kapsar.
+
+**Önemli not**: Testler için `DATABASE_URL` ortam değişkeni ayarlanmış çalışan bir PostgreSQL gereklidir. Go testleri bu değişken yoksa otomatik olarak atlanır (`t.Skip`). Ayrıca TimescaleDB 2.26.2 kullanan ortamlarda migration 20260412000006 sırasında `operation not supported on hypertables that have columnstore enabled` hatası alınabilir — bu STORY-087 ile ilgili değil, D-037 olarak kayıt altına alınmıştır.
+
+### 1. Temiz volume fresh bootstrap (AC-1)
+
+```bash
+# Tüm container ve volume'ları kaldır:
+make down
+docker volume rm argus_postgres-data
+
+# Stack'i yeniden başlat:
+make up
+
+# Migration zincirini baştan çalıştır:
+make db-migrate
+# Beklenen: exit 0, hata yok
+
+# Migration durumunu doğrula:
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1;"
+# Beklenen: en yüksek versiyon, dirty=false
+
+# sms_outbound tablosunun oluştuğunu doğrula:
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT to_regclass('public.sms_outbound');"
+# Beklenen: non-NULL (public.sms_outbound)
+
+# Argus boot logunda şema bütünlüğü kontrolü:
+docker compose logs argus | grep "schema integrity check passed"
+# Beklenen: "schema integrity check passed tables=12"
+```
+
+### 2. FK kontrolü — sim_id üzerinde FK olmadığını doğrula (AC-4)
+
+```bash
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT COUNT(*) FROM pg_constraint
+WHERE contype='f' AND conrelid='sms_outbound'::regclass;"
+# Beklenen: 1 (yalnızca tenant_id → tenants(id) FK'si; sim_id FK yok)
+```
+
+### 3. Trigger ve index/RLS kontrolü (AC-5, AC-6, AC-7)
+
+```bash
+# check_sim_exists trigger varlığı:
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT tgname, tgenabled FROM pg_trigger
+WHERE tgrelid='sms_outbound'::regclass AND tgname='trg_sms_outbound_check_sim';"
+# Beklenen: 1 satır, tgenabled='O'
+
+# Named index'ler:
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT indexname FROM pg_indexes WHERE tablename='sms_outbound' ORDER BY indexname;"
+# Beklenen: idx_sms_outbound_provider_id, idx_sms_outbound_status, idx_sms_outbound_tenant_sim_time dahil
+
+# RLS policy:
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT policyname FROM pg_policies WHERE tablename='sms_outbound';"
+# Beklenen: sms_outbound_tenant_isolation
+```
+
+### 4. Canlı DB üzerinde no-op doğrulama (AC-2)
+
+```bash
+# Canlı DB zaten head versiyonda — migrate up tekrar çalıştır:
+docker compose exec argus /app/argus migrate up
+# Beklenen: exit 0, log "migrate: no change — already at latest version"
+
+# Sentinel test: shim'in tabloyu yeniden oluşturmadığını doğrula:
+docker compose exec postgres psql -U argus -d argus -c "
+ALTER TABLE sms_outbound ALTER COLUMN text_preview SET DEFAULT 'sentinel';"
+docker compose exec argus /app/argus migrate up
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT column_default FROM information_schema.columns
+WHERE table_name='sms_outbound' AND column_name='text_preview';"
+# Beklenen: 'sentinel' (shim tabloyu yeniden oluşturmadı)
+# Sentinel'i geri al:
+docker compose exec postgres psql -U argus -d argus -c "
+ALTER TABLE sms_outbound ALTER COLUMN text_preview DROP DEFAULT;"
+```
+
+### 5. Down zinciri doğrulama (AC-8)
+
+```bash
+docker compose exec argus /app/argus migrate down -all
+# Beklenen: exit 0
+
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT to_regclass('public.sms_outbound');"
+# Beklenen: NULL (tablo kaldırıldı)
+```
