@@ -2439,3 +2439,16 @@ docker compose exec postgres psql -U argus -d argus -c "
 SELECT to_regclass('public.sms_outbound');"
 # Beklenen: NULL (tablo kaldırıldı)
 ```
+
+## STORY-088: [TECH-DEBT] D-033 — `go vet` non-pointer `json.Unmarshal` fix
+
+**Backend/test-tooling only. No UI. No production behaviour change.**
+
+### 1. Vet temizliği doğrulama (AC-1)
+
+```bash
+cd /path/to/argus
+go vet ./...
+# Beklenen: çıkış 0, sıfır uyarı
+# (Önceki durum: internal/policy/dryrun/service_test.go:333:30: call of Unmarshal passes non-pointer as second argument)
+```

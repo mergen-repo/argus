@@ -114,5 +114,5 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT
 - Phase: Test Infra + Tech Debt Cleanup (scope: 083, 084, 085, 087, 088 + Mini Phase Gate)
-- Story: STORY-087
+- Story: STORY-088
 - Step: Commit

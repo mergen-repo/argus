@@ -330,7 +330,8 @@ func TestIsDSLError(t *testing.T) {
 		t.Error("IsDSLError should return true for *DSLError")
 	}
 
-	regularErr := json.Unmarshal([]byte("invalid"), nil)
+	var target any
+	regularErr := json.Unmarshal([]byte("invalid"), &target)
 	if IsDSLError(regularErr) {
 		t.Error("IsDSLError should return false for non-DSLError")
 	}
