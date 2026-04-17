@@ -112,7 +112,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: — (idle; Phase 10 Gate PASS unconditional 2026-04-17)
-- Phase: — (Development Phase complete; next: Documentation Phase)
-- Story: —
-- Step: —
+- Mode: AUTOPILOT
+- Phase: Test Infra + Tech Debt Cleanup (scope: 083, 084, 085, 087, 088 + Mini Phase Gate)
+- Story: STORY-084
+- Step: Plan

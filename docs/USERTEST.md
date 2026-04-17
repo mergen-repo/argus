@@ -2057,3 +2057,83 @@ DATABASE_URL=postgres://argus:argus_secret@localhost:5450/argus?sslmode=disable 
   go test ./internal/store -run TestSmsOutbound_RelationPresentAfterMigrations -v
 # Beklenen: PASS — tablo mevcut + RLS'li insert başarılı
 ```
+
+---
+
+## STORY-083: Diameter Simulator Client (Gx/Gy)
+
+Bu story backend/altyapi odaklıdır (simulator dev tool, UI değişikliği yok). Testler Docker stack ve simulator çalışır durumdayken yapılmalıdır.
+
+### Birim ve entegrasyon testleri
+
+```bash
+go test ./internal/simulator/... -v
+# Beklenen: 41 test PASS (config, peer, ccr, client, engine, metrics paketleri)
+
+go test -race ./internal/simulator/...
+# Beklenen: 41 test PASS, race raporu yok
+
+go test -tags=integration -race -run TestSimulator_AgainstArgusDiameter ./internal/simulator/diameter/...
+# Beklenen: PASS — in-process argusdiameter.Server karşısında tam Gx+Gy CCR döngüsü
+```
+
+### 1. Diameter peer başlatma senaryosu (AC-1)
+
+```bash
+# Simulator'ı Diameter etkinleştirilmiş bir operatör ile başlat:
+make up                              # argus-app + pg + redis + nats
+make sim-up                          # turkcell operatörü için diameter.enabled=true ile simulator
+
+# Peer Open durumunu doğrula (30 saniye içinde):
+curl -s http://localhost:9099/metrics | grep simulator_diameter_peer_state
+# Beklenen: simulator_diameter_peer_state{operator="turkcell"} 3
+#   (3 = Open; CER/CEA el sıkışması başarılı)
+```
+
+### 2. Gx/Gy CCR metrikleri senaryosu (AC-2/3/7)
+
+```bash
+# 2 dakika simülasyon çalıştır, ardından metrikleri kontrol et:
+sleep 120
+curl -s http://localhost:9099/metrics | grep simulator_diameter_requests_total
+# Beklenen (en az):
+#   simulator_diameter_requests_total{operator="turkcell",app="gx",type="ccr_i"} > 0
+#   simulator_diameter_requests_total{operator="turkcell",app="gx",type="ccr_t"} > 0
+#   simulator_diameter_requests_total{operator="turkcell",app="gy",type="ccr_i"} > 0
+#   simulator_diameter_requests_total{operator="turkcell",app="gy",type="ccr_u"} > 0
+#   simulator_diameter_requests_total{operator="turkcell",app="gy",type="ccr_t"} > 0
+
+curl -s http://localhost:9099/metrics | grep simulator_diameter_responses_total
+# Beklenen: result="success" sayacı sıfırdan büyük, result="error_*" veya "timeout" yok
+
+curl -s http://localhost:9099/metrics | grep simulator_diameter_latency_seconds
+# Beklenen: histogram bucket'ları dolu (count > 0)
+
+curl -s http://localhost:9099/metrics | grep simulator_diameter_session_aborted_total
+# Beklenen: normal çalışmada bu sayacın artmaması (0 veya yok)
+```
+
+### 3. Argus HTTP CDR doğrulama (plan AC-4 — manuel smoke)
+
+```bash
+# Geçerli token ve tenant ID ile:
+curl -sSf \
+  -H "X-Tenant-ID: $TENANT_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8084/api/v1/cdrs?protocol=diameter&limit=10" | jq '.data | length'
+# Beklenen: sıfırdan büyük bir tam sayı (Diameter oturumları CDR kaydı oluşturmalı)
+```
+
+Not: Bu test otomasyonu DEFERRED edildi (F-A1 — future test-infra story). Birincil kanıt entegrasyon testindeki `TestSimulator_AgainstArgusDiameter`'dır.
+
+### 4. RADIUS-only fallback senaryosu (AC-5/8)
+
+```bash
+# Diameter devre dışı bir operatör için Diameter metriklerinin sıfır kalmasını doğrula:
+curl -s http://localhost:9099/metrics | grep 'simulator_diameter_requests_total{operator="vodafone"'
+# Beklenen: çıktı yok (vodafone operatörü RADIUS-only, Diameter etkinleştirilmemiş)
+
+# STORY-082 RADIUS metrikleri etkilenmemiş olmalı:
+curl -s http://localhost:9099/metrics | grep simulator_radius_requests_total
+# Beklenen: tüm operatörler için RADIUS sayaçları artmış durumda
+```

@@ -7,6 +7,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,29 @@ type Config struct {
 	Rate      RateConfig       `yaml:"rate"`
 	Metrics   MetricsConfig    `yaml:"metrics"`
 	Log       LogConfig        `yaml:"log"`
+	Diameter  DiameterDefaults `yaml:"diameter"`
+}
+
+// DiameterDefaults holds global Diameter peer defaults applied to all
+// operators that opt in. Per-operator overrides sit on OperatorDiameterConfig.
+type DiameterDefaults struct {
+	Host                string        `yaml:"host"`
+	Port                int           `yaml:"port"`
+	OriginRealm         string        `yaml:"origin_realm"`
+	DestinationRealm    string        `yaml:"destination_realm"`
+	WatchdogInterval    time.Duration `yaml:"watchdog_interval"`
+	ConnectTimeout      time.Duration `yaml:"connect_timeout"`
+	RequestTimeout      time.Duration `yaml:"request_timeout"`
+	ReconnectBackoffMin time.Duration `yaml:"reconnect_backoff_min"`
+	ReconnectBackoffMax time.Duration `yaml:"reconnect_backoff_max"`
+}
+
+// OperatorDiameterConfig is the per-operator Diameter opt-in block.
+// A nil pointer on OperatorConfig means Diameter is disabled for that operator.
+type OperatorDiameterConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	OriginHost   string   `yaml:"origin_host"`
+	Applications []string `yaml:"applications"`
 }
 
 type ArgusConfig struct {
@@ -33,9 +57,10 @@ type ArgusConfig struct {
 }
 
 type OperatorConfig struct {
-	Code          string `yaml:"code"`
-	NASIdentifier string `yaml:"nas_identifier"`
-	NASIP         string `yaml:"nas_ip"`
+	Code          string                  `yaml:"code"`
+	NASIdentifier string                  `yaml:"nas_identifier"`
+	NASIP         string                  `yaml:"nas_ip"`
+	Diameter      *OperatorDiameterConfig `yaml:"diameter,omitempty"`
 }
 
 type ScenarioConfig struct {
@@ -158,6 +183,70 @@ func (c *Config) Validate() error {
 	if c.Log.Format == "" {
 		c.Log.Format = "console"
 	}
+
+	if err := c.validateDiameter(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateDiameter applies Diameter defaults and enforces Diameter invariants.
+// Called after all structural RADIUS/scenario validation.
+func (c *Config) validateDiameter() error {
+	d := &c.Diameter
+
+	if d.Host == "" {
+		d.Host = "argus-app"
+	}
+	if d.Port == 0 {
+		d.Port = 3868
+	}
+	if d.OriginRealm == "" {
+		d.OriginRealm = "sim.argus.test"
+	}
+	if d.WatchdogInterval == 0 {
+		d.WatchdogInterval = 30 * time.Second
+	}
+	if d.ConnectTimeout == 0 {
+		d.ConnectTimeout = 5 * time.Second
+	}
+	if d.RequestTimeout == 0 {
+		d.RequestTimeout = 5 * time.Second
+	}
+	if d.ReconnectBackoffMin == 0 {
+		d.ReconnectBackoffMin = 1 * time.Second
+	}
+	if d.ReconnectBackoffMax == 0 {
+		d.ReconnectBackoffMax = 30 * time.Second
+	}
+
+	validApps := map[string]bool{"gx": true, "gy": true}
+	anyEnabled := false
+
+	for i := range c.Operators {
+		op := &c.Operators[i]
+		if op.Diameter == nil || !op.Diameter.Enabled {
+			continue
+		}
+		anyEnabled = true
+
+		if len(op.Diameter.Applications) == 0 {
+			op.Diameter.Applications = []string{"gx", "gy"}
+		}
+		for _, app := range op.Diameter.Applications {
+			if !validApps[strings.ToLower(app)] {
+				return fmt.Errorf("operators[%s].diameter.applications: unknown app %q (must be gx or gy)", op.Code, app)
+			}
+		}
+
+		if op.Diameter.OriginHost == "" {
+			op.Diameter.OriginHost = "sim-" + toKebab(op.Code) + "." + d.OriginRealm
+		}
+	}
+
+	if anyEnabled && d.DestinationRealm == "" {
+		return fmt.Errorf("diameter.destination_realm required when any operator has diameter.enabled: true")
+	}
 	return nil
 }
 
@@ -170,4 +259,15 @@ func (c *Config) OperatorByCode(code string) *OperatorConfig {
 		}
 	}
 	return nil
+}
+
+var kebabReplace = regexp.MustCompile(`[^a-z0-9]+`)
+
+// toKebab converts an operator code to a DNS-safe kebab-case label.
+// e.g. "Turk_Cell 01" → "turk-cell-01"
+func toKebab(s string) string {
+	s = strings.ToLower(s)
+	s = kebabReplace.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	return s
 }

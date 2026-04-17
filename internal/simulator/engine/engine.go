@@ -12,19 +12,21 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btopcu/argus/internal/simulator/config"
+	"github.com/btopcu/argus/internal/simulator/diameter"
 	"github.com/btopcu/argus/internal/simulator/discovery"
 	"github.com/btopcu/argus/internal/simulator/metrics"
 	simradius "github.com/btopcu/argus/internal/simulator/radius"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/rs/zerolog"
+	"golang.org/x/time/rate"
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2866"
-	"golang.org/x/time/rate"
 )
 
 const maxSessionDuration = 4 * time.Hour // safety cap independent of scenario
@@ -33,6 +35,7 @@ type Engine struct {
 	cfg     *config.Config
 	picker  *scenario.Picker
 	client  *simradius.Client
+	dm      map[string]*diameter.Client // operator code → Diameter client; nil = RADIUS-only
 	limiter *rate.Limiter
 	logger  zerolog.Logger
 
@@ -45,11 +48,15 @@ type sessionState struct {
 	cancel context.CancelFunc
 }
 
-func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, logger zerolog.Logger) *Engine {
+// New creates an Engine. dmClients maps operator codes to Diameter clients for
+// operators with Diameter enabled. Pass nil (or an empty map) for RADIUS-only
+// operation — backward compatible with pre-STORY-083 callers.
+func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, dmClients map[string]*diameter.Client, logger zerolog.Logger) *Engine {
 	return &Engine{
 		cfg:     cfg,
 		picker:  picker,
 		client:  client,
+		dm:      dmClients,
 		limiter: rate.NewLimiter(rate.Limit(cfg.Rate.MaxRadiusRequestsPerSecond), cfg.Rate.MaxRadiusRequestsPerSecond),
 		logger:  logger.With().Str("component", "engine").Logger(),
 		active:  make(map[string]*sessionState),
@@ -135,6 +142,24 @@ func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.O
 		return
 	}
 
+	// Diameter open (if enabled for this operator) — must succeed before AcctStart.
+	// On failure the session is aborted and DiameterSessionAbortedTotal gets
+	// incremented exactly once with a reason classified from the error (F-A3
+	// double-count fix): ErrPeerNotOpen → "peer_down", anything else (CCA
+	// result != 2001, request timeout, transport error) → "ccr_i_failed".
+	dmClient := e.dm[sim.OperatorCode]
+	if dmClient != nil {
+		if err := dmClient.OpenSession(ctx, sc); err != nil {
+			reason := "ccr_i_failed"
+			if errors.Is(err, diameter.ErrPeerNotOpen) {
+				reason = "peer_down"
+			}
+			metrics.DiameterSessionAbortedTotal.WithLabelValues(sim.OperatorCode, reason).Inc()
+			log.Debug().Err(err).Msg("diameter open-session failed; aborting session")
+			return
+		}
+	}
+
 	// Accounting-Start
 	if err := e.limiter.Wait(ctx); err != nil {
 		return
@@ -200,6 +225,16 @@ func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.O
 				continue
 			}
 			metrics.RadiusResponsesTotal.WithLabelValues(sim.OperatorCode, "acct_interim", "accept").Inc()
+
+			// Gy CCR-U — non-fatal; skip if peer is down.
+			if dmClient != nil {
+				deltaIn := uint64(sample.BytesPerInterimIn)
+				deltaOut := uint64(sample.BytesPerInterimOut)
+				deltaSec := uint32(sample.InterimInterval.Seconds())
+				if err := dmClient.UpdateGy(sessionCtx, sc, deltaIn, deltaOut, deltaSec); err != nil {
+					log.Debug().Err(err).Msg("diameter gy update failed (non-fatal)")
+				}
+			}
 		}
 	}
 
@@ -218,9 +253,16 @@ stop:
 	if err != nil {
 		metrics.RadiusResponsesTotal.WithLabelValues(sim.OperatorCode, "acct_stop", "error").Inc()
 		log.Debug().Err(err).Msg("acct-stop error")
-		return
+	} else {
+		metrics.RadiusResponsesTotal.WithLabelValues(sim.OperatorCode, "acct_stop", "accept").Inc()
 	}
-	metrics.RadiusResponsesTotal.WithLabelValues(sim.OperatorCode, "acct_stop", "accept").Inc()
+
+	// Diameter close — always attempt after AcctStop regardless of its result.
+	if dmClient != nil {
+		if closeErr := dmClient.CloseSession(stopCtx, sc); closeErr != nil {
+			log.Debug().Err(closeErr).Msg("diameter close-session failed (non-fatal)")
+		}
+	}
 }
 
 // ActiveCount returns the number of currently-active sessions.

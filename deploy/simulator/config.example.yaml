@@ -1,4 +1,4 @@
-# Argus Simulator — RADIUS Traffic Generator (STORY-082)
+# Argus Simulator — RADIUS + Diameter Traffic Generator (STORY-082/083)
 #
 # This file is TEST-ONLY. Never commit production secrets. Env overrides
 # (ARGUS_SIM_DB_URL, ARGUS_SIM_RADIUS_SECRET, etc.) are available for
@@ -15,17 +15,38 @@ argus:
   db_url: postgres://argus_sim:sim_ro_pass@argus-postgres:5432/argus?sslmode=disable
   db_refresh_interval: 5m
 
+# Global Diameter defaults — applied to every operator that enables Diameter.
+# All 9 fields are shown so operators can see every tunable knob.
+diameter:
+  host: argus-app                 # Argus Diameter server hostname (inside compose network)
+  port: 3868                      # TCP port; matches Argus DIAMETER_PORT default
+  origin_realm: sim.argus.test    # Realm announced by the simulator in CER / every CCR
+  # destination-realm must equal Argus DIAMETER_ORIGIN_REALM (default argus.local)
+  destination_realm: argus.local  # Target realm; Argus rejects CCRs with mismatched realm
+  watchdog_interval: 30s          # DWR → DWA keepalive period (RFC 6733 §5.5)
+  connect_timeout: 5s             # TCP dial + CER/CEA handshake deadline
+  request_timeout: 5s             # Per-CCR round-trip deadline
+  reconnect_backoff_min: 1s       # Initial backoff after peer loss
+  reconnect_backoff_max: 30s      # Backoff cap (exponential, capped here)
+
 # Per-operator NAS identity. Secret is shared globally (see STORY-086).
+# Diameter is opt-in: operators without a `diameter:` block remain RADIUS-only.
 operators:
   - code: turkcell
     nas_identifier: sim-turkcell
     nas_ip: 10.99.0.1
+    diameter:
+      enabled: true
+      # origin_host defaults to "sim-turkcell.<origin_realm>" when omitted
+      applications: [gx, gy]     # gx = Policy Control (16777238); gy = Online Charging (4)
   - code: vodafone
     nas_identifier: sim-vodafone
     nas_ip: 10.99.0.2
+    # No diameter block → RADIUS-only (default behaviour)
   - code: turk_telekom
     nas_identifier: sim-turk-telekom
     nas_ip: 10.99.0.3
+    # No diameter block → RADIUS-only
 
 # Weighted-random scenario picker (weights must sum to ~1.0).
 scenarios:

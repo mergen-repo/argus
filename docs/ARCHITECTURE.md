@@ -121,9 +121,11 @@ argus/
 ├── cmd/
 │   ├── argus/
 │   │   └── main.go              # Entry point — starts all listeners
-│   └── argusctl/                # Ops CLI (STORY-067): tenant/apikey/user/sim/health/backup commands
-│       ├── main.go
-│       └── cmd/                 # cobra subcommands (root, tenant, apikey, user, compliance, sim, health, backup)
+│   ├── argusctl/                # Ops CLI (STORY-067): tenant/apikey/user/sim/health/backup commands
+│   │   ├── main.go
+│   │   └── cmd/                 # cobra subcommands (root, tenant, apikey, user, compliance, sim, health, backup)
+│   └── simulator/               # AAA traffic simulator binary (STORY-082/083) — dev/test tool only
+│       └── main.go              # Entry; SIMULATOR_ENABLED env guard; builds operator clients + engine
 ├── internal/
 │   ├── gateway/                  # SVC-01: HTTP API gateway, middleware
 │   ├── ws/                       # SVC-02: WebSocket server
@@ -186,7 +188,15 @@ argus/
 │   │   └── impersonation.go      # ImpersonationReadOnly middleware — blocks non-GET when impersonated (STORY-077)
 │   ├── auth/                     # JWT, 2FA, API key
 │   ├── tenant/                   # Tenant context middleware
-│   └── config/                   # Configuration
+│   ├── config/                   # Configuration
+│   └── simulator/                # AAA traffic simulator packages (STORY-082/083) — dev/test tool only
+│       ├── config/               # YAML config schema (RADIUS + Diameter defaults, per-operator opt-in)
+│       ├── discovery/            # Read-only PG fetch of SIMs / operators / APNs
+│       ├── scenario/             # Weighted-random scenario picker
+│       ├── radius/               # RADIUS Auth + Acct client
+│       ├── engine/               # Session lifecycle orchestration (RADIUS + Diameter bracket)
+│       ├── metrics/              # Prometheus vectors (simulator_radius_* + simulator_diameter_*)
+│       └── diameter/             # Diameter Gx/Gy client (STORY-083): peer state machine, CCR builders, high-level client
 ├── web/                          # React SPA
 │   ├── src/
 │   │   ├── components/

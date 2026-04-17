@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/simulator/config"
+	"github.com/btopcu/argus/internal/simulator/diameter"
 	"github.com/btopcu/argus/internal/simulator/discovery"
 	"github.com/btopcu/argus/internal/simulator/engine"
 	"github.com/btopcu/argus/internal/simulator/metrics"
@@ -82,6 +83,28 @@ func main() {
 		return
 	}
 
+	// Diameter clients — one per operator with diameter.enabled: true.
+	dmClients := make(map[string]*diameter.Client)
+	for _, op := range cfg.Operators {
+		if op.Diameter == nil || !op.Diameter.Enabled {
+			continue
+		}
+		c := diameter.New(op, cfg.Diameter, logger)
+		ready := c.Start(ctx)
+		connectDeadline := cfg.Diameter.ConnectTimeout + 5*time.Second
+		select {
+		case <-ready:
+			logger.Info().Str("operator", op.Code).Msg("diameter peer ready")
+		case <-time.After(connectDeadline):
+			logger.Warn().
+				Str("operator", op.Code).
+				Dur("deadline", connectDeadline).
+				Msg("diameter peer not ready within deadline; will retry in background")
+		case <-ctx.Done():
+		}
+		dmClients[op.Code] = c
+	}
+
 	// Engine
 	picker := scenario.New(cfg.Scenarios, 0) // 0 = wall-time seed
 	client := simradius.New(
@@ -90,7 +113,7 @@ func main() {
 		cfg.Argus.RadiusAccountingPort,
 		cfg.Argus.RadiusSharedSecret,
 	)
-	eng := engine.New(cfg, picker, client, logger)
+	eng := engine.New(cfg, picker, client, dmClients, logger)
 
 	// Signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -105,6 +128,18 @@ func main() {
 		logger.Error().Err(err).Msg("engine exited with error")
 	}
 	logger.Info().Int("active_at_exit", eng.ActiveCount()).Msg("engine drained")
+
+	// Diameter client shutdown — send DPR and close TCP connections before
+	// tearing down the metrics server so final state writes are not lost.
+	if len(dmClients) > 0 {
+		shutdownDm, cancelDm := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelDm()
+		for opCode, c := range dmClients {
+			if err := c.Stop(shutdownDm); err != nil {
+				logger.Warn().Err(err).Str("operator", opCode).Msg("diameter stop error")
+			}
+		}
+	}
 
 	// Metrics shutdown
 	shutdownCtx, stopMetrics := context.WithTimeout(context.Background(), 5*time.Second)

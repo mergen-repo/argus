@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-04-17
-> Current phase: Cleanup & Production Hardening [DONE] — Phase Gate PASS (unconditional) 2026-04-17 (all F-1..F-8 + DEV-191 verified closed + STORY-086 sms_outbound + schemacheck verified in live binary; 10/10 steps executed with fresh rebuild)
-> Overall progress: Phase 10 — 24/24 stories — Development Phase complete, ready for Documentation Phase
+> Current phase: Test Infrastructure + Tech Debt Cleanup [IN PROGRESS] — AUTOPILOT started 2026-04-17 (scope: STORY-083, 084, 085, 087, 088 + Mini Phase Gate)
+> Overall progress: Phase 10 DONE (24/24); Test Infra 2/5 DONE (080, 082); Tech Debt 0/2 — Documentation Phase after Test Infra + Tech Debt Cleanup completion
 
 ---
 
@@ -212,20 +212,34 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 ## Test Infrastructure [IN PROGRESS]
 
 > Standalone track for test/dev tooling — not a phase. Independent of Documentation Phase.
-> Stories: 5 planned (080, 082, 083, 084, 085). Approach A (dumb-client simulator) ships first; Approach B (reactive simulator) is planned but deferred.
+> Stories: 5 planned (080, 082, 083, 084, 085). 080+082 shipped (RADIUS simulator, approach A). 083+084+085 un-deferred 2026-04-17 per user direction — AUTOPILOT Test Infra + Tech Debt Cleanup run.
 > Planning: 2026-04-14 (all 5 plans written, user-approved approach A-first sequencing).
 
 | # | Story | Effort | Status | Step | Dependencies | Completed |
 |---|-------|--------|--------|------|-------------|-----------|
 | STORY-080 | Realistic Multi-Operator Test Seed (3 op, 2 tenant, 16 SIMs, partitions, argus_sim role) | S-M | [x] DONE | — | — | 2026-04-14 |
 | STORY-082 | Operator Simulator — RADIUS (A-minimal): cmd/simulator, docker-compose.simulator.yml, make sim-*, scenario engine, metrics; folds live-stream verification AC | L-XL | [x] DONE | — | STORY-080 | 2026-04-14 |
-| STORY-083 | Simulator — Diameter client (Gx/Gy), per-operator opt-in | M-L | [ ] PENDING | Plan approved | STORY-082 | — |
-| STORY-084 | Simulator — 5G SBA client (AUSF/UDM), per-operator opt-in | M | [ ] PENDING | Plan approved | STORY-082 | — |
-| STORY-085 | Simulator — Reactive behavior (approach B): state machine, CoA listener, Session-Timeout respect, reject backoff, bandwidth cap reaction | L-XL | [ ] PENDING | Plan approved (deferred) | STORY-082 | — |
+| STORY-083 | Simulator — Diameter client (Gx/Gy), per-operator opt-in | M-L | [x] DONE | — | STORY-082 | 2026-04-17 |
+| STORY-084 | Simulator — 5G SBA client (AUSF/UDM), per-operator opt-in | M | [ ] PENDING | Plan | STORY-082 | — |
+| STORY-085 | Simulator — Reactive behavior (approach B): state machine, CoA listener, Session-Timeout respect, reject backoff, bandwidth cap reaction | L-XL | [ ] PENDING | Plan | STORY-082 | — |
 
 Plans: `docs/stories/test-infra/STORY-0{80,82,83,84,85}-plan.md`
 
-Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 → 085 (optional B upgrade). 083/084 can swap; 085 only if reactive testing becomes a priority.
+Execution order (user-agreed 2026-04-17 AUTOPILOT run): 083 → 084 → 085 → 087 (D-032) → 088 (D-033) → Mini Phase Gate.
+
+---
+
+## Tech Debt Cleanup [IN PROGRESS]
+
+> Standalone track for closing Phase 10 residual tech debt. Opened 2026-04-17 concurrent with Test Infra completion — AUTOPILOT scope.
+> Stories: 2 planned (087, 088). Source: D-032 + D-033 in Tech Debt table.
+
+| # | Story | Effort | Status | Step | Dependencies | Completed |
+|---|-------|--------|--------|------|-------------|-----------|
+| STORY-087 | [TECH-DEBT] D-032 — Pre-069 sims-compat shim OR no-transaction safeguard for `20260413000001_story_069_schema.up.sql` FK-to-partitioned-parent defect | S-M | [ ] PENDING | Plan | STORY-086 | — |
+| STORY-088 | [TECH-DEBT] D-033 — `internal/policy/dryrun/service_test.go:333` `go vet` non-pointer `json.Unmarshal` fix | XS | [ ] PENDING | Plan | — | — |
+
+Stop condition (AUTOPILOT): After STORY-088 Step 6 post-processing → Mini Phase Gate (see `docs/reports/test-infra-tech-debt-gate-spec.md`) → STOP + summary.
 
 ---
 
@@ -378,8 +392,9 @@ Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 �
 | D-029 | STORY-079 Gate F-A4 | No CI guard against future CHECK-constraint / seed drift. STORY-079 AC-3 patched 6 enum value mismatches, but no automated fresh-volume seed-smoke test exists. Suggested fix: `db-seed-smoke` Makefile target wired into GHA so next tight CHECK constraint does not regress. | POST-GA CI hardening | [ ] PENDING |
 | D-030 | STORY-079 Gate F-A6 | `argus seed <file>` accepts arbitrary absolute paths and `..` escapes from `ARGUS_SEED_PATH`. Low priority — operator-invoked only, DB role already privileged. Suggested fix: `filepath.EvalSymlinks` + `strings.HasPrefix(abs, seedPath)` refusal. | POST-GA security hardening | [ ] PENDING |
 | D-031 | STORY-079 Gate F-A7 | `internal/observability/metrics/metrics.go` `errorRingBuffer` takes `sync.Mutex` on every recorded 5xx. Acceptable today (only hot under error conditions); single hotspot at >10k RPS. Plan explicitly accepted the mutex. Suggested fix: atomic per-slot counters with CAS on stamp, or accept. | POST-GA perf | [ ] PENDING |
-| D-032 | STORY-086 DEV-239 | Original STORY-069 migration `20260413000001_story_069_schema.up.sql:144` declares unsatisfiable FK `sim_id REFERENCES sims(id)` against the day-1 partitioned `sims` table — the CREATE TABLE statement fails on any correctly-sequenced fresh volume. Live DB worked around this via an archaeological non-atomic apply; fresh deployments will hit the error. STORY-086 repair creates the table without FK, but the defective statement remains in the historical migration file. Future story should add a pre-069 sims-compat shim OR amend with `-- no-transaction` + partial-apply safeguard. Do NOT mutate the deployed 20260413000001 file. | Follow-up story | [ ] PENDING |
-| D-033 | STORY-086 Gate F-B1 | `internal/policy/dryrun/service_test.go:333` `go vet` flags a non-pointer argument to `json.Unmarshal`. Pre-existing from STORY-024 commit d9acf3d — out of STORY-086 scope. Fix: pass `&violations` instead of `violations` (or restructure to avoid the allocation-at-decode pattern). | Follow-up story | [ ] PENDING |
+| D-032 | STORY-086 DEV-239 | Original STORY-069 migration `20260413000001_story_069_schema.up.sql:144` declares unsatisfiable FK `sim_id REFERENCES sims(id)` against the day-1 partitioned `sims` table — the CREATE TABLE statement fails on any correctly-sequenced fresh volume. Live DB worked around this via an archaeological non-atomic apply; fresh deployments will hit the error. STORY-086 repair creates the table without FK, but the defective statement remains in the historical migration file. Future story should add a pre-069 sims-compat shim OR amend with `-- no-transaction` + partial-apply safeguard. Do NOT mutate the deployed 20260413000001 file. | STORY-087 | [ ] PENDING |
+| D-033 | STORY-086 Gate F-B1 | `internal/policy/dryrun/service_test.go:333` `go vet` flags a non-pointer argument to `json.Unmarshal`. Pre-existing from STORY-024 commit d9acf3d — out of STORY-086 scope. Fix: pass `&violations` instead of `violations` (or restructure to avoid the allocation-at-decode pattern). | STORY-088 | [ ] PENDING |
+| D-034 | STORY-083 Gate F-A1 | AC-4 automated HTTP assertion: `GET /api/v1/cdrs?protocol=diameter` non-empty after simulator run. Integration test (`integration_test.go`) asserts only `ActiveSessionCount` via `SessionStateMap`, not the full CDR write-through to DB + HTTP. Full AC-4 verification requires booting gateway + DB + tenant fixtures. Deferred to Post-Track (either fold into Mini Phase Gate smoke, or future STORY-089 as HTTP-level simulator regression test). Manual smoke runbook added to `docs/architecture/simulator.md` in-gate. | POST-GA simulator-regression | [ ] PENDING |
 
 ---
 
