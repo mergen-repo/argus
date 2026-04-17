@@ -26,7 +26,11 @@ services:
     volumes:
       - ./simulator/config.example.yaml:/etc/simulator/config.yaml:ro
     ports:
-      - "9099:9099"  # Prometheus metrics
+      # RADIUS auth/accounting ports are intentionally NOT published to the host —
+      # argus-app reaches the simulator over the argus-net compose bridge by hostname.
+      # Reactive CoA/DM listener (STORY-085) binds UDP :3799 on the container; also
+      # NOT published — Argus sends DM/CoA over the compose bridge.
+      - "9099:9099"  # metrics scrape (Prometheus)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9099/-/health || exit 1"]
       interval: 10s

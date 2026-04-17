@@ -59,3 +59,4 @@ tmp/
 # Deploy snapshots (runtime JSON, not for version control)
 deploy/snapshots/*.json
 !deploy/snapshots/.gitkeep
+/simulator

@@ -43,16 +43,18 @@ func New(host string, authPort, acctPort int, sharedSecret string) *Client {
 // for one simulated session. The engine constructs this, threads it through
 // every packet-builder, and discards it on session end.
 type SessionContext struct {
-	SIM            discovery.SIM
-	NASIP          string
-	NASIdentifier  string
-	AcctSessionID  string
-	FramedIP       net.IP // filled in after Access-Accept
-	StartedAt      time.Time
-	BytesIn        uint64
-	BytesOut       uint64
-	PacketsIn      uint64
-	PacketsOut     uint64
+	SIM                   discovery.SIM
+	NASIP                 string
+	NASIdentifier         string
+	AcctSessionID         string
+	FramedIP              net.IP        // filled in after Access-Accept
+	StartedAt             time.Time
+	BytesIn               uint64
+	BytesOut              uint64
+	PacketsIn             uint64
+	PacketsOut            uint64
+	ServerSessionTimeout  time.Duration // non-zero if Access-Accept included Session-Timeout
+	ReplyMessage          string        // non-empty if response included Reply-Message (Accept or Reject)
 }
 
 // NewSessionContext mints the per-session state with a fresh Acct-Session-Id.
@@ -93,6 +95,15 @@ func (c *Client) Auth(ctx context.Context, sc *SessionContext) (*radius.Packet, 
 	resp, err := c.exchange(ctx, c.authAddr, pkt)
 	if err != nil {
 		return nil, err
+	}
+	// Parse response attributes on both Accept and Reject paths.
+	// Session-Timeout and Reply-Message may appear in either code path
+	// depending on the NAS deployment; Framed-IP-Address is Accept-only.
+	if t := rfc2865.SessionTimeout_Get(resp); t > 0 {
+		sc.ServerSessionTimeout = time.Duration(t) * time.Second
+	}
+	if msg := rfc2865.ReplyMessage_GetString(resp); msg != "" {
+		sc.ReplyMessage = msg
 	}
 	if resp.Code == radius.CodeAccessAccept {
 		if ip := rfc2865.FramedIPAddress_Get(resp); ip != nil {

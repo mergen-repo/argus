@@ -22,6 +22,7 @@ import (
 	"github.com/btopcu/argus/internal/simulator/engine"
 	"github.com/btopcu/argus/internal/simulator/metrics"
 	simradius "github.com/btopcu/argus/internal/simulator/radius"
+	"github.com/btopcu/argus/internal/simulator/reactive"
 	"github.com/btopcu/argus/internal/simulator/sba"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/prometheus/client_golang/prometheus"
@@ -123,6 +124,43 @@ func main() {
 		sbaClients[op.Code] = c
 	}
 
+	// Reactive subsystem — process-wide (one listener, one tracker, one registry).
+	var reactiveSub *reactive.Subsystem
+	if cfg.Reactive.Enabled {
+		reg := reactive.NewRegistry()
+		tracker := reactive.NewRejectTracker(cfg.Reactive)
+
+		var coaListener *reactive.Listener
+		if cfg.Reactive.CoAListener.Enabled {
+			coaListener = reactive.NewListener(reactive.ListenerConfig{
+				Addr:     cfg.Reactive.CoAListener.ListenAddr,
+				Secret:   []byte(cfg.Reactive.CoAListener.SharedSecret),
+				Registry: reg,
+				Logger:   logger.With().Str("component", "reactive-listener").Logger(),
+			})
+			if err := coaListener.Start(ctx); err != nil {
+				logger.Warn().Err(err).Msg("reactive CoA listener failed to start — continuing with reactive enabled but listener disabled")
+				coaListener = nil
+			} else {
+				// Start closes Ready() synchronously before returning nil, so a
+				// select/timeout block here would be unreachable. Log directly.
+				logger.Info().Str("addr", cfg.Reactive.CoAListener.ListenAddr).Msg("reactive CoA listener ready")
+			}
+		}
+
+		reactiveSub = &reactive.Subsystem{
+			Cfg:      cfg.Reactive,
+			Rejects:  tracker,
+			Registry: reg,
+			Listener: coaListener,
+		}
+	}
+
+	logger.Info().
+		Bool("reactive", cfg.Reactive.Enabled).
+		Bool("coa_listener", reactiveSub != nil && reactiveSub.Listener != nil).
+		Msg("reactive subsystem ready")
+
 	// Engine
 	picker := scenario.New(cfg.Scenarios, 0) // 0 = wall-time seed
 	client := simradius.New(
@@ -131,7 +169,7 @@ func main() {
 		cfg.Argus.RadiusAccountingPort,
 		cfg.Argus.RadiusSharedSecret,
 	)
-	eng := engine.New(cfg, picker, client, dmClients, sbaClients, logger)
+	eng := engine.New(cfg, picker, client, dmClients, sbaClients, reactiveSub, logger)
 
 	// Signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -146,6 +184,16 @@ func main() {
 		logger.Error().Err(err).Msg("engine exited with error")
 	}
 	logger.Info().Int("active_at_exit", eng.ActiveCount()).Msg("engine drained")
+
+	// Reactive listener shutdown — stop accepting CoA/DM packets before
+	// tearing down SBA and Diameter so no new reactive events arrive during teardown.
+	if reactiveSub != nil && reactiveSub.Listener != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := reactiveSub.Listener.Stop(stopCtx); err != nil {
+			logger.Warn().Err(err).Msg("reactive listener stop returned error")
+		}
+		stopCancel()
+	}
 
 	// SBA client shutdown — close idle HTTP connections before Diameter and
 	// metrics teardown so final metric writes are not lost.

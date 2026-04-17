@@ -133,6 +133,37 @@ var (
 		},
 		[]string{"operator", "service", "cause"},
 	)
+
+	// STORY-085 — reactive behavior (approach B)
+
+	SimulatorReactiveTerminationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_reactive_terminations_total",
+			Help: "Sessions terminated by the reactive subsystem, labelled by cause. Engine is the single writer (PAT-001).",
+		},
+		[]string{"operator", "cause"},
+		// cause ∈ {session_timeout, disconnect, coa_deadline, reject_suspend, scenario_end, shutdown}
+	)
+
+	SimulatorReactiveRejectBackoffsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_reactive_reject_backoffs_total",
+			Help: "Access-Reject events that triggered backoff or suspension, labelled by outcome.",
+		},
+		[]string{"operator", "outcome"},
+		// outcome ∈ {backoff_set, suspended}
+	)
+
+	SimulatorReactiveIncomingTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_reactive_incoming_total",
+			Help: "UDP packets received by the CoA/DM listener, labelled by kind and result.",
+		},
+		[]string{"operator", "kind", "result"},
+		// kind ∈ {dm, coa, unknown}; result ∈ {ack, unknown_session, bad_secret, malformed, unsupported}.
+		// Note: "nak" is not a distinct result — unknown_session IS the NAK branch
+		// (code 41 for DM / 45 for CoA with Error-Cause 503 Session-Context-Not-Found).
+	)
 )
 
 // MustRegister wires every simulator metric into the provided registerer.
@@ -154,6 +185,9 @@ func MustRegister(reg prometheus.Registerer) {
 		SBALatencySeconds,
 		SBASessionAbortedTotal,
 		SBAServiceErrorsTotal,
+		SimulatorReactiveTerminationsTotal,
+		SimulatorReactiveRejectBackoffsTotal,
+		SimulatorReactiveIncomingTotal,
 	)
 }
 

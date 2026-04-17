@@ -2,8 +2,8 @@
 
 > The Argus simulator (`cmd/simulator/`) generates realistic AAA traffic against a
 > running Argus stack for load testing, regression, and integration verification.
-> Implementation packages: `internal/simulator/{config,discovery,engine,metrics,radius,scenario,diameter}/`
-> Introduced in STORY-082 (RADIUS), extended in STORY-083 (Diameter).
+> Implementation packages: `internal/simulator/{config,discovery,engine,metrics,radius,scenario,diameter,sba,reactive}/`
+> Introduced in STORY-082 (RADIUS), extended in STORY-083 (Diameter), STORY-084 (5G SBA), STORY-085 (Reactive Behavior).
 
 ---
 
@@ -422,6 +422,121 @@ curl -sSf http://localhost:9099/metrics | grep simulator_sba_requests_total
 
 # 4. Tear down.
 make down
+```
+
+---
+
+## Reactive Behavior (STORY-085)
+
+### Scope
+
+Approach-B upgrade to the simulator: from "dumb client" (STORY-082 approach A) to
+"realistic SIM/modem emulator". When enabled, the simulator:
+
+- Interprets Access-Accept attributes: honors `Session-Timeout` and surfaces
+  `Reply-Message` in session context.
+- Backs off exponentially on Access-Reject (30s → 600s cap, 5 retries per
+  1-hour sliding window, then Suspended).
+- Responds to Argus-initiated RADIUS Disconnect-Message (DM, code 40) and
+  Change-of-Authorization (CoA, code 43) per RFC 5176, on UDP port 3799.
+- Preserves byte-identical behavior when `reactive.enabled: false` (default)
+  — STORY-082/083/084 flows are unaffected.
+
+### State machine
+
+```
+  Idle ──Auth─► Authenticating ──Accept─► Authenticated ──Start─► Active ─┐
+   ▲                  │                                                    │
+   │                  Reject                                               │
+   │                  ▼                                                    │
+   └──cooldown── BackingOff ──max-retries─► Suspended                      │
+                                                                           │
+   ┌────────── Terminating ◄── DM / deadline / scenario-end ────────────────┘
+```
+
+Engine is the single writer of `simulator_reactive_terminations_total`
+(PAT-001). Listener sets `Session.DisconnectCause` when it cancels; engine
+classifies on teardown.
+
+### Configuration
+
+Top-level `reactive:` block in `config.example.yaml`. All fields optional
+with sensible defaults; block is opt-in via `reactive.enabled: true`.
+
+| Field | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Master switch |
+| `session_timeout_respect` | `true` | Honor Access-Accept Session-Timeout |
+| `early_termination_margin` | `5s` | End session N seconds before Session-Timeout |
+| `reject_backoff_base` | `30s` | Base of exponential backoff |
+| `reject_backoff_max` | `600s` | Cap |
+| `reject_max_retries_per_hour` | `5` | Sliding-window cap; after this → Suspended |
+| `coa_listener.enabled` | `false` | Bind UDP :3799 listener |
+| `coa_listener.listen_addr` | `0.0.0.0:3799` | Listener bind address |
+| `coa_listener.shared_secret` | `""` | Inherits `argus.radius_shared_secret` when empty |
+
+### Metrics
+
+| Vector | Labels | Meaning |
+|---|---|---|
+| `simulator_reactive_terminations_total` | `operator, cause` | Session ended; cause ∈ {`session_timeout`, `disconnect`, `coa_deadline`, `reject_suspend`, `scenario_end`, `shutdown`} |
+| `simulator_reactive_reject_backoffs_total` | `operator, outcome` | Access-Reject triggered backoff; outcome ∈ {`backoff_set`, `suspended`} |
+| `simulator_reactive_incoming_total` | `operator, kind, result` | Inbound packet on CoA listener. `kind` ∈ {`dm`, `coa`, `unknown`} (`unknown` = packet code neither 40 nor 43 OR parse failed before code extraction). `result` ∈ {`ack`, `unknown_session`, `bad_secret`, `malformed`, `unsupported`} — `ack` for a session match (both DM and CoA); `unknown_session` is the NAK case with Error-Cause 503; `bad_secret` = Message-Authenticator failed; `malformed` = packet shorter than RADIUS header or `radius.Parse` rejected it; `unsupported` = valid RADIUS packet with a code we do not handle. `operator` is `unknown` when the session cannot be located. |
+
+All counter-only; no histograms/gauges. Sessions emit at most one
+termination event.
+
+### CoA/DM routing
+
+Argus sends Disconnect-Message and CoA-Request to the NAS-IP-Address it
+recorded from the original Access-Request. STORY-085 resolved the
+"NAS-IP unreachability" blocker by switching all three operators in
+`deploy/simulator/config.example.yaml` to `nas_ip: argus-simulator` (the
+compose container name, DNS-resolvable from the `argus-app` container on
+`argus-net`). Because `net.ParseIP` returns `nil` for a hostname, the
+`NAS-IP-Address` AVP is silently omitted from the Access-Request (per
+RFC 2865 §5.4 `NAS-Identifier` is an acceptable substitute); the
+`NAS-Identifier` AVP (e.g. `sim-turkcell`) still carries operator
+identity, and Argus persists the hostname string into `sessions.nas_ip`.
+At CoA/DM time Argus dials `fmt.Sprintf("%s:%d", req.NASIP, 3799)` —
+Go's stdlib resolves the A record via compose's embedded DNS and the
+packet reaches the simulator's `0.0.0.0:3799` listener.
+
+**Deployment note**: This works in default compose networking
+(`argus-net` bridge). Host-network or alternative DNS resolvers that do
+not know compose service names must substitute a container-addressable
+hostname or IP.
+
+For local E2E testing, the listener also accepts packets crafted
+in-process via `reactive.NewListener` + direct UDP write — see
+`internal/simulator/reactive/integration_test.go` (build-tag
+`integration`) and `listener_test.go`.
+
+### Out of scope (future stories)
+
+- Bandwidth-cap reaction (requires Argus to install rate-limit attributes
+  via standard-compliant RADIUS VSA — see Tech Debt D-035; the pre-existing
+  `internal/aaa/radius/server.go:571-580` broken install is tracked there).
+- Diameter Abort-Session-Request (ASR) handling (no Argus push mechanism
+  today).
+- 5G SBA UE-context-termination from AMF (no Argus push mechanism today).
+- Persistent suspension state across simulator restarts (in-memory only).
+
+### Testing
+
+```bash
+# Unit tests (all build configs)
+go test ./internal/simulator/reactive/...
+
+# Integration tests (package-level end-to-end)
+go test -tags=integration ./internal/simulator/reactive/...
+
+# Enable reactive in a compose run (default=off)
+# Edit deploy/simulator/config.example.yaml:
+#   reactive.enabled: true
+#   reactive.coa_listener.enabled: true
+make sim-up
+docker compose logs argus-simulator | grep "reactive subsystem ready"
 ```
 
 ---

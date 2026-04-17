@@ -128,6 +128,73 @@ func snippet(body, needle string) string {
 	return body[start:end]
 }
 
+// TestRegister_ReactiveVectors verifies that all three simulator_reactive_*
+// metric names are registered (STORY-085 AC).
+func TestRegister_ReactiveVectors(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	MustRegister(reg)
+
+	SimulatorReactiveTerminationsTotal.WithLabelValues("op", "session_timeout").Inc()
+	SimulatorReactiveRejectBackoffsTotal.WithLabelValues("op", "backoff_set").Inc()
+	SimulatorReactiveIncomingTotal.WithLabelValues("op", "coa", "ack").Inc()
+
+	h := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	body, err := io.ReadAll(rec.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	out := string(body)
+
+	wantVectors := []string{
+		"simulator_reactive_terminations_total",
+		"simulator_reactive_reject_backoffs_total",
+		"simulator_reactive_incoming_total",
+	}
+	for _, v := range wantVectors {
+		if !strings.Contains(out, v) {
+			t.Errorf("metric %q missing from /metrics output", v)
+		}
+	}
+}
+
+// TestReactive_LabelNames verifies that each reactive vector exposes exactly
+// the planned label names (STORY-085 label contract).
+func TestReactive_LabelNames(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	MustRegister(reg)
+
+	SimulatorReactiveTerminationsTotal.WithLabelValues("turkcell", "disconnect").Inc()
+	SimulatorReactiveRejectBackoffsTotal.WithLabelValues("vodafone", "suspended").Inc()
+	SimulatorReactiveIncomingTotal.WithLabelValues("unknown", "dm", "bad_secret").Inc()
+
+	h := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	body, err := io.ReadAll(rec.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	out := string(body)
+
+	wantLabels := []string{
+		`cause="disconnect"`,
+		`outcome="suspended"`,
+		`kind="dm"`,
+		`result="bad_secret"`,
+	}
+	for _, l := range wantLabels {
+		if !strings.Contains(out, l) {
+			t.Errorf("expected label %q in /metrics output; excerpt: %q", l, snippet(out, l))
+		}
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

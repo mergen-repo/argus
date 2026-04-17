@@ -24,6 +24,32 @@ type Config struct {
 	Log       LogConfig        `yaml:"log"`
 	Diameter  DiameterDefaults `yaml:"diameter"`
 	SBA       SBADefaults      `yaml:"sba"`
+	Reactive  ReactiveDefaults `yaml:"reactive"`
+}
+
+// ReactiveDefaults holds global reactive-behavior defaults for the simulator.
+// All fields are applied only when Enabled is true; a disabled reactive block
+// is a zero-value no-op (backwards compatible with STORY-082/083 configs).
+//
+// SessionTimeoutRespect is a bare bool that defaults to true when Enabled is
+// true. YAML cannot distinguish "omitted" from "explicit false" for bare bool,
+// so set session_timeout_respect: false explicitly to disable it.
+type ReactiveDefaults struct {
+	Enabled                 bool            `yaml:"enabled"`
+	SessionTimeoutRespect   bool            `yaml:"session_timeout_respect"`
+	EarlyTerminationMargin  time.Duration   `yaml:"early_termination_margin"`
+	RejectBackoffBase       time.Duration   `yaml:"reject_backoff_base"`
+	RejectBackoffMax        time.Duration   `yaml:"reject_backoff_max"`
+	RejectMaxRetriesPerHour int             `yaml:"reject_max_retries_per_hour"`
+	CoAListener             CoAListenerConfig `yaml:"coa_listener"`
+}
+
+// CoAListenerConfig configures the CoA/DM listener on the simulator.
+// SharedSecret defaults to inheriting argus.radius_shared_secret when empty.
+type CoAListenerConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	ListenAddr   string `yaml:"listen_addr"`   // default "0.0.0.0:3799"
+	SharedSecret string `yaml:"shared_secret"` // empty → inherit argus.radius_shared_secret
 }
 
 // DiameterDefaults holds global Diameter peer defaults applied to all
@@ -158,6 +184,9 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("ARGUS_SIM_LOG_LEVEL"); v != "" {
 		c.Log.Level = strings.ToLower(v)
 	}
+	if v := os.Getenv("ARGUS_SIM_COA_SECRET"); v != "" {
+		c.Reactive.CoAListener.SharedSecret = v
+	}
 }
 
 // Validate enforces the invariants the engine assumes.
@@ -227,6 +256,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateSBA(); err != nil {
+		return err
+	}
+	if err := c.validateReactive(); err != nil {
 		return err
 	}
 	return nil
@@ -353,6 +385,55 @@ func (c *Config) validateSBA() error {
 		if os.Getenv("ARGUS_SIM_ENV") == "prod" {
 			return fmt.Errorf("sba.tls_skip_verify: true is not allowed when ARGUS_SIM_ENV=prod (disable prod guard with sba.prod_guard: false only for exceptional cases)")
 		}
+	}
+
+	return nil
+}
+
+// validateReactive applies reactive-behavior defaults and enforces invariants.
+// Called after validateSBA. Zero-value skip: if Reactive.Enabled is false the
+// function returns nil immediately without mutating any field, preserving
+// backwards compatibility with STORY-082/083 configs.
+func (c *Config) validateReactive() error {
+	r := &c.Reactive
+
+	if !r.Enabled {
+		return nil
+	}
+
+	// SessionTimeoutRespect defaults to true when Enabled; bare bool means
+	// YAML "omitted" and "false" are indistinguishable, so default-on-when-enabled.
+	r.SessionTimeoutRespect = true
+
+	if r.EarlyTerminationMargin == 0 {
+		r.EarlyTerminationMargin = 5 * time.Second
+	}
+	if r.RejectBackoffBase == 0 {
+		r.RejectBackoffBase = 30 * time.Second
+	}
+	if r.RejectBackoffMax == 0 {
+		r.RejectBackoffMax = 600 * time.Second
+	}
+	if r.CoAListener.ListenAddr == "" {
+		r.CoAListener.ListenAddr = "0.0.0.0:3799"
+	}
+
+	if r.CoAListener.SharedSecret == "" {
+		if c.Argus.RadiusSharedSecret != "" {
+			r.CoAListener.SharedSecret = c.Argus.RadiusSharedSecret
+		} else {
+			return fmt.Errorf("reactive.coa_listener.shared_secret is empty and argus.radius_shared_secret is also empty")
+		}
+	}
+
+	if r.RejectBackoffBase > r.RejectBackoffMax {
+		return fmt.Errorf("reject_backoff_base must be <= reject_backoff_max")
+	}
+	// Plan §Config schema: RejectMaxRetriesPerHour defaults to 5 when unset.
+	if r.RejectMaxRetriesPerHour == 0 {
+		r.RejectMaxRetriesPerHour = 5
+	} else if r.RejectMaxRetriesPerHour < 0 {
+		return fmt.Errorf("reject_max_retries_per_hour must be >= 0 (0 → default 5)")
 	}
 
 	return nil

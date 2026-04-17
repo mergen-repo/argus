@@ -463,6 +463,268 @@ func TestSBA_DiameterOnlyStillValid(t *testing.T) {
 	}
 }
 
+// TestReactive_DefaultsOff_NoChange verifies that a disabled reactive block
+// is a no-op: Validate returns nil and no fields are mutated.
+func TestReactive_DefaultsOff_NoChange(t *testing.T) {
+	p := writeTemp(t, validYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Reactive.Enabled {
+		t.Error("Reactive.Enabled should be false when not set")
+	}
+	if cfg.Reactive.EarlyTerminationMargin != 0 {
+		t.Errorf("EarlyTerminationMargin should be 0 when disabled, got %v", cfg.Reactive.EarlyTerminationMargin)
+	}
+	if cfg.Reactive.CoAListener.ListenAddr != "" {
+		t.Errorf("CoAListener.ListenAddr should be empty when disabled, got %q", cfg.Reactive.CoAListener.ListenAddr)
+	}
+}
+
+// TestReactive_EnabledAppliesDefaults verifies that enabling reactive fills in
+// all zero-value fields with their documented defaults.
+func TestReactive_EnabledAppliesDefaults(t *testing.T) {
+	cfg := &Config{
+		Argus: ArgusConfig{
+			RadiusHost:           "argus-app",
+			RadiusAuthPort:       1812,
+			RadiusAccountingPort: 1813,
+			RadiusSharedSecret:   "s",
+			DBURL:                "postgres://x",
+			DBRefreshInterval:    5 * time.Minute,
+		},
+		Operators: []OperatorConfig{{Code: "turkcell"}},
+		Scenarios: []ScenarioConfig{{
+			Name:                   "normal",
+			Weight:                 1.0,
+			SessionDurationSeconds: [2]int{60, 120},
+			InterimIntervalSeconds: 30,
+		}},
+		Rate:    RateConfig{MaxRadiusRequestsPerSecond: 5},
+		Metrics: MetricsConfig{Listen: ":9099"},
+		Log:     LogConfig{Level: "info", Format: "console"},
+		Reactive: ReactiveDefaults{
+			Enabled:                 true,
+			RejectMaxRetriesPerHour: 5,
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	r := cfg.Reactive
+	if r.EarlyTerminationMargin != 5*time.Second {
+		t.Errorf("EarlyTerminationMargin: want 5s got %v", r.EarlyTerminationMargin)
+	}
+	if r.RejectBackoffBase != 30*time.Second {
+		t.Errorf("RejectBackoffBase: want 30s got %v", r.RejectBackoffBase)
+	}
+	if r.RejectBackoffMax != 600*time.Second {
+		t.Errorf("RejectBackoffMax: want 600s got %v", r.RejectBackoffMax)
+	}
+	if r.RejectMaxRetriesPerHour != 5 {
+		t.Errorf("RejectMaxRetriesPerHour: want 5 got %d", r.RejectMaxRetriesPerHour)
+	}
+	if r.CoAListener.ListenAddr != "0.0.0.0:3799" {
+		t.Errorf("CoAListener.ListenAddr: want %q got %q", "0.0.0.0:3799", r.CoAListener.ListenAddr)
+	}
+	if r.CoAListener.SharedSecret != "s" {
+		t.Errorf("CoAListener.SharedSecret: want %q (inherited) got %q", "s", r.CoAListener.SharedSecret)
+	}
+	if !r.SessionTimeoutRespect {
+		t.Error("SessionTimeoutRespect: want true (default-on-when-enabled)")
+	}
+}
+
+// TestReactive_BackoffBaseGreaterThanMax_Error verifies that a base > max
+// configuration is rejected.
+func TestReactive_BackoffBaseGreaterThanMax_Error(t *testing.T) {
+	cfg := &Config{
+		Argus: ArgusConfig{
+			RadiusHost:           "argus-app",
+			RadiusAuthPort:       1812,
+			RadiusAccountingPort: 1813,
+			RadiusSharedSecret:   "s",
+			DBURL:                "postgres://x",
+			DBRefreshInterval:    5 * time.Minute,
+		},
+		Operators: []OperatorConfig{{Code: "turkcell"}},
+		Scenarios: []ScenarioConfig{{
+			Name:                   "normal",
+			Weight:                 1.0,
+			SessionDurationSeconds: [2]int{60, 120},
+			InterimIntervalSeconds: 30,
+		}},
+		Rate:    RateConfig{MaxRadiusRequestsPerSecond: 5},
+		Metrics: MetricsConfig{Listen: ":9099"},
+		Log:     LogConfig{Level: "info", Format: "console"},
+		Reactive: ReactiveDefaults{
+			Enabled:                 true,
+			RejectBackoffBase:       600 * time.Second,
+			RejectBackoffMax:        30 * time.Second,
+			RejectMaxRetriesPerHour: 5,
+			CoAListener:             CoAListenerConfig{SharedSecret: "s"},
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "reject_backoff_base") {
+		t.Errorf("expected error containing %q, got: %v", "reject_backoff_base", err)
+	}
+}
+
+// TestReactive_MaxRetriesZero_DefaultsTo5 verifies that RejectMaxRetriesPerHour=0
+// is defaulted to 5 (plan §Config schema), matching the pattern of other
+// zero-value fields (margin, backoff).
+func TestReactive_MaxRetriesZero_DefaultsTo5(t *testing.T) {
+	cfg := &Config{
+		Argus: ArgusConfig{
+			RadiusHost:           "argus-app",
+			RadiusAuthPort:       1812,
+			RadiusAccountingPort: 1813,
+			RadiusSharedSecret:   "s",
+			DBURL:                "postgres://x",
+			DBRefreshInterval:    5 * time.Minute,
+		},
+		Operators: []OperatorConfig{{Code: "turkcell"}},
+		Scenarios: []ScenarioConfig{{
+			Name:                   "normal",
+			Weight:                 1.0,
+			SessionDurationSeconds: [2]int{60, 120},
+			InterimIntervalSeconds: 30,
+		}},
+		Rate:    RateConfig{MaxRadiusRequestsPerSecond: 5},
+		Metrics: MetricsConfig{Listen: ":9099"},
+		Log:     LogConfig{Level: "info", Format: "console"},
+		Reactive: ReactiveDefaults{
+			Enabled:                 true,
+			RejectMaxRetriesPerHour: 0, // should default to 5
+			CoAListener:             CoAListenerConfig{SharedSecret: "s"},
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected zero-value to default, got error: %v", err)
+	}
+	if cfg.Reactive.RejectMaxRetriesPerHour != 5 {
+		t.Errorf("RejectMaxRetriesPerHour: want default 5, got %d", cfg.Reactive.RejectMaxRetriesPerHour)
+	}
+}
+
+// TestReactive_MaxRetriesNegative_Error verifies that an explicit negative
+// RejectMaxRetriesPerHour is rejected (distinguished from zero → default).
+func TestReactive_MaxRetriesNegative_Error(t *testing.T) {
+	cfg := &Config{
+		Argus: ArgusConfig{
+			RadiusHost:           "argus-app",
+			RadiusAuthPort:       1812,
+			RadiusAccountingPort: 1813,
+			RadiusSharedSecret:   "s",
+			DBURL:                "postgres://x",
+			DBRefreshInterval:    5 * time.Minute,
+		},
+		Operators: []OperatorConfig{{Code: "turkcell"}},
+		Scenarios: []ScenarioConfig{{
+			Name:                   "normal",
+			Weight:                 1.0,
+			SessionDurationSeconds: [2]int{60, 120},
+			InterimIntervalSeconds: 30,
+		}},
+		Rate:    RateConfig{MaxRadiusRequestsPerSecond: 5},
+		Metrics: MetricsConfig{Listen: ":9099"},
+		Log:     LogConfig{Level: "info", Format: "console"},
+		Reactive: ReactiveDefaults{
+			Enabled:                 true,
+			RejectMaxRetriesPerHour: -1,
+			CoAListener:             CoAListenerConfig{SharedSecret: "s"},
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "reject_max_retries_per_hour") {
+		t.Errorf("expected error containing %q, got: %v", "reject_max_retries_per_hour", err)
+	}
+}
+
+// TestReactive_CoASecretEmpty_ArgusSecretEmpty_Error verifies that both secrets
+// being empty when reactive is enabled produces an error.
+func TestReactive_CoASecretEmpty_ArgusSecretEmpty_Error(t *testing.T) {
+	cfg := &Config{
+		Argus: ArgusConfig{
+			RadiusHost:           "argus-app",
+			RadiusAuthPort:       1812,
+			RadiusAccountingPort: 1813,
+			RadiusSharedSecret:   "",
+			DBURL:                "postgres://x",
+			DBRefreshInterval:    5 * time.Minute,
+		},
+		Operators: []OperatorConfig{{Code: "turkcell"}},
+		Scenarios: []ScenarioConfig{{
+			Name:                   "normal",
+			Weight:                 1.0,
+			SessionDurationSeconds: [2]int{60, 120},
+			InterimIntervalSeconds: 30,
+		}},
+		Rate:    RateConfig{MaxRadiusRequestsPerSecond: 5},
+		Metrics: MetricsConfig{Listen: ":9099"},
+		Log:     LogConfig{Level: "info", Format: "console"},
+		Reactive: ReactiveDefaults{
+			Enabled:                 true,
+			RejectMaxRetriesPerHour: 5,
+		},
+	}
+
+	err := cfg.validateReactive()
+	if err == nil || !strings.Contains(err.Error(), "shared_secret") {
+		t.Errorf("expected error containing %q, got: %v", "shared_secret", err)
+	}
+}
+
+// TestReactive_EnvOverride_CoASecret verifies that ARGUS_SIM_COA_SECRET env
+// overrides the YAML-provided shared_secret.
+func TestReactive_EnvOverride_CoASecret(t *testing.T) {
+	t.Setenv("ARGUS_SIM_COA_SECRET", "envsecret")
+
+	body := validYAML + `reactive:
+  enabled: true
+  reject_max_retries_per_hour: 5
+  coa_listener:
+    shared_secret: yamlsecret
+`
+	p := writeTemp(t, body)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Reactive.CoAListener.SharedSecret != "envsecret" {
+		t.Errorf("CoAListener.SharedSecret: want %q (env wins), got %q", "envsecret", cfg.Reactive.CoAListener.SharedSecret)
+	}
+}
+
+// TestReactive_OperatorConfigs_ValidWithOrWithoutReactive verifies that a
+// RADIUS-only config (no reactive block) is still valid after this story's
+// changes, preserving backwards compatibility with STORY-082 configs.
+func TestReactive_OperatorConfigs_ValidWithOrWithoutReactive(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{"without reactive block", validYAML},
+		{"with reactive disabled", validYAML + "reactive:\n  enabled: false\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := writeTemp(t, c.yaml)
+			_, err := Load(p)
+			if err != nil {
+				t.Errorf("expected valid config, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestToKebab(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"turkcell", "turkcell"},

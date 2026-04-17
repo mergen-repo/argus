@@ -2230,3 +2230,115 @@ curl -s http://localhost:9099/metrics | grep 'simulator_sba_requests_total'
 
 make down
 ```
+
+## STORY-085: Simulator Reaktif Davranışı (Approach B)
+
+Bu story bir geliştirici/test aracını güçlendirir — Argus production binary'sini etkilemez. Test senaryoları simülatörün reaktif modda doğru çalıştığını doğrular.
+
+### 1. Reaktif modu etkinleştirme ve temel metrik doğrulama (AC-1, AC-5, AC-6)
+
+```bash
+# deploy/simulator/config.example.yaml dosyasını düzenle:
+#   reactive.enabled: true
+#   reactive.coa_listener.enabled: true
+# Ardından simülatörü yeniden başlat:
+make sim-up
+
+# Reactive subsystem'in başladığını doğrula:
+docker compose logs argus-simulator | grep "reactive subsystem ready"
+# Beklenen: "reactive subsystem ready" içeren bir log satırı
+
+# Reactive metrik sayaçlarını doğrula (başlangıçta boş olabilir):
+curl -s http://localhost:9099/metrics | grep simulator_reactive_
+# Beklenen: simulator_reactive_terminations_total, simulator_reactive_reject_backoffs_total,
+#           simulator_reactive_incoming_total kayıtlı (değerleri 0 veya daha fazla)
+
+# Birkaç dakika bekleyip termination sayaçlarını tekrar kontrol et:
+sleep 120
+curl -s http://localhost:9099/metrics | grep 'simulator_reactive_terminations_total'
+# Beklenen: cause ∈ {session_timeout, disconnect, coa_deadline, reject_suspend, scenario_end, shutdown}
+#           etiketleriyle sayaçlar (herhangi biri > 0 olabilir)
+```
+
+### 2. Session-Timeout saygısı testi (AC-1)
+
+```bash
+# Session-Timeout değerini düşük tut — Argus'ta bir SIM'in politikasını değiştir
+# (örn. hard_timeout=60s) ve simülatörün o SIM'i 60s içinde sonlandırdığını gözlemle:
+curl -s http://localhost:9099/metrics | grep 'simulator_reactive_terminations_total{.*session_timeout'
+# Beklenen: session_timeout cause'una sahip oturumlar görünür
+
+# Unit test ile doğrulama (daha hızlı):
+go test ./internal/simulator/engine/... -run TestSessionTimeout_SubIntervalDeadlineFires -v
+# Beklenen: PASS — 500ms deadline, 10s ticker altında deadline timer kazanır
+```
+
+### 3. Reject backoff testi (AC-2, AC-5)
+
+```bash
+# Bir SIM'i Argus'ta "suspended" state'e al — Access-Reject alır:
+# (Argus UI'dan veya API ile SIM state değiştir)
+# Simülatör exponential backoff başlatır (30s → 60s → 120s ... → 600s cap):
+curl -s http://localhost:9099/metrics | grep 'simulator_reactive_reject_backoffs_total'
+# Beklenen: outcome=backoff_set sayacı artıyor;
+#           5 reject/saat sonra outcome=suspended görünür
+
+# Unit test ile doğrulama:
+go test ./internal/simulator/reactive/... -run TestRejectTracker_AllowedAfterSuspension -v
+# Beklenen: PASS
+```
+
+### 4. CoA/DM listener testi — Disconnect-Message round-trip (AC-3, AC-7)
+
+```bash
+# Aktif bir oturumu API üzerinden zorla sonlandır:
+# (Argus UI'dan Sessions sayfası veya API)
+SESSION_ID="<aktif-oturum-id>"
+TOKEN="<admin-jwt>"
+curl -sX POST "http://localhost:8084/api/v1/sessions/${SESSION_ID}/disconnect" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-Tenant-ID: <tenant-id>" | jq .
+
+# 3 saniye içinde Accounting-Stop gönderildiğini doğrula:
+docker compose logs argus-simulator | grep "AcctStop" | tail -5
+# Beklenen: Disconnect-Request alındıktan sonra AcctStop logu (≤3s fark)
+
+# Incoming paket sayacını kontrol et:
+curl -s http://localhost:9099/metrics | grep 'simulator_reactive_incoming_total'
+# Beklenen: kind=dm, result=ack sayacı artmış
+```
+
+### 5. CoA-Request Session-Timeout güncellemesi (AC-4)
+
+```bash
+# Argus politika motoru CoA gönderdiğinde (örn. SIM politikası değiştiğinde)
+# simülatörün yeni Session-Timeout'u kabul ettiğini doğrula:
+curl -s http://localhost:9099/metrics | grep 'simulator_reactive_incoming_total{.*kind="coa"'
+# Beklenen: kind=coa, result=ack sayacı artıyor
+
+# Integration test ile doğrulama:
+go test -tags=integration ./internal/simulator/reactive/... -run TestReactive_CoAUpdatesDeadline_EndToEnd -v
+# Beklenen: PASS
+```
+
+### 6. CoA listener yalnızca etkinleştirildiğinde bind ettiğini doğrulama (AC-7)
+
+```bash
+# reactive.enabled: false veya coa_listener.enabled: false ile:
+# UDP :3799 portu AÇIK OLMAMALI:
+nc -zu localhost 3799 2>&1
+# Beklenen: bağlantı reddedilmeli (port kapalı)
+
+# Unit test ile doğrulama:
+go test ./internal/simulator/reactive/... -run TestReactive_ListenerUnbound_WhenDisabled -v
+# Beklenen: PASS
+```
+
+### 7. Tam simülatör kapatma
+
+```bash
+make sim-down
+# Beklenen: tüm oturumlar temiz kapanır; shutdown cause'u olan termination logu görünür
+curl -s http://localhost:9099/metrics 2>&1 | head -3
+# Beklenen: bağlantı reddedilmeli (simülatör down)
+```

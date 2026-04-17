@@ -28,6 +28,7 @@ import (
 	"github.com/btopcu/argus/internal/simulator/discovery"
 	"github.com/btopcu/argus/internal/simulator/metrics"
 	simradius "github.com/btopcu/argus/internal/simulator/radius"
+	"github.com/btopcu/argus/internal/simulator/reactive"
 	"github.com/btopcu/argus/internal/simulator/sba"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/rs/zerolog"
@@ -39,16 +40,17 @@ import (
 const maxSessionDuration = 4 * time.Hour // safety cap independent of scenario
 
 type Engine struct {
-	cfg     *config.Config
-	picker  *scenario.Picker
-	client  *simradius.Client
-	dm      map[string]*diameter.Client // operator code → Diameter client; nil = RADIUS-only
-	sba     map[string]*sba.Client     // operator code → SBA client; nil = SBA disabled for that op
-	limiter *rate.Limiter
-	logger  zerolog.Logger
+	cfg      *config.Config
+	picker   *scenario.Picker
+	client   *simradius.Client
+	dm       map[string]*diameter.Client // operator code → Diameter client; nil = RADIUS-only
+	sba      map[string]*sba.Client      // operator code → SBA client; nil = SBA disabled for that op
+	reactive *reactive.Subsystem         // nil when reactive disabled (pre-STORY-085 behaviour)
+	limiter  *rate.Limiter
+	logger   zerolog.Logger
 
-	mu       sync.Mutex
-	active   map[string]*sessionState // key = SIM.ID
+	mu     sync.Mutex
+	active map[string]*sessionState // key = SIM.ID
 }
 
 type sessionState struct {
@@ -61,16 +63,21 @@ type sessionState struct {
 // clients for operators with 5G-SBA enabled. Pass nil (or an empty map) for
 // either to disable that protocol — backward compatible with pre-STORY-083 and
 // pre-STORY-084 callers.
-func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, dmClients map[string]*diameter.Client, sbaClients map[string]*sba.Client, logger zerolog.Logger) *Engine {
+//
+// reactiveSub is the STORY-085 reactive subsystem (CoA/DM listener, reject
+// tracker, session registry). Pass nil to disable reactive behaviour entirely,
+// which preserves byte-identical pre-STORY-085 runSession semantics.
+func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, dmClients map[string]*diameter.Client, sbaClients map[string]*sba.Client, reactiveSub *reactive.Subsystem, logger zerolog.Logger) *Engine {
 	return &Engine{
-		cfg:     cfg,
-		picker:  picker,
-		client:  client,
-		dm:      dmClients,
-		sba:     sbaClients,
-		limiter: rate.NewLimiter(rate.Limit(cfg.Rate.MaxRadiusRequestsPerSecond), cfg.Rate.MaxRadiusRequestsPerSecond),
-		logger:  logger.With().Str("component", "engine").Logger(),
-		active:  make(map[string]*sessionState),
+		cfg:      cfg,
+		picker:   picker,
+		client:   client,
+		dm:       dmClients,
+		sba:      sbaClients,
+		reactive: reactiveSub,
+		limiter:  rate.NewLimiter(rate.Limit(cfg.Rate.MaxRadiusRequestsPerSecond), cfg.Rate.MaxRadiusRequestsPerSecond),
+		logger:   logger.With().Str("component", "engine").Logger(),
+		active:   make(map[string]*sessionState),
 	}
 }
 
@@ -135,6 +142,11 @@ func (e *Engine) runSIM(ctx context.Context, sim discovery.SIM, op *config.Opera
 // the function dispatches to runSBASession and returns immediately.
 // 5G-SBA REPLACES the RADIUS+Diameter flow — UE attaches over SBA directly
 // in a 5G SA deployment. The fork point is before any RADIUS packet is sent.
+//
+// When e.reactive is non-nil, three additional hooks run on the RADIUS path:
+//  1. Pre-Auth: Allowed() — skip suspended SIMs.
+//  2. Post-Reject: NextBackoff() — sleep + update reject counter.
+//  3. Post-Accept: register session, respect Session-Timeout, defer cleanup.
 func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.OperatorConfig, sample scenario.Sample, log zerolog.Logger) {
 	sc := simradius.NewSessionContext(sim, op.NASIP, op.NASIdentifier)
 
@@ -149,6 +161,16 @@ func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.O
 		}
 		if sba.ShouldUseSBA(pickerSC, rate) {
 			e.runSBASession(ctx, sim, op, sample, sbaC, log)
+			return
+		}
+	}
+
+	// Pre-Auth reject-suspension check. Only RADIUS sessions are subject to
+	// the reject tracker; SBA sessions were already branched off above.
+	if e.reactive != nil {
+		if !e.reactive.Rejects.Allowed(sim.OperatorCode, sim.IMSI) {
+			metrics.SimulatorReactiveTerminationsTotal.
+				WithLabelValues(sim.OperatorCode, "reject_suspend").Inc()
 			return
 		}
 	}
@@ -168,8 +190,32 @@ func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.O
 	}
 	result := responseBucket(resp.Code)
 	metrics.RadiusResponsesTotal.WithLabelValues(sim.OperatorCode, "auth", result).Inc()
-	if resp.Code != radius.CodeAccessAccept {
+
+	switch resp.Code {
+	case radius.CodeAccessAccept:
+		// happy path — falls through to Diameter and AcctStart below.
+
+	case radius.CodeAccessReject:
 		log.Debug().Str("code", resp.Code.String()).Msg("auth rejected")
+		// Post-Reject backoff: record the reject, sleep, then return.
+		if e.reactive != nil {
+			wait, suspended := e.reactive.Rejects.NextBackoff(sim.OperatorCode, sim.IMSI)
+			outcome := "backoff_set"
+			if suspended {
+				outcome = "suspended"
+			}
+			metrics.SimulatorReactiveRejectBackoffsTotal.
+				WithLabelValues(sim.OperatorCode, outcome).Inc()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
+		return
+
+	default:
+		log.Debug().Str("code", resp.Code.String()).Msg("auth: unexpected code")
 		return
 	}
 
@@ -223,19 +269,112 @@ func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.O
 	if duration > maxSessionDuration {
 		duration = maxSessionDuration
 	}
-	deadline := sc.StartedAt.Add(duration)
+	scenarioDeadline := sc.StartedAt.Add(duration)
+	deadline := scenarioDeadline
+
+	// Post-Accept reactive wiring: session registration, Session-Timeout
+	// respect, reject-tracker reset, and classified termination metric.
+	var rsess *reactive.Session
+	if e.reactive != nil {
+		// Optionally shorten the deadline to respect server-assigned Session-Timeout.
+		if e.reactive.Cfg.SessionTimeoutRespect && sc.ServerSessionTimeout > 0 {
+			serverDeadline := time.Now().
+				Add(sc.ServerSessionTimeout).
+				Add(-e.reactive.Cfg.EarlyTerminationMargin)
+			if serverDeadline.Before(deadline) {
+				deadline = serverDeadline
+			}
+		}
+
+		rsess = &reactive.Session{
+			OperatorCode:  sim.OperatorCode,
+			AcctSessionID: sc.AcctSessionID,
+			CancelFn:      cancel, // session-scoped cancel; DM for this session only
+		}
+		rsess.UpdateDeadline(deadline)
+		_ = rsess.Transition(reactive.StateIdle, reactive.StateAuthenticating)
+		_ = rsess.Transition(reactive.StateAuthenticating, reactive.StateAuthenticated)
+		_ = rsess.Transition(reactive.StateAuthenticated, reactive.StateActive)
+		e.reactive.Registry.Register(rsess)
+
+		// Auth succeeded — clear any accumulated reject history for this SIM.
+		e.reactive.Rejects.Reset(sim.OperatorCode, sim.IMSI)
+
+		// Deferred cleanup + classified termination metric. Runs after the
+		// existing cancel/active-map defer (LIFO), so registry is cleaned up
+		// after the session context is cancelled.
+		defer func() {
+			e.reactive.Registry.Delete(sc.AcctSessionID)
+			cause := classifyTermination(rsess, ctx, scenarioDeadline)
+			metrics.SimulatorReactiveTerminationsTotal.
+				WithLabelValues(sim.OperatorCode, cause).Inc()
+		}()
+	}
+
 	ticker := time.NewTicker(sample.InterimInterval)
 	defer ticker.Stop()
 
+	// deadlineTimer (reactive only) fires exactly when the current effective
+	// deadline expires, so sub-interim-interval Session-Timeouts (e.g. a 30s
+	// server timeout with a 60s interim tick) are respected. See plan
+	// §Risks "Session-Timeout mid-interim timing boundary" + F-A6.
+	var deadlineC <-chan time.Time
+	var deadlineTimer *time.Timer
+	armDeadlineTimer := func(target time.Time) {
+		d := time.Until(target)
+		if d < 0 {
+			d = 0
+		}
+		if deadlineTimer == nil {
+			deadlineTimer = time.NewTimer(d)
+		} else {
+			if !deadlineTimer.Stop() {
+				select {
+				case <-deadlineTimer.C:
+				default:
+				}
+			}
+			deadlineTimer.Reset(d)
+		}
+		deadlineC = deadlineTimer.C
+	}
+	if rsess != nil {
+		armDeadlineTimer(rsess.CurrentDeadline())
+		defer func() {
+			if deadlineTimer != nil {
+				deadlineTimer.Stop()
+			}
+		}()
+	}
+
 	stopCause := rfc2866.AcctTerminateCause_Value_UserRequest
+	lastDeadline := deadline
 	for {
+		// Re-arm timer when CoA shifted the deadline mid-loop.
+		if rsess != nil {
+			cur := rsess.CurrentDeadline()
+			if !cur.Equal(lastDeadline) {
+				armDeadlineTimer(cur)
+				lastDeadline = cur
+			}
+		}
+
 		select {
 		case <-sessionCtx.Done():
 			// Graceful shutdown — still send Stop below
 			stopCause = rfc2866.AcctTerminateCause_Value_AdminReboot
 			goto stop
+		case <-deadlineC:
+			// Sub-interval deadline fire — route straight to stop.
+			goto stop
 		case <-ticker.C:
-			if time.Now().After(deadline) {
+			// Use CoA-updated deadline when reactive is active; otherwise use
+			// the fixed scenario deadline.
+			effectiveDeadline := deadline
+			if rsess != nil {
+				effectiveDeadline = rsess.CurrentDeadline()
+			}
+			if time.Now().After(effectiveDeadline) {
 				goto stop
 			}
 			sc.BytesIn += uint64(sample.BytesPerInterimIn)
@@ -294,6 +433,34 @@ stop:
 			log.Debug().Err(closeErr).Msg("diameter close-session failed (non-fatal)")
 		}
 	}
+}
+
+// classifyTermination decides which cause label to emit when a session ends.
+// Engine is the single writer of SimulatorReactiveTerminationsTotal (PAT-001).
+//
+// Priority:
+//  1. Explicit disconnect cause set by the Listener (DM or CoA deadline).
+//  2. Context cancelled = graceful shutdown.
+//  3. Deadline comparison: if current deadline < scenario deadline → server
+//     shortened it (session_timeout); otherwise it ran to completion.
+func classifyTermination(sess *reactive.Session, ctx context.Context, scenarioDeadline time.Time) string {
+	if sess != nil {
+		switch sess.CurrentDisconnectCause() {
+		case reactive.CauseDM:
+			return "disconnect"
+		case reactive.CauseCoADeadline:
+			return "coa_deadline"
+		}
+	}
+	if ctx.Err() != nil {
+		return "shutdown"
+	}
+	if sess != nil && !sess.CurrentDeadline().IsZero() && time.Now().After(sess.CurrentDeadline()) {
+		if sess.CurrentDeadline().Before(scenarioDeadline) {
+			return "session_timeout"
+		}
+	}
+	return "scenario_end"
 }
 
 // runSBASession executes the 5G-SBA lifecycle for one session:
