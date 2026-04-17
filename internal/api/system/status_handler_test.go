@@ -102,6 +102,7 @@ func TestStatusHandler_Serve(t *testing.T) {
 					details:    tc.details,
 				},
 				&mockTenantCounter{count: tc.tenantCount},
+				nil,
 				"1.2.3", "abc1234", "2026-04-12T10:00:00Z",
 			)
 
@@ -153,6 +154,84 @@ func TestStatusHandler_Serve(t *testing.T) {
 	}
 }
 
+type mockErrSrc struct{ count int64 }
+
+func (m *mockErrSrc) Recent5xxCount() int64 { return m.count }
+
+func TestStatusHandler_RecentError5m(t *testing.T) {
+	t.Run("no error source wired — returns 0", func(t *testing.T) {
+		h := NewStatusHandler(
+			&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK},
+			&mockTenantCounter{count: 1},
+			nil,
+			"1.0.0", "sha", "2026-04-12T00:00:00Z",
+		)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		rec := httptest.NewRecorder()
+		h.Serve(rec, req)
+
+		var resp struct {
+			Data struct {
+				RecentError5m int64 `json:"recent_error_5m"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Data.RecentError5m != 0 {
+			t.Errorf("recent_error_5m = %d, want 0", resp.Data.RecentError5m)
+		}
+	})
+
+	t.Run("with error source — returns live count on /api/v1/status", func(t *testing.T) {
+		h := NewStatusHandler(
+			&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK},
+			&mockTenantCounter{count: 1},
+			&mockErrSrc{count: 42},
+			"1.0.0", "sha", "2026-04-12T00:00:00Z",
+		)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		rec := httptest.NewRecorder()
+		h.Serve(rec, req)
+
+		var resp struct {
+			Data struct {
+				RecentError5m int64 `json:"recent_error_5m"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Data.RecentError5m != 42 {
+			t.Errorf("recent_error_5m = %d, want 42", resp.Data.RecentError5m)
+		}
+	})
+
+	t.Run("with error source — returns live count on /api/v1/status/details", func(t *testing.T) {
+		h := NewStatusHandler(
+			&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK, details: map[string]string{"db": "ok"}},
+			&mockTenantCounter{count: 1},
+			&mockErrSrc{count: 7},
+			"1.0.0", "sha", "2026-04-12T00:00:00Z",
+		)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status/details", nil)
+		rec := httptest.NewRecorder()
+		h.ServeDetails(rec, req)
+
+		var resp struct {
+			Data struct {
+				RecentError5m int64 `json:"recent_error_5m"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Data.RecentError5m != 7 {
+			t.Errorf("recent_error_5m = %d, want 7", resp.Data.RecentError5m)
+		}
+	})
+}
+
 func TestStatusHandler_ServeDetails(t *testing.T) {
 	type detailsPayload struct {
 		State string `json:"state"`
@@ -165,6 +244,7 @@ func TestStatusHandler_ServeDetails(t *testing.T) {
 			details:    detailsPayload{State: "healthy"},
 		},
 		&mockTenantCounter{count: 7},
+		nil,
 		"2.0.0", "deadbeef", "2026-04-12T00:00:00Z",
 	)
 
@@ -212,6 +292,7 @@ func TestStatusHandler_ServeDetails_Unhealthy503(t *testing.T) {
 			details:    map[string]string{"db": "error"},
 		},
 		&mockTenantCounter{count: 0},
+		nil,
 		"1.0.0", "sha123", "2026-04-12T00:00:00Z",
 	)
 

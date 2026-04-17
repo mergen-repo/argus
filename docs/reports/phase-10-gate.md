@@ -168,7 +168,7 @@ docs/e2e-evidence/phase-10/
 
 ### Nice-to-have for polish
 5. Expand Turkish i18n (F-5) if TR is a target locale for this release.
-6. Add Policies Compare button (F-6) if comparison was intended for policies.
+6. ~~Add Policies Compare button (F-6) if comparison was intended for policies.~~ — Removed per DEV-235: no business demand signal in PRODUCT.md; not a planned feature.
 7. Alias `/dashboard` → `/` (F-7) so deep-links / bookmarks don't break.
 8. Debounce / silence the transient "Invalid session ID format" toast on first
    dashboard paint (F-8).

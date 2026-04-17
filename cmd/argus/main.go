@@ -3,15 +3,24 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	aaadiameter "github.com/btopcu/argus/internal/aaa/diameter"
 	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
@@ -98,6 +107,32 @@ var (
 )
 
 func main() {
+	sub, subArgs, err := parseSubcommand(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "argus: "+err.Error())
+		fmt.Fprintln(os.Stderr, "usage: argus [serve|migrate|seed|version|--help]")
+		os.Exit(1)
+	}
+
+	switch sub {
+	case "help":
+		fmt.Println("usage: argus <subcommand> [args]")
+		fmt.Println("")
+		fmt.Println("subcommands:")
+		fmt.Println("  serve              start the HTTP/RADIUS/Diameter/SBA servers (default)")
+		fmt.Println("  migrate up         run all pending migrations")
+		fmt.Println("  migrate down [N]   roll back N migrations (default 1; -all = all)")
+		fmt.Println("  seed [file]        execute seed SQL files")
+		fmt.Println("  version            print build version and exit")
+		fmt.Println("  --help / -h        show this help")
+		return
+	case "version":
+		fmt.Println("version:", version)
+		fmt.Println("git_sha:", gitSHA)
+		fmt.Println("build_time:", buildTime)
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
@@ -118,6 +153,167 @@ func main() {
 			With().Timestamp().Str("service", "argus").Logger()
 	}
 
+	switch sub {
+	case "migrate":
+		runMigrate(cfg, subArgs)
+		return
+	case "seed":
+		runSeed(cfg, subArgs)
+		return
+	}
+
+	runServe(cfg)
+}
+
+// parseSubcommand parses os.Args[1:] into a subcommand name and its remaining
+// args. It is a standalone function so it can be unit-tested without os.Args
+// munging.
+func parseSubcommand(args []string) (sub string, subArgs []string, err error) {
+	if len(args) == 0 {
+		return "serve", nil, nil
+	}
+	switch args[0] {
+	case "serve":
+		return "serve", args[1:], nil
+	case "migrate":
+		return "migrate", args[1:], nil
+	case "seed":
+		return "seed", args[1:], nil
+	case "version":
+		return "version", nil, nil
+	case "--help", "-h":
+		return "help", nil, nil
+	default:
+		return "", nil, fmt.Errorf("unknown subcommand %q", args[0])
+	}
+}
+
+// runMigrate executes database migrations using golang-migrate.
+func runMigrate(cfg *config.Config, args []string) {
+	migrationsPath := os.Getenv("ARGUS_MIGRATIONS_PATH")
+	if migrationsPath == "" {
+		migrationsPath = "file:///app/migrations"
+	}
+
+	m, err := migrate.New(migrationsPath, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("migrate: failed to create migrator")
+	}
+	defer func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			log.Error().Err(srcErr).Msg("migrate: source close error")
+		}
+		if dbErr != nil {
+			log.Error().Err(dbErr).Msg("migrate: db close error")
+		}
+	}()
+
+	direction := "up"
+	if len(args) > 0 {
+		direction = args[0]
+	}
+
+	switch direction {
+	case "up":
+		if err := m.Up(); err != nil {
+			if errors.Is(err, migrate.ErrNoChange) {
+				log.Info().Msg("migrate: no change — already at latest version")
+				return
+			}
+			log.Fatal().Err(err).Msg("migrate: up failed")
+		}
+	case "down":
+		if len(args) > 1 && args[1] == "-all" {
+			if err := m.Down(); err != nil {
+				if errors.Is(err, migrate.ErrNoChange) {
+					log.Info().Msg("migrate: no change — already at base")
+					return
+				}
+				log.Fatal().Err(err).Msg("migrate: down all failed")
+			}
+		} else {
+			n := 1
+			if len(args) > 1 {
+				parsed, parseErr := strconv.Atoi(args[1])
+				if parseErr != nil {
+					log.Fatal().Err(parseErr).Str("arg", args[1]).Msg("migrate: invalid step count")
+				}
+				n = parsed
+			}
+			if err := m.Steps(-n); err != nil {
+				if errors.Is(err, migrate.ErrNoChange) {
+					log.Info().Msg("migrate: no change — already at base")
+					return
+				}
+				log.Fatal().Err(err).Msg("migrate: down failed")
+			}
+		}
+	default:
+		log.Fatal().Str("direction", direction).Msg("migrate: unknown direction (use 'up' or 'down')")
+	}
+
+	v, dirty, err := m.Version()
+	if err != nil {
+		log.Info().Msg("migrate: completed (version unavailable)")
+		return
+	}
+	log.Info().Uint("version", v).Bool("dirty", dirty).Msg("migrate: completed")
+}
+
+// runSeed executes seed SQL files against the database.
+func runSeed(cfg *config.Config, args []string) {
+	seedPath := os.Getenv("ARGUS_SEED_PATH")
+	if seedPath == "" {
+		seedPath = "/app/migrations/seed"
+	}
+
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("seed: failed to connect to database")
+	}
+	defer pool.Close()
+
+	var files []string
+	if len(args) > 0 && args[0] != "" {
+		f := args[0]
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(seedPath, f)
+		}
+		files = []string{f}
+	} else {
+		matches, err := filepath.Glob(filepath.Join(seedPath, "*.sql"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("seed: failed to glob seed directory")
+		}
+		sort.Strings(matches)
+		files = matches
+	}
+
+	if len(files) == 0 {
+		log.Info().Str("path", seedPath).Msg("seed: no SQL files found")
+		return
+	}
+
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			log.Fatal().Err(err).Str("file", f).Msg("seed: failed to read file")
+		}
+
+		tag, err := pool.Exec(ctx, string(data))
+		if err != nil {
+			log.Fatal().Err(err).Str("file", filepath.Base(f)).Msg("seed: execution failed")
+		}
+		log.Info().Str("file", filepath.Base(f)).Int64("rows_affected", tag.RowsAffected()).Msg("seed: file executed")
+	}
+
+	log.Info().Int("files", len(files)).Msg("seed: completed")
+}
+
+func runServe(cfg *config.Config) {
 	if cfg.GOGC != 100 {
 		debug.SetGCPercent(cfg.GOGC)
 		log.Info().Int("gogc", cfg.GOGC).Msg("GOGC tuned")
@@ -1151,7 +1347,7 @@ func main() {
 		log.Logger,
 	)
 
-	statusHandler := systemapi.NewStatusHandler(health, tenantStore, version, gitSHA, buildTime)
+	statusHandler := systemapi.NewStatusHandler(health, tenantStore, metricsReg, version, gitSHA, buildTime)
 	systemConfigHandler := systemapi.NewConfigHandler(cfg, version, gitSHA, buildTime)
 
 	capacitySimStore := store.NewSIMStore(pg.Pool)

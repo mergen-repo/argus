@@ -331,7 +331,13 @@ export default function SimListPage() {
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export
           </Button>
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate('/sims/compare')}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => {
+            const ids = [...selectedIds].slice(0, 2)
+            const params = new URLSearchParams()
+            if (ids[0]) params.set('sim_id_a', ids[0])
+            if (ids[1]) params.set('sim_id_b', ids[1])
+            navigate(`/sims/compare${params.size ? `?${params}` : ''}`)
+          }}>
             <GitCompareArrows className="h-4 w-4" />
             Compare
           </Button>

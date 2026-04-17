@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 22/22 (100%)
-> Current story: —
-> Current step: — (Phase 10 complete, ready for Documentation Phase)
+> Stories completed: 55/55 (100%) — Phase 10: 22/24 (STORY-079 + STORY-086 audit-gap sweeps in progress)
+> Current story: STORY-079 [AUDIT-GAP] Post-Gate Follow-up Sweep (IN PROGRESS, AUTOPILOT)
+> Current step: Plan
 
 ### Phase 1: Foundation [DONE]
 
@@ -200,7 +200,7 @@
 | STORY-077 | Enterprise UX Polish & Ergonomics | L-XL | [x] DONE | — | STORY-075, STORY-076 | 2026-04-13 |
 | STORY-062 | Performance & Doc Drift Cleanup (final sweep) | M | [x] DONE | — | STORY-056..077 | 2026-04-13 |
 | STORY-078 | [AUDIT-GAP] SIM Compare Endpoint & System Config Endpoint Backfill | S | [x] DONE | — | STORY-011, STORY-001 | 2026-04-13 |
-| STORY-079 | [AUDIT-GAP] Phase 10 Post-Gate Follow-up Sweep (F-1..F-8 + DEV-191) | M | [ ] PENDING | — | STORY-056..078 | — |
+| STORY-079 | [AUDIT-GAP] Phase 10 Post-Gate Follow-up Sweep (F-1..F-8 + DEV-191) | M | [x] DONE | — | STORY-056..078 | 2026-04-17 |
 | STORY-086 | [AUDIT-GAP] Restore `sms_outbound` table + boot-time schema-integrity check | S | [ ] PENDING | — | STORY-069 | — |
 
 Source: docs/stories/phase-10/STORY-056..086-*.md
@@ -357,20 +357,25 @@ Execution order (user-agreed 2026-04-14): 080 → 082 (ship A) → 083 → 084 �
 | D-010 | STORY-077 Gate | Sessions and alerts CSV export missing (2 of 14 entities lack export endpoints per AC-4) | STORY-062 | ✓ RESOLVED (2026-04-13) |
 | D-011 | STORY-077 Gate | ImpersonateExit no JWT in response body — forces admin re-login instead of restoring original session (AC-9 degraded UX) | STORY-062 | ✓ RESOLVED (2026-04-13) |
 | D-012 | STORY-077 Gate | `impersonatedBy` always null in frontend — `act_sub` flat claim vs `payload.act?.sub` nested access mismatch | STORY-062 | ✓ RESOLVED (2026-04-13) |
-| D-013 | Phase 10 Gate F-1 | `argus migrate` subcommand not wired — `make db-migrate` silently falls through to `serve` | STORY-079 | [ ] PENDING |
-| D-014 | Phase 10 Gate F-2 | CONCURRENTLY/RLS incompatibilities with partitioned tables — fresh deploy needs manual `force` bump | STORY-079 | [ ] PENDING |
-| D-015 | Phase 10 Gate F-3 | `migrations/seed/003_comprehensive_seed.sql` aborts on fresh volume — no demo data for onboarding/simulator | STORY-079 | [ ] PENDING |
-| D-016 | Phase 10 Gate F-4 | `/sims/compare` does not pre-populate from `?sim_id_a=&sim_id_b=` — "Compare" navigation is half-wired (no `useSearchParams` in `compare.tsx`) | STORY-079 | [ ] PENDING |
-| D-017 | Phase 10 Gate F-5 | Turkish i18n toggle present but coverage is English-only beyond the EN/TR indicator — decision needed on posture (defer / partial / drop) | STORY-079 | [ ] PENDING (decision) |
-| D-018 | Phase 10 Gate F-6 | `/policies` lacks a Compare button — scope question left unresolved at gate | STORY-079 | [ ] PENDING (decision) |
-| D-019 | Phase 10 Gate F-7 | `/dashboard` route returns 404 (dashboard mounted at `/`) — bookmarks/deep-links break | STORY-079 | [ ] PENDING |
-| D-020 | Phase 10 Gate F-8 | Transient `"Invalid session ID format"` toast on first dashboard paint — empty `:id` hits `internal/api/auth/handler.go:375` | STORY-079 | [ ] PENDING |
-| D-021 | STORY-067 Review DEV-191 | `/api/v1/status/details.recent_error_5m` hardcoded to 0 — field is client-visible but not wired to Prometheus counter | STORY-079 | [ ] PENDING |
+| D-013 | Phase 10 Gate F-1 | `argus migrate` subcommand not wired — `make db-migrate` silently falls through to `serve` | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-014 | Phase 10 Gate F-2 | CONCURRENTLY/RLS incompatibilities with partitioned tables — fresh deploy needs manual `force` bump | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-015 | Phase 10 Gate F-3 | `migrations/seed/003_comprehensive_seed.sql` aborts on fresh volume — no demo data for onboarding/simulator | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-016 | Phase 10 Gate F-4 | `/sims/compare` does not pre-populate from `?sim_id_a=&sim_id_b=` — "Compare" navigation is half-wired (no `useSearchParams` in `compare.tsx`) | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-017 | Phase 10 Gate F-5 | Turkish i18n toggle present but coverage is English-only beyond the EN/TR indicator — decision needed on posture (defer / partial / drop) | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-018 | Phase 10 Gate F-6 | `/policies` lacks a Compare button — scope question left unresolved at gate | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-019 | Phase 10 Gate F-7 | `/dashboard` route returns 404 (dashboard mounted at `/`) — bookmarks/deep-links break | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-020 | Phase 10 Gate F-8 | Transient `"Invalid session ID format"` toast on first dashboard paint — empty `:id` hits `internal/api/auth/handler.go:375` | STORY-079 | ✓ RESOLVED (2026-04-17) |
+| D-021 | STORY-067 Review DEV-191 | `/api/v1/status/details.recent_error_5m` hardcoded to 0 — field is client-visible but not wired to Prometheus counter | STORY-079 | ✓ RESOLVED (2026-04-17) |
 | D-022 | Audit 2026-04-15 | `session.updated` WS event documented in code (NATS SubjectSessionUpdated + WS relay, commit 52208ea) but missing from WEBSOCKET_EVENTS.md and API index WS count — fixed in-audit | — | ✓ RESOLVED (2026-04-15) |
 | D-023 | Audit 2026-04-15 | API-262/API-263 double-assignment in api/_index.md — Tenant Context Switch (2026-04-14 bd3ca1d) collided with Policy Violations List/Counts (STORY-062 doc sweep); Tenant Switch renumbered to API-264/API-265 | — | ✓ RESOLVED (2026-04-15) |
 | D-024 | Audit 2026-04-15 | `GET /api/v1/policy-violations/export.csv` wired in `internal/gateway/router.go:622` but missing from api/_index.md — added as API-266 in-audit | — | ✓ RESOLVED (2026-04-15) |
 | D-025 | Audit 2026-04-17 | `sms_outbound` table documented as TBL-42 and referenced by STORY-069 handler at `internal/api/sms/handler.go`, but absent from live PG despite `schema_migrations=20260417000003 dirty=f`. `GET /api/v1/sms/history` returns 500. Sibling STORY-069 tables (onboarding_sessions, scheduled_reports, webhook_configs, etc) all present. Root cause unclear — possibly partial migration apply or manual DROP. | STORY-086 | [ ] PENDING |
 | D-026 | Audit 2026-04-17 | Architecture indexes (api/_index.md, db/_index.md, SCREENS.md) out of sync with STORY-077 deliverables: 13 backend endpoints (saved views, preferences, undo, announcements, chart annotations, impersonation, 12 CSV exports), 5 tables (TBL-47..51), and 12 frontend routes shipped without index rows. Fixed in-audit via 37 API rows + 5 TBL rows + 12 SCR rows + ARCHITECTURE header bump. | — | ✓ RESOLVED (2026-04-17) |
+| D-027 | STORY-079 Gate F-U1 | `/dashboard` route alias (registered via element reuse per AC-5) does not trigger the "Dashboard" active-state class in the sidebar — sidebar link matches `/` only. Functionally no 404; CSS-only gap. Fix: either switch alias to `<Navigate to="/" replace />` or extend sidebar isActive matcher to accept `/dashboard`. | POST-GA UX polish | [ ] PENDING |
+| D-028 | STORY-079 Gate F-A3 | Decisions numbering drift — STORY-079 plan predicted DEV-233/234 for AC-8/9; implementation used DEV-231/232/233 for planner-phase decisions + DEV-234/235 for AC-8/9. All five decisions present and correct; cosmetic only. No remediation action (decisions immutable once written). | — | ACCEPTED (2026-04-17) |
+| D-029 | STORY-079 Gate F-A4 | No CI guard against future CHECK-constraint / seed drift. STORY-079 AC-3 patched 6 enum value mismatches, but no automated fresh-volume seed-smoke test exists. Suggested fix: `db-seed-smoke` Makefile target wired into GHA so next tight CHECK constraint does not regress. | POST-GA CI hardening | [ ] PENDING |
+| D-030 | STORY-079 Gate F-A6 | `argus seed <file>` accepts arbitrary absolute paths and `..` escapes from `ARGUS_SEED_PATH`. Low priority — operator-invoked only, DB role already privileged. Suggested fix: `filepath.EvalSymlinks` + `strings.HasPrefix(abs, seedPath)` refusal. | POST-GA security hardening | [ ] PENDING |
+| D-031 | STORY-079 Gate F-A7 | `internal/observability/metrics/metrics.go` `errorRingBuffer` takes `sync.Mutex` on every recorded 5xx. Acceptable today (only hot under error conditions); single hotspot at >10k RPS. Plan explicitly accepted the mutex. Suggested fix: atomic per-slot counters with CAS on stamp, or accept. | POST-GA perf | [ ] PENDING |
 
 ---
 

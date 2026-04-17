@@ -139,6 +139,13 @@ Base unit: `4px`
 - Color matches metric accent, opacity varies by value
 - 12 bars representing recent trend
 
+## Language Toggle (EN / TR)
+
+- **Toggle location:** Topbar (right side), cycles EN → TR → EN.
+- **Locale storage:** `localStorage` key `argus:locale`; falls back to browser language.
+- **Coverage:** Common vocabulary, forms, errors, and empty-state namespaces are translated (TR). Page-level labels and contextual copy fall back to English via `fallbackLng: 'en'` — no broken UI.
+- **Posture (DEV-234):** Current partial TR is shipped as-is. Full TR coverage is deferred post-GA. No banner or disclaimer is shown; EN fallback is seamless.
+
 ## Dark/Light Mode
 
 - **Default:** Dark (Neon Dark theme)

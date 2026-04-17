@@ -114,5 +114,5 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT
 - Phase: 10 (Cleanup & Production Hardening)
-- Story: —
-- Step: Phase Gate
+- Story: STORY-079 [AUDIT-GAP] Post-Gate Follow-up Sweep
+- Step: Review

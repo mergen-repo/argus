@@ -16,9 +16,14 @@ type TenantCounter interface {
 	CountActive(ctx context.Context) (int64, error)
 }
 
+type ErrorRateSource interface {
+	Recent5xxCount() int64
+}
+
 type StatusHandler struct {
 	health    HealthStatusChecker
 	tenants   TenantCounter
+	errSrc    ErrorRateSource
 	version   string
 	gitSHA    string
 	buildTime string
@@ -28,11 +33,13 @@ type StatusHandler struct {
 func NewStatusHandler(
 	health HealthStatusChecker,
 	tenants TenantCounter,
+	errSrc ErrorRateSource,
 	version, gitSHA, buildTime string,
 ) *StatusHandler {
 	return &StatusHandler{
 		health:    health,
 		tenants:   tenants,
+		errSrc:    errSrc,
 		version:   version,
 		gitSHA:    gitSHA,
 		buildTime: buildTime,
@@ -80,6 +87,11 @@ func (h *StatusHandler) Serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var recentError5m int64
+	if h.errSrc != nil {
+		recentError5m = h.errSrc.Recent5xxCount()
+	}
+
 	data := statusData{
 		Service:       "argus",
 		Overall:       overall,
@@ -88,7 +100,7 @@ func (h *StatusHandler) Serve(w http.ResponseWriter, r *http.Request) {
 		BuildTime:     h.buildTime,
 		Uptime:        uptime,
 		ActiveTenants: activeTenants,
-		RecentError5m: 0,
+		RecentError5m: recentError5m,
 	}
 
 	code := http.StatusOK
@@ -118,6 +130,11 @@ func (h *StatusHandler) ServeDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var recentError5m int64
+	if h.errSrc != nil {
+		recentError5m = h.errSrc.Recent5xxCount()
+	}
+
 	data := statusData{
 		Service:       "argus",
 		Overall:       overall,
@@ -126,7 +143,7 @@ func (h *StatusHandler) ServeDetails(w http.ResponseWriter, r *http.Request) {
 		BuildTime:     h.buildTime,
 		Uptime:        uptime,
 		ActiveTenants: activeTenants,
-		RecentError5m: 0,
+		RecentError5m: recentError5m,
 	}
 
 	meta := &statusMeta{Details: details}

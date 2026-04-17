@@ -37,6 +37,7 @@ func PrometheusHTTPMetrics(reg *metrics.Registry) func(http.Handler) http.Handle
 			status := strconv.Itoa(rc.status)
 
 			reg.HTTPRequestsTotal.WithLabelValues(r.Method, route, status, tenant).Inc()
+			reg.RecordHTTPStatus(rc.status)
 			reg.HTTPRequestDuration.WithLabelValues(r.Method, route, tenant).Observe(duration.Seconds())
 
 			if span := trace.SpanFromContext(r.Context()); span.IsRecording() {

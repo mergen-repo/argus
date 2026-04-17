@@ -131,6 +131,7 @@ export const router = createBrowserRouter([
         element: <DashboardLayout />,
         children: [
           { path: '/', element: lazySuspense(DashboardPage) },
+          { path: '/dashboard', element: lazySuspense(DashboardPage) },
           { path: '/analytics', element: lazySuspense(AnalyticsPage) },
           { path: '/analytics/cost', element: lazySuspense(AnalyticsCostPage) },
           { path: '/analytics/anomalies', element: lazySuspense(AnalyticsAnomaliesPage) },

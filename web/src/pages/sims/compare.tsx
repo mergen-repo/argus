@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   Search,
@@ -463,9 +463,16 @@ function LoadingSkeleton() {
   )
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export default function SIMComparePage() {
   const navigate = useNavigate()
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [searchParams] = useSearchParams()
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const a = searchParams.get('sim_id_a') ?? ''
+    const b = searchParams.get('sim_id_b') ?? ''
+    return [a, b].filter((id) => UUID_RE.test(id))
+  })
   const [queries, setQueries] = useState<string[]>(['', '', ''])
 
   const isPair = selectedIds.length === 2

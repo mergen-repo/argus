@@ -81,7 +81,12 @@ api.interceptors.response.use(
     const silentPaths = ['/users/me/views', '/onboarding/status', '/announcements/active']
     const isSilent = silentPaths.some((p) => url.includes(p))
 
-    if (error.response?.status !== 401 && !isSilent) {
+    const isSessionFormatError =
+      url.includes('/auth/sessions/') &&
+      error.response?.status === 400 &&
+      errorData?.code === 'INVALID_FORMAT'
+
+    if (error.response?.status !== 401 && !isSilent && !isSessionFormatError) {
       toast.error(message)
     }
 
@@ -174,8 +179,13 @@ export const authApi = {
     return api.get<{ status: string; data: Array<{ id: string; ip_address: string | null; user_agent: string | null; created_at: string; expires_at: string }>; meta: { cursor: string; has_more: boolean; limit: number } }>(`/auth/sessions?${params.toString()}`)
   },
 
-  revokeSession: (id: string) =>
-    api.delete<{ status: string; data: { revoked: boolean } }>(`/auth/sessions/${id}`),
+  revokeSession: (id: string) => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!id || !UUID_RE.test(id)) {
+      return Promise.reject(new Error('revokeSession: invalid session id'))
+    }
+    return api.delete<{ status: string; data: { revoked: boolean } }>(`/auth/sessions/${id}`)
+  },
 }
 
 export const userApi = {

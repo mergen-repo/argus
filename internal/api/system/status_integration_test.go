@@ -89,6 +89,7 @@ func TestStatusIntegration_PublicEndpointNoAuth(t *testing.T) {
 	h := NewStatusHandler(
 		&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK},
 		&mockTenantCounter{count: 3},
+		nil,
 		"1.0.0", "abc1234", "2026-04-12T00:00:00Z",
 	)
 	srv := buildStatusRouter(integTestSecret, h)
@@ -148,6 +149,7 @@ func TestStatusIntegration_DetailsWithAdminJWT(t *testing.T) {
 	h := NewStatusHandler(
 		&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK, details: details},
 		&mockTenantCounter{count: 7},
+		nil,
 		"2.0.0", "deadbeef", "2026-04-12T00:00:00Z",
 	)
 	srv := buildStatusRouter(integTestSecret, h)
@@ -205,6 +207,7 @@ func TestStatusIntegration_DetailsWithoutToken_401(t *testing.T) {
 
 	h := NewStatusHandler(
 		&mockHealthStatusChecker{state: "healthy", httpStatus: http.StatusOK},
+		nil,
 		nil,
 		"1.0.0", "sha", "2026-04-12T00:00:00Z",
 	)

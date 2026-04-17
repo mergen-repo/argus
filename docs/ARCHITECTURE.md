@@ -254,6 +254,7 @@ argus/
 | /login | LoginPage | No | AuthLayout |
 | /setup | OnboardingWizardPage | JWT (first login) | AuthLayout |
 | / | DashboardPage | JWT | DashboardLayout |
+| /dashboard | DashboardPage (alias) | JWT | DashboardLayout |
 | /sims | SimListPage (segments) | JWT (sim_manager+) | DashboardLayout |
 | /sims/:id | SimDetailPage | JWT (sim_manager+) | DashboardLayout |
 | /apns | ApnListPage | JWT (sim_manager+) | DashboardLayout |

@@ -1892,3 +1892,61 @@ npx tsc --noEmit  # TypeScript hata olmamali
 make test   # existing suite must pass
 go build ./...  # no compilation errors
 ```
+
+---
+
+## STORY-079: Phase 10 Post-Gate Follow-up Sweep
+
+### argus CLI subcomutları (operator / super_admin)
+
+1. **migrate subcommand**: Docker dışında doğrudan binary çalıştırın:
+   ```bash
+   ./argus migrate up
+   ```
+   Daha önce uygulanmış migration'lar varsa `no change` mesajı görmeli; temiz volumede migration'lar sırasıyla uygulanmalı.
+2. **migrate — yön yoksa hata**: `./argus migrate` (direction vermeden) → `"migrate: direction required (up|down)"` hata mesajı görmeli ve sıfırdan olmayan çıkış kodu dönmeli.
+3. **seed subcommand**: `./argus seed /path/to/seed.sql` → seed çıktısını logda görmeli, hatasız tamamlanmalı.
+4. **version subcommand**: `./argus version` → `version`, `git_sha`, `build_time` alanlarını içeren JSON veya düz metin çıktısı görmeli.
+
+### Seed — temiz volume (super_admin)
+
+5. **Temiz volume seed**: Docker volume'u tamamen sil (`docker compose down -v`), yeniden başlat (`docker compose up -d`). `make db-seed` çalıştır → hatasız tamamlanmalı. `GET /api/v1/sims?limit=5` isteği en az 1 SIM dönmeli.
+6. **Seed tekrar çalıştırma**: Seed ikinci kez çalıştırıldığında `ON CONFLICT DO NOTHING` / `DO UPDATE` sayesinde hatasız tamamlanmalı (idempotent).
+
+### /sims/compare — URL parametresi ön-doldurma (sim_manager)
+
+7. **URL'den ön-doldurma**: `/sims/compare?sim_id_a=<uuid-A>&sim_id_b=<uuid-B>` adresine doğrudan gidin. Her iki SIM input alanının ilgili UUID değerleriyle otomatik dolu geldiğini doğrulayın.
+8. **Compare butonu — /sims listesinden**: `/sims` listesinde herhangi bir SIM satırının yanındaki "Compare" butonuna tıklayın. `/sims/compare?sim_id_a=<seçilen-uuid>` adresine yönlendirmeli ve input A ön-dolu gelmelidir.
+9. **Geçersiz UUID — girişte**: `sim_id_a` parametresi olarak `not-a-uuid` değerini verin → input alanı boş/temiz kalmalı (geçersiz değer sessizce düşürülmeli) veya bir validasyon uyarısı görünmeli.
+
+### /dashboard alias (tüm JWT kullanıcıları)
+
+10. **Alias yönlendirme**: Giriş yapın, ardından adres çubuğuna `/dashboard` yazın. Sayfa 404 yerine ana Dashboard sayfasını render etmeli.
+11. **Bookmark deep-link**: Tarayıcıyı kapatın, doğrudan `http://localhost:8084/dashboard` adresini açın (geçerli oturum cookiesi mevcut). Dashboard sayfası yüklenmelidir — 404 görmemeli.
+
+### Oturum toast sessizleştirme (sim_manager)
+
+12. **İlk yükleme — toast yok**: Giriş yapın. Dashboard ilk yüklenirken `"Invalid session ID format"` içerikli kırmızı/turuncu bir toast bildirimi **görünmemeli**. (Eski davranış: boş oturum ID'si ile çağrılan `DELETE /auth/sessions/` endpoint'i hata toast'u tetikliyordu.)
+13. **Geçerli oturum silme**: Ayarlar → Oturumlar. Başka bir aktif oturum seçin, "Sil" butonuna tıklayın → oturum listeden kalkmalı, başarı toast'u görünmeli. Kendi mevcut oturumunuzu silmeye çalışırsanız uygun hata mesajı görünmeli.
+
+### /api/v1/status/details — recent_error_5m canlı (super_admin)
+
+14. **Sıfır hata durumunda**: `curl http://localhost:8080/api/v1/status/details | jq '.data.recent_error_5m'` çalıştırın → `0` dönmeli (son 5 dakikada 5xx yok).
+15. **5xx üret — sayacı gör**: 5xx tetikleyecek bir istek yapın (örn. payload olmadan POST), ardından `recent_error_5m` sorgulayın → değer `0`'dan büyük olmalı.
+16. **5 dakika sonra sıfırlanma**: Son 5xx'den 5 dakika (300 saniye) sonra `recent_error_5m` yeniden `0`'a dönmeli (pencere dışına çıkmış kayıtlar atılır).
+
+### i18n posture kararı (bilgilendirme)
+
+17. **DEV-234 kararı doğrulama**: `docs/brainstorming/decisions.md` içinde DEV-234 kaydını bulun. "DEFER to dedicated localization story post-GA" kararını içermeli. UI'da TR/EN toggle varsa toggle çalışmalı fakat tam TR çevirisi eksik olabilir — bu beklenen davranış.
+
+### /policies Compare posture kararı (bilgilendirme)
+
+18. **DEV-235 kararı doğrulama**: `docs/brainstorming/decisions.md` içinde DEV-235 kaydını bulun. "NO — close the Phase 10 gate note recommendation" kararını içermeli. `/policies` sayfasında Compare butonu **olmamalı** — bu bilinçli bir tasarım kararıdır.
+
+### Test command
+```bash
+make test   # 2870 test geçmeli
+go build ./...  # Derleme hatası olmamalı
+cd web && npm run build  # Frontend build başarılı olmalı
+npx tsc --noEmit  # TypeScript hatası olmamalı
+```

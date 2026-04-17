@@ -2,12 +2,63 @@ package metrics
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// recent5xxWindowSeconds is the sliding-window length covered by the
+// errorRingBuffer (5 minutes). Changing this value changes the semantics
+// of the /api/v1/status/details.recent_error_5m field and its tests.
+const recent5xxWindowSeconds = 300
+
+type errorRingBuffer struct {
+	mu     sync.Mutex
+	slots  [recent5xxWindowSeconds]int64
+	stamps [recent5xxWindowSeconds]int64 // unix second each slot represents
+	now    func() time.Time
+}
+
+func newErrorRingBuffer() *errorRingBuffer {
+	return &errorRingBuffer{now: time.Now}
+}
+
+func (r *errorRingBuffer) record() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now().Unix()
+	i := int(now % recent5xxWindowSeconds)
+	if r.stamps[i] != now {
+		r.slots[i] = 0
+		r.stamps[i] = now
+	}
+	r.slots[i]++
+}
+
+func (r *errorRingBuffer) sum() int64 {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now().Unix()
+	var total int64
+	for i := 0; i < recent5xxWindowSeconds; i++ {
+		if r.stamps[i] == 0 {
+			continue
+		}
+		if now-r.stamps[i] < recent5xxWindowSeconds {
+			total += r.slots[i]
+		}
+	}
+	return total
+}
 
 type Registry struct {
 	Reg *prometheus.Registry
@@ -46,6 +97,8 @@ type Registry struct {
 	ScheduledReportRunsTotal  *prometheus.CounterVec
 
 	BuildInfo *prometheus.GaugeVec
+
+	recent5xx *errorRingBuffer
 }
 
 func NewRegistry() *Registry {
@@ -53,7 +106,7 @@ func NewRegistry() *Registry {
 	reg.MustRegister(collectors.NewGoCollector())
 	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
-	r := &Registry{Reg: reg}
+	r := &Registry{Reg: reg, recent5xx: newErrorRingBuffer()}
 
 	r.HTTPRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_http_requests_total",
@@ -354,6 +407,27 @@ func (r *Registry) IncScheduledReportRun(reportType, result string) {
 		return
 	}
 	r.ScheduledReportRunsTotal.WithLabelValues(reportType, result).Inc()
+}
+
+// RecordHTTPStatus records a 5xx HTTP response for the recent_error_5m
+// sliding window. Non-5xx statuses and nil receiver are no-ops.
+func (r *Registry) RecordHTTPStatus(status int) {
+	if r == nil || r.recent5xx == nil {
+		return
+	}
+	if status >= 500 && status < 600 {
+		r.recent5xx.record()
+	}
+}
+
+// Recent5xxCount returns the number of 5xx responses recorded in the last
+// 300 seconds (5 minutes) — matches the recent_error_5m field exposed via
+// /api/v1/status/details. Safe to call on a nil Registry.
+func (r *Registry) Recent5xxCount() int64 {
+	if r == nil || r.recent5xx == nil {
+		return 0
+	}
+	return r.recent5xx.sum()
 }
 
 func operatorHealthValue(status string) float64 {

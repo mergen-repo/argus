@@ -15,6 +15,7 @@ import (
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 func extractIP(remoteAddr string) string {
@@ -502,6 +503,11 @@ func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
+		log.Warn().
+			Str("session_id", sessionIDStr).
+			Str("user_id", userID.String()).
+			Str("path", r.URL.Path).
+			Msg("revoke session called with non-uuid id")
 		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid session ID format")
 		return
 	}
