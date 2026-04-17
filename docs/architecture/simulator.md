@@ -220,6 +220,212 @@ eliminating dictionary mismatch as a risk category.
 
 ---
 
+## 5G SBA Client (STORY-084)
+
+### Overview — opt-in per operator, alternative protocol fork
+
+5G SBA support is disabled by default. An operator opts in by adding an `sba:`
+block with `enabled: true` to its entry in `config.example.yaml`. Operators
+without that block remain RADIUS-only and are unaffected by SBA lifecycle events.
+
+SBA is an **alternative protocol fork**, not an addition on top of Diameter. For
+a given session, the engine selects the protocol path using the `Rate`-based
+picker (`internal/simulator/sba/picker.go`): sessions whose AcctSessionID hash
+falls below the configured rate follow the SBA path; all others follow RADIUS
+(with optional Diameter). SBA never stacks on top of Diameter for the same
+session.
+
+### Config
+
+```yaml
+# Global defaults (top-level `sba:` block)
+sba:
+  host: argus-app
+  port: 8443
+  tls_enabled: false
+  tls_skip_verify: false
+  serving_network_name: "5G:mnc001.mcc286.3gppnetwork.org"
+  request_timeout: 5s
+  amf_instance_id: sim-amf-01
+  dereg_callback_uri: "http://sim-amf.local/dereg"
+  include_optional_calls: false
+
+operators:
+  - code: turkcell
+    nas_identifier: sim-turkcell
+    nas_ip: 10.99.0.1
+    sba:
+      enabled: true
+      rate: 0.2          # fraction of sessions routed via SBA (0.0–1.0)
+      auth_method: 5G_AKA
+  - code: vodafone
+    nas_identifier: sim-vodafone
+    nas_ip: 10.99.0.2
+    # no sba block → RADIUS-only
+```
+
+**Config fields reference (`SBADefaults`)**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `host` | `argus-app` | Argus SBA server hostname (inside compose network) |
+| `port` | `8443` | TCP port; matches `SBA_PORT` default |
+| `tls_enabled` | `false` | Enable HTTPS + HTTP/2 ALPN (dev compose uses cleartext) |
+| `tls_skip_verify` | `false` | Skip TLS certificate verification (dev only) |
+| `serving_network_name` | `5G:mnc001.mcc286.3gppnetwork.org` | 3GPP serving network name sent in authentication requests |
+| `request_timeout` | `5s` | Per-HTTP-request deadline |
+| `amf_instance_id` | `sim-amf-01` | AMF instance UUID sent in UDM registration body |
+| `dereg_callback_uri` | `http://sim-amf.invalid/dereg` | Callback URI embedded in AMF registration (informational) |
+| `include_optional_calls` | `false` | When `true`, a per-session 20% Bernoulli roll prepends `GET /nudm-ueau/v1/{supi}/security-information` before Authenticate and appends `POST /nudm-ueau/v1/{supi}/auth-events` after Confirm. Optional-call failures are logged and discarded |
+| `prod_guard` | `true` | When `true` AND `tls_skip_verify: true`, Validate rejects the config under `ARGUS_SIM_ENV=prod`. Set to `false` only for exceptional hand-crafted prod-like fixtures |
+
+**Per-operator fields (`OperatorSBAConfig`)**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Master switch; must be `true` to route any sessions via SBA |
+| `rate` | `0.0` | Fraction of sessions sent via SBA (0.0 = none; 1.0 = all). Determined deterministically per AcctSessionID |
+| `auth_method` | `5G_AKA` | Authentication method; only `5G_AKA` is implemented in STORY-084 (EAP_AKA_PRIME is reserved for a future story) |
+| `slices` | `[{sst: 1, sd: "000001"}]` | Optional S-NSSAI set advertised in RequestedNSSAI on authentication |
+
+### Data Flow
+
+For each session belonging to an SBA-enabled operator whose AcctSessionID hash
+passes the rate check, the engine calls `runSBASession(ctx, sim, op, sample, sbaC, log)`:
+
+```
+[optional, when include_optional_calls && Bernoulli(0.2)]
+GET  /nudm-ueau/v1/<supi>/security-information      :8443  (security-info)
+   → 200 OK  (response body unused; pure traffic exercise)
+
+POST /nausf-auth/v1/ue-authentications              :8443  (authenticate)
+   → 201 Created, body: AuthenticationResponse + Links["5g-aka"].Href
+
+PUT  <authCtxHref>/5g-aka-confirmation              :8443  (confirm)
+   → 200 OK, body: ConfirmationResponse{SUPI, Kseaf, AuthResult="SUCCESS"}
+
+PUT  /nudm-uecm/v1/<supi>/registrations/amf-3gpp-access  :8443  (register)
+   → 201 Created (first registration) or 200/204 (idempotent re-registration)
+
+   <session held for sample.SessionDuration or until context cancellation>
+
+[optional, when include_optional_calls && Bernoulli(0.2)]
+POST /nudm-ueau/v1/<supi>/auth-events               :8443  (auth-events)
+   → 201 Created  (session-end authentication log)
+```
+
+Authentication failure at step 2 or 3 causes an immediate abort (metric
+`simulator_sba_session_aborted_total{reason=auth_failed|confirm_failed|...}`
+emitted once by the engine). Registration failure at step 4 aborts with
+`reason=register_failed`. The context hold ends when the sample duration
+elapses or the engine cancels the session context. Optional calls are
+best-effort — failures are logged and discarded.
+
+Deregister is **not** part of the minimum flow. Argus's current
+`HandleRegistration` only accepts `PUT` and returns 405 for `DELETE`; until a
+future story implements server-side AMF deregistration, the simulator does not
+emit `DELETE /nudm-uecm/...` requests.
+
+### Crypto
+
+Authentication uses 5G-AKA. The simulator derives the expected `xresStar`
+locally and sends it in the confirmation PUT body so that Argus's AUSF can
+verify `sha256(xresStar)[:16] == hxresStar` from its own derivation.
+
+Both the server (`internal/aaa/sba/ausf.go`) and the simulator
+(`internal/simulator/sba/ausf.go`) compute authentication vectors from the same
+deterministic pseudo-random function keyed on `(SUPI, servingNetworkName)`:
+
+```
+seed     = SHA-256("5g-av:" + supi + ":" + servingNetwork)
+rand     = PRF(seed, index=0, length=16)
+autn     = PRF(seed, index=1, length=16)
+xresStar = PRF(seed, index=2, length=16)
+kausf    = PRF(seed, index=3, length=32)
+```
+
+The canary test `TestCrypto_Canary` in `ausf_test.go` fires the real Argus AUSF
+handler against the simulator's locally-computed `xresStar` and asserts that
+the SHA-256 hash matches `hxresStar` returned by the server. If
+`internal/aaa/sba/ausf.go` ever changes its key derivation, the canary fails
+immediately, preventing silent drift.
+
+### Metrics
+
+Five new Prometheus vectors are registered in `internal/simulator/metrics/`:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `simulator_sba_requests_total` | Counter | `operator`, `service`, `endpoint` | HTTP requests sent (`service`: `ausf`/`udm`; `endpoint`: `authenticate`, `confirm`, `register`, `security-info`, `auth-events`) |
+| `simulator_sba_responses_total` | Counter | `operator`, `service`, `endpoint`, `result` | HTTP responses received (`result`: `success`, `error_4xx`, `error_5xx`, `timeout`, `transport`) |
+| `simulator_sba_latency_seconds` | Histogram | `operator`, `service`, `endpoint` | Round-trip latency per endpoint |
+| `simulator_sba_session_aborted_total` | Counter | `operator`, `reason` | Sessions aborted before completion (`reason`: `auth_failed`, `confirm_failed`, `register_failed`, `transport`, `timeout`) |
+| `simulator_sba_service_errors_total` | Counter | `operator`, `service`, `cause` | Non-2xx responses broken down by ProblemDetails.Cause (`MANDATORY_IE_INCORRECT`, `AUTH_REJECTED`, `SNSSAI_NOT_ALLOWED`, `AUTH_CONTEXT_NOT_FOUND`, `METHOD_NOT_ALLOWED`, `RESOURCE_NOT_FOUND`, `unknown` when body isn't `application/problem+json`) |
+
+Note: unlike the Diameter client, there is no peer-state gauge. HTTP is
+stateless and connectionless from the simulator's perspective — no long-lived TCP
+session is maintained between requests; the transport pool reconnects
+transparently.
+
+**Label cardinality:** `cause` is bounded by the server's own enum (not
+attacker-controlled). Adding a new cause on the server side expands cardinality
+by exactly one; this is documented in STORY-084 §Risks.
+
+### Failure Modes
+
+| Failure | Session Effect | Metric |
+|---------|---------------|--------|
+| Auth POST returns non-201 | Session aborted before register | `simulator_sba_responses_total{result=error_4xx|error_5xx}` + `simulator_sba_service_errors_total{cause=<ProblemDetails.Cause>}` + `simulator_sba_session_aborted_total{reason=auth_failed}` |
+| Confirm PUT returns non-200 | Session aborted | Same as above with `endpoint=confirm` and `reason=confirm_failed` |
+| Confirm returns 200 but `AuthResult` ≠ `SUCCESS` | Session aborted | `simulator_sba_responses_total{endpoint=confirm,result=success}` + `simulator_sba_session_aborted_total{reason=confirm_failed}` (HTTP succeeded; session-layer reject) |
+| Register PUT returns non-2xx | Session aborted with metric | `simulator_sba_session_aborted_total{reason=register_failed}` |
+| Transport error (DNS, TCP refused) | Session aborted | `simulator_sba_responses_total{result=transport}` or `result=timeout` |
+| Optional security-info or auth-events failure | Logged; error discarded; session continues | (non-fatal — no session-abort metric) |
+
+### Scope exclusion: Deregister not implemented
+
+The current Argus SBA server's `HandleRegistration` only accepts `PUT` and
+returns `405 Method Not Allowed` for `DELETE`. Server-side AMF deregistration
+is out of scope for STORY-084. The simulator's minimum flow is POST authenticate
+→ PUT confirm → PUT register; no `DELETE` traffic is emitted. A future story
+can add a deregister surface when Argus's UDM exposes it.
+
+### Reuse Note
+
+The simulator's `internal/simulator/sba/` package imports Argus's own SBA
+types directly:
+
+```go
+import argussba "github.com/btopcu/argus/internal/aaa/sba"
+```
+
+Reused symbols include `AuthenticationRequest`, `AuthenticationResponse`,
+`ConfirmationRequest`, `ConfirmationResponse`, `Amf3GppAccessRegistration`,
+`SNSSAI`, `GUAMI`, `PlmnID`, `ProblemDetails`, and `AuthLink`. No external 5G
+SBA library is used. This guarantees that the simulator sends exactly the JSON
+field names and shapes that Argus's handlers expect, eliminating schema mismatch
+as a risk category.
+
+### Manual smoke runbook — SBA session verification (plan AC-4)
+
+```bash
+# 1. Bring up the full stack and simulator with SBA enabled for at least one operator.
+make up
+make sim-up   # operator config must have sba: enabled: true, rate: >0
+
+# 2. Wait 2 minutes so a few SBA sessions complete.
+sleep 120
+
+# 3. Query the simulator metrics endpoint for SBA counter values.
+curl -sSf http://localhost:9099/metrics | grep simulator_sba_requests_total
+# → expect non-zero counts for ausf/authenticate, ausf/confirm, udm/register
+
+# 4. Tear down.
+make down
+```
+
+---
+
 ## Engine (session orchestration)
 
 `internal/simulator/engine/engine.go` owns the session lifecycle loop. It holds

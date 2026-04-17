@@ -23,6 +23,7 @@ type Config struct {
 	Metrics   MetricsConfig    `yaml:"metrics"`
 	Log       LogConfig        `yaml:"log"`
 	Diameter  DiameterDefaults `yaml:"diameter"`
+	SBA       SBADefaults      `yaml:"sba"`
 }
 
 // DiameterDefaults holds global Diameter peer defaults applied to all
@@ -37,6 +38,43 @@ type DiameterDefaults struct {
 	RequestTimeout      time.Duration `yaml:"request_timeout"`
 	ReconnectBackoffMin time.Duration `yaml:"reconnect_backoff_min"`
 	ReconnectBackoffMax time.Duration `yaml:"reconnect_backoff_max"`
+}
+
+// SBADefaults holds global 5G SBA client defaults applied to all
+// operators that opt in. Per-operator overrides sit on OperatorSBAConfig.
+//
+// ProdGuard default is true (guard ON). When ARGUS_SIM_ENV=prod AND
+// ProdGuard is true AND TLSSkipVerify is true, Validate rejects the config.
+// Operators who need to disable the guard in exceptional cases (e.g.
+// hand-crafted prod-like fixtures) must set `prod_guard: false` explicitly.
+type SBADefaults struct {
+	Host                 string        `yaml:"host"`
+	Port                 int           `yaml:"port"`
+	TLSEnabled           bool          `yaml:"tls_enabled"`
+	TLSSkipVerify        bool          `yaml:"tls_skip_verify"`
+	ServingNetworkName   string        `yaml:"serving_network_name"`
+	RequestTimeout       time.Duration `yaml:"request_timeout"`
+	AMFInstanceID        string        `yaml:"amf_instance_id"`
+	DeregCallbackURI     string        `yaml:"dereg_callback_uri"`
+	IncludeOptionalCalls bool          `yaml:"include_optional_calls"`
+	ProdGuard            *bool         `yaml:"prod_guard"` // default true; pointer so unset != explicit false
+}
+
+// OperatorSBAConfig is the per-operator 5G SBA opt-in block.
+// A nil pointer on OperatorConfig means SBA is disabled for that operator.
+type OperatorSBAConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	AuthMethod string        `yaml:"auth_method"`
+	Rate       float64       `yaml:"rate"`
+	Slices     []SliceConfig `yaml:"slices,omitempty"`
+}
+
+// SliceConfig describes one S-NSSAI entry advertised in RequestedNSSAI on
+// 5G-AKA authentication requests. When OperatorSBAConfig.Slices is empty and
+// the operator opts in, validateSBA applies a default of [{SST:1, SD:"000001"}].
+type SliceConfig struct {
+	SST int    `yaml:"sst"`
+	SD  string `yaml:"sd,omitempty"`
 }
 
 // OperatorDiameterConfig is the per-operator Diameter opt-in block.
@@ -61,6 +99,7 @@ type OperatorConfig struct {
 	NASIdentifier string                  `yaml:"nas_identifier"`
 	NASIP         string                  `yaml:"nas_ip"`
 	Diameter      *OperatorDiameterConfig `yaml:"diameter,omitempty"`
+	SBA           *OperatorSBAConfig      `yaml:"sba,omitempty"`
 }
 
 type ScenarioConfig struct {
@@ -187,6 +226,9 @@ func (c *Config) Validate() error {
 	if err := c.validateDiameter(); err != nil {
 		return err
 	}
+	if err := c.validateSBA(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -247,6 +289,72 @@ func (c *Config) validateDiameter() error {
 	if anyEnabled && d.DestinationRealm == "" {
 		return fmt.Errorf("diameter.destination_realm required when any operator has diameter.enabled: true")
 	}
+	return nil
+}
+
+// validateSBA applies SBA defaults and enforces SBA invariants.
+// Called after validateDiameter.
+func (c *Config) validateSBA() error {
+	s := &c.SBA
+
+	if s.Host == "" {
+		s.Host = "argus-app"
+	}
+	if s.Port == 0 {
+		s.Port = 8443
+	}
+	if s.ServingNetworkName == "" {
+		s.ServingNetworkName = "5G:mnc001.mcc286.3gppnetwork.org"
+	}
+	if s.RequestTimeout == 0 {
+		s.RequestTimeout = 5 * time.Second
+	}
+	if s.AMFInstanceID == "" {
+		s.AMFInstanceID = "sim-amf-01"
+	}
+	if s.DeregCallbackURI == "" {
+		s.DeregCallbackURI = "http://sim-amf.invalid/dereg"
+	}
+	if s.ProdGuard == nil {
+		// default guard ON
+		t := true
+		s.ProdGuard = &t
+	}
+
+	// 5G_AKA is the only implementable method in STORY-084 (plan §Config:
+	// EAP_AKA_PRIME reserved, rejected for this story). EAP_AKA_PRIME remains
+	// listed in the enum so future stories can flip it without a schema change.
+	validAuthMethods := map[string]bool{"5G_AKA": true}
+	anyEnabled := false
+
+	for i := range c.Operators {
+		op := &c.Operators[i]
+		if op.SBA == nil || !op.SBA.Enabled {
+			continue
+		}
+		anyEnabled = true
+
+		if op.SBA.AuthMethod == "" {
+			op.SBA.AuthMethod = "5G_AKA"
+		}
+		if !validAuthMethods[op.SBA.AuthMethod] {
+			return fmt.Errorf("operators[%s].sba.auth_method: unknown method %q (only 5G_AKA implemented in STORY-084)", op.Code, op.SBA.AuthMethod)
+		}
+		if op.SBA.Rate < 0 || op.SBA.Rate > 1 {
+			return fmt.Errorf("operators[%s].sba.rate out of range: %v (must be in [0, 1])", op.Code, op.SBA.Rate)
+		}
+		// Default slices when operator opts in but leaves Slices unset.
+		if len(op.SBA.Slices) == 0 {
+			op.SBA.Slices = []SliceConfig{{SST: 1, SD: "000001"}}
+		}
+	}
+
+	if anyEnabled && s.TLSSkipVerify && *s.ProdGuard {
+		if os.Getenv("ARGUS_SIM_ENV") == "prod" {
+			return fmt.Errorf("sba.tls_skip_verify: true is not allowed when ARGUS_SIM_ENV=prod (disable prod guard with sba.prod_guard: false only for exceptional cases)")
+		}
+	}
+
 	return nil
 }
 

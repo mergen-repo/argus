@@ -22,6 +22,7 @@ import (
 	"github.com/btopcu/argus/internal/simulator/engine"
 	"github.com/btopcu/argus/internal/simulator/metrics"
 	simradius "github.com/btopcu/argus/internal/simulator/radius"
+	"github.com/btopcu/argus/internal/simulator/sba"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -105,6 +106,23 @@ func main() {
 		dmClients[op.Code] = c
 	}
 
+	// SBA clients — one per operator with sba.enabled: true.
+	sbaClients := make(map[string]*sba.Client)
+	for _, op := range cfg.Operators {
+		if op.SBA == nil || !op.SBA.Enabled {
+			continue
+		}
+		c := sba.New(op, cfg.SBA, logger)
+		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := c.Ping(pingCtx); err != nil {
+			logger.Warn().Err(err).Str("operator", op.Code).Msg("sba ping failed; will retry on first session")
+		} else {
+			logger.Info().Str("operator", op.Code).Msg("sba client ready")
+		}
+		pingCancel()
+		sbaClients[op.Code] = c
+	}
+
 	// Engine
 	picker := scenario.New(cfg.Scenarios, 0) // 0 = wall-time seed
 	client := simradius.New(
@@ -113,7 +131,7 @@ func main() {
 		cfg.Argus.RadiusAccountingPort,
 		cfg.Argus.RadiusSharedSecret,
 	)
-	eng := engine.New(cfg, picker, client, dmClients, logger)
+	eng := engine.New(cfg, picker, client, dmClients, sbaClients, logger)
 
 	// Signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -128,6 +146,18 @@ func main() {
 		logger.Error().Err(err).Msg("engine exited with error")
 	}
 	logger.Info().Int("active_at_exit", eng.ActiveCount()).Msg("engine drained")
+
+	// SBA client shutdown — close idle HTTP connections before Diameter and
+	// metrics teardown so final metric writes are not lost.
+	if len(sbaClients) > 0 {
+		shutdownSBA, cancelSBA := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelSBA()
+		for opCode, c := range sbaClients {
+			if err := c.Stop(shutdownSBA); err != nil {
+				logger.Warn().Err(err).Str("operator", opCode).Msg("sba stop error")
+			}
+		}
+	}
 
 	// Diameter client shutdown — send DPR and close TCP connections before
 	// tearing down the metrics server so final state writes are not lost.

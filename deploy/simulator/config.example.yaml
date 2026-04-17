@@ -1,4 +1,4 @@
-# Argus Simulator — RADIUS + Diameter Traffic Generator (STORY-082/083)
+# Argus Simulator — RADIUS + Diameter + 5G SBA Traffic Generator (STORY-082/083/084)
 #
 # This file is TEST-ONLY. Never commit production secrets. Env overrides
 # (ARGUS_SIM_DB_URL, ARGUS_SIM_RADIUS_SECRET, etc.) are available for
@@ -29,8 +29,30 @@ diameter:
   reconnect_backoff_min: 1s       # Initial backoff after peer loss
   reconnect_backoff_max: 30s      # Backoff cap (exponential, capped here)
 
+# Global 5G SBA client defaults — applied to every operator that opts in.
+# All 10 fields shown so operators can see every tunable knob.
+# Protocol stack order: radius → diameter → sba (session fork: sba REPLACES radius).
+sba:
+  host: argus-app                            # Argus SBA server hostname (inside compose network)
+  port: 8443                                 # TCP port; matches Argus SBA_PORT default
+  tls_enabled: false                         # false = HTTP/1.1 cleartext (dev compose default)
+  tls_skip_verify: false                     # false = require valid cert when tls_enabled: true
+  # Production: set tls_enabled: true, tls_skip_verify: false
+  serving_network_name: "5G:mnc001.mcc286.3gppnetwork.org"  # 5G serving network name in 3GPP format
+  request_timeout: 5s                        # Per-request HTTP deadline (context-based)
+  amf_instance_id: sim-amf-01               # AMF instance UUID sent in AMF registration PUT
+  dereg_callback_uri: "http://sim-amf.invalid/dereg"  # Deregistration callback URI (non-routable for sim)
+  include_optional_calls: false              # If true, ~20% of flows add GET security-information + POST auth-events
+  prod_guard: true                           # true = reject tls_skip_verify when ARGUS_SIM_ENV=prod (recommended; set false only for exceptional hand-crafted fixtures)
+
 # Per-operator NAS identity. Secret is shared globally (see STORY-086).
-# Diameter is opt-in: operators without a `diameter:` block remain RADIUS-only.
+# Diameter is opt-in; SBA is opt-in — operators without those blocks remain RADIUS-only.
+# SBA opt-in semantics:
+#   enabled: false (or no sba block) → SBA not built for this operator
+#   enabled: true, rate: 0.0         → SBA client built but never selected (effectively disabled)
+#   enabled: true, rate: 0.2         → 20% of sessions use 5G-SBA instead of RADIUS
+#   enabled: true, rate: 1.0         → all sessions use 5G-SBA (RADIUS never called for this operator)
+# NOTE: SBA sessions are ALTERNATIVE to RADIUS (not additive) — a session uses one path only.
 operators:
   - code: turkcell
     nas_identifier: sim-turkcell
@@ -39,14 +61,20 @@ operators:
       enabled: true
       # origin_host defaults to "sim-turkcell.<origin_realm>" when omitted
       applications: [gx, gy]     # gx = Policy Control (16777238); gy = Online Charging (4)
+    sba:
+      enabled: true
+      rate: 0.2                  # 20% of turkcell sessions authenticate via 5G-SBA instead of RADIUS
+      auth_method: 5G_AKA        # "5G_AKA" (default); "EAP_AKA_PRIME" reserved for future story
   - code: vodafone
     nas_identifier: sim-vodafone
     nas_ip: 10.99.0.2
-    # No diameter block → RADIUS-only (default behaviour)
+    # No diameter block → RADIUS-only
+    # No sba block → RADIUS-only
   - code: turk_telekom
     nas_identifier: sim-turk-telekom
     nas_ip: 10.99.0.3
     # No diameter block → RADIUS-only
+    # No sba block → RADIUS-only
 
 # Weighted-random scenario picker (weights must sum to ~1.0).
 scenarios:

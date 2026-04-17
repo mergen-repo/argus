@@ -124,7 +124,7 @@ argus/
 │   ├── argusctl/                # Ops CLI (STORY-067): tenant/apikey/user/sim/health/backup commands
 │   │   ├── main.go
 │   │   └── cmd/                 # cobra subcommands (root, tenant, apikey, user, compliance, sim, health, backup)
-│   └── simulator/               # AAA traffic simulator binary (STORY-082/083) — dev/test tool only
+│   └── simulator/               # AAA traffic simulator binary (STORY-082/083/084) — dev/test tool only
 │       └── main.go              # Entry; SIMULATOR_ENABLED env guard; builds operator clients + engine
 ├── internal/
 │   ├── gateway/                  # SVC-01: HTTP API gateway, middleware
@@ -189,14 +189,15 @@ argus/
 │   ├── auth/                     # JWT, 2FA, API key
 │   ├── tenant/                   # Tenant context middleware
 │   ├── config/                   # Configuration
-│   └── simulator/                # AAA traffic simulator packages (STORY-082/083) — dev/test tool only
-│       ├── config/               # YAML config schema (RADIUS + Diameter defaults, per-operator opt-in)
+│   └── simulator/                # AAA traffic simulator packages (STORY-082/083/084) — dev/test tool only
+│       ├── config/               # YAML config schema (RADIUS + Diameter + SBA defaults, per-operator opt-in)
 │       ├── discovery/            # Read-only PG fetch of SIMs / operators / APNs
 │       ├── scenario/             # Weighted-random scenario picker
 │       ├── radius/               # RADIUS Auth + Acct client
-│       ├── engine/               # Session lifecycle orchestration (RADIUS + Diameter bracket)
-│       ├── metrics/              # Prometheus vectors (simulator_radius_* + simulator_diameter_*)
-│       └── diameter/             # Diameter Gx/Gy client (STORY-083): peer state machine, CCR builders, high-level client
+│       ├── engine/               # Session lifecycle orchestration (RADIUS + Diameter bracket + SBA fork)
+│       ├── metrics/              # Prometheus vectors (simulator_radius_* + simulator_diameter_* + simulator_sba_*)
+│       ├── diameter/             # Diameter Gx/Gy client (STORY-083): peer state machine, CCR builders, high-level client
+│       └── sba/                  # 5G SBA client (STORY-084): AUSF 5G-AKA, UDM registration, per-operator opt-in
 ├── web/                          # React SPA
 │   ├── src/
 │   │   ├── components/

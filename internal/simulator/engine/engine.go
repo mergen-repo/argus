@@ -8,6 +8,12 @@
 // startup bursts from overwhelming Argus. Shutdown is graceful: on
 // context cancellation, every in-flight session sends Accounting-Stop
 // before the goroutine exits.
+//
+// When an operator opts into 5G-SBA (sba.enabled: true), a configurable
+// fraction of that operator's sessions skip RADIUS entirely and run the
+// SBA lifecycle instead (POST authenticate → PUT confirm → PUT register).
+// This is an ALTERNATIVE path, not additive: a session is either RADIUS
+// or SBA, never both.
 package engine
 
 import (
@@ -22,6 +28,7 @@ import (
 	"github.com/btopcu/argus/internal/simulator/discovery"
 	"github.com/btopcu/argus/internal/simulator/metrics"
 	simradius "github.com/btopcu/argus/internal/simulator/radius"
+	"github.com/btopcu/argus/internal/simulator/sba"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
@@ -36,6 +43,7 @@ type Engine struct {
 	picker  *scenario.Picker
 	client  *simradius.Client
 	dm      map[string]*diameter.Client // operator code → Diameter client; nil = RADIUS-only
+	sba     map[string]*sba.Client     // operator code → SBA client; nil = SBA disabled for that op
 	limiter *rate.Limiter
 	logger  zerolog.Logger
 
@@ -49,14 +57,17 @@ type sessionState struct {
 }
 
 // New creates an Engine. dmClients maps operator codes to Diameter clients for
-// operators with Diameter enabled. Pass nil (or an empty map) for RADIUS-only
-// operation — backward compatible with pre-STORY-083 callers.
-func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, dmClients map[string]*diameter.Client, logger zerolog.Logger) *Engine {
+// operators with Diameter enabled; sbaClients maps operator codes to SBA
+// clients for operators with 5G-SBA enabled. Pass nil (or an empty map) for
+// either to disable that protocol — backward compatible with pre-STORY-083 and
+// pre-STORY-084 callers.
+func New(cfg *config.Config, picker *scenario.Picker, client *simradius.Client, dmClients map[string]*diameter.Client, sbaClients map[string]*sba.Client, logger zerolog.Logger) *Engine {
 	return &Engine{
 		cfg:     cfg,
 		picker:  picker,
 		client:  client,
 		dm:      dmClients,
+		sba:     sbaClients,
 		limiter: rate.NewLimiter(rate.Limit(cfg.Rate.MaxRadiusRequestsPerSecond), cfg.Rate.MaxRadiusRequestsPerSecond),
 		logger:  logger.With().Str("component", "engine").Logger(),
 		active:  make(map[string]*sessionState),
@@ -119,8 +130,28 @@ func (e *Engine) runSIM(ctx context.Context, sim discovery.SIM, op *config.Opera
 // runSession drives a single Auth → Acct-Start → Interim(s) → Acct-Stop
 // lifecycle. If any step fails, the session is abandoned (no Stop sent
 // for an un-Started session, which would confuse Argus).
+//
+// If the operator has SBA enabled and the per-session picker selects "sba",
+// the function dispatches to runSBASession and returns immediately.
+// 5G-SBA REPLACES the RADIUS+Diameter flow — UE attaches over SBA directly
+// in a 5G SA deployment. The fork point is before any RADIUS packet is sent.
 func (e *Engine) runSession(ctx context.Context, sim discovery.SIM, op *config.OperatorConfig, sample scenario.Sample, log zerolog.Logger) {
 	sc := simradius.NewSessionContext(sim, op.NASIP, op.NASIdentifier)
+
+	// Protocol fork — MUST be before any RADIUS packet is sent.
+	// When sbaC is non-nil AND the deterministic picker selects "sba" for
+	// this session-id, the entire RADIUS+Diameter path is skipped.
+	if sbaC := e.sba[sim.OperatorCode]; sbaC != nil {
+		pickerSC := sba.SessionContext{AcctSessionID: sc.AcctSessionID}
+		rate := float64(0)
+		if op.SBA != nil {
+			rate = op.SBA.Rate
+		}
+		if sba.ShouldUseSBA(pickerSC, rate) {
+			e.runSBASession(ctx, sim, op, sample, sbaC, log)
+			return
+		}
+	}
 
 	// Authenticate
 	if err := e.limiter.Wait(ctx); err != nil {
@@ -263,6 +294,62 @@ stop:
 			log.Debug().Err(closeErr).Msg("diameter close-session failed (non-fatal)")
 		}
 	}
+}
+
+// runSBASession executes the 5G-SBA lifecycle for one session:
+//  1. Authenticate (POST /nausf-auth/…) + Confirm (PUT …/5g-aka-confirmation)
+//  2. Register AMF (PUT /nudm-uecm/…/registrations/amf-3gpp-access)
+//  3. Hold session for sample.SessionDuration (bounded by maxSessionDuration).
+//
+// This path REPLACES RADIUS for sessions selected by ShouldUseSBA. No RADIUS
+// or Diameter packets are sent. The ActiveSessions gauge is managed identically
+// to the RADIUS path. Session-abort metrics follow the single-writer pattern
+// from STORY-083 F-A3.
+func (e *Engine) runSBASession(ctx context.Context, sim discovery.SIM, op *config.OperatorConfig, sample scenario.Sample, sbaC *sba.Client, log zerolog.Logger) {
+	sc := simradius.NewSessionContext(sim, op.NASIP, op.NASIdentifier)
+
+	if err := sbaC.Authenticate(ctx, sc); err != nil {
+		reason := "auth_failed"
+		switch {
+		case errors.Is(err, sba.ErrConfirmFailed):
+			reason = "confirm_failed"
+		case errors.Is(err, sba.ErrTimeout):
+			reason = "timeout"
+		case errors.Is(err, sba.ErrTransport):
+			reason = "transport"
+		}
+		metrics.SBASessionAbortedTotal.WithLabelValues(sim.OperatorCode, reason).Inc()
+		log.Debug().Err(err).Str("reason", reason).Msg("sba authenticate failed; aborting session")
+		return
+	}
+
+	supi := "imsi-" + sc.SIM.IMSI
+	if err := sbaC.Register(ctx, sc, supi); err != nil {
+		metrics.SBASessionAbortedTotal.WithLabelValues(sim.OperatorCode, "register_failed").Inc()
+		log.Debug().Err(err).Msg("sba register failed; aborting session")
+		return
+	}
+
+	metrics.ActiveSessions.WithLabelValues(sim.OperatorCode).Inc()
+	defer metrics.ActiveSessions.WithLabelValues(sim.OperatorCode).Dec()
+
+	duration := sample.SessionDuration
+	if duration > maxSessionDuration {
+		duration = maxSessionDuration
+	}
+
+	select {
+	case <-time.After(duration):
+	case <-ctx.Done():
+	}
+
+	// Optional session-end auth-event POST (gated inside the client on
+	// IncludeOptionalCalls + Bernoulli roll). Best-effort; any error is logged
+	// and discarded inside RecordSessionEnd. Uses a bounded fresh context so
+	// shutdown cannot hang on an unresponsive UDM.
+	aeCtx, cancelAE := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelAE()
+	sbaC.RecordSessionEnd(aeCtx, sc, true)
 }
 
 // ActiveCount returns the number of currently-active sessions.

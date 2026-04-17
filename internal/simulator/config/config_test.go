@@ -238,6 +238,231 @@ func TestDiameter_RadiusOnlyStillValid(t *testing.T) {
 	}
 }
 
+const sbaEnabledYAML = `
+argus:
+  radius_host: argus-app
+  radius_auth_port: 1812
+  radius_accounting_port: 1813
+  radius_shared_secret: test-secret-at-least-16chars
+  db_url: postgres://user:pass@host/db
+operators:
+  - code: turkcell
+    nas_identifier: sim-turkcell
+    nas_ip: 10.99.0.1
+    sba:
+      enabled: true
+      rate: 0.2
+scenarios:
+  - name: normal
+    weight: 1.0
+    session_duration_seconds: [60, 120]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [1000, 5000]
+    bytes_per_interim_out: [500, 2500]
+rate:
+  max_radius_requests_per_second: 5
+  initial_jitter_seconds: [0, 10]
+metrics:
+  listen: ":9099"
+log:
+  level: info
+  format: console
+`
+
+func TestSBA_DefaultsApplied(t *testing.T) {
+	p := writeTemp(t, sbaEnabledYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	s := cfg.SBA
+	if s.Host != "argus-app" {
+		t.Errorf("Host: want %q got %q", "argus-app", s.Host)
+	}
+	if s.Port != 8443 {
+		t.Errorf("Port: want 8443 got %d", s.Port)
+	}
+	if s.ServingNetworkName != "5G:mnc001.mcc286.3gppnetwork.org" {
+		t.Errorf("ServingNetworkName: want default got %q", s.ServingNetworkName)
+	}
+	if s.RequestTimeout != 5*time.Second {
+		t.Errorf("RequestTimeout: want 5s got %v", s.RequestTimeout)
+	}
+	if s.AMFInstanceID != "sim-amf-01" {
+		t.Errorf("AMFInstanceID: want %q got %q", "sim-amf-01", s.AMFInstanceID)
+	}
+	if s.DeregCallbackURI != "http://sim-amf.invalid/dereg" {
+		t.Errorf("DeregCallbackURI: want default got %q", s.DeregCallbackURI)
+	}
+
+	op := cfg.Operators[0]
+	if op.SBA == nil {
+		t.Fatal("SBA config should not be nil for enabled operator")
+	}
+	if op.SBA.AuthMethod != "5G_AKA" {
+		t.Errorf("AuthMethod: want %q got %q", "5G_AKA", op.SBA.AuthMethod)
+	}
+	if op.SBA.Rate != 0.2 {
+		t.Errorf("Rate: want 0.2 got %v", op.SBA.Rate)
+	}
+}
+
+func TestSBA_ValidationErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "unknown auth method rejected",
+			body: strings.Replace(sbaEnabledYAML,
+				"      enabled: true\n      rate: 0.2",
+				"      enabled: true\n      rate: 0.2\n      auth_method: INVALID", 1),
+			want: "unknown method",
+		},
+		{
+			name: "rate above 1 rejected",
+			body: strings.Replace(sbaEnabledYAML,
+				"      rate: 0.2", "      rate: 1.2", 1),
+			want: "rate out of range",
+		},
+		{
+			name: "rate below 0 rejected",
+			body: strings.Replace(sbaEnabledYAML,
+				"      rate: 0.2", "      rate: -0.1", 1),
+			want: "rate out of range",
+		},
+		{
+			name: "EAP_AKA_PRIME reserved for future story",
+			body: strings.Replace(sbaEnabledYAML,
+				"      enabled: true\n      rate: 0.2",
+				"      enabled: true\n      rate: 0.2\n      auth_method: EAP_AKA_PRIME", 1),
+			want: "only 5G_AKA implemented",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := writeTemp(t, c.body)
+			_, err := Load(p)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("expected error containing %q, got: %v", c.want, err)
+			}
+		})
+	}
+}
+
+func TestSBA_ProdGuardTriggers(t *testing.T) {
+	body := sbaEnabledYAML + `sba:
+  tls_skip_verify: true
+`
+	t.Setenv("ARGUS_SIM_ENV", "prod")
+	p := writeTemp(t, body)
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "tls_skip_verify") {
+		t.Errorf("expected prod-guard error containing %q, got: %v", "tls_skip_verify", err)
+	}
+}
+
+// TestSBA_ProdGuardDefaultIsOn verifies that omitting the prod_guard field
+// defaults to guard=ON (the plan default). A config without prod_guard but
+// with tls_skip_verify=true must still be rejected under ARGUS_SIM_ENV=prod.
+func TestSBA_ProdGuardDefaultIsOn(t *testing.T) {
+	body := sbaEnabledYAML + `sba:
+  tls_skip_verify: true
+`
+	t.Setenv("ARGUS_SIM_ENV", "prod")
+	p := writeTemp(t, body)
+	_, err := Load(p)
+	if err == nil {
+		t.Fatal("expected prod-guard error when prod_guard is omitted (default should be ON)")
+	}
+}
+
+// TestSBA_ProdGuardDisabled verifies that explicitly setting prod_guard: false
+// allows tls_skip_verify: true under ARGUS_SIM_ENV=prod (exceptional hand-crafted
+// scenarios, documented in simulator.md).
+func TestSBA_ProdGuardDisabled(t *testing.T) {
+	body := sbaEnabledYAML + `sba:
+  tls_skip_verify: true
+  prod_guard: false
+`
+	t.Setenv("ARGUS_SIM_ENV", "prod")
+	p := writeTemp(t, body)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("prod_guard: false should bypass the prod-env check, got: %v", err)
+	}
+	if cfg.SBA.ProdGuard == nil || *cfg.SBA.ProdGuard {
+		t.Errorf("ProdGuard: want explicit false, got %v", cfg.SBA.ProdGuard)
+	}
+}
+
+// TestSBA_DefaultSlicesApplied verifies that an operator that opts in without
+// slices receives the default [{SST:1, SD:"000001"}].
+func TestSBA_DefaultSlicesApplied(t *testing.T) {
+	p := writeTemp(t, sbaEnabledYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	op := cfg.Operators[0]
+	if op.SBA == nil || len(op.SBA.Slices) != 1 {
+		t.Fatalf("Slices: want 1 default, got %+v", op.SBA)
+	}
+	if op.SBA.Slices[0].SST != 1 || op.SBA.Slices[0].SD != "000001" {
+		t.Errorf("default slice=%+v, want {SST:1 SD:000001}", op.SBA.Slices[0])
+	}
+}
+
+// TestSBA_PerOperatorSlices verifies that a YAML-provided slice list overrides
+// the default.
+func TestSBA_PerOperatorSlices(t *testing.T) {
+	body := strings.Replace(sbaEnabledYAML,
+		"      rate: 0.2",
+		"      rate: 0.2\n      slices:\n        - sst: 2\n          sd: \"000010\"\n        - sst: 3", 1)
+	p := writeTemp(t, body)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	op := cfg.Operators[0]
+	if op.SBA == nil || len(op.SBA.Slices) != 2 {
+		t.Fatalf("Slices: want 2 entries, got %+v", op.SBA)
+	}
+	if op.SBA.Slices[0].SST != 2 || op.SBA.Slices[0].SD != "000010" {
+		t.Errorf("Slices[0]=%+v, want {SST:2 SD:000010}", op.SBA.Slices[0])
+	}
+	if op.SBA.Slices[1].SST != 3 {
+		t.Errorf("Slices[1].SST=%d, want 3", op.SBA.Slices[1].SST)
+	}
+}
+
+func TestSBA_RadiusOnlyStillValid(t *testing.T) {
+	p := writeTemp(t, validYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("RADIUS-only config should still be valid: %v", err)
+	}
+	if cfg.Operators[0].SBA != nil {
+		t.Error("SBA should be nil for RADIUS-only operator")
+	}
+	if cfg.SBA.Port != 8443 {
+		t.Errorf("SBA defaults still applied to global block: port %d", cfg.SBA.Port)
+	}
+}
+
+func TestSBA_DiameterOnlyStillValid(t *testing.T) {
+	p := writeTemp(t, diameterEnabledYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Diameter-only config should still be valid: %v", err)
+	}
+	if cfg.Operators[0].SBA != nil {
+		t.Error("SBA should be nil for Diameter-only operator")
+	}
+}
+
 func TestToKebab(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"turkcell", "turkcell"},

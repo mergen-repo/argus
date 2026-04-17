@@ -92,6 +92,47 @@ var (
 		},
 		[]string{"operator", "reason"}, // reason: ccr_i_failed|peer_down|timeout|reject
 	)
+
+	SBARequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_sba_requests_total",
+			Help: "5G SBA HTTP requests sent by the simulator.",
+		},
+		[]string{"operator", "service", "endpoint"}, // service: ausf|udm; endpoint: authenticate|confirm|register|security-info|auth-events
+	)
+
+	SBAResponsesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_sba_responses_total",
+			Help: "5G SBA HTTP responses received by the simulator, bucketed by result.",
+		},
+		[]string{"operator", "service", "endpoint", "result"}, // result: success|error_4xx|error_5xx|timeout|transport
+	)
+
+	SBALatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "simulator_sba_latency_seconds",
+			Help:    "5G SBA HTTP request/response round-trip latency.",
+			Buckets: prometheus.ExponentialBuckets(0.001, 2, 12), // 1ms .. ~4s
+		},
+		[]string{"operator", "service", "endpoint"},
+	)
+
+	SBASessionAbortedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_sba_session_aborted_total",
+			Help: "5G SBA sessions aborted before completion, bucketed by reason.",
+		},
+		[]string{"operator", "reason"}, // reason: auth_failed|confirm_failed|register_failed|transport|timeout
+	)
+
+	SBAServiceErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_sba_service_errors_total",
+			Help: "5G SBA service errors broken down by ProblemDetails.Cause (e.g. MANDATORY_IE_INCORRECT, AUTH_REJECTED, SNSSAI_NOT_ALLOWED). Falls back to 'unknown' when the body is not application/problem+json.",
+		},
+		[]string{"operator", "service", "cause"},
+	)
 )
 
 // MustRegister wires every simulator metric into the provided registerer.
@@ -108,6 +149,11 @@ func MustRegister(reg prometheus.Registerer) {
 		DiameterLatencySeconds,
 		DiameterPeerState,
 		DiameterSessionAbortedTotal,
+		SBARequestsTotal,
+		SBAResponsesTotal,
+		SBALatencySeconds,
+		SBASessionAbortedTotal,
+		SBAServiceErrorsTotal,
 	)
 }
 

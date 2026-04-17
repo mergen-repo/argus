@@ -2137,3 +2137,96 @@ curl -s http://localhost:9099/metrics | grep 'simulator_diameter_requests_total{
 curl -s http://localhost:9099/metrics | grep simulator_radius_requests_total
 # Beklenen: tüm operatörler için RADIUS sayaçları artmış durumda
 ```
+
+---
+
+## STORY-084: 5G SBA Simulator Client (AUSF/UDM)
+
+Bu story backend/altyapi odaklıdır (simulator dev tool, UI değişikliği yok). Testler Docker stack ve simulator çalışır durumdayken yapılmalıdır.
+
+### Birim ve entegrasyon testleri
+
+```bash
+go test ./internal/simulator/... -v
+# Beklenen: 81 test PASS (config, diameter, engine, metrics, radius, sba, scenario paketleri)
+
+go test -race ./internal/simulator/...
+# Beklenen: 81 test PASS, race raporu yok
+
+go test -tags=integration -run TestSimulator_AgainstArgusSBA ./internal/simulator/sba/...
+# Beklenen: 26 test PASS — in-process aaasba.Server karşısında tam AUSF+UDM döngüsü
+
+go test -tags=integration -run TestSimulator_MandatoryIE_Negative ./internal/simulator/sba/...
+# Beklenen: PASS — boş servingNetworkName ile 400 + MANDATORY_IE_INCORRECT hatası
+```
+
+### 1. SBA etkinleştirilmiş operatör senaryosu (AC-1/2)
+
+```bash
+# Simulator'ı SBA etkinleştirilmiş bir operatör ile başlat:
+make up                              # argus-app + pg + redis + nats
+make sim-up                          # turkcell operatörü için sba.enabled=true, rate=0.2 ile simulator
+
+# 2 dakika bekle, sonra SBA metriklerini kontrol et:
+sleep 120
+curl -s http://localhost:9099/metrics | grep simulator_sba_requests_total
+# Beklenen (en az):
+#   simulator_sba_requests_total{operator="turkcell",service="ausf",endpoint="authenticate"} > 0
+#   simulator_sba_requests_total{operator="turkcell",service="ausf",endpoint="confirm"} > 0
+#   simulator_sba_requests_total{operator="turkcell",service="udm",endpoint="register"} > 0
+
+curl -s http://localhost:9099/metrics | grep simulator_sba_responses_total
+# Beklenen: result="success" sayacı > 0, result="error_*" veya "timeout" yok
+
+curl -s http://localhost:9099/metrics | grep simulator_sba_latency_seconds
+# Beklenen: histogram bucket'ları dolu (count > 0)
+
+curl -s http://localhost:9099/metrics | grep simulator_sba_session_aborted_total
+# Beklenen: normal çalışmada bu sayacın artmaması (0 veya yok)
+```
+
+### 2. Argus SBA proxy log doğrulama (AC-3)
+
+```bash
+# 5G SBA oturumları için Argus'un :8443 portunda üç beklenen istek yolunu kontrol et:
+docker logs argus-app 2>&1 | grep -E "/nausf-auth/v1/ue-authentications|5g-aka-confirmation|/nudm-uecm/v1/.*/registrations"
+# Beklenen: Her SBA oturumu için üç satır:
+#   POST /nausf-auth/v1/ue-authentications
+#   PUT  /nausf-auth/v1/ue-authentications/<uuid>/5g-aka-confirmation
+#   PUT  /nudm-uecm/v1/<supi>/registrations/amf-3gpp-access
+```
+
+### 3. prod_guard env enjeksiyon testi (AC-6)
+
+```bash
+# prod_guard=true + ARGUS_SIM_ENV=prod + tls_skip_verify=true kombinasyonunun reddini doğrula:
+ARGUS_SIM_ENV=prod SIMULATOR_ENABLED=1 \
+  ARGUS_SIM_CONFIG=deploy/simulator/config.example.yaml \
+  go run ./cmd/simulator 2>&1 | head -5
+# Beklenen: config validation error içeren FATAL mesajı
+# ("prod_guard: TLSSkipVerify not allowed when ARGUS_SIM_ENV=prod" veya benzeri)
+# NOT: config.example.yaml'da tls_skip_verify: false varsayılan; test için geçici olarak true yapın
+
+# Sadece config validation unit testleri ile doğrulama (daha hızlı):
+go test ./internal/simulator/config/... -run TestSBA_ProdGuard -v
+# Beklenen: TestSBA_ProdGuardTriggers PASS, TestSBA_ProdGuardDefaultIsOn PASS, TestSBA_ProdGuardDisabled PASS
+```
+
+### 4. Failover yeniden başlatma senaryosu (AC-7)
+
+```bash
+# argus-app SBA sunucusunu durdur ve yeniden başlat; yeni oturumların devam ettiğini doğrula:
+docker stop argus-app
+sleep 35  # 30+ saniye bekle
+
+# Yeniden başlat:
+docker start argus-app
+sleep 5   # argus-app'in hazır olmasını bekle
+
+# Metriklerin artmaya devam ettiğini doğrula:
+curl -s http://localhost:9099/metrics | grep 'simulator_sba_requests_total'
+# Beklenen: sayaçların önceki değerden daha yüksek olması (yeniden bağlantı sonrası yeni oturumlar)
+# NOT: HTTP stateless — Diameter'dan farklı olarak peer reconnect bekleme gerekmez
+
+make down
+```
