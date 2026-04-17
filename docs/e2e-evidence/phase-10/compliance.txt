@@ -1,38 +1,71 @@
-=== Phase 10 Compliance Check ===
+Phase 10 Gate re-run — Compliance audit (inline) 2026-04-17
 
-=== API envelope (GET /api/v1/system/config as super_admin) ===
+Auditor-sub-agent dispatch SKIPPED (not available in this gate); inline checks performed:
 
-keys: ['data', 'status']
-status: success
+=== 1. API envelope shape check on 4 endpoints ===
+-- /sms/history --
+  keys : ['status', 'data', 'meta']
+  status = success
+  has data = True
+-- /system/config --
+  keys : ['status', 'data']
+  status = success
+  has data = True
+-- /status/details --
+  keys : ['status', 'data', 'meta']
+  status = success
+  has data = True
+-- /system/capacity --
+  keys : ['status', 'data']
+  status = success
+  has data = True
 
-=== User views list (new endpoint) ===
-HTTP=404
-404 page not found
+=== 2. /system/config secrets_redacted list ===
+secrets redacted count: 25
+sample: ['JWT_SECRET', 'JWT_SECRET_PREVIOUS', 'ENCRYPTION_KEY', 'DATABASE_URL', 'DATABASE_READ_REPLICA_URL', 'REDIS_URL', 'NATS_URL', 'SMTP_PASSWORD', 'TELEGRAM_BOT_TOKEN', 'S3_ACCESS_KEY']
 
-=== Announcements list ===
-HTTP=200
-{"status":"success","data":[]}
+=== 3. RLS posture on STORY-086/077 tables ===
+  sms_outbound: rowsecurity/force = true/true
+  announcements: rowsecurity/force = true/true
+  announcement_dismissals: rowsecurity/force = true/true
+  chart_annotations: rowsecurity/force = true/true
+  user_column_preferences: rowsecurity/force = true/true
+  user_views: rowsecurity/force = true/true
+  webhook_configs: rowsecurity/force = true/true
+  webhook_deliveries: rowsecurity/force = true/true
+  notification_preferences: rowsecurity/force = true/true
+  onboarding_sessions: rowsecurity/force = true/true
+  scheduled_reports: rowsecurity/force = true/true
 
-=== Phase 10 DB tables (user_views, announcements, etc.) ===
-announcement_dismissals|RLS
-announcements|RLS
-anomaly_comments|RLS
-chart_annotations|RLS
-kill_switches|no-RLS
-maintenance_windows|RLS
-user_column_preferences|RLS
-user_views|RLS
+=== 4. Doc drift caveat cleanup ===
+  TBL-42 audit caveat present: 0 (expected 0)
 
-=== tenant_id on new tables ===
-anomaly_comments|tenant_id,user_id
-chart_annotations|tenant_id,user_id
-maintenance_windows|tenant_id
-user_column_preferences|user_id
-user_views|tenant_id,user_id
+=== 5. Decisions DEV-234 (F-5 posture) + DEV-235 (F-6 posture) ===
+  DEV-234 occurrences: 1
+  DEV-235 occurrences: 1
 
-=== Audit log recent writes ===
+=== 6. STORY-086 review doc present ===
+/Users/btopcu/workspace/argus/docs/stories/phase-10/STORY-079-review.md
+/Users/btopcu/workspace/argus/docs/stories/phase-10/STORY-086-review.md
 
-=== Saved Views (correct path) ===
-{"status":"error","error":{"code":"VALIDATION_ERROR","message":"page query param required"}}
+=== 7. Compliance audit report summary ===
+# Compliance Audit Report — Argus
 
-HTTP=400
+> Date: 2026-04-17
+> Trigger: MANUAL
+> Stories Audited: 78 DONE (all 55 Development Phase + 22 Phase 10 + STORY-078 + STORY-080 + STORY-082)
+> App Running: Yes (Docker stack healthy — runtime verification enabled)
+> Replaces: 2026-04-15 MANUAL audit (scoped to 4 tracks; this pass is the fuller 1a–1g sweep)
+
+## Executive Summary
+
+- Development Phase: 55/55 stories DONE, all gated.
+- Phase 10: 22/23 stories DONE (STORY-079 PENDING — carries D-013..D-021 from prior audit).
+- Test Infrastructure track: STORY-080 + STORY-082 DONE; STORY-083/084/085 PENDING.
+- Forward-coverage spot-check: the 78 DONE stories have ship-level coverage, but **one runtime data-path is broken** (`sms_outbound` table missing → `GET /api/v1/sms/history` returns 500) and **architecture indexes are significantly out of sync** with STORY-077 deliverables.
+- Reverse coverage (PRODUCT → Story): 72/72 features covered (same as prior audit; no new NO_STORY gaps).
+- Leftover Findings Sweep: the nine residuals promoted on 2026-04-15 (D-013..D-021) remain OPEN and are all tracked against STORY-079; no new floating findings surfaced.
+
+**Counts:**
+
+| Metric | Value |

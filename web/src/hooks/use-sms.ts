@@ -6,16 +6,16 @@ const SMS_KEY = ['sms'] as const
 
 export interface SMSOutbound {
   id: string
-  tenant_id: string
   sim_id: string
   msisdn: string
-  status: string
-  priority: string
+  text_hash: string
   text_preview: string
-  provider_message_id: string | null
-  error_code: string | null
-  sent_at: string | null
-  created_at: string
+  status: string
+  provider_message_id?: string
+  error_code?: string
+  queued_at: string
+  sent_at?: string
+  delivered_at?: string
 }
 
 export function useSendSMS() {

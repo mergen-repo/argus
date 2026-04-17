@@ -1,0 +1,27 @@
+Phase 10 Gate re-run — Turkish text audit 2026-04-17
+
+Scope per STORY-079 AC-8 / DEV-234 (decisions.md:453):
+  Decision: DEFER full TR coverage to post-GA localization story; ship partial TR (common namespace
+  translated — save/cancel/filter/search/etc); page labels, table columns, contextual text remain English.
+  TR toggle is functional; fallback i18n key resolution lands on EN when TR key absent.
+
+Audit methodology:
+  browser_snapshot on 3 screens under TR locale active (/, /sims, /settings/sessions).
+  Grep scan of rendered text for ASCII-only Turkish candidates: kalici/goruntulenme/giris/cikis/olustur/
+  guncelle/duzenle/kullanici/islem — expected zero matches because FULL TR coverage is the deferred
+  story, not this gate. Also scan for correct rendering of Turkish chars ç ğ ı İ ö ş ü in any TR strings
+  that DO appear (proper names + seed data).
+
+Findings:
+  - Toggle works: clicking "TR" swaps i18n locale (button label becomes "EN"); navigation menu items,
+    breadcrumbs, KPI labels remain English (expected per DEV-234).
+  - Date format correctly localized on /settings/sessions: DD/MM/YYYY, HH:MM (Turkish locale, e.g. 17/04/2026, 12:05).
+  - No garbled Turkish detected: "Türk Telekom" (e.g. /sims OPERATOR column) renders with proper ü — good.
+  - No mixed-encoding artifacts ("Islem" → should be "İşlem" etc.); zero matches for ASCII-only Turkish
+    words listed in the phase-gate audit table.
+  - Lorem/TODO/placeholder: zero hits in grepped rendered text across 3 screens.
+  - Tenant names render correctly: "XYZ Edaş" / "ABC Edaş" visible in /admin/resources (proper ş).
+
+Fixes applied: 0 (none needed — DEV-234 posture accepted; no garbled text found).
+
+Remaining work: full TR page-label coverage deferred to post-GA story per DEV-234.

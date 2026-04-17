@@ -154,29 +154,27 @@ export default function SMSPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Created</TableHead>
+              <TableHead>Queued</TableHead>
               <TableHead>SIM</TableHead>
               <TableHead>MSISDN</TableHead>
               <TableHead>Preview</TableHead>
-              <TableHead>Priority</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {history.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-text-tertiary py-8">
+                <TableCell colSpan={5} className="text-center text-text-tertiary py-8">
                   No SMS messages yet.
                 </TableCell>
               </TableRow>
             )}
             {history.map((m) => (
               <TableRow key={m.id}>
-                <TableCell className="text-xs font-mono text-text-secondary">{new Date(m.created_at).toLocaleString()}</TableCell>
+                <TableCell className="text-xs font-mono text-text-secondary">{new Date(m.queued_at).toLocaleString()}</TableCell>
                 <TableCell><code className="text-xs font-mono">{m.sim_id.slice(0, 8)}…</code></TableCell>
                 <TableCell><code className="text-xs font-mono">{m.msisdn}</code></TableCell>
                 <TableCell><span className="text-xs text-text-secondary">{m.text_preview}</span></TableCell>
-                <TableCell><Badge variant="outline" className="text-[10px]">{m.priority}</Badge></TableCell>
                 <TableCell>
                   <Badge variant={STATUS_BADGE[m.status] ?? 'outline'} className="text-[10px]">
                     {m.status}

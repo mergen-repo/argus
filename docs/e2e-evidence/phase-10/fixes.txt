@@ -1,80 +1,68 @@
-Phase 10 Gate — Fix Loop Summary
-=================================
+Phase 10 Gate re-run — In-gate fixes 2026-04-17
+================================================
 
-FIX-1: Nginx upstream.conf pointed at "argus-app-blue:8080" (blue-green convention), but
-default docker-compose.yml uses container name "argus-app". This caused
-"host not found in upstream" boot loop for nginx.
+Source of findings: Step 3 E2E scenario 02 (/sms page STORY-086 verification)
 
-Action: Updated /Users/btopcu/workspace/argus/infra/nginx/upstream.conf from
-"argus-app-blue" to "argus-app". Nginx now healthy.
+## Fix #1 — SMS History page DTO mismatch
 
-Status: APPLIED, verified healthy.
+**Surface**: `http://localhost:8084/sms`
+**Symptom**: "CREATED" column rendered "Invalid Date" on every row. "PRIORITY" column displayed empty badges.
+**Scope framing**: NOT a STORY-086 regression. STORY-086 only recovered the `sms_outbound` table + API; the
+/sms UI column binding was always wrong since STORY-069 shipped the SMS Gateway — it only became visible
+now because STORY-086 unblocked the endpoint from its 500 state and populated the list with actual rows.
+Closing this here under the Phase 10 zero-deferral banner rather than filing a STORY-069 follow-up.
 
-FIX-2: Fresh DB volume had no Phase 10 migrations applied (stopped at 20260323,
-Phase 9 frontier). Argus binary does NOT auto-run migrations, and `make db-migrate`
-falls through to `argus serve` (no migrate subcommand wired in cmd/argus/main.go).
-This caused:
-  - "failed to list views" toast on every page (user_views table missing)
-  - "failed to fetch announcements" toast on every page (announcements table missing)
-  - Command palette "No entities found" (backend search broken)
+**Root cause**: Pre-existing STORY-069-era UI↔API contract drift. API DTO (internal/api/sms/handler.go:295-308
+`smsOutboundDTO`) returns `queued_at`, `status`, `sim_id`, `msisdn`, `text_hash`, `text_preview`,
+`provider_message_id?`, `error_code?`, `sent_at?`, `delivered_at?`. Frontend type (web/src/hooks/use-sms.ts
+SMSOutbound) declared `created_at`, `priority`, `tenant_id` — none of which exist in the server response.
 
-Action: Used migrate/migrate docker image to apply migrations + batch-applied all
-.up.sql files directly via psql (bypassing transaction wrapper for CONCURRENTLY
-indexes on partitioned tables and FORCE RLS on hypertables with columnstore).
+**Fix applied** (code edits, NOT committed):
+1. `web/src/hooks/use-sms.ts:7-19` — SMSOutbound interface rewritten to match API DTO exactly:
+   - Removed: tenant_id, priority, created_at (none returned by backend)
+   - Added: text_hash (required), delivered_at (optional)
+   - Changed: sent_at string|null → string? (optional, matches omitempty semantics)
+   - Changed: provider_message_id/error_code from string|null → string?
+2. `web/src/pages/sms/index.tsx:155-189` — SMS History table updated:
+   - Column header "CREATED" → "QUEUED"
+   - Column binding `m.created_at` → `m.queued_at`
+   - "PRIORITY" column removed (field not in API response); empty-state colSpan 6 → 5
 
-Phase 10 tables now exist: user_views, announcements, announcement_dismissals,
-chart_annotations, user_column_preferences, kill_switches, maintenance_windows,
-anomaly_comments, roaming_agreements, sla_reports, backup_runs,
-notification_preferences, notification_templates, onboarding_sessions,
-scheduled_reports, webhook_configs.
+**Type-check**: `cd web && npx tsc --noEmit` → clean
+**Build**: `npm run build` → 2825 modules transformed, built in 4.30s (no errors)
+**Post-fix verification**: Rebuilt argus image + restarted container; /sms page now renders
+"QUEUED" column with proper "4/17/2026, 10:42:11 AM" timestamps and no "Invalid Date" values.
+Screenshot: docs/e2e-evidence/phase-10/polish/sms-page-after.png
+Before:     docs/e2e-evidence/phase-10/polish/sms-page-before.png
 
-Force-bumped schema_migrations to 20260417000003.
+**Commit disposition**: NOT committed per gate-agent mandate
+("Do NOT commit anything in this gate run. Ana Amil will decide commit disposition.").
+Suggested commit subject (for Ana Amil): `fix(phase-10-gate): sms page UI DTO sync (STORY-069 era drift)`
+— the scope framing distinguishes this from STORY-086 proper.
 
-Status: APPLIED. Re-verified: "failed to list views" toast GONE,
-"failed to fetch announcements" toast GONE.
+**Files modified (uncommitted on disk)**:
+- web/src/hooks/use-sms.ts
+- web/src/pages/sms/index.tsx
 
-FOLLOW-UPS (not fixed during gate, flagged for Phase 10.x or follow-on):
+---
 
-F-1: MIGRATION AUTOMATION
-  - argus binary lacks `migrate` subcommand; `make db-migrate` falls through to serve.
-  - Pre-existing issue NOT specific to Phase 10, but noticed because phase-10 adds
-    new migrations that never run on a fresh deploy.
-  - Recommendation: add cobra-based migrate subcommand or run golang-migrate
-    in Dockerfile entrypoint.
+## No other fixes applied
 
-F-2: PARTITIONED-TABLE MIGRATIONS
-  - Multiple migrations fail on partitioned sims/audit_logs (CONCURRENTLY not supported
-    on partitioned parents; hypertables-with-columnstore reject RLS).
-  - Pre-existing. Not a Phase 10 regression.
-  - Recommendation: guard these index creations behind pg_class checks or use
-    PARTITION-aware syntax.
+All other Phase 10 surfaces (dashboard, sims list, sims compare, admin compliance, admin impersonate,
+admin resources, sessions, jobs, audit log, cmdk search, dashboard alias, settings/sessions, turkish
+toggle) render and behave correctly against STORY-056..086 acceptance criteria.
 
-F-3: COMPREHENSIVE SEED SQL FAILS
-  - migrations/seed/003_comprehensive_seed.sql aborts with transaction error after
-    basic seeds 001/002/004 succeed. Results in empty sims/apns/operators on fresh deploy.
-  - Needs investigation; may be schema-drift from later migrations vs seed file.
+STORY-079 F-1..F-8 + DEV-191 all verified closed in Step 3.5 functional probes (functional-api.txt).
+STORY-086 schemacheck + trigger + RLS + `GET /api/v1/sms/history` HTTP 200 all verified in Step 3.5.
 
-F-4: SIM COMPARE pre-selection not carried over
-  - STORY-078: clicking Compare on /sims with 2 checkboxes navigates to /sims/compare
-    but the page does not receive the selected SIM IDs; user must search again.
-  - UX gap; API works correctly (sim_id_a, sim_id_b).
+## New deferrals: 0
 
-F-5: Turkish i18n coverage minimal
-  - Language toggle flips EN<->TR indicator, but navigation, buttons, page titles
-    remain English (Dashboard, SIM Cards, Views, Export, Compare, State, RAT, etc.).
-  - Date format also remains M/D/YYYY instead of DD.MM.YYYY when TR selected.
-  - Phase 10 stories did not explicitly mandate full TR coverage; if required,
-    needs translation pass across all components.
+No findings deferred. Zero-deferral policy maintained. The 8 follow-ups F-1..F-8 + DEV-191 from the
+2026-04-13 conditional-PASS gate are all verified closed in this re-run; no new follow-ups created.
 
-F-6: Policies page missing Compare button (mentioned in gate-task requirements)
-  - /policies shows Views, Export, New Policy — no Compare button.
-  - STORY-078 scope was SIM compare only; if Policy compare is required, it's not
-    delivered.
+## Carry-over tech-debt (already tracked in ROUTEMAP):
 
-F-7: /dashboard route returns 404
-  - Dashboard mounted at "/" not "/dashboard"; deep-links to /dashboard yield 404
-    page-not-found. Sidebar "Dashboard" link works (points to /).
-  - Minor UX; consider aliasing /dashboard -> /.
-
-F-8: Minor initial-load toasts: "Invalid session ID format" on first dashboard
-  after fresh login (likely stale localStorage). Self-corrects.
+- D-032: Original STORY-069 migration 20260413000001 has FK-to-partitioned-parent defect that would fail
+  on a fresh (empty) DB volume. This gate preserved existing volumes per task constraint. Future story
+  should either split the FK out of CREATE TABLE or replicate STORY-086's check_sim_exists() pattern into
+  the original migration. Not a regression; pre-existing bug currently masked by the live volume state.
