@@ -49,7 +49,7 @@
 | TBL-39 | webhook_deliveries | Notifications | → TBL-38 (webhook_config_id); retry state machine; RLS enabled | No |
 | TBL-40 | notification_preferences | Notifications | → TBL-01 (tenant_id); event_type × channel matrix; RLS enabled | No |
 | TBL-41 | notification_templates | Notifications | Global (no tenant_id); locale-keyed TR/EN; 28 seed rows | No |
-| TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled. **NOTE (audit 2026-04-17):** migration 20260413000001 creates this table but it is absent from the current live DB — tracked as STORY-086 for root-cause + repair. | No |
+| TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled. Original STORY-069 migration (20260413000001) included an unsatisfiable FK to partitioned `sims(id)` which blocked table creation; repair migration 20260417000004 restores the table without the FK (sim_id is enforced in application code), matching STORY-064's precedent for partitioned-sims references. | No |
 | TBL-43 | roaming_agreements | Operator | → TBL-01 (tenant_id), → TBL-05/TBL-06 (operator_id); partial unique index on (tenant_id, operator_id) WHERE state='active'; RLS enabled | No |
 | TBL-44 | anomaly_comments | Analytics/Anomalies | → TBL-28 (anomaly_id), → TBL-02 (author_id); body varchar(2000); index on (anomaly_id, created_at DESC); RLS via app.current_tenant | No |
 | TBL-45 | kill_switches | Admin/Operations | System-level (no tenant_id); key + enabled + reason + toggled_by + toggled_at; 5 canonical keys seeded | No |

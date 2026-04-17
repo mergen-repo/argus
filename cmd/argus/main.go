@@ -92,6 +92,7 @@ import (
 	"github.com/btopcu/argus/internal/report"
 	"github.com/btopcu/argus/internal/storage"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/btopcu/argus/internal/store/schemacheck"
 	"github.com/btopcu/argus/internal/undo"
 	"github.com/btopcu/argus/internal/ws"
 	"github.com/google/uuid"
@@ -379,6 +380,11 @@ func runServe(cfg *config.Config) {
 	}
 	defer pg.Close()
 	log.Info().Msg("postgres connected")
+
+	if err := schemacheck.Verify(ctx, pg.Pool, schemacheck.CriticalTables); err != nil {
+		log.Fatal().Err(err).Strs("expected_tables", schemacheck.CriticalTables).Msg("boot: schema integrity check failed — run 'argus migrate up' or inspect schema drift")
+	}
+	log.Info().Int("tables", len(schemacheck.CriticalTables)).Msg("schema integrity check passed")
 
 	store.StartPoolGauge(appCtx, pg.Pool, metricsReg, 10*time.Second)
 

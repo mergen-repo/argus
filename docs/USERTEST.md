@@ -1950,3 +1950,110 @@ go build ./...  # Derleme hatası olmamalı
 cd web && npm run build  # Frontend build başarılı olmalı
 npx tsc --noEmit  # TypeScript hatası olmamalı
 ```
+
+---
+
+## STORY-086: [AUDIT-GAP] sms_outbound tablosunu geri yükle + önyükleme zamanı şema bütünlüğü kontrolü
+
+Bu story backend/altyapi odaklıdır (UI değişikliği yok). Testler Docker stack çalışır durumdayken yapılmalıdır (`make up && make db-migrate`).
+
+### 1. Onarım öncesi / sonrası canlı DB kontrolü
+
+```bash
+# ÖNCE (migration uygulanmadan önce sms_outbound'u simüle etmek için):
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT to_regclass('public.sms_outbound');"
+# Beklenen: NULL değil (migration 20260417000004 zaten uygulandı)
+
+# Sibling tablolar hâlâ mevcut:
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT to_regclass('public.onboarding_sessions'), to_regclass('public.notification_templates');"
+# Beklenen: her ikisi de non-NULL
+
+# Schema migrations versiyonunu doğrula:
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 3;"
+# Beklenen: 20260417000004, dirty=false en üstte
+```
+
+### 2. API duman testi (smoke test)
+
+```bash
+# JWT token al:
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# SMS geçmişini sorgula (tablonun varlığını kanıtlar):
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8084/api/v1/sms/history
+# Beklenen: 200
+
+# Tam yanıt zarfını kontrol et:
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8084/api/v1/sms/history | jq '.status'
+# Beklenen: "success"
+```
+
+### 3. Tetikleyici reddi gösterimi (check_sim_exists)
+
+```bash
+# Geçersiz bir sim_id ile doğrudan DB'ye INSERT dene:
+docker compose exec postgres psql -U argus -d argus -c "
+  SET app.current_tenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  INSERT INTO sms_outbound (tenant_id, sim_id, msisdn, text_hash, status)
+  VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          '00000000-0000-0000-0000-000000000001',
+          '+905550000001', 'deadbeef', 'queued');
+"
+# Beklenen: HATA mesajı içermelidir:
+#   ERROR:  FK violation: sim_id 00000000-0000-0000-0000-000000000001 does not exist in sims
+
+# Doğrulama: tetikleyici pg_trigger'da kayıtlı:
+docker compose exec postgres psql -U argus -d argus \
+  -c "SELECT tgname FROM pg_trigger WHERE tgrelid = 'sms_outbound'::regclass AND NOT tgisinternal;"
+# Beklenen: trg_sms_outbound_check_sim
+```
+
+### 4. Önyükleme zamanı FATAL kontrolü (boot-check demo)
+
+```bash
+# sms_outbound tablosunu simüle amacıyla düşür:
+docker compose exec postgres psql -U argus -d argus \
+  -c "DROP TABLE sms_outbound CASCADE; UPDATE schema_migrations SET version=20260417000003, dirty=false;"
+
+# Argus'u yeniden başlat:
+docker compose restart argus
+
+# Logları izle — FATAL mesajı bekle:
+docker compose logs argus --since=30s 2>&1 | grep -E "FATAL|schemacheck|missing"
+# Beklenen satır (örnek):
+#   {"level":"fatal","error":"schemacheck: critical tables missing from database: [sms_outbound]",
+#    "expected_tables":["announcement_dismissals",...,"webhook_deliveries"],
+#    "message":"boot: schema integrity check failed — run 'argus migrate up' or inspect schema drift"}
+
+# Konteyner exit code 1 ile döngüye girmeli (restart policy):
+docker compose ps argus | grep -E "Restarting|Exit"
+
+# Geri yükle — migration uygula, ardından tekrar başlat:
+make db-migrate
+docker compose restart argus
+docker compose logs argus --since=30s 2>&1 | grep -E "schema integrity|postgres connected"
+# Beklenen: "schema integrity check passed" — container temiz boot'a geçmeli
+```
+
+### Test komutu
+
+```bash
+go test ./internal/store/schemacheck/... -v
+# Beklenen: 2/2 birim testi PASS (DATABASE_URL ayarlı değilse 3. test atlanır)
+
+DATABASE_URL=postgres://argus:argus_secret@localhost:5450/argus?sslmode=disable \
+  go test ./internal/store/schemacheck/... -v
+# Beklenen: 3/3 PASS (TestVerify_MissingTableReportsError dahil)
+
+DATABASE_URL=postgres://argus:argus_secret@localhost:5450/argus?sslmode=disable \
+  go test ./internal/store -run TestSmsOutbound_RelationPresentAfterMigrations -v
+# Beklenen: PASS — tablo mevcut + RLS'li insert başarılı
+```

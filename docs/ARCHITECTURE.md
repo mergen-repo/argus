@@ -175,6 +175,7 @@ argus/
 │   ├── audit/                    # SVC-10: Audit service
 │   ├── model/                    # Domain models
 │   ├── store/                    # Database access (PG)
+│   │   └── schemacheck/          # Boot-time schema integrity check (STORY-086): CriticalTables manifest + Verify — FATAL on missing table
 │   ├── cache/                    # Redis cache layer
 │   ├── bus/                      # NATS event bus
 │   ├── undo/                     # Undo registry — Redis-backed 15s TTL inverse-operation store (STORY-077)

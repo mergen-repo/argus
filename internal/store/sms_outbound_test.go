@@ -349,3 +349,46 @@ func requireTestTenantAndSIM(t *testing.T, pool *pgxpool.Pool) (uuid.UUID, uuid.
 
 	return tenantID, simID
 }
+
+// TestSmsOutbound_RelationPresentAfterMigrations is the STORY-086 regression
+// guard for the live-env drift discovered 2026-04-17 (DEV-239): sms_outbound
+// was absent from the live DB while schema_migrations reported completion.
+// Running with DATABASE_URL set against a fully-migrated database, this test
+// asserts the table is reachable and accepts a tenant-scoped Insert exercising
+// the RLS policy. Runtime-skipped when no test DB is wired, matching the
+// existing TestSMSOutboundStore_Integration pattern.
+func TestSmsOutbound_RelationPresentAfterMigrations(t *testing.T) {
+	pool := testSMSPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+
+	ctx := context.Background()
+	var present bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.sms_outbound') IS NOT NULL`).Scan(&present); err != nil {
+		t.Fatalf("to_regclass probe failed: %v", err)
+	}
+	if !present {
+		t.Fatalf("sms_outbound table missing after migrations — STORY-086 regression: run migration 20260417000004_sms_outbound_recover.up.sql")
+	}
+
+	tenantID, simID := requireTestTenantAndSIM(t, pool)
+	tctx := smsCtx(tenantID)
+	s := NewSMSOutboundStore(pool)
+
+	m := &SMSOutbound{
+		TenantID:    tenantID,
+		SimID:       simID,
+		MSISDN:      "+905550000999",
+		TextHash:    "story086hash",
+		TextPreview: "STORY-086 regression",
+		Status:      "queued",
+	}
+	result, err := s.Insert(tctx, m)
+	if err != nil {
+		t.Fatalf("Insert into recovered sms_outbound failed: %v", err)
+	}
+	if result == nil || result.ID == uuid.Nil {
+		t.Fatalf("Insert returned nil or zero ID: %+v", result)
+	}
+}
