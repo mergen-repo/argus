@@ -112,7 +112,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: AUTOPILOT
+- Mode: AUTOPILOT (paused after STORY-079 per user)
 - Phase: 10 (Cleanup & Production Hardening)
-- Story: STORY-079 [AUDIT-GAP] Post-Gate Follow-up Sweep
-- Step: Review
+- Story: —
+- Step: —

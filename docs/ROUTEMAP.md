@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-04-17
-> Current phase: Cleanup & Production Hardening [DONE — 2 audit-gap sweeps PENDING] — Phase Gate PASS 2026-04-13 (conditional, 8 follow-ups now tracked as STORY-079; sms_outbound runtime bug tracked as STORY-086)
-> Overall progress: Phase 10 — 22/24 stories (Phase Gate PASS for 22 DONE; STORY-079 + STORY-086 audit sweeps PENDING before Documentation Phase)
+> Current phase: Cleanup & Production Hardening [DONE — 1 audit-gap sweep PENDING] — Phase Gate PASS 2026-04-13 (conditional); STORY-079 DONE 2026-04-17 (F-1..F-8 + DEV-191 closed); STORY-086 PENDING (sms_outbound runtime bug)
+> Overall progress: Phase 10 — 23/24 stories (STORY-086 PENDING before Documentation Phase)
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Development Phase [IN PROGRESS]
 
-> Stories completed: 55/55 (100%) — Phase 10: 22/24 (STORY-079 + STORY-086 audit-gap sweeps in progress)
-> Current story: STORY-079 [AUDIT-GAP] Post-Gate Follow-up Sweep (IN PROGRESS, AUTOPILOT)
-> Current step: Plan
+> Stories completed: 55/55 (100%) — Phase 10: 23/24 (STORY-079 DONE 2026-04-17; STORY-086 PENDING)
+> Current story: — (AUTOPILOT paused after STORY-079 per user request; STORY-086 remains PENDING)
+> Current step: —
 
 ### Phase 1: Foundation [DONE]
 
