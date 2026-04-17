@@ -1,0 +1,389 @@
+# HELP go_gc_duration_seconds A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 0.000103791
+go_gc_duration_seconds{quantile="0.25"} 0.000183208
+go_gc_duration_seconds{quantile="0.5"} 0.000448291
+go_gc_duration_seconds{quantile="0.75"} 0.000683125
+go_gc_duration_seconds{quantile="1"} 0.001134834
+go_gc_duration_seconds_sum 0.004570832
+go_gc_duration_seconds_count 9
+# HELP go_gc_gogc_percent Heap size target percentage configured by the user, otherwise 100. This value is set by the GOGC environment variable, and the runtime/debug.SetGCPercent function. Sourced from /gc/gogc:percent.
+# TYPE go_gc_gogc_percent gauge
+go_gc_gogc_percent 100
+# HELP go_gc_gomemlimit_bytes Go runtime memory limit configured by the user, otherwise math.MaxInt64. This value is set by the GOMEMLIMIT environment variable, and the runtime/debug.SetMemoryLimit function. Sourced from /gc/gomemlimit:bytes.
+# TYPE go_gc_gomemlimit_bytes gauge
+go_gc_gomemlimit_bytes 9.223372036854776e+18
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 229
+# HELP go_info Information about the Go environment.
+# TYPE go_info gauge
+go_info{version="go1.25.9"} 1
+# HELP go_memstats_alloc_bytes Number of bytes allocated in heap and currently in use. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_alloc_bytes gauge
+go_memstats_alloc_bytes 2.224992e+06
+# HELP go_memstats_alloc_bytes_total Total number of bytes allocated in heap until now, even if released already. Equals to /gc/heap/allocs:bytes.
+# TYPE go_memstats_alloc_bytes_total counter
+go_memstats_alloc_bytes_total 1.14418e+07
+# HELP go_memstats_buck_hash_sys_bytes Number of bytes used by the profiling bucket hash table. Equals to /memory/classes/profiling/buckets:bytes.
+# TYPE go_memstats_buck_hash_sys_bytes gauge
+go_memstats_buck_hash_sys_bytes 1.444621e+06
+# HELP go_memstats_frees_total Total number of heap objects frees. Equals to /gc/heap/frees:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_frees_total counter
+go_memstats_frees_total 92963
+# HELP go_memstats_gc_sys_bytes Number of bytes used for garbage collection system metadata. Equals to /memory/classes/metadata/other:bytes.
+# TYPE go_memstats_gc_sys_bytes gauge
+go_memstats_gc_sys_bytes 2.929424e+06
+# HELP go_memstats_heap_alloc_bytes Number of heap bytes allocated and currently in use, same as go_memstats_alloc_bytes. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_heap_alloc_bytes gauge
+go_memstats_heap_alloc_bytes 2.224992e+06
+# HELP go_memstats_heap_idle_bytes Number of heap bytes waiting to be used. Equals to /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_idle_bytes gauge
+go_memstats_heap_idle_bytes 3.784704e+06
+# HELP go_memstats_heap_inuse_bytes Number of heap bytes that are in use. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes
+# TYPE go_memstats_heap_inuse_bytes gauge
+go_memstats_heap_inuse_bytes 5.193728e+06
+# HELP go_memstats_heap_objects Number of currently allocated objects. Equals to /gc/heap/objects:objects.
+# TYPE go_memstats_heap_objects gauge
+go_memstats_heap_objects 15205
+# HELP go_memstats_heap_released_bytes Number of heap bytes released to OS. Equals to /memory/classes/heap/released:bytes.
+# TYPE go_memstats_heap_released_bytes gauge
+go_memstats_heap_released_bytes 3.39968e+06
+# HELP go_memstats_heap_sys_bytes Number of heap bytes obtained from system. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes + /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_sys_bytes gauge
+go_memstats_heap_sys_bytes 8.978432e+06
+# HELP go_memstats_last_gc_time_seconds Number of seconds since 1970 of last garbage collection.
+# TYPE go_memstats_last_gc_time_seconds gauge
+go_memstats_last_gc_time_seconds 1.7764537852975025e+09
+# HELP go_memstats_mallocs_total Total number of heap objects allocated, both live and gc-ed. Semantically a counter version for go_memstats_heap_objects gauge. Equals to /gc/heap/allocs:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_mallocs_total counter
+go_memstats_mallocs_total 108168
+# HELP go_memstats_mcache_inuse_bytes Number of bytes in use by mcache structures. Equals to /memory/classes/metadata/mcache/inuse:bytes.
+# TYPE go_memstats_mcache_inuse_bytes gauge
+go_memstats_mcache_inuse_bytes 19328
+# HELP go_memstats_mcache_sys_bytes Number of bytes used for mcache structures obtained from system. Equals to /memory/classes/metadata/mcache/inuse:bytes + /memory/classes/metadata/mcache/free:bytes.
+# TYPE go_memstats_mcache_sys_bytes gauge
+go_memstats_mcache_sys_bytes 31408
+# HELP go_memstats_mspan_inuse_bytes Number of bytes in use by mspan structures. Equals to /memory/classes/metadata/mspan/inuse:bytes.
+# TYPE go_memstats_mspan_inuse_bytes gauge
+go_memstats_mspan_inuse_bytes 236160
+# HELP go_memstats_mspan_sys_bytes Number of bytes used for mspan structures obtained from system. Equals to /memory/classes/metadata/mspan/inuse:bytes + /memory/classes/metadata/mspan/free:bytes.
+# TYPE go_memstats_mspan_sys_bytes gauge
+go_memstats_mspan_sys_bytes 244800
+# HELP go_memstats_next_gc_bytes Number of heap bytes when next garbage collection will take place. Equals to /gc/heap/goal:bytes.
+# TYPE go_memstats_next_gc_bytes gauge
+go_memstats_next_gc_bytes 4.438714e+06
+# HELP go_memstats_other_sys_bytes Number of bytes used for other system allocations. Equals to /memory/classes/other:bytes.
+# TYPE go_memstats_other_sys_bytes gauge
+go_memstats_other_sys_bytes 3.302395e+06
+# HELP go_memstats_stack_inuse_bytes Number of bytes obtained from system for stack allocator in non-CGO environments. Equals to /memory/classes/heap/stacks:bytes.
+# TYPE go_memstats_stack_inuse_bytes gauge
+go_memstats_stack_inuse_bytes 3.60448e+06
+# HELP go_memstats_stack_sys_bytes Number of bytes obtained from system for stack allocator. Equals to /memory/classes/heap/stacks:bytes + /memory/classes/os-stacks:bytes.
+# TYPE go_memstats_stack_sys_bytes gauge
+go_memstats_stack_sys_bytes 3.60448e+06
+# HELP go_memstats_sys_bytes Number of bytes obtained from system. Equals to /memory/classes/total:byte.
+# TYPE go_memstats_sys_bytes gauge
+go_memstats_sys_bytes 2.053556e+07
+# HELP go_sched_gomaxprocs_threads The current runtime.GOMAXPROCS setting, or the number of operating system threads that can execute user-level Go code simultaneously. Sourced from /sched/gomaxprocs:threads.
+# TYPE go_sched_gomaxprocs_threads gauge
+go_sched_gomaxprocs_threads 16
+# HELP go_threads Number of OS threads created.
+# TYPE go_threads gauge
+go_threads 20
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 0.92
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 1.048576e+06
+# HELP process_network_receive_bytes_total Number of bytes received by the process over the network.
+# TYPE process_network_receive_bytes_total counter
+process_network_receive_bytes_total 252292
+# HELP process_network_transmit_bytes_total Number of bytes sent by the process over the network.
+# TYPE process_network_transmit_bytes_total counter
+process_network_transmit_bytes_total 511433
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 13
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 2.9863936e+07
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.7764536912e+09
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 1.832964096e+09
+# HELP process_virtual_memory_max_bytes Maximum amount of virtual memory available in bytes.
+# TYPE process_virtual_memory_max_bytes gauge
+process_virtual_memory_max_bytes 1.8446744073709552e+19
+# HELP promhttp_metric_handler_requests_in_flight Current number of scrapes being served.
+# TYPE promhttp_metric_handler_requests_in_flight gauge
+promhttp_metric_handler_requests_in_flight 1
+# HELP promhttp_metric_handler_requests_total Total number of scrapes by HTTP status code.
+# TYPE promhttp_metric_handler_requests_total counter
+promhttp_metric_handler_requests_total{code="200"} 7
+promhttp_metric_handler_requests_total{code="500"} 0
+promhttp_metric_handler_requests_total{code="503"} 0
+# HELP simulator_active_sessions Currently-active simulated sessions.
+# TYPE simulator_active_sessions gauge
+simulator_active_sessions{operator="turk_telekom"} 44
+simulator_active_sessions{operator="turkcell"} 83
+simulator_active_sessions{operator="vodafone"} 86
+# HELP simulator_diameter_latency_seconds Diameter request/response round-trip latency.
+# TYPE simulator_diameter_latency_seconds histogram
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.001"} 0
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.002"} 1
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.004"} 14
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.008"} 41
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.016"} 69
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.032"} 82
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.064"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.128"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.256"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="0.512"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="1.024"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="2.048"} 83
+simulator_diameter_latency_seconds_bucket{app="gx",operator="turkcell",type="ccr_i",le="+Inf"} 83
+simulator_diameter_latency_seconds_sum{app="gx",operator="turkcell",type="ccr_i"} 0.8159402530000003
+simulator_diameter_latency_seconds_count{app="gx",operator="turkcell",type="ccr_i"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.001"} 18
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.002"} 28
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.004"} 51
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.008"} 67
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.016"} 81
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.032"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.064"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.128"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.256"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="0.512"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="1.024"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="2.048"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_i",le="+Inf"} 83
+simulator_diameter_latency_seconds_sum{app="gy",operator="turkcell",type="ccr_i"} 0.375528709
+simulator_diameter_latency_seconds_count{app="gy",operator="turkcell",type="ccr_i"} 83
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.001"} 0
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.002"} 2
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.004"} 14
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.008"} 38
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.016"} 46
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.032"} 48
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.064"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.128"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.256"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="0.512"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="1.024"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="2.048"} 49
+simulator_diameter_latency_seconds_bucket{app="gy",operator="turkcell",type="ccr_u",le="+Inf"} 49
+simulator_diameter_latency_seconds_sum{app="gy",operator="turkcell",type="ccr_u"} 0.3430651229999999
+simulator_diameter_latency_seconds_count{app="gy",operator="turkcell",type="ccr_u"} 49
+# HELP simulator_diameter_peer_state Diameter peer state per operator (0=closed,1=connecting,2=wait_cea,3=open,4=closing).
+# TYPE simulator_diameter_peer_state gauge
+simulator_diameter_peer_state{operator="turkcell"} 3
+# HELP simulator_diameter_requests_total Diameter requests sent by the simulator.
+# TYPE simulator_diameter_requests_total counter
+simulator_diameter_requests_total{app="gx",operator="turkcell",type="ccr_i"} 83
+simulator_diameter_requests_total{app="gy",operator="turkcell",type="ccr_i"} 83
+simulator_diameter_requests_total{app="gy",operator="turkcell",type="ccr_u"} 49
+# HELP simulator_diameter_responses_total Diameter responses received by the simulator, bucketed by result.
+# TYPE simulator_diameter_responses_total counter
+simulator_diameter_responses_total{app="gx",operator="turkcell",result="success",type="ccr_i"} 83
+simulator_diameter_responses_total{app="gy",operator="turkcell",result="success",type="ccr_i"} 83
+simulator_diameter_responses_total{app="gy",operator="turkcell",result="success",type="ccr_u"} 49
+# HELP simulator_radius_latency_seconds RADIUS request/response round-trip latency.
+# TYPE simulator_radius_latency_seconds histogram
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.002"} 0
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.004"} 3
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.008"} 20
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.016"} 30
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.032"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.064"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.128"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.256"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="0.512"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="1.024"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="2.048"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_interim",le="+Inf"} 33
+simulator_radius_latency_seconds_sum{operator="turk_telekom",type="acct_interim"} 0.28160879200000005
+simulator_radius_latency_seconds_count{operator="turk_telekom",type="acct_interim"} 33
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.002"} 0
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.004"} 6
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.008"} 18
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.016"} 28
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.032"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.064"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.128"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.256"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="0.512"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="1.024"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="2.048"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="acct_start",le="+Inf"} 44
+simulator_radius_latency_seconds_sum{operator="turk_telekom",type="acct_start"} 0.5203338279999998
+simulator_radius_latency_seconds_count{operator="turk_telekom",type="acct_start"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.002"} 4
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.004"} 14
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.008"} 27
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.016"} 39
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.032"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.064"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.128"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.256"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="0.512"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="1.024"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="2.048"} 44
+simulator_radius_latency_seconds_bucket{operator="turk_telekom",type="auth",le="+Inf"} 44
+simulator_radius_latency_seconds_sum{operator="turk_telekom",type="auth"} 0.38376024599999997
+simulator_radius_latency_seconds_count{operator="turk_telekom",type="auth"} 44
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.002"} 1
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.004"} 14
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.008"} 33
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.016"} 46
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.032"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.064"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.128"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.256"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="0.512"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="1.024"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="2.048"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_interim",le="+Inf"} 49
+simulator_radius_latency_seconds_sum{operator="turkcell",type="acct_interim"} 0.353214798
+simulator_radius_latency_seconds_count{operator="turkcell",type="acct_interim"} 49
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.002"} 0
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.004"} 27
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.008"} 59
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.016"} 80
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.032"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.064"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.128"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.256"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="0.512"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="1.024"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="2.048"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="acct_start",le="+Inf"} 83
+simulator_radius_latency_seconds_sum{operator="turkcell",type="acct_start"} 0.5544121650000002
+simulator_radius_latency_seconds_count{operator="turkcell",type="acct_start"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.002"} 2
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.004"} 22
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.008"} 55
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.016"} 77
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.032"} 82
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.064"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.128"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.256"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="0.512"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="1.024"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="2.048"} 83
+simulator_radius_latency_seconds_bucket{operator="turkcell",type="auth",le="+Inf"} 83
+simulator_radius_latency_seconds_sum{operator="turkcell",type="auth"} 0.6445718350000003
+simulator_radius_latency_seconds_count{operator="turkcell",type="auth"} 83
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.002"} 0
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.004"} 10
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.008"} 31
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.016"} 60
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.032"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.064"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.128"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.256"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="0.512"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="1.024"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="2.048"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_interim",le="+Inf"} 67
+simulator_radius_latency_seconds_sum{operator="vodafone",type="acct_interim"} 0.6572277849999999
+simulator_radius_latency_seconds_count{operator="vodafone",type="acct_interim"} 67
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.002"} 0
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.004"} 6
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.008"} 30
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.016"} 57
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.032"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.064"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.128"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.256"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="0.512"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="1.024"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="2.048"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="acct_start",le="+Inf"} 86
+simulator_radius_latency_seconds_sum{operator="vodafone",type="acct_start"} 1.0736500850000001
+simulator_radius_latency_seconds_count{operator="vodafone",type="acct_start"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.001"} 0
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.002"} 3
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.004"} 18
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.008"} 50
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.016"} 77
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.032"} 85
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.064"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.128"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.256"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="0.512"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="1.024"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="2.048"} 86
+simulator_radius_latency_seconds_bucket{operator="vodafone",type="auth",le="+Inf"} 86
+simulator_radius_latency_seconds_sum{operator="vodafone",type="auth"} 0.748587499
+simulator_radius_latency_seconds_count{operator="vodafone",type="auth"} 86
+# HELP simulator_radius_requests_total RADIUS requests sent by the simulator.
+# TYPE simulator_radius_requests_total counter
+simulator_radius_requests_total{operator="turk_telekom",type="acct_interim"} 33
+simulator_radius_requests_total{operator="turk_telekom",type="acct_start"} 44
+simulator_radius_requests_total{operator="turk_telekom",type="auth"} 44
+simulator_radius_requests_total{operator="turkcell",type="acct_interim"} 49
+simulator_radius_requests_total{operator="turkcell",type="acct_start"} 83
+simulator_radius_requests_total{operator="turkcell",type="auth"} 83
+simulator_radius_requests_total{operator="vodafone",type="acct_interim"} 67
+simulator_radius_requests_total{operator="vodafone",type="acct_start"} 86
+simulator_radius_requests_total{operator="vodafone",type="auth"} 86
+# HELP simulator_radius_responses_total RADIUS responses received by the simulator, bucketed by result.
+# TYPE simulator_radius_responses_total counter
+simulator_radius_responses_total{operator="turk_telekom",result="accept",type="acct_interim"} 33
+simulator_radius_responses_total{operator="turk_telekom",result="accept",type="acct_start"} 44
+simulator_radius_responses_total{operator="turk_telekom",result="accept",type="auth"} 44
+simulator_radius_responses_total{operator="turkcell",result="accept",type="acct_interim"} 49
+simulator_radius_responses_total{operator="turkcell",result="accept",type="acct_start"} 83
+simulator_radius_responses_total{operator="turkcell",result="accept",type="auth"} 83
+simulator_radius_responses_total{operator="vodafone",result="accept",type="acct_interim"} 67
+simulator_radius_responses_total{operator="vodafone",result="accept",type="acct_start"} 86
+simulator_radius_responses_total{operator="vodafone",result="accept",type="auth"} 86
+# HELP simulator_sba_latency_seconds 5G SBA HTTP request/response round-trip latency.
+# TYPE simulator_sba_latency_seconds histogram
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.001"} 10
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.002"} 17
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.004"} 23
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.008"} 24
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.016"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.032"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.064"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.128"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.256"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="0.512"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="1.024"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="2.048"} 26
+simulator_sba_latency_seconds_bucket{op="authenticate",operator="turkcell",service="ausf",le="+Inf"} 26
+simulator_sba_latency_seconds_sum{op="authenticate",operator="turkcell",service="ausf"} 0.063531334
+simulator_sba_latency_seconds_count{op="authenticate",operator="turkcell",service="ausf"} 26
+# HELP simulator_sba_requests_total 5G SBA HTTP requests sent by the simulator.
+# TYPE simulator_sba_requests_total counter
+simulator_sba_requests_total{op="authenticate",operator="turkcell",service="ausf"} 26
+# HELP simulator_sba_responses_total 5G SBA HTTP responses received by the simulator, bucketed by result.
+# TYPE simulator_sba_responses_total counter
+simulator_sba_responses_total{op="authenticate",operator="turkcell",result="transport",service="ausf"} 26
+# HELP simulator_sba_session_aborted_total 5G SBA sessions aborted before completion, bucketed by reason.
+# TYPE simulator_sba_session_aborted_total counter
+simulator_sba_session_aborted_total{operator="turkcell",reason="transport"} 26
+# HELP simulator_scenario_starts_total Scenario invocations bucketed by operator and scenario name.
+# TYPE simulator_scenario_starts_total counter
+simulator_scenario_starts_total{operator="turk_telekom",scenario="heavy_user"} 7
+simulator_scenario_starts_total{operator="turk_telekom",scenario="idle"} 5
+simulator_scenario_starts_total{operator="turk_telekom",scenario="normal_browsing"} 32
+simulator_scenario_starts_total{operator="turkcell",scenario="heavy_user"} 26
+simulator_scenario_starts_total{operator="turkcell",scenario="idle"} 15
+simulator_scenario_starts_total{operator="turkcell",scenario="normal_browsing"} 68
+simulator_scenario_starts_total{operator="vodafone",scenario="heavy_user"} 18
+simulator_scenario_starts_total{operator="vodafone",scenario="idle"} 5
+simulator_scenario_starts_total{operator="vodafone",scenario="normal_browsing"} 63

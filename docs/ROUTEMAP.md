@@ -1,8 +1,8 @@
 # Project Roadmap: Argus
 
 > Last updated: 2026-04-17
-> Current phase: Test Infrastructure + Tech Debt Cleanup [IN PROGRESS] — AUTOPILOT started 2026-04-17 (scope: STORY-083, 084, 085, 087, 088 + Mini Phase Gate)
-> Overall progress: Phase 10 DONE (24/24); Test Infra 5/5 DONE (080, 082, 083, 084, 085); Tech Debt 0/2 — Documentation Phase after Test Infra + Tech Debt Cleanup completion
+> Current phase: Test Infrastructure + Tech Debt Cleanup [DONE] — AUTOPILOT 2026-04-17 (STORY-083, 084, 085, 087, 088 + Mini Phase Gate PASS)
+> Overall progress: Phase 10 DONE (24/24); Test Infra 5/5 DONE (080, 082, 083, 084, 085); Tech Debt 2/2 DONE (087, 088); **Next: Documentation Phase**
 
 ---
 
@@ -209,7 +209,7 @@ Phase 10 effort estimate: ~10-12 weeks, ~280 acceptance criteria across 22 stori
 
 ---
 
-## Test Infrastructure [IN PROGRESS]
+## Test Infrastructure [DONE]
 
 > Standalone track for test/dev tooling — not a phase. Independent of Documentation Phase.
 > Stories: 5 planned (080, 082, 083, 084, 085). 080+082 shipped (RADIUS simulator, approach A). 083+084+085 un-deferred 2026-04-17 per user direction — AUTOPILOT Test Infra + Tech Debt Cleanup run.
@@ -229,7 +229,7 @@ Execution order (user-agreed 2026-04-17 AUTOPILOT run): 083 → 084 → 085 → 
 
 ---
 
-## Tech Debt Cleanup [IN PROGRESS]
+## Tech Debt Cleanup [DONE]
 
 > Standalone track for closing Phase 10 residual tech debt. Opened 2026-04-17 concurrent with Test Infra completion — AUTOPILOT scope.
 > Stories: 2 planned (087, 088). Source: D-032 + D-033 in Tech Debt table.

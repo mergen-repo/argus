@@ -3,3 +3,5 @@ STEP_1 PLAN: EXECUTED | items=1 task, 4 ACs | evidence=docs/stories/test-infra/S
 2026-04-17T18:57:46Z STEP_2.5 LINT: EXECUTED | items=3 (vet+test+build) | evidence=go vet clean | result=PASS
 2026-04-17T19:02:32Z STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) | evidence=docs/stories/test-infra/STORY-088-gate.md | result=PASS
 2026-04-17T19:04:23Z STEP_4 REVIEW: EXECUTED | items=2 findings all FIXED | evidence=docs/stories/test-infra/STORY-088-review.md | result=PASS
+2026-04-17T19:04:52Z STEP_5 COMMIT: EXECUTED | items=1 commit=8e22e10 | result=PASS
+2026-04-17T19:04:52Z STEP_6 POSTPROC: EXECUTED | items=6 checks | result=PASS
