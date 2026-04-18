@@ -2452,3 +2452,94 @@ go vet ./...
 # Beklenen: çıkış 0, sıfır uyarı
 # (Önceki durum: internal/policy/dryrun/service_test.go:333:30: call of Unmarshal passes non-pointer as second argument)
 ```
+
+## STORY-092: Dynamic IP Allocation pipeline + SEED FIX
+
+Bu story backend/altyapi odaklıdır — RADIUS / Diameter Gx / 5G SBA Nsmf hot-path'larında IP tahsis zincirini devreye alır. UI değişikliği yok; mevcut `/sessions` + `/settings/ip-pools` + `/sims/:id` ekranları otomatik olarak populate olur.
+
+**Önemli not**: D-038 integration testi için `DATABASE_URL` ortam değişkeni gerekli; aksi halde test otomatik olarak atlanır (`t.Skip`).
+
+### 1. Seed 006 idempotency + reservation doğrulama (AC-7)
+
+```bash
+# Seed'i iki kez çalıştır ve idempotent olduğunu gözle:
+docker compose exec postgres psql -U argus -d argus -f /docker-entrypoint-initdb.d/006_reserve_sim_ips.sql
+docker compose exec postgres psql -U argus -d argus -f /docker-entrypoint-initdb.d/006_reserve_sim_ips.sql
+# Beklenen: her iki çalıştırma da "INSERT 0 N" + "UPDATE 0" satırları (ikinci koşu no-op)
+
+# Materialised ip_addresses satır sayısını doğrula (seed 003 + seed 005):
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT COUNT(*) FROM ip_addresses;"
+# Beklenen: 700 (seed 003'ün 13 pool + m2m.water'dan materialise edilen tüm rezerve edilebilir adresler)
+
+# Reservation count — active + APN-assigned SIMs için 1:1:
+docker compose exec postgres psql -U argus -d argus -c "
+SELECT COUNT(*) FROM sims WHERE state='active' AND apn_id IS NOT NULL AND ip_address_id IS NOT NULL;"
+# Beklenen: 129 (fail-fast assert seed 006 sonunda zaten bu sayıyı doğrular)
+```
+
+### 2. `/settings/ip-pools` kapasite smoke (AC-1 görsel)
+
+```bash
+# Stack ayakta:
+make up
+
+# Login:
+# URL: http://localhost:8084/login
+# admin@argus.io / admin
+
+# Navigate: /settings/ip-pools
+# Beklenen: 4+ aktif pool, her biri USED > 0 (kapasite 3-23 arası, seed 003'ten)
+# Referans: docs/stories/test-infra/STORY-092-evidence/ippools-list.png
+```
+
+### 3. `/sessions` IP column doğrulama (AC-1 görsel)
+
+```bash
+# Simulator'u başlat:
+make sim-up
+
+# Navigate: /sessions
+# Beklenen: 30+ aktif session, her satırda IP column doldu (10.20.x veya 10.21.x)
+# Referans: docs/stories/test-infra/STORY-092-evidence/sessions-list.png
+```
+
+### 4. SIM detay IP address field (AC-1 görsel)
+
+```bash
+# Navigate: /sims
+# Bir active SIM'e tıkla (örn. IMSI 89900100000000002002)
+# Beklenen: IP Address alanı "10.20.0.2/32" gibi dolu, state=active
+# Referans: docs/stories/test-infra/STORY-092-evidence/sim-detail.png
+```
+
+### 5. D-038 nil-cache integration regression (AC-9)
+
+```bash
+# DATABASE_URL ayarlı olmalı (test kendi tenant + operator + APN + pool + policy + SIM fixture'ını seed'ler):
+export DATABASE_URL="postgres://argus:argus@localhost:5432/argus_test?sslmode=disable"
+
+cd /path/to/argus
+go test -run TestEnforcerNilCacheIntegration_STORY092 ./internal/aaa/radius/... -v
+# Beklenen:
+# - go test exit 0
+# - PASS TestEnforcerNilCacheIntegration_STORY092
+# - Test, enforcer.New(nil, policyStore, violationStore, nil, nil, ...) literal-nil patterniyle boot
+# - RADIUS Access-Request → Access-Accept + Framed-IP attribute assert
+# - NPE olmaz (D-038 hole integration seviyesinde kapanıyor)
+```
+
+### 6. Full sentinel sweep (12 test)
+
+```bash
+go test ./internal/aaa/radius/... ./internal/aaa/diameter/... ./internal/aaa/sba/... ./internal/store/... -run "STORY092|DynamicAllocation|FramedIPAddress|ReleasesDynamic|PreservesStatic|FallbackFramedIP|AllocatesIP|AllocateReleaseCycle|RecountUsedAddresses" -v
+# Beklenen: 12/12 sentinel PASS (RADIUS×4 + Gx×3 + SBA×1 + store×4)
+```
+
+### 7. Baseline regression guard
+
+```bash
+go test ./... 2>&1 | tail -n 5
+# Beklenen: 3024 PASS no-DB / 3057 PASS with-DB
+# 15 pre-existing DB FAIL unchanged (BackupStore×2, BackupCodeStore×8, FreshVolumeBootstrap_STORY087, DownChain_STORY087, PasswordHistory×3)
+```

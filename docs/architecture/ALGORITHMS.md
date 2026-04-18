@@ -10,6 +10,20 @@
 **Package**: `internal/store/ip_store.go`
 **Table**: TBL-09 `ip_addresses`
 
+### Invocation Points (STORY-092)
+
+`AllocateIP` is invoked from five call sites today — three AAA hot paths added by STORY-092 alongside the two pre-existing admin/import paths:
+
+| Caller | Path | Trigger | Release path |
+|--------|------|---------|--------------|
+| RADIUS Access-Accept | `internal/aaa/radius/server.go` (`allocateDynamicIPIfNeeded`) | `sim.IPAddressID == nil && sim.APNID != nil` — after policy Allow check | RADIUS Accounting-Stop (`releaseDynamicIPIfNeededForSession`, dynamic only; static preserved) |
+| Diameter Gx CCA-I | `internal/aaa/diameter/gx.go` (`handleInitial`) | same precondition — after SIM confirmed active | Diameter Gx CCR-T (`releaseDynamicIPIfNeeded`; static preserved) |
+| 5G SBA Nsmf CreateSMContext | `internal/aaa/sba/nsmf.go` (`HandleCreate`) | POST to `/nsmf-pdusession/v1/sm-contexts` with active SIM + APN | DELETE `/nsmf-pdusession/v1/sm-contexts/{ref}` (`HandleRelease`; static preserved) |
+| Admin / API | `internal/api/sim/handler.go`, `internal/api/ippool/handler.go` | Explicit operator action | Admin `ReleaseIP` + scheduled reclaim |
+| Bulk import | `internal/job/import.go` | CSV import job | Admin release flow |
+
+The `used_addresses` counter on `ip_pools` is maintained app-side (D2-A locked 2026-04-18) by `AllocateIP` / `ReleaseIP`. `RecountUsedAddresses` (added in STORY-092) is available as a deterministic reconciliation helper — used only from admin tools, never on the hot path.
+
 ### Allocation Algorithm
 
 ```

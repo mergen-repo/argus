@@ -19,6 +19,10 @@ const (
 	AVPCodeOriginHost         uint32 = 264
 	AVPCodeOriginRealm        uint32 = 296
 	AVPCodeHostIPAddress      uint32 = 257
+	// AVPCodeFramedIPAddress: RFC 7155 NASREQ §4.4.10.5.1 (inherited into
+	// 3GPP TS 29.212 Gx §5.3.1). Type = Address, 4-byte IPv4 payload,
+	// flags M=1, V=0, P=0 (vendor 0 — base RFC, not 3GPP).
+	AVPCodeFramedIPAddress    uint32 = 8
 	AVPCodeVendorID           uint32 = 266
 	AVPCodeProductName        uint32 = 269
 	AVPCodeResultCode         uint32 = 268

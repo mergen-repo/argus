@@ -491,3 +491,18 @@ func findFreeUDPPort(t *testing.T) string {
 
 // Verify that UUID is unused import is resolved
 var _ = uuid.New
+
+// TestRADIUSAccessAccept_DynamicAllocation — STORY-092 Wave 1 AC-1.
+//
+// Happy path: a SIM whose sims.ip_address_id IS NULL but whose APN has an
+// active ip_pool with available addresses MUST receive an Access-Accept
+// with Framed-IP-Address, AND the allocation MUST be persisted to
+// ip_addresses.state='allocated' and sims.ip_address_id.
+//
+// DB-gated integration test (skipped without DATABASE_URL). Builds a
+// minimal fixture: tenant → operator → apn → pool + 5 ip_addresses → SIM.
+// Calls handleDirectAuth directly (bypassing UDP) via an in-process
+// writer so the test remains fast and deterministic.
+func TestRADIUSAccessAccept_DynamicAllocation(t *testing.T) {
+	testRADIUSDynamicAllocHappyPath(t)
+}

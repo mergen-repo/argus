@@ -149,9 +149,9 @@ argus/
 │   │   ├── ota/                  # OTA command dispatch endpoints (STORY-029)
 │   │   └── ...
 │   ├── aaa/                      # SVC-04: AAA engine
-│   │   ├── radius/               # RADIUS server
-│   │   ├── diameter/             # Diameter server
-│   │   ├── sba/                  # 5G SBA proxy
+│   │   ├── radius/               # RADIUS server — Access-Accept dynamic AllocateIP + Accounting-Stop ReleaseIP (STORY-092)
+│   │   ├── diameter/             # Diameter server — Gx CCA-I Framed-IP-Address AVP + CCR-T ReleaseIP (STORY-092)
+│   │   ├── sba/                  # 5G SBA proxy — AUSF/UDM (STORY-020) + Nsmf mock Create/Release (STORY-092)
 │   │   ├── eap/                  # EAP-SIM/AKA handlers
 │   │   ├── rattype/              # RAT type canonical enum & mapping
 │   │   └── session/              # Session management

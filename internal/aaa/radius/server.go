@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -49,6 +50,12 @@ type Server struct {
 	sessionMgr    *session.Manager
 	operatorStore *store.OperatorStore
 	ipPoolStore   *store.IPPoolStore
+	// simStore is optional: when attached via SetSIMStore, Access-Accept
+	// dynamically allocates an IP from the SIM's APN pool if the SIM has no
+	// preallocated ip_address_id (STORY-092 Wave 1). Backwards compatible:
+	// when nil, the legacy "Framed-IP only if sim.ip_address_id != nil"
+	// behaviour is preserved.
+	simStore      *store.SIMStore
 	eventBus      *bus.EventBus
 	coaSender     *session.CoASender
 	dmSender      *session.DMSender
@@ -216,6 +223,74 @@ func (s *Server) SetPolicyEnforcer(pe *enforcer.Enforcer) {
 	s.policyEnforcer = pe
 }
 
+// SetSIMStore attaches the SIM store required by the STORY-092 dynamic IP
+// allocation path (persist the newly allocated ip_address_id on sims).
+// Matches the SetPolicyEnforcer / SetMetricsRecorder plumbing pattern.
+// Nil is valid and disables dynamic allocation (legacy behaviour retained).
+func (s *Server) SetSIMStore(simStore *store.SIMStore) {
+	s.simStore = simStore
+}
+
+// allocateDynamicIPIfNeeded implements the STORY-092 Wave 1 dynamic-IP
+// allocation step used by both sendEAPAccept and handleDirectAuth. It is a
+// no-op when:
+//   - simStore is not attached (legacy server without the setter call),
+//   - the SIM already has a preallocated ip_address_id,
+//   - the SIM has no APN (can't select a pool),
+//   - no active pool exists for (tenant, apn), or
+//   - the selected pool is exhausted (RFC 2865 allows Access-Accept without
+//     Framed-IP-Address, so this is a logged warning, not an error).
+//
+// On success, the SIM struct passed in is mutated so sim.IPAddressID points
+// at the newly allocated row — the caller's subsequent GetIPAddressByID
+// lookup sees it without a re-fetch. The cache entry for this IMSI is
+// invalidated so the next request resolves the updated mapping.
+func (s *Server) allocateDynamicIPIfNeeded(ctx context.Context, sim *store.SIM, imsi string, logger zerolog.Logger) {
+	if s == nil || s.simStore == nil || s.ipPoolStore == nil || sim == nil {
+		return
+	}
+	if sim.IPAddressID != nil {
+		return
+	}
+	if sim.APNID == nil {
+		return
+	}
+
+	pools, _, err := s.ipPoolStore.List(ctx, sim.TenantID, "", 1, sim.APNID)
+	if err != nil {
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("radius: list pools for dynamic alloc failed")
+		return
+	}
+	if len(pools) == 0 {
+		logger.Debug().Str("sim_id", sim.ID.String()).Str("apn_id", sim.APNID.String()).Msg("radius: no pool for APN, skipping dynamic alloc")
+		return
+	}
+
+	allocated, err := s.ipPoolStore.AllocateIP(ctx, pools[0].ID, sim.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrPoolExhausted) {
+			logger.Warn().Str("sim_id", sim.ID.String()).Str("pool_id", pools[0].ID.String()).Msg("radius: pool exhausted, Access-Accept without Framed-IP")
+			return
+		}
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Str("pool_id", pools[0].ID.String()).Msg("radius: dynamic IP allocation failed")
+		return
+	}
+
+	if err := s.simStore.SetIPAndPolicy(ctx, sim.ID, &allocated.ID, nil); err != nil {
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Str("ip_id", allocated.ID.String()).Msg("radius: persist dynamic ip_address_id failed")
+		// Do NOT return — we still want the attached IP on this Access-Accept.
+		// Worst case the next packet re-allocates; the orphan row will be
+		// reclaimed by the existing sweep (STORY-082).
+	}
+	if s.simCache != nil {
+		if err := s.simCache.InvalidateIMSI(ctx, imsi); err != nil {
+			logger.Debug().Err(err).Str("imsi", imsi).Msg("radius: cache invalidate after dynamic alloc (non-fatal)")
+		}
+	}
+	sim.IPAddressID = &allocated.ID
+	logger.Info().Str("sim_id", sim.ID.String()).Str("ip_id", allocated.ID.String()).Str("pool_id", pools[0].ID.String()).Msg("radius: dynamic IP allocated")
+}
+
 func (s *Server) recordAuthMetric(ctx context.Context, operatorID uuid.UUID, success bool, startTime time.Time) {
 	if s.metricsRecorder == nil {
 		return
@@ -360,18 +435,6 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 	if imsi != "" {
 		sim, err := s.simCache.GetByIMSI(ctx, imsi)
 		if err == nil && sim != nil {
-			if sim.IPAddressID != nil {
-				ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
-				if err == nil && ipAddr.AddressV4 != nil {
-					// PostgreSQL INET type can return values with a CIDR
-					// suffix (e.g. "10.100.0.1/32") — strip it before
-					// net.ParseIP, which otherwise returns nil silently.
-					if ip := parseV4Address(*ipAddr.AddressV4); ip != nil {
-						rfc2865.FramedIPAddress_Set(accept, ip.To4())
-					}
-				}
-			}
-
 			sessionTimeout = sim.SessionHardTimeoutSec
 			if sessionTimeout <= 0 {
 				sessionTimeout = 86400
@@ -381,6 +444,11 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 				idleTimeout = 3600
 			}
 
+			// STORY-092 Wave 1: evaluate policy BEFORE IP allocation so we
+			// never lease an address to a SIM the policy will deny. The
+			// original ordering here was policy-after-IP-attach — advisor
+			// flagged this as a leak vector (allocated IP never used on
+			// policy Reject).
 			if s.policyEnforcer != nil && sim.PolicyVersionID != nil {
 				ratTypeStr := extract3GPPRATType(r.Packet)
 				now := time.Now()
@@ -409,6 +477,24 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 					filterID = policyResult.FilterID
 					if len(policyResult.Violations) > 0 {
 						go s.policyEnforcer.RecordViolations(ctx, sim, policyResult, nil)
+					}
+				}
+			}
+
+			// STORY-092 Wave 1: dynamic IP allocation. Runs ONLY after the
+			// policy !Allow early-return above, so no address is ever
+			// leased to a denied request. No-op when the SIM already has
+			// a preallocated IP, or the pool/APN preconditions aren't met.
+			s.allocateDynamicIPIfNeeded(ctx, sim, imsi, logger)
+
+			if sim.IPAddressID != nil {
+				ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
+				if err == nil && ipAddr.AddressV4 != nil {
+					// PostgreSQL INET type can return values with a CIDR
+					// suffix (e.g. "10.100.0.1/32") — strip it before
+					// net.ParseIP, which otherwise returns nil silently.
+					if ip := parseV4Address(*ipAddr.AddressV4); ip != nil {
+						rfc2865.FramedIPAddress_Set(accept, ip.To4())
 					}
 				}
 			}
@@ -555,6 +641,11 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 
 	accept := r.Packet.Response(radius.CodeAccessAccept)
 
+	// STORY-092 Wave 1: dynamic IP allocation before Framed-IP attach.
+	// Sits BETWEEN the policy-denied early-return above and the
+	// FramedIPAddress_Set below — exactly matching the plan ordering.
+	s.allocateDynamicIPIfNeeded(ctx, sim, imsi, logger)
+
 	if sim.IPAddressID != nil {
 		ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
 		if err == nil && ipAddr.AddressV4 != nil {
@@ -683,6 +774,20 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 	framedIP := ""
 	if ip, err := rfc2865.FramedIPAddress_Lookup(r.Packet); err == nil {
 		framedIP = ip.String()
+	}
+
+	// STORY-092 Wave 2: Acct-Start framed_ip fallback. If the NAS omitted
+	// Framed-IP-Address (simulator-style), fall back to the preallocated IP
+	// on the SIM so radius_sessions.framed_ip is populated and the /sessions
+	// UI "IP" column renders.
+	if framedIP == "" && sim.IPAddressID != nil && s.ipPoolStore != nil {
+		if ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID); err == nil && ipAddr.AddressV4 != nil {
+			if ip := parseV4Address(*ipAddr.AddressV4); ip != nil {
+				if ip4 := ip.To4(); ip4 != nil {
+					framedIP = ip4.String()
+				}
+			}
+		}
 	}
 
 	var authMethod string
@@ -866,12 +971,80 @@ func (s *Server) handleAcctStop(ctx context.Context, r *radius.Request, acctSess
 		}
 	}
 
+	// STORY-092 Wave 2: release dynamic IP allocation back to pool on
+	// Accounting-Stop. Static allocations are preserved — the reclaim path is
+	// owned by the existing sweep (STORY-082).
+	s.releaseDynamicIPIfNeededForSession(ctx, sess, logger)
+
 	logger.Info().
 		Str("session_id", sess.ID).
 		Str("terminate_cause", terminateCause).
 		Uint64("bytes_in", bytesIn).
 		Uint64("bytes_out", bytesOut).
 		Msg("session stopped")
+}
+
+// releaseDynamicIPIfNeededForSession returns a dynamically allocated IP back
+// to its pool on session end. No-op when:
+//   - simStore is not attached (legacy server without the setter call),
+//   - ipPoolStore is not attached,
+//   - the SIM has no ip_address_id,
+//   - the ip_addresses row is allocation_type='static' (reserved — preserved),
+//   - the SIM cannot be resolved.
+//
+// Never returns an error — failures are logged; Accounting-Stop must not fail
+// because of a release hiccup. Resolves the SIM via (tenantID, simID) from
+// the hydrated session rather than IMSI, because the radius_sessions table
+// does not persist IMSI (see internal/store/session_radius.go:66-70 column
+// list).
+func (s *Server) releaseDynamicIPIfNeededForSession(ctx context.Context, sess *session.Session, logger zerolog.Logger) {
+	if s == nil || s.simStore == nil || s.ipPoolStore == nil {
+		return
+	}
+	if sess == nil || sess.SimID == "" || sess.TenantID == "" {
+		return
+	}
+	simID, err := uuid.Parse(sess.SimID)
+	if err != nil {
+		logger.Debug().Err(err).Str("sim_id", sess.SimID).Msg("radius: parse sim_id for release, skipping")
+		return
+	}
+	tenantID, err := uuid.Parse(sess.TenantID)
+	if err != nil {
+		logger.Debug().Err(err).Str("tenant_id", sess.TenantID).Msg("radius: parse tenant_id for release, skipping")
+		return
+	}
+	sim, err := s.simStore.GetByID(ctx, tenantID, simID)
+	if err != nil {
+		logger.Warn().Err(err).Str("sim_id", sess.SimID).Msg("radius: SIM lookup failed during release, skipping")
+		return
+	}
+	if sim == nil || sim.IPAddressID == nil {
+		return
+	}
+
+	ipAddr, err := s.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
+	if err != nil {
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("radius: get ip_address for release failed")
+		return
+	}
+	if ipAddr.AllocationType != "dynamic" {
+		return
+	}
+
+	if err := s.ipPoolStore.ReleaseIP(ctx, ipAddr.PoolID, sim.ID); err != nil {
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Str("ip_id", ipAddr.ID.String()).Msg("radius: ReleaseIP failed")
+		// Continue — still clear the SIM pointer and invalidate cache.
+	}
+	if err := s.simStore.ClearIPAddress(ctx, sim.ID); err != nil {
+		logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("radius: ClearIPAddress failed")
+	}
+	if s.simCache != nil {
+		if err := s.simCache.InvalidateIMSI(ctx, sim.IMSI); err != nil {
+			logger.Debug().Err(err).Str("imsi", sim.IMSI).Msg("radius: cache invalidate after release (non-fatal)")
+		}
+	}
+	logger.Info().Str("sim_id", sim.ID.String()).Str("ip_id", ipAddr.ID.String()).Str("pool_id", ipAddr.PoolID.String()).Msg("radius: dynamic IP released")
 }
 
 func (s *Server) sendReject(w radius.ResponseWriter, request *radius.Packet, reason string) {

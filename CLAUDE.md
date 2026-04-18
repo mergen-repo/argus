@@ -112,7 +112,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: —
-- Phase: — (Test Infra + Tech Debt Cleanup DONE 2026-04-17 — Mini Phase Gate PASS; next: Documentation Phase)
-- Story: —
-- Step: —
+- Mode: SEQUENTIAL (advisor-forced order 092 DONE → 090 → 089; no AUTOPILOT — user-approved 2026-04-17)
+- Phase: Runtime Alignment [IN PROGRESS] — 1/3 (STORY-092 DONE 2026-04-18)
+- Story: STORY-090 (Multi-protocol operator adapter refactor)
+- Step: Plan

@@ -55,6 +55,7 @@ These are NOT committed features — they represent directions the product could
 - Historical data (TimescaleDB) must be queryable for scenario simulation
 - Operator mock simulator (already in MVP) can be extended for digital twin
 - Need separate compute resources for simulation workloads (don't impact production)
+- STORY-089 (operator-SoR simulator, `cmd/operator-sim` binary + `argus-operator-sim` container) is the long-term home for the minimal `Nsmf_PDUSession` mock shipped by STORY-092 at `internal/aaa/sba/nsmf.go`. Either absorb the handler verbatim into the operator-sim binary or retire the in-process mock once adapter config can point at an external operator-sim container. STORY-092 kept interfaces (`SIMResolver`/`SIMUpdater`/`IPPoolOperations`/`SIMCache`) stable to preserve either absorption path.
 
 ---
 

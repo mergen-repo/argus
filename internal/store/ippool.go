@@ -39,6 +39,58 @@ type IPPool struct {
 	CreatedAt               time.Time  `json:"created_at"`
 }
 
+// RecountUsedAddresses deterministically rewrites ip_pools.used_addresses
+// from the real ip_addresses rows, scoped to a single tenant (or ALL pools
+// when tenantID is uuid.Nil). AllocateIP / ReleaseIP / ReserveStaticIP
+// maintain the counter in-transaction, but app-level bugs (or a legacy
+// seed write that back-dates used_addresses without the matching
+// ip_addresses rows) can leave drift. This method is the reconciliation
+// knob behind the STORY-092 admin sweep — and is safe to run on live data.
+//
+// Returns the number of pools updated (pgx.CommandTag.RowsAffected).
+// A pool with zero allocated/reserved addresses is rewritten to 0 by the
+// LEFT JOIN fallback, not skipped — so re-running is idempotent and will
+// converge used_addresses = COUNT(ip_addresses WHERE state IN
+// ('allocated','reserved')).
+func (s *IPPoolStore) RecountUsedAddresses(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	var query string
+	var args []interface{}
+	if tenantID == uuid.Nil {
+		query = `
+			UPDATE ip_pools p
+			SET used_addresses = COALESCE(sub.cnt, 0)
+			FROM (
+				SELECT p2.id AS pool_id,
+				       (SELECT COUNT(*) FROM ip_addresses ipa
+				        WHERE ipa.pool_id = p2.id
+				          AND ipa.state IN ('allocated', 'reserved')) AS cnt
+				FROM ip_pools p2
+			) sub
+			WHERE p.id = sub.pool_id
+		`
+	} else {
+		query = `
+			UPDATE ip_pools p
+			SET used_addresses = COALESCE(sub.cnt, 0)
+			FROM (
+				SELECT p2.id AS pool_id,
+				       (SELECT COUNT(*) FROM ip_addresses ipa
+				        WHERE ipa.pool_id = p2.id
+				          AND ipa.state IN ('allocated', 'reserved')) AS cnt
+				FROM ip_pools p2
+				WHERE p2.tenant_id = $1
+			) sub
+			WHERE p.id = sub.pool_id
+		`
+		args = append(args, tenantID)
+	}
+	tag, err := s.db.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: recount used_addresses: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // TenantPoolUsage returns the tenant-wide IP pool utilization percentage.
 // (SUM(used_addresses) / SUM(total_addresses)) * 100. Returns 0 when no
 // pools exist or total_addresses sums to zero. Used by the dashboard KPI.

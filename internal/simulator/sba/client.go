@@ -20,11 +20,12 @@ import (
 // aborts by checking errors.Is against these values; no HTTP status codes leak
 // outside this package.
 var (
-	ErrAuthFailed    = errors.New("sba: authentication failed")
-	ErrConfirmFailed = errors.New("sba: confirmation failed")
-	ErrTimeout       = errors.New("sba: request timeout")
-	ErrTransport     = errors.New("sba: transport error")
-	ErrServerError   = errors.New("sba: server error")
+	ErrAuthFailed       = errors.New("sba: authentication failed")
+	ErrConfirmFailed    = errors.New("sba: confirmation failed")
+	ErrTimeout          = errors.New("sba: request timeout")
+	ErrTransport        = errors.New("sba: transport error")
+	ErrServerError      = errors.New("sba: server error")
+	ErrPDUSessionFailed = errors.New("sba: pdu session failed") // STORY-092 Wave 3 — Nsmf_PDUSession Create/Release failure
 )
 
 // Client is the high-level façade over the 5G SBA endpoints for one operator.

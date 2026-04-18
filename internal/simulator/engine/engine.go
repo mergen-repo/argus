@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	argussba "github.com/btopcu/argus/internal/aaa/sba"
 	"github.com/btopcu/argus/internal/simulator/config"
 	"github.com/btopcu/argus/internal/simulator/diameter"
 	"github.com/btopcu/argus/internal/simulator/discovery"
@@ -497,6 +498,30 @@ func (e *Engine) runSBASession(ctx context.Context, sim discovery.SIM, op *confi
 		return
 	}
 
+	// STORY-092 Wave 3 — Nsmf_PDUSession CreateSMContext. Runs AFTER AUSF and
+	// UDM both succeeded, mirroring the real 5G SA attach order (TS 23.502
+	// §4.3.2). Failure is non-fatal at the session level: the engine still
+	// holds the session and sends an optional auth-event at session end, but
+	// smContextRef stays empty so the Release leg skips cleanly.
+	//
+	// dnn + sNssai are derived from the operator's SBA config. Slices fall
+	// back to [{SST:1,SD:"000001"}] per the AUSF default (ausf.go:39).
+	dnn := "internet"
+	sNssai := argussba.SNSSAI{SST: 1, SD: "000001"}
+	if op.SBA != nil && len(op.SBA.Slices) > 0 {
+		sNssai = argussba.SNSSAI{SST: op.SBA.Slices[0].SST, SD: op.SBA.Slices[0].SD}
+	}
+
+	var smContextRef string
+	if ref, ipv4, err := sbaC.CreatePDUSession(ctx, supi, dnn, sNssai); err != nil {
+		log.Debug().Err(err).Msg("sba nsmf CreatePDUSession failed (non-fatal)")
+	} else {
+		smContextRef = ref
+		if ipv4 != "" {
+			log.Debug().Str("ue_ipv4", ipv4).Str("sm_context_ref", smContextRef).Msg("sba nsmf create ok")
+		}
+	}
+
 	metrics.ActiveSessions.WithLabelValues(sim.OperatorCode).Inc()
 	defer metrics.ActiveSessions.WithLabelValues(sim.OperatorCode).Dec()
 
@@ -509,6 +534,17 @@ func (e *Engine) runSBASession(ctx context.Context, sim discovery.SIM, op *confi
 	case <-time.After(duration):
 	case <-ctx.Done():
 	}
+
+	// STORY-092 Wave 3 — Release the PDU session before optional auth-event,
+	// so the UE IP is returned to the pool on session end. Bounded fresh
+	// context (same pattern as aeCtx below) prevents shutdown from blocking
+	// on an unresponsive Nsmf. ReleasePDUSession is a no-op when Create did
+	// not successfully produce a ref (smContextRef == "").
+	relCtx, cancelRel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := sbaC.ReleasePDUSession(relCtx, smContextRef); err != nil {
+		log.Debug().Err(err).Str("sm_context_ref", smContextRef).Msg("sba nsmf ReleasePDUSession failed (non-fatal)")
+	}
+	cancelRel()
 
 	// Optional session-end auth-event POST (gated inside the client on
 	// IncludeOptionalCalls + Bernoulli roll). Best-effort; any error is logged

@@ -13,6 +13,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/eap"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
 
@@ -29,6 +30,15 @@ type ServerDeps struct {
 	EventBus        *bus.EventBus
 	EAPStateMachine *eap.StateMachine
 	Logger          zerolog.Logger
+
+	// STORY-092 Wave 3 (D3-B): deps required by the Nsmf_PDUSession mock
+	// handler. All three may be nil; when any of them is nil, the Nsmf
+	// handler short-circuits with 503 INSUFFICIENT_RESOURCES. SIMCache may
+	// independently be nil — invalidation is then skipped.
+	SIMResolver SIMResolver
+	SIMStore    *store.SIMStore
+	IPPoolStore *store.IPPoolStore
+	SIMCache    SIMCache
 }
 
 type Server struct {
@@ -42,6 +52,7 @@ type Server struct {
 	udmHandler      *UDMHandler
 	eapProxyHandler *EAPProxyHandler
 	nrfRegistration *NRFRegistration
+	nsmfHandler     *NsmfHandler
 
 	heartbeatCancel context.CancelFunc
 
@@ -71,6 +82,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, logger)
 	s.eapProxyHandler = NewEAPProxyHandler(deps.EAPStateMachine, logger)
 	s.nrfRegistration = NewNRFRegistration(nrfCfg, logger)
+	s.nsmfHandler = NewNsmfHandler(deps.SIMResolver, deps.SIMStore, deps.IPPoolStore, deps.SIMCache, logger)
 
 	mux := http.NewServeMux()
 
@@ -108,6 +120,11 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	mux.HandleFunc("/nnrf-nfm/v1/nf-instances", s.nrfRegistration.HandleNFDiscover)
 	mux.HandleFunc("/nnrf-nfm/v1/nf-status-notify", s.nrfRegistration.HandleNFStatusNotify)
+
+	// STORY-092 Wave 3 (D3-B): minimal mock Nsmf_PDUSession endpoints.
+	// See internal/aaa/sba/nsmf.go for scope limits.
+	mux.HandleFunc("/nsmf-pdusession/v1/sm-contexts", s.nsmfHandler.HandleCreate)
+	mux.HandleFunc("/nsmf-pdusession/v1/sm-contexts/", s.nsmfHandler.HandleRelease)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -278,6 +295,10 @@ func (s *Server) EAPProxyHandler() *EAPProxyHandler {
 
 func (s *Server) NRFRegistration() *NRFRegistration {
 	return s.nrfRegistration
+}
+
+func (s *Server) NsmfHandler() *NsmfHandler {
+	return s.nsmfHandler
 }
 
 func (s *Server) Healthy() bool {

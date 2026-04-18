@@ -134,6 +134,23 @@ var (
 		[]string{"operator", "service", "cause"},
 	)
 
+	// STORY-092 Wave 3 — Nsmf_PDUSession Create/Release outcomes.
+	// Emitted from BOTH the client layer (CreatePDUSession / ReleasePDUSession)
+	// AND the engine's session lifecycle so transport-level aborts that never
+	// reach the server are still counted. Result labels are disjoint:
+	//   ok              — 201 Created (create) or 204 No Content (release)
+	//   pool_exhausted  — ProblemDetails cause INSUFFICIENT_RESOURCES (create)
+	//   user_not_found  — ProblemDetails cause USER_NOT_FOUND (create)
+	//   transport_error — network-layer failure (both)
+	//   timeout         — context timeout (both)
+	SBAPDUSessionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_sba_pdu_sessions_total",
+			Help: "Nsmf_PDUSession create/release outcomes, labelled by result.",
+		},
+		[]string{"operator", "result"},
+	)
+
 	// STORY-085 — reactive behavior (approach B)
 
 	SimulatorReactiveTerminationsTotal = prometheus.NewCounterVec(
@@ -185,6 +202,7 @@ func MustRegister(reg prometheus.Registerer) {
 		SBALatencySeconds,
 		SBASessionAbortedTotal,
 		SBAServiceErrorsTotal,
+		SBAPDUSessionsTotal,
 		SimulatorReactiveTerminationsTotal,
 		SimulatorReactiveRejectBackoffsTotal,
 		SimulatorReactiveIncomingTotal,

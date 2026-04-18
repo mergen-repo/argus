@@ -816,6 +816,18 @@ func (s *SIMStore) SetIPAndPolicy(ctx context.Context, simID uuid.UUID, ipAddres
 	return nil
 }
 
+// ClearIPAddress nils-out the sims.ip_address_id column for the given SIM.
+// Used by the RADIUS / Diameter Accounting/CCR-T release paths (STORY-092
+// Wave 2) when a dynamic IP allocation is returned to the pool. SetIPAndPolicy
+// cannot clear (it only sets non-nil pointers), so this is its inverse.
+func (s *SIMStore) ClearIPAddress(ctx context.Context, simID uuid.UUID) error {
+	_, err := s.db.Exec(ctx, `UPDATE sims SET ip_address_id = NULL WHERE id = $1`, simID)
+	if err != nil {
+		return fmt.Errorf("store: clear ip address: %w", err)
+	}
+	return nil
+}
+
 // GetByIMSI is INTENTIONALLY UNSCOPED for the RADIUS/Diameter hot path — see
 // DEV-041/DEV-166. The AAA stack authenticates by IMSI before any tenant
 // context exists, so the lookup cannot be tenant-scoped. API callers MUST

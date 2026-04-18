@@ -992,6 +992,8 @@ func runServe(cfg *config.Config) {
 			SessionMgr:  diamSessionMgr,
 			EventBus:    eventBus,
 			SIMResolver: diamSimResolver,
+			IPPoolStore: ippoolStore,
+			SIMStore:    simStore,
 			Logger:      log.Logger,
 		})
 
@@ -1016,6 +1018,12 @@ func runServe(cfg *config.Config) {
 		sbaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
 
+		// STORY-092 Wave 3 (D3-B): thread SIMStore + IPPoolStore + SIMCache
+		// into the SBA server so the mock Nsmf_PDUSession handler can allocate
+		// UE IPs via the same store-layer pipeline RADIUS and Gx use. The
+		// SIMCache doubles as the SIMResolver (it implements GetByIMSI).
+		sbaSIMCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
+
 		sbaServer = aaasba.NewServer(aaasba.ServerConfig{
 			Port:        cfg.SBAPort,
 			TLSCertPath: cfg.TLSCertPath,
@@ -1027,9 +1035,13 @@ func runServe(cfg *config.Config) {
 				HeartbeatSec: cfg.SBANRFHeartbeatSec,
 			},
 		}, aaasba.ServerDeps{
-			SessionMgr: sbaSessionMgr,
-			EventBus:   eventBus,
-			Logger:     log.Logger,
+			SessionMgr:  sbaSessionMgr,
+			EventBus:    eventBus,
+			Logger:      log.Logger,
+			SIMResolver: sbaSIMCache,
+			SIMStore:    simStore,
+			IPPoolStore: ippoolStore,
+			SIMCache:    sbaSIMCache,
 		})
 
 		if err := sbaServer.Start(); err != nil {
@@ -1066,6 +1078,9 @@ func runServe(cfg *config.Config) {
 		compositeRecorder := obsmetrics.NewCompositeRecorder(metricsCollector, promAAARecorder)
 		radiusServer.SetMetricsRecorder(compositeRecorder)
 		radiusServer.SetPolicyEnforcer(policyEnforcer)
+		// STORY-092 Wave 1: wire the SIM store so Access-Accept can persist
+		// the dynamically allocated ip_address_id back to the sims row.
+		radiusServer.SetSIMStore(simStore)
 	}
 	// Diameter and SBA servers do not currently expose SetMetricsRecorder —
 	// protocol-labelled Prom metrics for those will be wired when those

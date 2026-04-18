@@ -1,11 +1,39 @@
 package store
 
 import (
+	"context"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// testIPPoolPool returns a pgxpool.Pool bound to the test database when
+// DATABASE_URL is set; otherwise returns nil so callers can t.Skip. Matches
+// the existing testSMSPool helper pattern at sms_outbound_test.go:15.
+func testIPPoolPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return nil
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Logf("skip: cannot connect to postgres: %v", err)
+		return nil
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		t.Logf("skip: postgres ping failed: %v", err)
+		return nil
+	}
+	t.Cleanup(func() { pool.Close() })
+	return pool
+}
 
 func TestIPPoolStructFields(t *testing.T) {
 	cidr := "10.0.0.0/24"
@@ -232,4 +260,195 @@ func TestFinalizeReclaim_NonReclaimingReturnError(t *testing.T) {
 	if ErrIPNotFound.Error() == "" {
 		t.Error("ErrIPNotFound should have a message")
 	}
+}
+
+// recountTestFixture spins up a dedicated tenant + APN + pool + ip_addresses
+// rows for RecountUsedAddresses tests. Scoped by a pseudo-random tenant name
+// so parallel test runs don't collide, and all rows are cleaned up via
+// t.Cleanup. Returns (tenantID, poolID).
+func recountTestFixture(t *testing.T, pool *pgxpool.Pool, allocatedCount int, reservedCount int, availableCount int, driftUsed int) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+
+	// Isolated tenant for this test — the RecountUsedAddresses tenant-scoping
+	// test needs to distinguish "our" tenant from "other" tenants without
+	// relying on seed data.
+	var tenantID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO tenants (name, contact_email)
+		VALUES ('story092-recount-'||gen_random_uuid()::text, 'recount@story092.test')
+		RETURNING id`).Scan(&tenantID); err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+
+	// Reuse any existing operator; we only need its id to satisfy apns FK
+	// (apns.operator_id → operators). Seed 003 always leaves at least one
+	// operator row.
+	var operatorID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM operators LIMIT 1`).Scan(&operatorID); err != nil {
+		t.Fatalf("no operator in test DB: %v", err)
+	}
+
+	var apnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO apns (tenant_id, operator_id, name, display_name, apn_type, state)
+		VALUES ($1, $2, 'story092-recount-'||gen_random_uuid()::text, 'STORY-092 Recount', 'iot', 'active')
+		RETURNING id`, tenantID, operatorID).Scan(&apnID); err != nil {
+		t.Fatalf("seed apn: %v", err)
+	}
+
+	var poolID uuid.UUID
+	totalAddrs := allocatedCount + reservedCount + availableCount
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO ip_pools (tenant_id, apn_id, name, cidr_v4, total_addresses, used_addresses, state)
+		VALUES ($1, $2, 'Recount Test Pool', '10.250.0.0/24'::cidr, $3, $4, 'active')
+		RETURNING id`, tenantID, apnID, totalAddrs, driftUsed).Scan(&poolID); err != nil {
+		t.Fatalf("seed pool: %v", err)
+	}
+
+	// Seed ip_addresses rows. Use unique /24 addresses so unique constraints
+	// don't collide across parallel fixtures. Build the IPv4 string client-side
+	// so pgx doesn't have to infer the OID for `('10.250.0.'||$2)::inet`.
+	addr := 1
+	for i := 0; i < allocatedCount; i++ {
+		ipv4 := "10.250.0." + strconv.Itoa(addr)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO ip_addresses (pool_id, address_v4, allocation_type, state, allocated_at)
+			VALUES ($1, $2::inet, 'dynamic', 'allocated', NOW())`,
+			poolID, ipv4); err != nil {
+			t.Fatalf("seed allocated ip: %v", err)
+		}
+		addr++
+	}
+	for i := 0; i < reservedCount; i++ {
+		ipv4 := "10.250.0." + strconv.Itoa(addr)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO ip_addresses (pool_id, address_v4, allocation_type, state, allocated_at)
+			VALUES ($1, $2::inet, 'static', 'reserved', NOW())`,
+			poolID, ipv4); err != nil {
+			t.Fatalf("seed reserved ip: %v", err)
+		}
+		addr++
+	}
+	for i := 0; i < availableCount; i++ {
+		ipv4 := "10.250.0." + strconv.Itoa(addr)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO ip_addresses (pool_id, address_v4, allocation_type, state)
+			VALUES ($1, $2::inet, 'dynamic', 'available')`,
+			poolID, ipv4); err != nil {
+			t.Fatalf("seed available ip: %v", err)
+		}
+		addr++
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM ip_addresses WHERE pool_id = $1`, poolID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM ip_pools WHERE id = $1`, poolID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM apns WHERE id = $1`, apnID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM tenants WHERE id = $1`, tenantID)
+	})
+
+	return tenantID, poolID
+}
+
+// TestIPPoolStore_RecountUsedAddresses_FixesDrift — scenario (a): app-level
+// drift where used_addresses recorded 99 but only 3 rows are actually
+// allocated/reserved. Recount must rewrite the counter to 3.
+func TestIPPoolStore_RecountUsedAddresses_FixesDrift(t *testing.T) {
+	pool := testIPPoolPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	tenantID, poolID := recountTestFixture(t, pool, 2, 1, 5, 99) // 3 used, counter says 99
+
+	s := NewIPPoolStore(pool)
+	affected, err := s.RecountUsedAddresses(context.Background(), tenantID)
+	if err != nil {
+		t.Fatalf("RecountUsedAddresses: %v", err)
+	}
+	if affected == 0 {
+		t.Errorf("expected non-zero rows affected, got %d", affected)
+	}
+
+	var used int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolID).Scan(&used); err != nil {
+		t.Fatalf("re-read pool: %v", err)
+	}
+	if used != 3 {
+		t.Errorf("used_addresses after recount = %d, want 3 (2 allocated + 1 reserved)", used)
+	}
+}
+
+// TestIPPoolStore_RecountUsedAddresses_EmptyPool — scenario (b): no
+// ip_addresses rows at all, but used_addresses still records stale value.
+// Recount must rewrite the counter to 0 via the LEFT JOIN fallback.
+func TestIPPoolStore_RecountUsedAddresses_EmptyPool(t *testing.T) {
+	pool := testIPPoolPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	tenantID, poolID := recountTestFixture(t, pool, 0, 0, 0, 42) // no IPs, counter says 42
+
+	s := NewIPPoolStore(pool)
+	if _, err := s.RecountUsedAddresses(context.Background(), tenantID); err != nil {
+		t.Fatalf("RecountUsedAddresses: %v", err)
+	}
+
+	var used int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolID).Scan(&used); err != nil {
+		t.Fatalf("re-read pool: %v", err)
+	}
+	if used != 0 {
+		t.Errorf("used_addresses on empty pool after recount = %d, want 0", used)
+	}
+}
+
+// TestIPPoolStore_RecountUsedAddresses_TenantScoping — scenario (c):
+// recount scoped to one tenant must NOT touch another tenant's drift.
+func TestIPPoolStore_RecountUsedAddresses_TenantScoping(t *testing.T) {
+	pool := testIPPoolPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	tenantA, poolA := recountTestFixture(t, pool, 1, 0, 0, 50) // drift: actual 1 vs counter 50
+	tenantB, poolB := recountTestFixture(t, pool, 2, 0, 0, 50) // drift: actual 2 vs counter 50
+
+	s := NewIPPoolStore(pool)
+	// Recount tenant A only.
+	if _, err := s.RecountUsedAddresses(context.Background(), tenantA); err != nil {
+		t.Fatalf("RecountUsedAddresses(A): %v", err)
+	}
+
+	var usedA, usedB int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolA).Scan(&usedA); err != nil {
+		t.Fatalf("re-read pool A: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolB).Scan(&usedB); err != nil {
+		t.Fatalf("re-read pool B: %v", err)
+	}
+	if usedA != 1 {
+		t.Errorf("tenant A used_addresses after scoped recount = %d, want 1", usedA)
+	}
+	if usedB != 50 {
+		t.Errorf("tenant B used_addresses must NOT change after scoped recount: got %d, want 50 (drift preserved)", usedB)
+	}
+
+	// uuid.Nil — recount ALL tenants. Now B should drop to 2.
+	if _, err := s.RecountUsedAddresses(context.Background(), uuid.Nil); err != nil {
+		t.Fatalf("RecountUsedAddresses(Nil): %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolB).Scan(&usedB); err != nil {
+		t.Fatalf("re-read pool B after global recount: %v", err)
+	}
+	if usedB != 2 {
+		t.Errorf("tenant B used_addresses after uuid.Nil recount = %d, want 2", usedB)
+	}
+
+	_ = tenantB // silence unused if the above asserts evolve
 }

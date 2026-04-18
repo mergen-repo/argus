@@ -11,6 +11,7 @@ import (
 
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
 
@@ -27,6 +28,12 @@ type ServerDeps struct {
 	SessionMgr  *session.Manager
 	EventBus    *bus.EventBus
 	SIMResolver SIMResolver
+	// IPPoolStore and SIMStore are used by the Gx handler for Framed-IP-Address
+	// allocation on CCR-I and release on CCR-T (STORY-092 Wave 2). Optional —
+	// when either is nil the handler skips IP handling and the CCA-I is built
+	// without a Framed-IP-Address AVP (matches pre-STORY-092 behaviour).
+	IPPoolStore *store.IPPoolStore
+	SIMStore    *store.SIMStore
 	Logger      zerolog.Logger
 }
 
@@ -133,7 +140,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		stopCh:     make(chan struct{}),
 	}
 
-	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
+	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, deps.IPPoolStore, deps.SIMStore, stateMap, logger)
 	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
 
 	s.hopID.Store(uint32(time.Now().UnixNano() & 0xFFFFFFFF))

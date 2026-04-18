@@ -154,15 +154,21 @@ Application-Id: 16777238 (3GPP Gx)
 ```
 UE attaches → PGW sends CCR-I to Argus
     Argus: lookup IMSI → evaluate policy → determine QoS
-    Argus → CCA-I with Charging-Rule-Install (QoS-Information, filter)
+    Argus: if sim.ip_address_id == nil && sim.apn_id != nil → AllocateIP (STORY-092)
+    Argus → CCA-I with:
+        ├─ Charging-Rule-Install (QoS-Information, filter)
+        └─ Framed-IP-Address (AVP 8, RFC 7155 §4.4.10.5.1, vendor=0, M flag)
 
 Policy changes → Argus sends RAR (Re-Auth-Request) to PGW
     PGW → RAA (Re-Auth-Answer) confirming rule installation
 
 UE detaches → PGW sends CCR-T to Argus
     Argus: close session, generate CDR
+    Argus: if allocation_type == 'dynamic' → ReleaseIP (STORY-092; static preserved)
     Argus → CCA-T confirming
 ```
+
+`AVPCodeFramedIPAddress = 8` is defined in `internal/aaa/diameter/avp.go` with explicit vendor=0 (not 3GPP vendor 10415) per RFC 7155 NASREQ binding. Encoded via the shared `NewAVPAddress` helper.
 
 ### Gy Interface (Online Charging)
 
@@ -352,6 +358,31 @@ Content-Type: application/json
 GET /nudm-sdm/v1/{supi}/nssai
 GET /nudm-sdm/v1/{supi}/sm-data?single-nssai={"sst":1,"sd":"000001"}
 ```
+
+### Nsmf (Session Management Function) — mock (STORY-092)
+
+Minimal `Nsmf_PDUSession` mock mounted at `internal/aaa/sba/nsmf.go` — Create + Release only. In a real 5G Core the SMF owns UE IP allocation during `Nsmf_PDUSession_CreateSMContext` (per 3GPP TS 23.502 §4.3.2); AUSF and UDM do not allocate IPs. Argus is a management platform / test harness, not a production 5GC, so it ships this minimal mock alongside the existing AUSF/UDM mocks so simulator harnesses drive a full end-to-end IP allocation pipeline.
+
+**Create SM Context (POST)** — `/nsmf-pdusession/v1/sm-contexts` (API-304):
+
+```
+POST /nsmf-pdusession/v1/sm-contexts
+Content-Type: application/json
+
+{
+  "supi": "imsi-286010123456789",
+  "dnn": "internet",
+  "sNssai": { "sst": 1, "sd": "000001" }
+}
+```
+
+Response: `201 Created` with `Location: /nsmf-pdusession/v1/sm-contexts/{smContextRef}`, body includes allocated `ueIpv4Address`. 3GPP-native ProblemDetails on failure (USER_NOT_FOUND, SERVING_NETWORK_NOT_AUTHORIZED, SYSTEM_FAILURE, DNN_NOT_SUPPORTED).
+
+**Release SM Context (DELETE)** — `/nsmf-pdusession/v1/sm-contexts/{smContextRef}` (API-305):
+
+Releases dynamic IP (static preserved via `allocation_type` gate — matches RADIUS/Diameter symmetric release). Returns `204 No Content`. Unknown `smContextRef` returns 204 (idempotent).
+
+**Scope discipline**: no PATCH, no QoS update, no PCF, no UPF selection — strictly Create + Release. STORY-089 will absorb this mock into the new `cmd/operator-sim` container (tracked on ROUTEMAP D-039 for holistic SBA section re-sweep).
 
 ### Network Slice (NSSAI) in Authentication
 

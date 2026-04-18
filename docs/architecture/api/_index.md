@@ -516,6 +516,17 @@ Streaming CSV export for every list resource. Each endpoint reuses its list hand
 | API-303 | GET | /api/v1/api-keys/export.csv | API keys | JWT (tenant_admin+) | See [STORY-077](../../stories/phase-10/STORY-077-enterprise-ux-polish.md) AC-4 |
 | (API-266) | GET | /api/v1/policy-violations/export.csv | Policy violations | JWT (api_user+) | Already indexed under Policy Violations section (D-024) |
 
+## 5G SBA — Nsmf Mock (2 endpoints) — STORY-092
+
+Minimal mock for 5G SMF (Session Management Function) `Nsmf_PDUSession` service — Create + Release only. Allocates UE IPs end-to-end via the same `AllocateIP`/`ReleaseIP` store pipeline as the RADIUS and Diameter Gx paths. Scope strictly limited per STORY-092 D3-B: no PATCH, no QoS update, no PCF, no UPF selection. STORY-089 (operator-SoR simulator) is the logical long-term home — the mock will be absorbed into `cmd/operator-sim` once that container ships.
+
+> Note: pre-existing AUSF/UDM/NRF endpoints (`/nausf-auth/v1/*`, `/nudm-ueau/v1/*`, `/nudm-uecm/v1/*`, `/nnrf-nfm/v1/*`) shipped by STORY-020 remain un-indexed here pending STORY-089's holistic SBA section re-sweep (tracked as D-039 in ROUTEMAP Tech Debt).
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-304 | POST | /nsmf-pdusession/v1/sm-contexts | Create SM Context — allocates UE IP from APN pool, persists `sim.ip_address_id`, invalidates SIM cache, returns 201 + `Location: /nsmf-pdusession/v1/sm-contexts/{smContextRef}`. 3GPP-native ProblemDetails on error (USER_NOT_FOUND, SERVING_NETWORK_NOT_AUTHORIZED, SYSTEM_FAILURE). | TLS mTLS per operator (or disabled in test harness) | See STORY-092 plan D3-B + `internal/aaa/sba/nsmf.go:HandleCreate` |
+| API-305 | DELETE | /nsmf-pdusession/v1/sm-contexts/{smContextRef} | Release SM Context — releases dynamic IP (static preserved via `allocation_type` gate), returns 204 No Content. Unknown `smContextRef` returns 204 (idempotent). | TLS mTLS per operator (or disabled in test harness) | See STORY-092 plan D3-B + `internal/aaa/sba/nsmf.go:HandleRelease` |
+
 ---
 
 **Total: 241 REST endpoints + 11 WebSocket event types**

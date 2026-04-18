@@ -158,6 +158,15 @@
 - Default rate limit presets
 - Idempotent: all entries use ON CONFLICT DO NOTHING
 
+### SEED-06: Dynamic IP Reservation (STORY-092 D1-A)
+- File: `migrations/seed/006_reserve_sim_ips.sql`
+- Extended 2026-04-18 by STORY-092 to materialise `ip_addresses` rows for seed 003's 13 APN pools + the previously-missing `m2m.water` pool (14 pools total).
+- Materialises 700 `ip_addresses` rows across all pools (state=`available` on first run).
+- Reservation CTE: issues a deterministic reservation for 129/129 active + APN-assigned SIMs from seed 003/005 — each gets one `ip_addresses` row flipped to `allocated` + `sim.ip_address_id` set. The original reservation for seed 005's 16 SIMs is preserved.
+- Idempotent: every `INSERT` uses `WHERE NOT EXISTS`; every reservation update uses `WHERE state='available'`. Second run produces zero mutations.
+- Fail-fast guard at end: `DO $$ RAISE EXCEPTION $$` block asserts the reservation count matches the expected 129 before committing — catches silent seed regressions on fresh volumes.
+- Interaction with D-032 chain: guards all seed-005-specific pool INSERTs with `WHERE EXISTS` so seed-003-only databases (missing m2m.health / m2m.industrial) don't FK-fail.
+
 ## Migration Convention
 - Directory: `migrations/`
 - Format: `YYYYMMDDHHMMSS_description.up.sql` / `YYYYMMDDHHMMSS_description.down.sql`
