@@ -7,3 +7,5 @@
 2026-04-18T17:07:32Z STEP_2.5 LINT: EXECUTED | items=0 matches (hex/TODO/raw-html all clean in adapterschema+http.go+components/operators/) | evidence=lint-scan | result=PASS
 2026-04-18T17:53:03Z STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) + 9 in-gate fixes (F-A1..F-A6+F-A9; F-A7/A8 ack-only) | evidence=docs/stories/test-infra/STORY-090-gate.md (155 lines) | result=PASS (3087/3087 tests, govulncheck 0 vulns, all 13 ACs green)
 2026-04-18T18:08:50Z STEP_4 REVIEW: EXECUTED | items=12 findings (fixed=12 deferred=0 escalated=0) + 1 story impact (STORY-089 NEEDS_PLAN_REVISION: per-protocol seed + D-039 SBA re-sweep) | evidence=docs/stories/test-infra/STORY-090-review.md (95 lines) | result=PASS
+2026-04-18T18:09:55Z STEP_5 COMMIT: EXECUTED | items=1 commit=edda963 files=74 insertions=8117 deletions=446 | evidence=git log -1 | result=PASS
+2026-04-18T18:10:09Z STEP_6 POSTPROC: EXECUTED | items=6 checks | evidence=persistence-verified (plan+gate+review+step-log+USERTEST+ROUTEMAP-DONE all present); ROUTEMAP counter 1/3 → 2/3; CLAUDE.md advanced to STORY-089/Plan | result=PASS

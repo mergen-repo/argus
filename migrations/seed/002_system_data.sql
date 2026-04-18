@@ -4,6 +4,8 @@
 -- Mock operator (for development/testing)
 -- STORY-090 Wave 2 D2-B: adapter_type column dropped; adapter_config
 -- carries the nested per-protocol enablement flags.
+-- STORY-089 (2026-04-18): the mock operator does NOT enable the http sub-key.
+-- No simulator path emulates 'mock'; all http routing goes through the three real operators.
 INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, supported_rat_types, health_status, state)
 VALUES (
     '00000000-0000-0000-0000-000000000100',

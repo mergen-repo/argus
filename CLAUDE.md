@@ -37,6 +37,7 @@ Argus is an APN & Subscriber Intelligence Platform built as a Go modular monolit
 | PostgreSQL | localhost:5432 | Database |
 | Redis | localhost:6379 | Cache |
 | NATS | localhost:4222, :8222 (monitor) | Events |
+| Operator Sim | :9595 (API), :9596 (health+metrics) | Passive operator SoR HTTP simulator (argus-operator-sim) |
 
 ## Admin Access
 
@@ -112,7 +113,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: SEQUENTIAL (advisor-forced order 092 DONE → 090 → 089; no AUTOPILOT — user-approved 2026-04-17)
+- Mode: AUTOPILOT (STORY-089 only; user-approved 2026-04-18 "otopilot olarak 89 u tamam edelim"; Runtime Alignment final story → Mini Phase Gate after)
 - Phase: Runtime Alignment [IN PROGRESS] — 2/3 (STORY-092 DONE 2026-04-18; STORY-090 DONE 2026-04-18)
 - Story: STORY-089 (Operator SoR Simulator)
-- Step: Plan
+- Step: Review (Gate PASS 2026-04-18; post-ship counter update pending Step 6)

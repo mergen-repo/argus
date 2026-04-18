@@ -522,15 +522,26 @@ Streaming CSV export for every list resource. Each endpoint reuses its list hand
 
 Minimal mock for 5G SMF (Session Management Function) `Nsmf_PDUSession` service — Create + Release only. Allocates UE IPs end-to-end via the same `AllocateIP`/`ReleaseIP` store pipeline as the RADIUS and Diameter Gx paths. Scope strictly limited per STORY-092 D3-B: no PATCH, no QoS update, no PCF, no UPF selection. STORY-089 (operator-SoR simulator) is the logical long-term home — the mock will be absorbed into `cmd/operator-sim` once that container ships.
 
-> Note: pre-existing AUSF/UDM/NRF endpoints (`/nausf-auth/v1/*`, `/nudm-ueau/v1/*`, `/nudm-uecm/v1/*`, `/nnrf-nfm/v1/*`) shipped by STORY-020 remain un-indexed here pending STORY-089's holistic SBA section re-sweep (tracked as D-039 in ROUTEMAP Tech Debt).
-
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
 | API-304 | POST | /nsmf-pdusession/v1/sm-contexts | Create SM Context — allocates UE IP from APN pool, persists `sim.ip_address_id`, invalidates SIM cache, returns 201 + `Location: /nsmf-pdusession/v1/sm-contexts/{smContextRef}`. 3GPP-native ProblemDetails on error (USER_NOT_FOUND, SERVING_NETWORK_NOT_AUTHORIZED, SYSTEM_FAILURE). | TLS mTLS per operator (or disabled in test harness) | See STORY-092 plan D3-B + `internal/aaa/sba/nsmf.go:HandleCreate` |
 | API-305 | DELETE | /nsmf-pdusession/v1/sm-contexts/{smContextRef} | Release SM Context — releases dynamic IP (static preserved via `allocation_type` gate), returns 204 No Content. Unknown `smContextRef` returns 204 (idempotent). | TLS mTLS per operator (or disabled in test harness) | See STORY-092 plan D3-B + `internal/aaa/sba/nsmf.go:HandleRelease` |
 
+## 5G SBA — AUSF / UDM / NRF (5 endpoints) — STORY-020
+
+Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authentication, UDM UEAU/UECM, and NRF NFManagement service roles. These endpoints are served by the argus-app listener and registered in the SBA router alongside Nsmf. Indexed here under D-039 re-sweep (STORY-089).
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-308 | POST | /nausf-auth/v1/ue-authentications | AUSF UE authentication initiate — bootstraps 5G AKA authentication challenge for a UE, returns 201 with `authCtxId` and EAP payload. | TLS mTLS per operator (or disabled in test harness) | See `internal/aaa/sba/ausf.go` |
+| API-309 | GET | /nudm-ueau/v1/{supi}/security-information | UDM UEAU — retrieve authentication vectors for the given SUPI; returns 200 with HE AV set. | TLS mTLS per operator (or disabled in test harness) | See `internal/aaa/sba/udm.go` |
+| API-310 | POST | /nudm-uecm/v1/{ueId}/registrations/amf-3gpp-access | UDM UECM — register AMF 3GPP access for a UE; returns 201 on first registration, 200 on update. | TLS mTLS per operator (or disabled in test harness) | See `internal/aaa/sba/udm.go` |
+| API-311 | GET | /nnrf-nfm/v1/nf-instances | NRF NFManagement — discover NF instances matching optional query params (nf-type, status); returns 200 with NF profile list. | TLS mTLS per operator (or disabled in test harness) | See `internal/aaa/sba/nrf.go` |
+| API-312 | PATCH | /nnrf-nfm/v1/nf-instances/{nfInstanceId} | NRF NFManagement — NF heartbeat/patch; updates NF profile fields (status, load) via JSON Merge Patch, returns 200. | TLS mTLS per operator (or disabled in test harness) | See `internal/aaa/sba/nrf.go` |
+
 ---
 
-**Total: 241 REST endpoints + 11 WebSocket event types**
+**Total: 246 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
+> Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.

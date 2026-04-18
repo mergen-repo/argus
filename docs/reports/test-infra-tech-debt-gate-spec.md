@@ -6,6 +6,11 @@
 > Output artifact: `docs/reports/test-infra-tech-debt-gate.md`
 > Evidence dir: `docs/e2e-evidence/test-infra/`
 
+## Changelog
+
+- 2026-04-18: STORY-089 Operator SoR Simulator section added (AC-1..AC-14). Runtime Alignment 3/3 complete.
+- 2026-04-18: Gate F-A6 — AC-5 psql verify command hardened (`-t -A` flags + `tr`/`grep -qx` matcher) to remove dependency on default psql tuple format.
+
 ## Purpose
 
 Standalone tracks (Test Infra + Tech Debt Cleanup) do not have a canonical Phase Gate defined in `phases/development/` — this spec is the explicit contract so the Phase Gate Agent has a deterministic pass/fail target. The scope is narrower than a dev-phase gate (no UI regression sweep, no Turkish i18n pass) because these five stories ship simulator + migration + test fixes, not user-facing features.
@@ -141,3 +146,69 @@ On FAIL:
 - Update ROUTEMAP: mark affected story `[~] IN PROGRESS`, Step = `Gate`
 - Do NOT mark track DONE
 - Present failure details to user, offer `düzelt / atla / dur`
+
+## STORY-089 — Operator SoR Simulator
+
+### Acceptance Criteria
+
+- AC-1: Binary compiles and container builds clean (`make operator-sim-build`)
+- AC-2: Container comes up healthy via docker-compose (`docker compose ps` → `(healthy)`)
+- AC-3: Per-operator health endpoints respond correctly (`GET /{operator}/health`)
+- AC-4: Per-operator forward-looking stubs respond (`GET /{operator}/subscribers/:imsi`, `POST /{operator}/cdr`)
+- AC-5: Seed 003 materialization — http sub-key present on 3 real operators
+- AC-6: Seed 005 materialization — parallel coverage, 3 operators
+- AC-7: API-307 per-protocol Test Connection succeeds for http on 3 real operators
+- AC-8: `enabled_protocols` array reflects http on all real operators
+- AC-9: HealthChecker reports http protocol healthy end-to-end (`argus_operator_adapter_health_status{protocol="http"}` = 1 or above)
+- AC-10: D-039 closed — AUSF/UDM/NRF indexed in api/_index.md (API-308..API-312)
+- AC-11: Prometheus metrics populated after 1 request (`operator_sim_requests_total` > 0)
+- AC-12: All new Go code passes vet/race/coverage (coverage ≥ 70% on non-integration packages)
+- AC-13: Mini Phase Gate spec extended (this file — verified by self-diff)
+- AC-14: Runtime Alignment track counter advances 2/3 → 3/3
+
+### Verification Commands
+
+```bash
+# AC-1: Binary builds
+make operator-sim-build
+
+# AC-2: Container healthy (after make up)
+docker compose -f deploy/docker-compose.yml ps operator-sim | grep -q '(healthy)'
+
+# AC-3/4: Simulator endpoints respond (from host after compose up)
+for op in turkcell vodafone_tr turk_telekom; do
+  curl -fsS "http://localhost:9595/${op}/health" | jq -e '.status == "ok"' >/dev/null
+done
+
+# AC-5: Seed 003 http sub-key count (robust: -t -A strips headers/alignment)
+psql -t -A -c "SELECT COUNT(*) FROM operators WHERE code IN ('turkcell','vodafone_tr','turk_telekom') AND (adapter_config->'http'->>'enabled')::boolean = true;" \
+  | tr -d '[:space:]' | grep -qx '3'
+
+# AC-6: Seed 005 http sub-key count (same query on seed-005 operator IDs — run after seed 005 loaded)
+# [parallel to AC-5 — see STORY-090 section for seed 005 verification pattern]
+
+# AC-7/8/9/11: Full integration test
+go test -tags=integration -run TestOperatorSimE2E ./test/e2e/
+
+# AC-10: D-039 indexing
+grep -c 'API-308\|API-309\|API-310\|API-311\|API-312' docs/architecture/api/_index.md  # must be ≥ 5
+grep -E '^\| D-039 \|.*RESOLVED' docs/ROUTEMAP.md  # must match
+
+# AC-12: Go quality
+go vet ./cmd/operator-sim/... ./internal/operatorsim/...
+go test -race -cover ./internal/operatorsim/... | grep -E 'coverage: [0-9]+\.[0-9]+%'  # must show ≥ 70%
+
+# AC-13: This spec file extended (self-verify)
+grep -c '^## STORY-089 —' docs/reports/test-infra-tech-debt-gate-spec.md  # must be 1
+
+# AC-14: ROUTEMAP counter
+grep -c 'Runtime Alignment.*\[DONE\]' docs/ROUTEMAP.md  # must be ≥ 1 after ship
+```
+
+### PASS Criteria
+
+- All 14 ACs verified.
+- Integration test green (AC-7/8/9/11 in a single run).
+- Coverage ≥ 70% on `internal/operatorsim/...`.
+- No regression on existing 3087+ test suite (STORY-090 baseline).
+- `git diff docs/reports/test-infra-tech-debt-gate-spec.md` shows ONLY additions under the new STORY-089 section + a changelog line — zero deletions in any existing STORY-NNN section.

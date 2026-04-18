@@ -1,7 +1,7 @@
 # Architecture — Argus
 
 > APN & Subscriber Intelligence Platform
-> Scale: Large (241 APIs, 51 tables, 10 services)
+> Scale: Large (246 APIs, 51 tables, 10 services)
 > Architecture: Go modular monolith, multi-protocol
 
 ## Standard API Response Format
@@ -102,6 +102,7 @@ Standard HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request
 | CTN-03 | timescale/timescaledb:latest-pg16 | 5432 | PostgreSQL + TimescaleDB | pg_isready |
 | CTN-04 | redis:7-alpine | 6379 | Cache, rate limiting | redis-cli ping |
 | CTN-05 | nats:latest | 4222, 8222 | Event bus, job queue | /healthz on :8222 |
+| argus-operator-sim | operator-sim:latest (custom) | 9595 (API), 9596 (health+metrics) | Passive operator backend simulator. Probed by argus-app's HealthChecker per-protocol http fan-out. | GET :9596/-/health |
 
 ### Networks
 - `argus-net`: All containers on single bridge network
@@ -124,8 +125,10 @@ argus/
 │   ├── argusctl/                # Ops CLI (STORY-067): tenant/apikey/user/sim/health/backup commands
 │   │   ├── main.go
 │   │   └── cmd/                 # cobra subcommands (root, tenant, apikey, user, compliance, sim, health, backup)
-│   └── simulator/               # AAA traffic simulator binary (STORY-082/083/084/085) — dev/test tool only
-│       └── main.go              # Entry; SIMULATOR_ENABLED env guard; builds operator clients + engine
+│   ├── simulator/               # AAA traffic simulator binary (STORY-082/083/084/085) — dev/test tool only
+│   │   └── main.go              # Entry; SIMULATOR_ENABLED env guard; builds operator clients + engine
+│   └── operator-sim/            # Operator SoR Simulator — passive HTTP server emulating Turkcell/Vodafone/TT backend systems for the argus HTTP adapter to probe
+│       └── main.go
 ├── internal/
 │   ├── gateway/                  # SVC-01: HTTP API gateway, middleware
 │   ├── ws/                       # SVC-02: WebSocket server
@@ -190,6 +193,7 @@ argus/
 │   ├── auth/                     # JWT, 2FA, API key
 │   ├── tenant/                   # Tenant context middleware
 │   ├── config/                   # Configuration
+│   ├── operatorsim/              # Operator SoR Simulator runtime (config, HTTP server, handlers)
 │   └── simulator/                # AAA traffic simulator packages (STORY-082/083/084/085) — dev/test tool only
 │       ├── config/               # YAML config schema (RADIUS + Diameter + SBA + Reactive defaults, per-operator opt-in)
 │       ├── discovery/            # Read-only PG fetch of SIMs / operators / APNs
@@ -484,7 +488,7 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 144 | API-001 to API-223 |
+| API-NNN | 246 | API-001 to API-312 |
 | TBL-NN | 35 | TBL-01 to TBL-35 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 3 | ADR-001 to ADR-003 |
@@ -516,7 +520,7 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (241 endpoints + story links) |
+| [architecture/api/](architecture/api/_index.md) | API surface (246 endpoints + story links) |
 | [architecture/db/](architecture/db/_index.md) | Database schema (51 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |

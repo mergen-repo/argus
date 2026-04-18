@@ -9,7 +9,8 @@ export
         clean docker-clean dev start stop backup web-dev web-build \
         vuln-check web-audit \
         test-web security-scan deploy-staging rollback ops-status build-ctl \
-        sim-build sim-up sim-down sim-logs sim-ps
+        sim-build sim-up sim-down sim-logs sim-ps \
+        operator-sim-build operator-sim-logs
 
 help:
 	@echo ""
@@ -75,6 +76,10 @@ help:
 	@echo "    make sim-down        Simulator'u durdur (sadece simulator — argus dokunulmaz)"
 	@echo "    make sim-logs        Simulator loglarini takip et"
 	@echo "    make sim-ps          Simulator durumu"
+	@echo ""
+	@echo "  Operator Simulator (STORY-089):"
+	@echo "    make operator-sim-build  Operator sim imaji build"
+	@echo "    make operator-sim-logs   Operator sim loglarini takip et"
 	@echo ""
 	@echo "  Kisayollar:"
 	@echo "    make dev = deploy-dev    make start = up"
@@ -311,6 +316,14 @@ sim-logs:
 
 sim-ps:
 	@docker compose $(SIM_COMPOSE) ps simulator
+
+# ── Operator Simulator (STORY-089) ──
+
+operator-sim-build: ## Build operator-sim image
+	docker compose -f deploy/docker-compose.yml build operator-sim
+
+operator-sim-logs: ## Tail operator-sim logs
+	docker compose -f deploy/docker-compose.yml logs -f operator-sim
 
 # ── Kisayollar ──
 

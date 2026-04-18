@@ -39,6 +39,11 @@ VALUES (
 -- shared_secret/listen_addr/host/port so the RADIUS adapter factory
 -- consumes the config directly. `mock` sibling with enabled=true keeps
 -- the simulator's RADIUS-style secret lookup path working.
+-- STORY-089 (2026-04-18): added `http` sub-key per operator pointing at
+-- `argus-operator-sim:9595/<operator_code>`. Simulator exposes GET /health,
+-- GET /subscribers/:imsi, POST /cdr under each operator prefix. Only
+-- turkcell/vodafone/turk_telekom get http enabled; the mock operator
+-- (seed 002) does not participate in http routing.
 -- ─────────────────────────────────────────────────────────────
 
 INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, supported_rat_types, health_status, state)
@@ -48,7 +53,7 @@ VALUES
         'Turkcell',
         'turkcell',
         '286', '01',
-        '{"radius":{"enabled":true,"shared_secret":"sim-turkcell-secret-32-chars-long","listen_addr":":1812","host":"radius.turkcell.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-turkcell-secret-32-chars-long","listen_addr":":1812","host":"radius.turkcell.sim.local","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turkcell","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
         ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
         'healthy',
         'active'
@@ -58,7 +63,7 @@ VALUES
         'Vodafone TR',
         'vodafone',
         '286', '02',
-        '{"radius":{"enabled":true,"shared_secret":"sim-vodafone-secret-32-chars-long","listen_addr":":1812","host":"radius.vodafone.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-vodafone-secret-32-chars-long","listen_addr":":1812","host":"radius.vodafone.sim.local","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/vodafone","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
         ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
         'healthy',
         'active'
@@ -68,7 +73,7 @@ VALUES
         'Türk Telekom',
         'turk_telekom',
         '286', '03',
-        '{"radius":{"enabled":true,"shared_secret":"sim-tt-secret-0000000000-32chars","listen_addr":":1812","host":"radius.turktelekom.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-tt-secret-0000000000-32chars","listen_addr":":1812","host":"radius.turktelekom.sim.local","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turk_telekom","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
         ARRAY['nb_iot', 'lte_m', 'lte'],
         'healthy',
         'active'

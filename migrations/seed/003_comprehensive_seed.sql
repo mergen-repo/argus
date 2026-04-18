@@ -123,17 +123,22 @@ ON CONFLICT (domain) DO NOTHING;
 -- sibling is retained with enabled=true so the simulator keeps its
 -- RADIUS-style secret lookup path while no real network handshake is
 -- required in the dev environment.
+-- STORY-089 (2026-04-18): added `http` sub-key per operator pointing at
+-- `argus-operator-sim:9595/<operator_code>`. Simulator exposes GET /health,
+-- GET /subscribers/:imsi, POST /cdr under each operator prefix. Only
+-- turkcell/vodafone_tr/turk_telekom get http enabled; the mock operator
+-- (seed 002) does not participate in http routing.
 INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url, supported_rat_types, health_status, failover_policy, state) VALUES
 ('20000000-0000-0000-0000-000000000001', 'Turkcell', 'turkcell', '286', '01',
- '{"radius":{"enabled":true,"shared_secret":"tc-secret","listen_addr":":1812","host":"radius.turkcell.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
+ '{"radius":{"enabled":true,"shared_secret":"tc-secret","listen_addr":":1812","host":"radius.turkcell.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turkcell","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.turkcell.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'fallback', 'active'),
 ('20000000-0000-0000-0000-000000000002', 'Vodafone TR', 'vodafone_tr', '286', '02',
- '{"radius":{"enabled":true,"shared_secret":"vf-secret","listen_addr":":1812","host":"radius.vodafone.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
+ '{"radius":{"enabled":true,"shared_secret":"vf-secret","listen_addr":":1812","host":"radius.vodafone.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/vodafone_tr","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.vodafone.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'reject', 'active'),
 ('20000000-0000-0000-0000-000000000003', 'Turk Telekom', 'turk_telekom', '286', '03',
- '{"radius":{"enabled":true,"shared_secret":"tt-secret","listen_addr":":1812","host":"radius.turktelekom.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
+ '{"radius":{"enabled":true,"shared_secret":"tt-secret","listen_addr":":1812","host":"radius.turktelekom.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turk_telekom","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
  'https://smdp.turktelekom.com.tr/api/v1',
  ARRAY['lte','nr_5g'], 'degraded', 'queue', 'active')
 ON CONFLICT (code) DO NOTHING;

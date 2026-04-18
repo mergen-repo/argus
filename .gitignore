@@ -60,3 +60,4 @@ tmp/
 deploy/snapshots/*.json
 !deploy/snapshots/.gitkeep
 /simulator
+/operator-sim

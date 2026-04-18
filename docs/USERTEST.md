@@ -2620,3 +2620,13 @@ go test ./internal/operator/... ./internal/api/operator/... ./internal/aaa/radiu
 # Önemli testler: TestHealthChecker_FansOutPerProtocol, TestRegistry_DeleteOperatorHealth,
 # TestTestConnectionForProtocol_422_PROTOCOL_NOT_CONFIGURED, TestOperatorResponse_AdapterConfigSerialization
 ```
+
+## STORY-089: Operator SoR Simulator
+
+1. `make up` — verify all containers including `argus-operator-sim` transition to healthy (`docker compose ps` shows `(healthy)` next to operator-sim).
+2. `curl -s http://localhost:9596/-/health | jq` — expect `{"status":"ok"}`.
+3. Login to UI (http://localhost:8084) as admin → Operators → Turkcell → Protocols tab → HTTP card → click "Test Connection" → expect green success (latency_ms < 500).
+4. Repeat step 3 for Vodafone_TR and Turk_Telekom.
+5. In each operator's Protocols tab, verify HTTP card shows "Enabled" and health status = green.
+6. `curl -s http://localhost:9596/-/metrics | grep operator_sim_requests_total` — expect non-zero counters for all 3 operators.
+7. `curl -s http://localhost:8080/metrics | grep argus_operator_adapter_health_status | grep protocol=\"http\"` — expect gauge value = 1 for each operator.
