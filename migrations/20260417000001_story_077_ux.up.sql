@@ -1,7 +1,7 @@
 -- STORY-077 Task 1: Enterprise UX tables
 -- Creates user_views, announcements, announcement_dismissals,
 -- chart_annotations, user_column_preferences.
--- Adds users.locale and audit_events.impersonated_by columns.
+-- Adds users.locale and audit_logs.impersonated_by columns.
 
 CREATE TABLE IF NOT EXISTS user_views (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -64,4 +64,4 @@ CREATE TABLE IF NOT EXISTS user_column_preferences (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'en'
     CHECK (locale IN ('en','tr'));
 
-ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS impersonated_by UUID NULL REFERENCES users(id);
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS impersonated_by UUID NULL REFERENCES users(id);

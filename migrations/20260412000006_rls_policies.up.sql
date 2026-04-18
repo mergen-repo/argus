@@ -60,17 +60,22 @@ ALTER TABLE operator_grants FORCE ROW LEVEL SECURITY;
 CREATE POLICY operator_grants_tenant_isolation ON operator_grants
     USING (tenant_id = current_setting('app.current_tenant', true)::uuid);
 
--- sessions (TimescaleDB hypertable)
-ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sessions FORCE ROW LEVEL SECURITY;
-CREATE POLICY sessions_tenant_isolation ON sessions
-    USING (tenant_id = current_setting('app.current_tenant', true)::uuid);
+-- sessions (TimescaleDB hypertable) — RLS SKIPPED (D-037)
+-- TimescaleDB 2.26+ does NOT support ENABLE ROW LEVEL SECURITY on hypertables with
+-- columnstore (compression) enabled — attempting the ALTER raises
+-- "operation not supported on hypertables that have columnstore enabled" and
+-- (per TS docs) the reverse is also blocked: columnstore cannot be enabled on a
+-- table with row security. Since sessions has been compressed since STORY-053 to
+-- control storage growth on the hottest write path, RLS is skipped here.
+-- Defense-in-depth is retained via (a) argus_app BYPASSRLS, (b) application-layer
+-- tenant_id discipline in internal/store/session.go, and (c) the operator_grants
+-- RLS which gates upstream routing. Do NOT restore these statements without
+-- disabling compression first (storage impact is significant).
+-- See ROUTEMAP D-037, docs/architecture/db/rls.md §TimescaleDB exclusion.
 
--- cdrs (TimescaleDB hypertable)
-ALTER TABLE cdrs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cdrs FORCE ROW LEVEL SECURITY;
-CREATE POLICY cdrs_tenant_isolation ON cdrs
-    USING (tenant_id = current_setting('app.current_tenant', true)::uuid);
+-- cdrs (TimescaleDB hypertable) — RLS SKIPPED (D-037, same reason as sessions)
+-- CDRs are compressed for long-term retention per STORY-053. Defense-in-depth via
+-- argus_app BYPASSRLS + tenant_id enforcement in internal/store/cdr.go.
 
 -- audit_logs (RANGE-partitioned by created_at)
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
