@@ -30,13 +30,13 @@ groups:
           description: "p99 auth latency is {{ $value }}s."
 
       - alert: ArgusOperatorDown
-        expr: argus_operator_health == 0
+        expr: argus_operator_adapter_health_status == 0
         for: 2m
         labels:
           severity: critical
           service: argus
         annotations:
-          summary: "Argus operator {{ $labels.operator_id }} is DOWN"
+          summary: "Argus operator {{ $labels.operator_id }} protocol {{ $labels.protocol }} is DOWN"
 
       - alert: ArgusCircuitBreakerOpen
         expr: argus_circuit_breaker_state{state="open"} == 1

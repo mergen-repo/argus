@@ -53,13 +53,31 @@ func NewDiameterAdapter(raw json.RawMessage) (*DiameterAdapter, error) {
 	return &DiameterAdapter{config: cfg, hopID: 1}, nil
 }
 
+// HealthCheck issues an RFC 6733 Device-Watchdog-Request (DWR) to the
+// configured Diameter peer and expects a Device-Watchdog-Answer (DWA)
+// with Result-Code 2001 (DIAMETER_SUCCESS). Per STORY-090 Wave 2 Task
+// 5 D3-B, the probe runs on a fresh TCP connection (does NOT reuse
+// the persistent AAA session) so a hung production connection does
+// not mask peer unavailability. Timeout: 3s.
+//
+// Error classification:
+//   - "dial: <err>"          — TCP connect failed (port closed / DNS / unreachable).
+//   - "encode dwr: <err>"    — DWR serialisation failed (should not happen).
+//   - "write: <err>"         — DWR could not be sent.
+//   - "read dwa: <err>"      — no response or transport error after DWR sent.
+//   - "dwa result <N>"       — peer replied with DWA but Result-Code != 2001.
 func (d *DiameterAdapter) HealthCheck(ctx context.Context) HealthResult {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	cfg := d.config
+	d.mu.Unlock()
 
 	start := time.Now()
-	addr := net.JoinHostPort(d.config.Host, strconv.Itoa(d.config.Port))
-	timeout := time.Duration(d.config.TimeoutMs) * time.Millisecond
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	// Task 5 locks a 3s probe timeout.
+	timeout := 3 * time.Second
+	if cfg.TimeoutMs > 0 && time.Duration(cfg.TimeoutMs)*time.Millisecond < timeout {
+		timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
+	}
 
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
@@ -71,9 +89,68 @@ func (d *DiameterAdapter) HealthCheck(ctx context.Context) HealthResult {
 	}
 	defer conn.Close()
 
+	// Use a probe-local hop ID: do NOT mutate d.hopID so the AAA
+	// connection's sequence stays independent.
+	probeHopID := uint32(time.Now().UnixNano() & 0x7fffffff)
+	dwr := diameter.NewRequest(diameter.CommandDWR, diameter.ApplicationIDDiameterBase, probeHopID, probeHopID)
+	originHost := cfg.OriginHost
+	if originHost == "" {
+		originHost = "argus.healthcheck"
+	}
+	originRealm := cfg.OriginRealm
+	if originRealm == "" {
+		originRealm = "argus.local"
+	}
+	dwr.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginHost, diameter.AVPFlagMandatory, 0, originHost))
+	dwr.AddAVP(diameter.NewAVPString(diameter.AVPCodeOriginRealm, diameter.AVPFlagMandatory, 0, originRealm))
+
+	dwrData, err := dwr.Encode()
+	if err != nil {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: int(time.Since(start).Milliseconds()),
+			Error:     fmt.Sprintf("encode dwr: %v", err),
+		}
+	}
+
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: int(time.Since(start).Milliseconds()),
+			Error:     fmt.Sprintf("set deadline: %v", err),
+		}
+	}
+
+	if _, err := conn.Write(dwrData); err != nil {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: int(time.Since(start).Milliseconds()),
+			Error:     fmt.Sprintf("write: %v", err),
+		}
+	}
+
+	dwa, err := d.readMessage(conn, timeout)
+	latencyMs := int(time.Since(start).Milliseconds())
+	if err != nil {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("read dwa: %v", err),
+		}
+	}
+
+	resultCode := dwa.GetResultCode()
+	if resultCode != diameter.ResultCodeSuccess {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("dwa result %d", resultCode),
+		}
+	}
+
 	return HealthResult{
 		Success:   true,
-		LatencyMs: int(time.Since(start).Milliseconds()),
+		LatencyMs: latencyMs,
 	}
 }
 

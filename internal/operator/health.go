@@ -10,6 +10,7 @@ import (
 	"github.com/btopcu/argus/internal/crypto"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/operator/adapter"
+	"github.com/btopcu/argus/internal/operator/adapterschema"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -27,6 +28,15 @@ type CachedHealth struct {
 	CheckedAt    string `json:"checked_at"`
 }
 
+// healthKey mirrors the adapter-registry / router adapterKey shape.
+// STORY-090 Wave 2 Task 3: health state is tracked per (operator,
+// protocol) tuple so one operator can fan out probes across multiple
+// protocols independently.
+type healthKey struct {
+	OperatorID uuid.UUID
+	Protocol   string
+}
+
 type HealthChecker struct {
 	store         *store.OperatorStore
 	registry      *adapter.Registry
@@ -39,13 +49,19 @@ type HealthChecker struct {
 	alertSubject  string
 	metricsReg    *obsmetrics.Registry
 
-	mu             sync.Mutex
-	breakers       map[uuid.UUID]*CircuitBreaker
-	stopChs        map[uuid.UUID]chan struct{}
-	lastStatus     map[uuid.UUID]string
-	operatorNames  map[uuid.UUID]string
-	wg             sync.WaitGroup
-	stopped        bool
+	mu            sync.Mutex
+	breakers      map[healthKey]*CircuitBreaker
+	// stopChs is keyed by operator ID — STORY-090 Gate (F-A5): a
+	// single ticker per operator iterates enabled protocols
+	// sequentially per tick, replacing the Wave-2 per-protocol
+	// goroutine fan-out. Scaling implication: 100 ops × 5 protocols
+	// = 1 goroutine (not 5) per op, keeping the probe pool bounded
+	// to N_operators instead of N_operators × N_protocols.
+	stopChs       map[uuid.UUID]chan struct{}
+	lastStatus    map[healthKey]string
+	operatorNames map[uuid.UUID]string
+	wg            sync.WaitGroup
+	stopped       bool
 }
 
 func NewHealthChecker(
@@ -61,9 +77,9 @@ func NewHealthChecker(
 		redisClient:   redisClient,
 		encryptionKey: encryptionKey,
 		logger:        logger.With().Str("component", "health_checker").Logger(),
-		breakers:      make(map[uuid.UUID]*CircuitBreaker),
+		breakers:      make(map[healthKey]*CircuitBreaker),
 		stopChs:       make(map[uuid.UUID]chan struct{}),
-		lastStatus:    make(map[uuid.UUID]string),
+		lastStatus:    make(map[healthKey]string),
 		operatorNames: make(map[uuid.UUID]string),
 	}
 }
@@ -87,8 +103,8 @@ func (hc *HealthChecker) SetMetricsRegistry(reg *obsmetrics.Registry) {
 	hc.metricsReg = reg
 	// Attach the transition hook to every breaker already running so
 	// existing loops also publish state changes.
-	for opID, cb := range hc.breakers {
-		hc.attachBreakerHookLocked(opID, cb)
+	for k, cb := range hc.breakers {
+		hc.attachBreakerHookLocked(k.OperatorID, cb)
 	}
 }
 
@@ -129,35 +145,154 @@ func (hc *HealthChecker) Start(ctx context.Context) error {
 	return nil
 }
 
-func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
-	cb := NewCircuitBreaker(op.CircuitBreakerThreshold, op.CircuitBreakerRecoverySec)
-	hc.breakers[op.ID] = cb
-	hc.operatorNames[op.ID] = op.Name
-	hc.lastStatus[op.ID] = op.HealthStatus
-	// Wire the breaker's transition hook to the Prometheus gauge (if
-	// metrics are enabled). Also publishes the initial health status.
-	hc.attachBreakerHookLocked(op.ID, cb)
-	if hc.metricsReg != nil {
-		hc.metricsReg.SetOperatorHealth(op.ID.String(), op.HealthStatus)
+// normalizeAdapterConfig decrypts (if a key is set), detects the
+// shape, and up-converts any legacy flat adapter_config to the
+// canonical nested shape. Re-persists legacy rows back to the DB as
+// a best-effort side effect so subsequent reads hit the fast path.
+// Returns the plaintext adapter_config (nested on success, or the
+// decrypted bytes unchanged on any error — callers tolerate this to
+// keep probes running through corrupted envelopes). See
+// STORY-090-plan.md §Decision Points > D1 / D1-A.
+func (hc *HealthChecker) normalizeAdapterConfig(ctx context.Context, op store.Operator) json.RawMessage {
+	raw := op.AdapterConfig
+	if len(raw) == 0 {
+		return raw
 	}
+	plaintext := raw
+	if hc.encryptionKey != "" {
+		if decrypted, err := crypto.DecryptJSON(raw, hc.encryptionKey); err == nil {
+			plaintext = decrypted
+		} else {
+			hc.logger.Warn().Err(err).Str("operator_id", op.ID.String()).Msg("health checker: decrypt adapter_config failed; using raw")
+			return raw
+		}
+	}
+	shape, detectErr := adapterschema.DetectShape(plaintext)
+	if detectErr != nil && detectErr != adapterschema.ErrShapeUnknown {
+		// Invalid JSON post-decrypt. The probe still runs against the
+		// raw bytes below — the adapter factory's own JSON decode
+		// will catch this. Log once for operator visibility.
+		hc.logger.Warn().Err(detectErr).Str("operator_id", op.ID.String()).Msg("health checker: adapter_config shape detect failed")
+		return plaintext
+	}
+	if shape == adapterschema.ShapeNested {
+		return plaintext
+	}
+	// Legacy flat (or ShapeUnknown with hint): up-convert + re-persist.
+	// Hint derivation: post-Wave-2 we no longer persist AdapterType on
+	// the operator row, so the hint comes from the detected shape's
+	// canonical protocol (shapeToProtocol via adapterschema) or empty
+	// — UpConvert tolerates empty hints for shapes it can classify.
+	n, err := adapterschema.UpConvert(plaintext, "")
+	if err != nil {
+		hc.logger.Warn().Err(err).Str("operator_id", op.ID.String()).Msg("health checker: adapter_config up-convert failed")
+		return plaintext
+	}
+	nested, err := adapterschema.MarshalNested(n)
+	if err != nil {
+		hc.logger.Warn().Err(err).Str("operator_id", op.ID.String()).Msg("health checker: marshal nested adapter_config failed")
+		return plaintext
+	}
+	hc.logger.Info().
+		Str("op", "adapter_config_upconvert").
+		Str("operator_id", op.ID.String()).
+		Str("old_shape", shape.String()).
+		Str("new_shape", "nested").
+		Msg("health checker: upconverted legacy adapter_config to nested shape")
+	// Best-effort re-persist (skipped if store is nil — exercised by
+	// unit tests that inject nested-only fixtures).
+	if hc.store != nil {
+		toPersist := nested
+		if hc.encryptionKey != "" {
+			if enc, encErr := crypto.EncryptJSON(nested, hc.encryptionKey); encErr == nil {
+				toPersist = enc
+			} else {
+				hc.logger.Warn().Err(encErr).Str("operator_id", op.ID.String()).Msg("health checker: re-encrypt upconverted config failed; skipping re-persist")
+				return nested
+			}
+		}
+		if _, upErr := hc.store.Update(ctx, op.ID, store.UpdateOperatorParams{AdapterConfig: toPersist}); upErr != nil {
+			hc.logger.Warn().Err(upErr).Str("operator_id", op.ID.String()).Msg("health checker: re-persist upconverted config failed")
+		}
+	}
+	return nested
+}
 
-	stopCh := make(chan struct{})
-	hc.stopChs[op.ID] = stopCh
+// startOperatorLoop launches a single ticker goroutine per operator
+// that iterates the operator's enabled protocols sequentially on each
+// tick. STORY-090 Wave 2 Task 3 + Gate (F-A5): per-protocol breakers
+// and metric series are preserved — only the ticker pool collapses
+// from N_operators × N_protocols goroutines to N_operators goroutines.
+//
+// The protocol list is computed ONCE at loop start; if the operator's
+// adapter_config changes via PATCH, the caller must invoke
+// RefreshOperator to tear down + rebuild. An operator with zero
+// enabled protocols still runs the ticker (so RefreshOperator works
+// idempotently), but probes no-op until protocols are enabled.
+//
+// Each tick calls checkOperator sequentially per protocol. Acceptable
+// trade-off: 5 protocols × ~500ms probe ≤ 3s, far under the default
+// 30s interval. One slow probe delays the next protocol in the same
+// tick but NOT the next tick (ticker continues to fire on schedule;
+// drift is bounded by the last protocol's probe time, not cumulative).
+func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
+	hc.operatorNames[op.ID] = op.Name
 
 	interval := time.Duration(op.HealthCheckIntervalSec) * time.Second
 	if interval < time.Second {
 		interval = 30 * time.Second
 	}
 
-	adapterConfig := op.AdapterConfig
-	if hc.encryptionKey != "" {
-		if decrypted, err := crypto.DecryptJSON(adapterConfig, hc.encryptionKey); err == nil {
-			adapterConfig = decrypted
+	// Decrypt + up-convert + parse: nested post-Wave-1 plaintext drives
+	// per-protocol iteration. Failure → treat as a single mock-ish loop
+	// so the operator is still observable. This preserves Wave-1
+	// behaviour for corrupted envelopes / raw fallback cases.
+	plaintext := hc.normalizeAdapterConfig(context.Background(), op)
+
+	type protocolProbe struct {
+		name   string
+		config json.RawMessage
+		cb     *CircuitBreaker
+	}
+	var probes []protocolProbe
+
+	parsed, parseErr := adapterschema.ParseNested(plaintext)
+	if parseErr != nil {
+		hc.logger.Warn().Err(parseErr).Str("operator_id", op.ID.String()).Msg("health checker: parse nested adapter_config failed; using mock fallback")
+		probes = []protocolProbe{{name: "mock", config: plaintext}}
+	} else {
+		enabled := adapterschema.DeriveEnabledProtocols(parsed)
+		if len(enabled) == 0 {
+			hc.logger.Info().Str("operator_id", op.ID.String()).Msg("health checker: operator has zero enabled protocols; ticker still running as no-op")
+		}
+		probes = make([]protocolProbe, 0, len(enabled))
+		for _, protocol := range enabled {
+			probes = append(probes, protocolProbe{
+				name:   protocol,
+				config: adapterschema.SubConfigRaw(parsed, protocol),
+			})
 		}
 	}
 
+	// Register per-protocol breakers + seed per-protocol gauges before
+	// the ticker starts so the first tick already has state to read.
+	for i := range probes {
+		cb := NewCircuitBreaker(op.CircuitBreakerThreshold, op.CircuitBreakerRecoverySec)
+		key := healthKey{OperatorID: op.ID, Protocol: probes[i].name}
+		hc.breakers[key] = cb
+		hc.lastStatus[key] = op.HealthStatus
+		hc.attachBreakerHookLocked(op.ID, cb)
+		if hc.metricsReg != nil {
+			hc.metricsReg.SetOperatorHealth(op.ID.String(), probes[i].name, op.HealthStatus)
+		}
+		probes[i].cb = cb
+	}
+
+	stopCh := make(chan struct{})
+	hc.stopChs[op.ID] = stopCh
+
 	hc.wg.Add(1)
-	go func(opID uuid.UUID, adapterType string, cfg json.RawMessage, tick time.Duration, intSec int) {
+	go func(opID uuid.UUID, ps []protocolProbe, tick time.Duration, intSec int) {
 		defer hc.wg.Done()
 
 		ticker := time.NewTicker(tick)
@@ -168,10 +303,12 @@ func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
 			case <-stopCh:
 				return
 			case <-ticker.C:
-				hc.checkOperator(opID, adapterType, cfg, cb, intSec)
+				for _, p := range ps {
+					hc.checkOperator(opID, p.name, p.config, p.cb, intSec)
+				}
 			}
 		}
-	}(op.ID, op.AdapterType, adapterConfig, interval, op.HealthCheckIntervalSec)
+	}(op.ID, probes, interval, op.HealthCheckIntervalSec)
 }
 
 func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, config json.RawMessage, cb *CircuitBreaker, intervalSec int) {
@@ -180,7 +317,7 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 
 	a, err := hc.registry.GetOrCreate(opID, adapterType, config)
 	if err != nil {
-		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("create adapter for health check")
+		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Str("protocol", adapterType).Msg("create adapter for health check")
 		return
 	}
 
@@ -216,7 +353,7 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 	metricsReg := hc.metricsReg
 	hc.mu.Unlock()
 	if metricsReg != nil {
-		metricsReg.SetOperatorHealth(opID.String(), status)
+		metricsReg.SetOperatorHealth(opID.String(), adapterType, status)
 	}
 
 	var latencyMs *int
@@ -228,12 +365,14 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		errorMsg = &result.Error
 	}
 
-	if err := hc.store.InsertHealthLog(ctx, opID, status, latencyMs, errorMsg, string(cbState)); err != nil {
-		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("insert health log")
-	}
+	if hc.store != nil {
+		if err := hc.store.InsertHealthLog(ctx, opID, status, latencyMs, errorMsg, string(cbState)); err != nil {
+			hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("insert health log")
+		}
 
-	if err := hc.store.UpdateHealthStatus(ctx, opID, status); err != nil {
-		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("update health status")
+		if err := hc.store.UpdateHealthStatus(ctx, opID, status); err != nil {
+			hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("update health status")
+		}
 	}
 
 	if hc.redisClient != nil {
@@ -256,10 +395,11 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		hc.slaTracker.RecordLatency(ctx, opID, result.LatencyMs)
 	}
 
+	hkey := healthKey{OperatorID: opID, Protocol: adapterType}
 	hc.mu.Lock()
-	prevStatus := hc.lastStatus[opID]
+	prevStatus := hc.lastStatus[hkey]
 	opName := hc.operatorNames[opID]
-	hc.lastStatus[opID] = status
+	hc.lastStatus[hkey] = status
 	hc.mu.Unlock()
 
 	if prevStatus != status && hc.eventPub != nil && hc.healthSubject != "" {
@@ -278,6 +418,7 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		} else {
 			hc.logger.Info().
 				Str("operator_id", opID.String()).
+				Str("protocol", adapterType).
 				Str("from", prevStatus).
 				Str("to", status).
 				Msg("operator health changed event published")
@@ -355,25 +496,65 @@ func (hc *HealthChecker) Stop() {
 		return
 	}
 	hc.stopped = true
+	// Close all per-operator ticker channels.
 	for _, ch := range hc.stopChs {
 		close(ch)
 	}
+	// Snapshot the gauge series to retire + the metrics registry while
+	// still under the lock; perform the actual DeleteLabelValues AFTER
+	// wg.Wait so a mid-tick goroutine cannot re-create the series via
+	// SetOperatorHealth between delete and goroutine exit.
+	reg := hc.metricsReg
+	pendingDeletes := make([]healthKey, 0, len(hc.breakers))
+	if reg != nil {
+		for k := range hc.breakers {
+			pendingDeletes = append(pendingDeletes, k)
+		}
+	}
 	hc.mu.Unlock()
 	hc.wg.Wait()
+	// STORY-090 Gate (F-A1): retire every per-(op, protocol) gauge
+	// series now that all goroutines have exited. Series cannot
+	// resurrect.
+	if reg != nil {
+		for _, k := range pendingDeletes {
+			reg.DeleteOperatorHealth(k.OperatorID.String(), k.Protocol)
+		}
+	}
 	hc.logger.Info().Msg("health checker stopped")
 }
 
+// RefreshOperator tears down every protocol loop for the operator, then
+// re-reads the row and re-fans-out. Used when adapter_config changes
+// in the HTTP handler — the registry is purged at all protocols so
+// fresh adapter instances pick up the new config.
 func (hc *HealthChecker) RefreshOperator(ctx context.Context, opID uuid.UUID) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
+	// Close the per-operator ticker. STORY-090 Gate (F-A5): one stopCh
+	// per operator now, not per (op, protocol).
 	if ch, ok := hc.stopChs[opID]; ok {
 		close(ch)
 		delete(hc.stopChs, opID)
-		delete(hc.breakers, opID)
-		delete(hc.lastStatus, opID)
-		delete(hc.operatorNames, opID)
 	}
+	// Drop every per-protocol breaker + lastStatus + gauge series for
+	// the operator; startOperatorLoop will re-create them from the
+	// refreshed adapter_config.
+	for k := range hc.breakers {
+		if k.OperatorID == opID {
+			delete(hc.breakers, k)
+			delete(hc.lastStatus, k)
+			// STORY-090 Gate (F-A1): drop the stale gauge series so a
+			// protocol disabled via PATCH stops reporting as "last
+			// known status" forever. A fresh series is created on the
+			// next startOperatorLoop for any still-enabled protocols.
+			if hc.metricsReg != nil {
+				hc.metricsReg.DeleteOperatorHealth(opID.String(), k.Protocol)
+			}
+		}
+	}
+	delete(hc.operatorNames, opID)
 
 	hc.registry.Remove(opID)
 
@@ -423,8 +604,10 @@ func (hc *HealthChecker) GetCachedHealth(ctx context.Context, opID uuid.UUID) (*
 	}, nil
 }
 
-func (hc *HealthChecker) GetCircuitBreaker(opID uuid.UUID) *CircuitBreaker {
+// GetCircuitBreaker returns the breaker for (opID, protocol), or nil
+// if none exists. STORY-090 Wave 2: protocol argument gained.
+func (hc *HealthChecker) GetCircuitBreaker(opID uuid.UUID, protocol string) *CircuitBreaker {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	return hc.breakers[opID]
+	return hc.breakers[healthKey{OperatorID: opID, Protocol: protocol}]
 }

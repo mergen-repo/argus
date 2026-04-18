@@ -21,7 +21,7 @@
 │                    │                           │ │4.5M │ │  8  │              │
 │                    │                           │ └─────┘ └─────┘              │
 │                    ├───────────────────────────┴────────────────────────────────┤
-│                    │ [◉ Health] [SLA] [SIMs] [APNs] [Config]                   │
+│                    │ [◉ Health] [SLA] [SIMs] [APNs] [Config] [Protocols]        │
 │                    ├────────────────────────────────────────────────────────────┤
 │                    │                                                            │
 │                    │ Health Timeline (24h)                                      │
@@ -54,6 +54,8 @@
 ```
 
 ## API References
+- API-306: GET /api/v1/operators/:id (detail — returns masked adapter_config; added STORY-090 F-A2)
 - API-022: PATCH /api/v1/operators/:id
 - API-023: GET /api/v1/operators/:id/health
-- API-024: POST /api/v1/operators/:id/test
+- API-024: POST /api/v1/operators/:id/test (legacy)
+- API-307: POST /api/v1/operators/:id/test/:protocol (per-protocol; added STORY-090)

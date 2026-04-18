@@ -113,6 +113,6 @@ docs/            → All documentation
 ## Active Session
 
 - Mode: SEQUENTIAL (advisor-forced order 092 DONE → 090 → 089; no AUTOPILOT — user-approved 2026-04-17)
-- Phase: Runtime Alignment [IN PROGRESS] — 1/3 (STORY-092 DONE 2026-04-18)
-- Story: STORY-090 (Multi-protocol operator adapter refactor)
+- Phase: Runtime Alignment [IN PROGRESS] — 2/3 (STORY-092 DONE 2026-04-18; STORY-090 DONE 2026-04-18)
+- Story: STORY-089 (Operator SoR Simulator)
 - Step: Plan

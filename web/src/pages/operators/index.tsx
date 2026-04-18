@@ -14,7 +14,6 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { EmptyState } from '@/components/shared/empty-state'
@@ -34,6 +33,7 @@ const ADAPTER_DISPLAY: Record<string, string> = {
   radius: 'RADIUS',
   diameter: 'Diameter',
   sba: '5G SBA',
+  http: 'HTTP',
 }
 
 const FAILOVER_DISPLAY: Record<string, string> = {
@@ -127,9 +127,21 @@ function OperatorCard({ operator, onClick, assigned }: { operator: Operator; onC
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-medium">
-            {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
-          </span>
+          {operator.enabled_protocols && operator.enabled_protocols.length > 0 ? (
+            operator.enabled_protocols.slice(0, 3).map((proto) => (
+              <span
+                key={proto}
+                className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-medium"
+              >
+                {ADAPTER_DISPLAY[proto] ?? proto}
+              </span>
+            ))
+          ) : (
+            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">—</span>
+          )}
+          {operator.enabled_protocols && operator.enabled_protocols.length > 3 && (
+            <span className="text-[10px] text-text-tertiary">+{operator.enabled_protocols.length - 3}</span>
+          )}
           {operator.supported_rat_types.slice(0, 4).map((rat) => (
             <span
               key={rat}
@@ -182,15 +194,6 @@ function OperatorCardSkeleton() {
   )
 }
 
-const ADAPTER_OPTIONS = [
-  { value: 'mock', label: 'Mock' },
-  { value: 'radius', label: 'RADIUS' },
-  { value: 'diameter', label: 'Diameter' },
-  { value: 'sba', label: '5G SBA' },
-]
-
-const PROTOCOL_OPTIONS = ['radius', 'diameter', 'sba'] as const
-
 const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
 function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -199,21 +202,10 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
     code: '',
     mcc: '',
     mnc: '',
-    adapter_type: 'mock',
-    supported_protocols: [] as string[],
     supported_rat_types: [] as string[],
   })
   const [error, setError] = useState<string | null>(null)
   const createMutation = useCreateOperator()
-
-  const toggleProtocol = (proto: string) => {
-    setForm((f) => ({
-      ...f,
-      supported_protocols: f.supported_protocols.includes(proto)
-        ? f.supported_protocols.filter((p) => p !== proto)
-        : [...f.supported_protocols, proto],
-    }))
-  }
 
   const toggleRat = (rat: string) => {
     setForm((f) => ({
@@ -231,15 +223,20 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
     if (!form.mcc.trim()) { setError('MCC is required'); return }
     if (!form.mnc.trim()) { setError('MNC is required'); return }
     try {
+      // STORY-090 Wave 3 Task 7c: Create form seeds a minimal mock
+      // adapter_config so the backend handler accepts the body. Full
+      // multi-protocol configuration happens in the detail page's
+      // Protocols tab.
       await createMutation.mutateAsync({
         name: form.name.trim(),
         code: form.code.trim(),
         mcc: form.mcc.trim(),
         mnc: form.mnc.trim(),
-        adapter_type: form.adapter_type,
+        adapter_config: { mock: { enabled: true } },
         supported_rat_types: form.supported_rat_types,
       })
-      setForm({ name: '', code: '', mcc: '', mnc: '', adapter_type: 'mock', supported_protocols: [], supported_rat_types: [] })
+      setForm({ name: '', code: '', mcc: '', mnc: '', supported_rat_types: [] })
+      toast.success('Operator created. Configure protocols in the Protocols tab.')
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -288,36 +285,10 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
             />
           </div>
         </div>
-        <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
-          <Select
-            value={form.adapter_type}
-            onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))}
-            className="h-8 text-sm"
-            options={ADAPTER_OPTIONS}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported Protocols</label>
-          <div className="flex flex-wrap gap-2">
-            {PROTOCOL_OPTIONS.map((proto) => (
-              <Button
-                key={proto}
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => toggleProtocol(proto)}
-                className={cn(
-                  'px-2.5 py-1 h-auto text-xs font-mono border transition-colors',
-                  form.supported_protocols.includes(proto)
-                    ? 'border-accent bg-accent-dim text-accent hover:bg-accent-dim hover:text-accent'
-                    : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
-                )}
-              >
-                {proto === 'sba' ? '5G SBA' : proto.toUpperCase()}
-              </Button>
-            ))}
-          </div>
+        <div className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2.5">
+          <p className="text-xs text-text-secondary">
+            Protocol configuration (RADIUS, Diameter, 5G SBA, HTTP, Mock) is managed from the operator detail page's <span className="font-semibold text-text-primary">Protocols</span> tab. The new operator boots with Mock enabled.
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>

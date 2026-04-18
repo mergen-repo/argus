@@ -121,9 +121,11 @@ func TestEnforcerNilCacheIntegration_STORY092(t *testing.T) {
 	}
 
 	var operatorID uuid.UUID
+	// STORY-090 Wave 2 D2-B: adapter_type column dropped — the
+	// nested adapter_config JSONB carries the per-protocol flags.
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO operators (code, name, mcc, mnc, adapter_type, state)
-		VALUES ('STY092', 'STORY-092 Operator', '286', '99', 'radius', 'active')
+		INSERT INTO operators (code, name, mcc, mnc, adapter_config, state)
+		VALUES ('STY092', 'STORY-092 Operator', '286', '99', '{"radius":{"enabled":true}}'::jsonb, 'active')
 		RETURNING id`).Scan(&operatorID); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}

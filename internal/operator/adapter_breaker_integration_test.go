@@ -87,14 +87,14 @@ func TestCircuitBreaker_Integration_OpensAfter5Failures(t *testing.T) {
 
 	// Fire exactly threshold calls to trip the breaker.
 	for i := 0; i < threshold; i++ {
-		_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "286010000000001"})
+		_, _ = router.ForwardAuth(context.Background(), opID, "slow_fail", adapter.AuthRequest{IMSI: "286010000000001"})
 	}
 
 	if got := spy.calls.Load(); got != threshold {
 		t.Fatalf("expected %d adapter calls before open, got %d", threshold, got)
 	}
 
-	cb := router.GetCircuitBreaker(opID)
+	cb := router.GetCircuitBreaker(opID, "slow_fail")
 	if cb == nil {
 		t.Fatal("circuit breaker not found for operator")
 	}
@@ -104,7 +104,7 @@ func TestCircuitBreaker_Integration_OpensAfter5Failures(t *testing.T) {
 
 	// 6th call: measure round-trip time; adapter must NOT be reached.
 	start := time.Now()
-	_, err := router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "286010000000001"})
+	_, err := router.ForwardAuth(context.Background(), opID, "slow_fail", adapter.AuthRequest{IMSI: "286010000000001"})
 	elapsed := time.Since(start)
 
 	if err == nil {

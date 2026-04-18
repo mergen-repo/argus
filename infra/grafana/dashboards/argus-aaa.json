@@ -122,10 +122,10 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "argus_operator_health",
+          "expr": "argus_operator_adapter_health_status",
           "refId": "A",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "legendFormat": "{{operator_id}}"
+          "legendFormat": "{{operator_id}} / {{protocol}}"
         }
       ],
       "fieldConfig": {

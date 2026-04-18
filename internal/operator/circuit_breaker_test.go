@@ -210,13 +210,13 @@ func TestCircuitBreaker_OpenBlocksAdapterCall(t *testing.T) {
 	router.RegisterOperator(opID, spy, 1, 60)
 
 	// First call trips the breaker (spy returns error)
-	_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "123"})
+	_, _ = router.ForwardAuth(context.Background(), opID, "spy", adapter.AuthRequest{IMSI: "123"})
 	if spy.calls.Load() != 1 {
 		t.Fatalf("spy should have been called once to fail, got %d", spy.calls.Load())
 	}
 
 	// Circuit should now be open — next call must NOT reach the adapter
-	_, err := router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "123"})
+	_, err := router.ForwardAuth(context.Background(), opID, "spy", adapter.AuthRequest{IMSI: "123"})
 	if err == nil {
 		t.Fatal("expected error when circuit is open")
 	}

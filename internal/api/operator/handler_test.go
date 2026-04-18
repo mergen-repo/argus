@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,7 +26,6 @@ func TestToOperatorResponse(t *testing.T) {
 		Code:                      "turkcell",
 		MCC:                       "286",
 		MNC:                       "01",
-		AdapterType:               "mock",
 		SupportedRATTypes:         []string{"lte", "nr_5g"},
 		HealthStatus:              "healthy",
 		HealthCheckIntervalSec:    30,
@@ -38,7 +39,9 @@ func TestToOperatorResponse(t *testing.T) {
 		UpdatedAt:                 now,
 	}
 
-	resp := toOperatorResponse(o)
+	// STORY-090 Wave 2 D2-B: enabledProtocols is now the second
+	// argument; it replaces the legacy `adapter_type` field.
+	resp := toOperatorResponse(o, []string{"mock"})
 
 	if resp.ID != o.ID.String() {
 		t.Errorf("ID = %q, want %q", resp.ID, o.ID.String())
@@ -55,8 +58,8 @@ func TestToOperatorResponse(t *testing.T) {
 	if resp.MNC != "01" {
 		t.Errorf("MNC = %q, want %q", resp.MNC, "01")
 	}
-	if resp.AdapterType != "mock" {
-		t.Errorf("AdapterType = %q, want %q", resp.AdapterType, "mock")
+	if len(resp.EnabledProtocols) != 1 || resp.EnabledProtocols[0] != "mock" {
+		t.Errorf("EnabledProtocols = %v, want [mock]", resp.EnabledProtocols)
 	}
 	if len(resp.SupportedRATTypes) != 2 {
 		t.Errorf("SupportedRATTypes len = %d, want 2", len(resp.SupportedRATTypes))
@@ -82,12 +85,18 @@ func TestToOperatorResponseNilRATTypes(t *testing.T) {
 		UpdatedAt:     time.Now(),
 	}
 
-	resp := toOperatorResponse(o)
+	resp := toOperatorResponse(o, nil)
 	if resp.SupportedRATTypes == nil {
 		t.Error("SupportedRATTypes should never be nil in response")
 	}
 	if len(resp.SupportedRATTypes) != 0 {
 		t.Errorf("SupportedRATTypes len = %d, want 0", len(resp.SupportedRATTypes))
+	}
+	if resp.EnabledProtocols == nil {
+		t.Error("EnabledProtocols should never be nil in response")
+	}
+	if len(resp.EnabledProtocols) != 0 {
+		t.Errorf("EnabledProtocols len = %d, want 0", len(resp.EnabledProtocols))
 	}
 }
 
@@ -137,19 +146,10 @@ func TestToGrantResponseNoGrantedBy(t *testing.T) {
 	}
 }
 
-func TestValidAdapterTypes(t *testing.T) {
-	valid := []string{"mock", "radius", "diameter", "sba"}
-	for _, v := range valid {
-		if !validAdapterTypes[v] {
-			t.Errorf("%q should be valid adapter type", v)
-		}
-	}
-
-	if validAdapterTypes["http"] {
-		t.Error("http should not be valid adapter type")
-	}
-}
-
+// TestValidAdapterTypes (Wave 2 D2-B): the legacy validAdapterTypes
+// map was removed. The test that enforced its contents is retired in
+// this wave; kept here as a regression marker so future attempts to
+// re-introduce the map show up in PR diff.
 func TestValidFailoverPolicies(t *testing.T) {
 	valid := []string{"reject", "fallback_to_next", "queue_with_timeout"}
 	for _, v := range valid {
@@ -188,42 +188,37 @@ func TestCreateValidation(t *testing.T) {
 		},
 		{
 			name:     "missing name",
-			body:     `{"code":"tc","mcc":"286","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"code":"tc","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "missing code",
-			body:     `{"name":"TC","mcc":"286","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "missing mcc",
-			body:     `{"name":"TC","code":"tc","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "invalid mcc length",
-			body:     `{"name":"TC","code":"tc","mcc":"28","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"28","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "invalid mnc length",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"0","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"0","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
-			name:     "missing adapter_type",
+			name:     "missing adapter_config",
 			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01"}`,
 			wantCode: 422,
 		},
 		{
-			name:     "invalid adapter_type",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_type":"unknown"}`,
-			wantCode: 422,
-		},
-		{
 			name:     "invalid failover_policy",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_type":"mock","failover_policy":"invalid"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}},"failover_policy":"invalid"}`,
 			wantCode: 422,
 		},
 		{
@@ -528,5 +523,135 @@ func TestGetMetrics_InvalidWindow(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------
+// STORY-090 Wave 3 Task 7a: per-protocol TestConnection tests.
+//
+// These tests exercise the `testConnectionForProtocol` helper directly
+// (uses a real adapter Registry + Store.Operator fixture — no DB) plus
+// the HTTP surface of `TestConnectionForProtocol` for the validation-
+// only edges (invalid ID, invalid protocol name). Happy-path HTTP
+// coverage is deferred to the integration smoke (Task 8) because the
+// handler requires a wired OperatorStore to look up the operator row.
+// ---------------------------------------------------------------------
+
+func TestTestConnection_PerProtocol_InvalidProtocolName(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Post("/operators/{id}/test/{protocol}", h.TestConnectionForProtocol)
+
+	req := httptest.NewRequest(http.MethodPost, "/operators/"+uuid.New().String()+"/test/nonsense", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Invalid protocol") {
+		t.Errorf("body does not mention invalid protocol: %s", w.Body.String())
+	}
+}
+
+func TestTestConnection_PerProtocol_InvalidOperatorID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Post("/operators/{id}/test/{protocol}", h.TestConnectionForProtocol)
+
+	req := httptest.NewRequest(http.MethodPost, "/operators/not-a-uuid/test/mock", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperMockHappyPath(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"mock":{"enabled":true,"latency_ms":5}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "mock", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if !resp.Success {
+		t.Errorf("Success = false, want true — mock HealthCheck should succeed")
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsDisabledProtocol(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	// radius enabled, sba disabled (not listed) — asking for sba must 422.
+	nested := json.RawMessage(`{"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 for disabled protocol", status)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsInvalidProtocolName(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"mock":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "nonsense", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for invalid protocol name", status)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsExplicitDisabled(t *testing.T) {
+	// Both radius and sba present; sba.enabled=false. Asking for sba
+	// must 422 (not enabled) even though the sub-key is present.
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"},"sba":{"enabled":false,"nrf_url":"https://nrf.example"}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 for explicitly disabled protocol", status)
 	}
 }

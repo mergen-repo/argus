@@ -2543,3 +2543,80 @@ go test ./... 2>&1 | tail -n 5
 # Beklenen: 3024 PASS no-DB / 3057 PASS with-DB
 # 15 pre-existing DB FAIL unchanged (BackupStore×2, BackupCodeStore×8, FreshVolumeBootstrap_STORY087, DownChain_STORY087, PasswordHistory×3)
 ```
+
+## STORY-090: Multi-protocol operator adapter refactor
+
+Operator Protocols sekmesi UI test senaryoları. `make up` + `make db-migrate` + `make db-seed` ile tam çalışan ortam gerekmektedir. Testler freshly-built argus-app'e karşı çalıştırılmalı (stale binary riski: `docker images argus-argus` tarihini kontrol et).
+
+### 1. Protocols sekmesi — ilk render doğrulama (AC-4)
+
+```bash
+# Navigate: http://localhost:8084/operators/<id>
+# Protocols sekmesine tıkla
+# Beklenen: 5 kart (RADIUS / Diameter / SBA / HTTP / Mock), her biri "ENABLED" veya "DISABLED" badge'i
+# ile ilk renderda doğru durumu gösterir (F-A2 sonrası useOperator detail endpoint'den gelir)
+# NOT: Eski davranış — "all disabled on first render" görünürse useOperator list-filter yerine
+# GET /api/v1/operators/:id detail endpoint'i kullanmıyor demektir.
+```
+
+### 2. Header chip derivation — enabled protocols chip listesi (AC-6)
+
+```bash
+# Navigate: http://localhost:8084/operators
+# Bir operatör satırına tıkla → Operatör detay sayfası
+# Beklenen: header bölümünde adapter_type string yerine
+# enabled_protocols dizisinden türetilen chip listesi görünür (örn. "RADIUS · MOCK")
+# Doğrulama: adapter_type alanı görünmemeli; chip'ler adapter_config.*.enabled=true ile örtüşmeli
+```
+
+### 3. Per-protocol Test Connection (AC-3)
+
+```bash
+# Navigate: http://localhost:8084/operators/<id>/protocols
+# Mock kartında "Test Connection" butonuna tıkla
+# Beklenen: success toast → "Mock test passed (latency: ~Nms)"
+#
+# Curl ile doğrulama:
+export TOKEN="$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.access_token')"
+curl -s -X POST "http://localhost:8084/api/v1/operators/<id>/test/mock" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+# Beklenen: {"status":"success","data":{"protocol":"mock","success":true,"latency_ms":N}}
+```
+
+### 4. PROTOCOL_NOT_CONFIGURED 422 doğrulama (AC-3 / F-A3)
+
+```bash
+# Tüm protokoller disabled olan bir operatör için test-connection çağrısı:
+curl -s -X POST "http://localhost:8084/api/v1/operators/<id>/test/radius" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+# Beklenen: HTTP 422, {"status":"error","error":{"code":"PROTOCOL_NOT_CONFIGURED","message":"..."}}
+```
+
+### 5. adapter_type kolonu yokluğu — DB doğrulama (AC-12)
+
+```bash
+docker compose exec postgres psql -U argus -d argus -c "\d operators"
+# Beklenen: adapter_type kolonu tabloda YOK
+# migration 20260418120000_drop_operators_adapter_type uygulanmış olmalı
+```
+
+### 6. Secret masking — adapter_config API response doğrulama (AC-4 / F-A2)
+
+```bash
+curl -s "http://localhost:8084/api/v1/operators/<id>" \
+  -H "Authorization: Bearer $TOKEN" | jq '.data.adapter_config'
+# Beklenen: adapter_config objesi mevcut; secret alanları (shared_secret, auth_token vs.)
+# "****" sentinel ile maskeli; non-secret alanlar (listen_addr, host, port) düz metin
+```
+
+### 7. STORY-090 sentinel sweep — full test suite
+
+```bash
+go test ./internal/operator/... ./internal/api/operator/... ./internal/aaa/radius/... -run \
+  "TestDetectShape|TestUpConvert|TestValidate|TestHealthChecker|TestRegistry_|TestTestConnection" -v 2>&1 | grep -E "PASS|FAIL"
+# Beklenen: tüm sentinel PASS
+# Önemli testler: TestHealthChecker_FansOutPerProtocol, TestRegistry_DeleteOperatorHealth,
+# TestTestConnectionForProtocol_422_PROTOCOL_NOT_CONFIGURED, TestOperatorResponse_AdapterConfigSerialization
+```

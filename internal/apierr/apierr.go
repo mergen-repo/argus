@@ -79,7 +79,8 @@ const (
 	CodeProfileNotAvailable     = "PROFILE_NOT_AVAILABLE"
 	CodeIPReleaseFailed         = "IP_RELEASE_FAILED"
 
-	CodeOperatorUnavailable = "OPERATOR_UNAVAILABLE"
+	CodeOperatorUnavailable    = "OPERATOR_UNAVAILABLE"
+	CodeProtocolNotConfigured  = "PROTOCOL_NOT_CONFIGURED"
 
 	CodePasswordTooShort         = "PASSWORD_TOO_SHORT"
 	CodePasswordMissingClass     = "PASSWORD_MISSING_CLASS"

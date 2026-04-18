@@ -1059,6 +1059,22 @@ func (s *Server) getOperatorSecret(op *store.Operator) []byte {
 	if op != nil && len(op.AdapterConfig) > 0 {
 		var cfg map[string]interface{}
 		if err := json.Unmarshal(op.AdapterConfig, &cfg); err == nil {
+			// STORY-090 Wave 2 / Gate F-A6: canonical nested shape
+			// stores the secret at radius.shared_secret. Fall back to
+			// top-level radius_secret for pre-090 / simulator flat blobs.
+			if radiusSub, ok := cfg["radius"].(map[string]interface{}); ok {
+				if secret, ok := radiusSub["shared_secret"].(string); ok && secret != "" {
+					return []byte(secret)
+				}
+				if secret, ok := radiusSub["radius_secret"].(string); ok && secret != "" {
+					return []byte(secret)
+				}
+			}
+			if mockSub, ok := cfg["mock"].(map[string]interface{}); ok {
+				if secret, ok := mockSub["radius_secret"].(string); ok && secret != "" {
+					return []byte(secret)
+				}
+			}
 			if secret, ok := cfg["radius_secret"].(string); ok && secret != "" {
 				return []byte(secret)
 			}

@@ -79,12 +79,20 @@ import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { useSIMList } from '@/hooks/use-sims'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
+import { ProtocolsPanel } from '@/components/operators/ProtocolsPanel'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
   radius: 'RADIUS',
   diameter: 'Diameter',
   sba: '5G SBA',
+  http: 'HTTP',
+}
+
+// STORY-090 Wave 3 Task 7c: primaryProtocol is the first protocol in
+// canonical order (server-computed). Empty list → '' → "—" label.
+function primaryProtocol(op: { enabled_protocols?: string[] }): string {
+  return op.enabled_protocols?.[0] ?? ''
 }
 
 const FAILOVER_DISPLAY: Record<string, string> = {
@@ -218,7 +226,7 @@ function OverviewTab({
             <InfoRow label="Name" value={operator.name} />
             <InfoRow label="Code" value={operator.code} mono />
             <InfoRow label="MCC / MNC" value={`${operator.mcc} / ${operator.mnc}`} mono />
-            <InfoRow label="Protocol" value={ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type} />
+            <InfoRow label="Primary Protocol" value={ADAPTER_DISPLAY[primaryProtocol(operator)] ?? primaryProtocol(operator) ?? '—'} />
             <InfoRow label="State" value={operator.state.toUpperCase()} />
             <InfoRow label="Health Check Interval" value={`${operator.health_check_interval_sec}s`} />
           </CardContent>
@@ -829,13 +837,6 @@ function SessionsTab({ operatorId }: { operatorId: string }) {
   )
 }
 
-const ADAPTER_OPTIONS = [
-  { value: 'mock', label: 'Mock' },
-  { value: 'radius', label: 'RADIUS' },
-  { value: 'diameter', label: 'Diameter' },
-  { value: 'sba', label: '5G SBA' },
-]
-
 const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
 function EditOperatorDialog({
@@ -854,7 +855,6 @@ function EditOperatorDialog({
     code: operator.code,
     mcc: operator.mcc,
     mnc: operator.mnc,
-    adapter_type: operator.adapter_type,
     supported_rat_types: [...operator.supported_rat_types],
   })
   const [error, setError] = useState<string | null>(null)
@@ -878,7 +878,6 @@ function EditOperatorDialog({
         code: form.code.trim(),
         mcc: form.mcc.trim(),
         mnc: form.mnc.trim(),
-        adapter_type: form.adapter_type,
         supported_rat_types: form.supported_rat_types,
       })
       onSuccess()
@@ -887,6 +886,8 @@ function EditOperatorDialog({
       setError(msg ?? 'Failed to update operator')
     }
   }
+
+  const primary = primaryProtocol(operator)
 
   return (
     <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Edit Operator" description="Update operator configuration." width="md">
@@ -910,8 +911,20 @@ function EditOperatorDialog({
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
-          <Select value={form.adapter_type} onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))} className="h-8 text-sm" options={ADAPTER_OPTIONS} />
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Primary Protocol</label>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {primary ? ADAPTER_DISPLAY[primary] ?? primary : '—'}
+            </Badge>
+            {operator.enabled_protocols && operator.enabled_protocols.length > 1 && (
+              <span className="text-xs text-text-tertiary">
+                +{operator.enabled_protocols.length - 1} more
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-text-tertiary mt-1">
+            Configure protocols from the Protocols tab.
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
@@ -1246,9 +1259,17 @@ export default function OperatorDetailPage() {
             <Badge variant={healthVariant(operator.health_status)} className="gap-1 flex-shrink-0">
               {operator.health_status.toUpperCase()}
             </Badge>
-            <Badge variant="outline" className="text-[10px] flex-shrink-0">
-              {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
-            </Badge>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {operator.enabled_protocols && operator.enabled_protocols.length > 0 ? (
+                operator.enabled_protocols.map((p) => (
+                  <Badge key={p} variant="outline" className="text-[10px]">
+                    {ADAPTER_DISPLAY[p] ?? p}
+                  </Badge>
+                ))
+              ) : (
+                <Badge variant="outline" className="text-[10px]">—</Badge>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-4 mt-1">
             <span className="font-mono text-xs text-text-secondary">{operator.code}</span>
@@ -1280,6 +1301,10 @@ export default function OperatorDetailPage() {
           <TabsTrigger value="overview" className="gap-1.5">
             <Settings className="h-3.5 w-3.5" />
             Overview
+          </TabsTrigger>
+          <TabsTrigger value="protocols" className="gap-1.5">
+            <Radio className="h-3.5 w-3.5" />
+            Protocols
           </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5">
             <Activity className="h-3.5 w-3.5" />
@@ -1327,6 +1352,9 @@ export default function OperatorDetailPage() {
             testResult={testResult}
             isTesting={testMutation.isPending}
           />
+        </TabsContent>
+        <TabsContent value="protocols">
+          <ProtocolsPanel operator={operator} />
         </TabsContent>
         <TabsContent value="health">
           <HealthTimelineTab operatorId={operator.id} />

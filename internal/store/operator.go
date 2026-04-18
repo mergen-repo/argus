@@ -27,7 +27,12 @@ type Operator struct {
 	Code                     string          `json:"code"`
 	MCC                      string          `json:"mcc"`
 	MNC                      string          `json:"mnc"`
-	AdapterType              string          `json:"adapter_type"`
+	// AdapterType was removed in STORY-090 Wave 2 D2-B. The per-
+	// protocol enablement flags now live in AdapterConfig (nested
+	// JSONB shape). Callers that need a single-protocol label use
+	// adapterschema.DerivePrimaryProtocol(parsed) on the decrypted
+	// config. Historical audit rows retain the old field as a JSONB
+	// attribute — not backfilled.
 	AdapterConfig            json.RawMessage `json:"adapter_config"`
 	SMDPPlusURL              *string         `json:"sm_dp_plus_url"`
 	SMDPPlusConfig           json.RawMessage `json:"sm_dp_plus_config"`
@@ -91,7 +96,8 @@ type CreateOperatorParams struct {
 	Code                      string
 	MCC                       string
 	MNC                       string
-	AdapterType               string
+	// AdapterType removed in STORY-090 Wave 2 D2-B — the nested
+	// AdapterConfig carries per-protocol enablement flags.
 	AdapterConfig             json.RawMessage
 	SMDPPlusURL               *string
 	SMDPPlusConfig            json.RawMessage
@@ -127,7 +133,7 @@ func NewOperatorStore(db *pgxpool.Pool) *OperatorStore {
 	return &OperatorStore{db: db}
 }
 
-var operatorColumns = `id, name, code, mcc, mnc, adapter_type, adapter_config, sm_dp_plus_url,
+var operatorColumns = `id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url,
 	sm_dp_plus_config, supported_rat_types, health_status, health_check_interval_sec,
 	failover_policy, failover_timeout_ms, circuit_breaker_threshold, circuit_breaker_recovery_sec,
 	sla_uptime_target, state, created_at, updated_at`
@@ -136,7 +142,7 @@ func scanOperator(row pgx.Row) (*Operator, error) {
 	var o Operator
 	err := row.Scan(
 		&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
-		&o.AdapterType, &o.AdapterConfig, &o.SMDPPlusURL,
+		&o.AdapterConfig, &o.SMDPPlusURL,
 		&o.SMDPPlusConfig, &o.SupportedRATTypes,
 		&o.HealthStatus, &o.HealthCheckIntervalSec,
 		&o.FailoverPolicy, &o.FailoverTimeoutMs,
@@ -182,14 +188,14 @@ func (s *OperatorStore) Create(ctx context.Context, p CreateOperatorParams) (*Op
 	}
 
 	row := s.db.QueryRow(ctx, `
-		INSERT INTO operators (name, code, mcc, mnc, adapter_type, adapter_config,
+		INSERT INTO operators (name, code, mcc, mnc, adapter_config,
 			sm_dp_plus_url, sm_dp_plus_config, supported_rat_types,
 			failover_policy, failover_timeout_ms,
 			circuit_breaker_threshold, circuit_breaker_recovery_sec,
 			health_check_interval_sec, sla_uptime_target)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING `+operatorColumns,
-		p.Name, p.Code, p.MCC, p.MNC, p.AdapterType, adapterConfig,
+		p.Name, p.Code, p.MCC, p.MNC, adapterConfig,
 		p.SMDPPlusURL, smDPConfig, ratTypes,
 		failoverPolicy, failoverTimeoutMs,
 		cbThreshold, cbRecoverySec,
@@ -285,7 +291,7 @@ func (s *OperatorStore) List(ctx context.Context, cursor string, limit int, stat
 		var o Operator
 		if err := rows.Scan(
 			&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
-			&o.AdapterType, &o.AdapterConfig, &o.SMDPPlusURL,
+			&o.AdapterConfig, &o.SMDPPlusURL,
 			&o.SMDPPlusConfig, &o.SupportedRATTypes,
 			&o.HealthStatus, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,
@@ -414,7 +420,7 @@ func (s *OperatorStore) ListActive(ctx context.Context) ([]Operator, error) {
 		var o Operator
 		if err := rows.Scan(
 			&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
-			&o.AdapterType, &o.AdapterConfig, &o.SMDPPlusURL,
+			&o.AdapterConfig, &o.SMDPPlusURL,
 			&o.SMDPPlusConfig, &o.SupportedRATTypes,
 			&o.HealthStatus, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,

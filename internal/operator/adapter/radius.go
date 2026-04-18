@@ -58,6 +58,20 @@ func NewRADIUSAdapter(raw json.RawMessage) (*RADIUSAdapter, error) {
 	return &RADIUSAdapter{config: cfg}, nil
 }
 
+// HealthCheck issues an RFC 5997 Status-Server request to the configured
+// RADIUS host:auth_port and expects an Access-Accept back. Timeout is
+// fixed at 3s per STORY-090 Wave 2 Task 5 D3-B. Errors are classified:
+//   - "dial: <underlying>"    — UDP socket could not be created.
+//   - "set deadline: <err>"   — deadline plumbing failed.
+//   - "write: <err>"          — packet could not be sent.
+//   - "timeout"               — no reply within 3s (RFC 5997 expects DWA-equivalent).
+//   - "read: <err>"           — non-timeout read error (e.g. conn refused).
+//   - "short response"        — peer replied but packet is < 20 bytes.
+//   - "unexpected code <N>"   — peer replied with a non-Access-Accept RADIUS code.
+//
+// Any response whose code IS radiusCodeAccessAccept AND length >= 20
+// bytes is considered a successful probe. See RFC 5997 §3 "The Status-
+// Server Packet" for the handshake description.
 func (r *RADIUSAdapter) HealthCheck(ctx context.Context) HealthResult {
 	r.mu.RLock()
 	cfg := r.config
@@ -65,7 +79,14 @@ func (r *RADIUSAdapter) HealthCheck(ctx context.Context) HealthResult {
 
 	start := time.Now()
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.AuthPort))
-	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
+	// Task 5 locks 3s per-adapter probe timeout regardless of the
+	// per-adapter AAA timeout (which may be higher for production
+	// traffic). Use the smaller of the two so config'd values never
+	// extend a health probe beyond the ceiling.
+	timeout := 3 * time.Second
+	if cfg.TimeoutMs > 0 && time.Duration(cfg.TimeoutMs)*time.Millisecond < timeout {
+		timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
+	}
 
 	conn, err := net.DialTimeout("udp", addr, timeout)
 	if err != nil {
@@ -96,7 +117,7 @@ func (r *RADIUSAdapter) HealthCheck(ctx context.Context) HealthResult {
 	}
 
 	buf := make([]byte, 4096)
-	_, err = conn.Read(buf)
+	n, err := conn.Read(buf)
 	latencyMs := int(time.Since(start).Milliseconds())
 
 	if err != nil {
@@ -104,12 +125,33 @@ func (r *RADIUSAdapter) HealthCheck(ctx context.Context) HealthResult {
 			return HealthResult{
 				Success:   false,
 				LatencyMs: latencyMs,
-				Error:     "timeout waiting for response",
+				Error:     "timeout",
 			}
 		}
+		// Classify non-timeout read errors as failures too. Wave 1
+		// treated these as "success with no response" — a bug per
+		// STORY-090 Wave 2 advisor watch-out.
 		return HealthResult{
-			Success:   true,
+			Success:   false,
 			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("read: %v", err),
+		}
+	}
+
+	if n < 20 {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("short response: %d bytes", n),
+		}
+	}
+
+	code := buf[0]
+	if code != radiusCodeAccessAccept {
+		return HealthResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("unexpected radius code %d", code),
 		}
 	}
 

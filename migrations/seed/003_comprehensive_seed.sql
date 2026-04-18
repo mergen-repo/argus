@@ -114,17 +114,26 @@ ON CONFLICT (domain) DO NOTHING;
 -- ============================================================
 -- OPERATORS (3 Turkish operators)
 -- ============================================================
-INSERT INTO operators (id, name, code, mcc, mnc, adapter_type, adapter_config, sm_dp_plus_url, supported_rat_types, health_status, failover_policy, state) VALUES
-('20000000-0000-0000-0000-000000000001', 'Turkcell', 'turkcell', '286', '01', 'mock',
- '{"host":"radius.turkcell.com.tr","port":1812,"secret":"tc-secret","timeout_ms":3000}',
+-- STORY-090 Wave 2 D2-B: adapter_type column removed; every operator's
+-- adapter_config carries the nested protocol enablement flags.
+--
+-- STORY-090 Gate (F-A6): each enabled RADIUS operator carries its
+-- canonical `radius` sub-key (shared_secret, listen_addr, host, port)
+-- so the adapter factory can consume the config directly. Mock
+-- sibling is retained with enabled=true so the simulator keeps its
+-- RADIUS-style secret lookup path while no real network handshake is
+-- required in the dev environment.
+INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url, supported_rat_types, health_status, failover_policy, state) VALUES
+('20000000-0000-0000-0000-000000000001', 'Turkcell', 'turkcell', '286', '01',
+ '{"radius":{"enabled":true,"shared_secret":"tc-secret","listen_addr":":1812","host":"radius.turkcell.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.turkcell.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'fallback', 'active'),
-('20000000-0000-0000-0000-000000000002', 'Vodafone TR', 'vodafone_tr', '286', '02', 'mock',
- '{"host":"radius.vodafone.com.tr","port":1812,"secret":"vf-secret","timeout_ms":3000}',
+('20000000-0000-0000-0000-000000000002', 'Vodafone TR', 'vodafone_tr', '286', '02',
+ '{"radius":{"enabled":true,"shared_secret":"vf-secret","listen_addr":":1812","host":"radius.vodafone.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.vodafone.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'reject', 'active'),
-('20000000-0000-0000-0000-000000000003', 'Turk Telekom', 'turk_telekom', '286', '03', 'mock',
- '{"host":"radius.turktelekom.com.tr","port":1812,"secret":"tt-secret","timeout_ms":3000}',
+('20000000-0000-0000-0000-000000000003', 'Turk Telekom', 'turk_telekom', '286', '03',
+ '{"radius":{"enabled":true,"shared_secret":"tt-secret","listen_addr":":1812","host":"radius.turktelekom.com.tr","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
  'https://smdp.turktelekom.com.tr/api/v1',
  ARRAY['lte','nr_5g'], 'degraded', 'queue', 'active')
 ON CONFLICT (code) DO NOTHING;

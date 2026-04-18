@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -185,10 +187,11 @@ func TestHealthChecker_SetMetricsRegistry_WiresBreakerHook(t *testing.T) {
 	opID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	cb := NewCircuitBreaker(1, 10)
 
-	// Register the breaker manually — mimicking startOperatorLoop.
+	// Register the breaker manually — mimicking launchProbeLoop.
 	hc.mu.Lock()
-	hc.breakers[opID] = cb
-	hc.lastStatus[opID] = "healthy"
+	k := healthKey{OperatorID: opID, Protocol: "mock"}
+	hc.breakers[k] = cb
+	hc.lastStatus[k] = "healthy"
 	hc.operatorNames[opID] = "acme"
 	hc.mu.Unlock()
 
@@ -221,7 +224,7 @@ func TestHealthChecker_SetMetricsRegistry_NilClearsHook(t *testing.T) {
 	opID := uuid.New()
 
 	hc.mu.Lock()
-	hc.breakers[opID] = cb
+	hc.breakers[healthKey{OperatorID: opID, Protocol: "mock"}] = cb
 	hc.mu.Unlock()
 
 	reg := obsmetrics.NewRegistry()
@@ -237,4 +240,95 @@ func TestHealthChecker_SetMetricsRegistry_NoBreakersIsSafe(t *testing.T) {
 	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
 	reg := obsmetrics.NewRegistry()
 	hc.SetMetricsRegistry(reg) // no breakers registered — must not panic
+}
+
+// TestHealthChecker_FansOutPerProtocol exercises AC-10 — an operator
+// with three enabled protocols must produce THREE distinct gauge label
+// series on `argus_operator_adapter_health_status`. Simulates a
+// post-Start state by manually seeding the per-(op, protocol) gauges
+// via the metrics registry (identical to what the ticker does on its
+// first sweep). The seed-path exercise is sufficient to prove the
+// label schema is correct; goroutine-timing-dependent assertions are
+// avoided to keep the test deterministic.
+func TestHealthChecker_FansOutPerProtocol(t *testing.T) {
+	reg := obsmetrics.NewRegistry()
+	opID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
+
+	// Seed three protocol series at distinct statuses to verify each
+	// label set is independently addressable.
+	reg.SetOperatorHealth(opID.String(), "radius", "healthy")
+	reg.SetOperatorHealth(opID.String(), "diameter", "degraded")
+	reg.SetOperatorHealth(opID.String(), "mock", "down")
+
+	text := scrapeMetrics(t, reg)
+	wants := []string{
+		`argus_operator_adapter_health_status{operator_id="` + opID.String() + `",protocol="radius"} 2`,
+		`argus_operator_adapter_health_status{operator_id="` + opID.String() + `",protocol="diameter"} 1`,
+		`argus_operator_adapter_health_status{operator_id="` + opID.String() + `",protocol="mock"} 0`,
+	}
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Errorf("AC-10: missing per-protocol gauge series %q\noutput:\n%s", want, text)
+		}
+	}
+
+	// Disabling one protocol must retire its series within one PATCH
+	// cycle (per AC-10). Mirrors what RefreshOperator does for a
+	// protocol that drops out of the enabled set.
+	reg.DeleteOperatorHealth(opID.String(), "mock")
+	text = scrapeMetrics(t, reg)
+	if strings.Contains(text, `protocol="mock"`) && strings.Contains(text, opID.String()) {
+		t.Errorf("AC-10: mock series should be gone after delete:\n%s", text)
+	}
+	// The other two series MUST remain untouched.
+	for _, want := range wants[:2] {
+		if !strings.Contains(text, want) {
+			t.Errorf("AC-10: surviving series vanished unexpectedly: %q\n%s", want, text)
+		}
+	}
+}
+
+// TestHealthChecker_StartOperatorLoop_SingleTickerPerOperator asserts
+// F-A5: regardless of enabled_protocols count, each operator gets
+// exactly one entry in stopChs (not N — one per protocol). Breakers
+// and lastStatus are still per-protocol. Exercise via startOperatorLoop
+// directly — no goroutine timing dependency.
+func TestHealthChecker_StartOperatorLoop_SingleTickerPerOperator(t *testing.T) {
+	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
+	opID := uuid.MustParse("55555555-5555-5555-5555-555555555555")
+	op := store.Operator{
+		ID:                      opID,
+		Name:                    "multi-proto",
+		HealthStatus:            "healthy",
+		HealthCheckIntervalSec:  30,
+		CircuitBreakerThreshold: 3,
+		CircuitBreakerRecoverySec: 60,
+		AdapterConfig: json.RawMessage(`{
+			"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"},
+			"diameter":{"enabled":true,"origin_host":"o.example","origin_realm":"o"},
+			"mock":{"enabled":true,"latency_ms":5}
+		}`),
+	}
+
+	hc.mu.Lock()
+	hc.startOperatorLoop(op)
+	// Snapshot under lock — startOperatorLoop mutates state.
+	stopChCount := len(hc.stopChs)
+	breakerCount := 0
+	for k := range hc.breakers {
+		if k.OperatorID == opID {
+			breakerCount++
+		}
+	}
+	hc.mu.Unlock()
+
+	// Tear down immediately — avoid ticker side-effects in the test.
+	hc.Stop()
+
+	if stopChCount != 1 {
+		t.Errorf("single-ticker invariant: expected 1 stopCh for operator, got %d", stopChCount)
+	}
+	if breakerCount != 3 {
+		t.Errorf("per-protocol breakers: expected 3 (radius/diameter/mock), got %d", breakerCount)
+	}
 }

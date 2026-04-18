@@ -142,6 +142,7 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `OPERATOR_DOWN` | 503 | Operator adapter is currently unreachable; health check failing | `{"status":"error","error":{"code":"OPERATOR_DOWN","message":"Operator 'Turkcell' is currently unavailable","details":[{"operator_id":"uuid","health_status":"down","last_check_at":"2026-03-18T14:00:00Z"}]}}` |
 | `CIRCUIT_OPEN` | 503 | Circuit breaker for this operator is open; requests are being rejected | `{"status":"error","error":{"code":"CIRCUIT_OPEN","message":"Circuit breaker is open for operator 'Turkcell'. Recovery in progress.","details":[{"operator_id":"uuid","open_since":"2026-03-18T13:55:00Z","estimated_recovery":"2026-03-18T14:05:00Z"}]}}` |
 | `FAILOVER_EXHAUSTED` | 503 | All failover operators have been tried and none are available | `{"status":"error","error":{"code":"FAILOVER_EXHAUSTED","message":"All failover operators exhausted. No available operator to handle the request."}}` |
+| `PROTOCOL_NOT_CONFIGURED` | 422 | Operator has no enabled protocol adapters (zero `adapter_config` sub-keys with `enabled: true`), or the requested protocol is not configured on this operator — returned by `POST /api/v1/operators/:id/test` (legacy) and `POST /api/v1/operators/:id/test/:protocol` (per-protocol). Added STORY-090 Gate F-A3 (VAL-030). | `{"status":"error","error":{"code":"PROTOCOL_NOT_CONFIGURED","message":"Protocol radius is not configured for this operator"}}` |
 
 ---
 
@@ -309,10 +310,11 @@ const (
     CodeAPNArchived      = "APN_ARCHIVED"
 
     // Operator
-    CodeOperatorNotFound  = "OPERATOR_NOT_FOUND"
-    CodeOperatorDown      = "OPERATOR_DOWN"
-    CodeCircuitOpen       = "CIRCUIT_OPEN"
-    CodeFailoverExhausted = "FAILOVER_EXHAUSTED"
+    CodeOperatorNotFound       = "OPERATOR_NOT_FOUND"
+    CodeOperatorDown           = "OPERATOR_DOWN"
+    CodeCircuitOpen            = "CIRCUIT_OPEN"
+    CodeFailoverExhausted      = "FAILOVER_EXHAUSTED"
+    CodeProtocolNotConfigured  = "PROTOCOL_NOT_CONFIGURED"  // STORY-090 Gate F-A3 (VAL-030)
 
     // MSISDN
     CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"

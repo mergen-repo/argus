@@ -187,12 +187,15 @@ func TestCompositeRecorder_CombinesPromAndStub(t *testing.T) {
 	}
 }
 
+// STORY-090 AC-10: gauge renamed to
+// argus_operator_adapter_health_status and expanded with a `protocol`
+// label. Assertions updated to match.
 func TestRegistry_SetOperatorHealth(t *testing.T) {
 	reg := metrics.NewRegistry()
-	reg.SetOperatorHealth("op-1", "healthy")
-	reg.SetOperatorHealth("op-2", "degraded")
-	reg.SetOperatorHealth("op-3", "down")
-	reg.SetOperatorHealth("op-4", "garbage")
+	reg.SetOperatorHealth("op-1", "radius", "healthy")
+	reg.SetOperatorHealth("op-2", "diameter", "degraded")
+	reg.SetOperatorHealth("op-3", "sba", "down")
+	reg.SetOperatorHealth("op-4", "mock", "garbage")
 
 	srv := httptest.NewServer(reg.Handler())
 	defer srv.Close()
@@ -205,14 +208,41 @@ func TestRegistry_SetOperatorHealth(t *testing.T) {
 	text := string(body)
 
 	for _, want := range []string{
-		`argus_operator_health{operator_id="op-1"} 2`,
-		`argus_operator_health{operator_id="op-2"} 1`,
-		`argus_operator_health{operator_id="op-3"} 0`,
-		`argus_operator_health{operator_id="op-4"} 0`,
+		`argus_operator_adapter_health_status{operator_id="op-1",protocol="radius"} 2`,
+		`argus_operator_adapter_health_status{operator_id="op-2",protocol="diameter"} 1`,
+		`argus_operator_adapter_health_status{operator_id="op-3",protocol="sba"} 0`,
+		`argus_operator_adapter_health_status{operator_id="op-4",protocol="mock"} 0`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing line %q\noutput:\n%s", want, text)
 		}
+	}
+}
+
+// TestRegistry_DeleteOperatorHealth asserts that DeleteOperatorHealth
+// drops the targeted label series from /metrics output.
+func TestRegistry_DeleteOperatorHealth(t *testing.T) {
+	reg := metrics.NewRegistry()
+	reg.SetOperatorHealth("op-1", "radius", "healthy")
+	reg.SetOperatorHealth("op-1", "diameter", "down")
+
+	reg.DeleteOperatorHealth("op-1", "radius")
+
+	srv := httptest.NewServer(reg.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+
+	if strings.Contains(text, `argus_operator_adapter_health_status{operator_id="op-1",protocol="radius"}`) {
+		t.Errorf("radius series should have been deleted\n%s", text)
+	}
+	if !strings.Contains(text, `argus_operator_adapter_health_status{operator_id="op-1",protocol="diameter"} 0`) {
+		t.Errorf("diameter series should remain\n%s", text)
 	}
 }
 

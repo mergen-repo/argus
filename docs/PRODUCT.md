@@ -352,7 +352,7 @@ APIKey ──N:1──▶ Tenant
 |--------|-----------|-------|
 | Tenant | id, name, domain, resource_limits, created_at | Root isolation entity |
 | User | id, tenant_id, email, role, 2fa_enabled | RBAC role enum |
-| Operator | id, name, adapter_type, health_status, failover_policy | System-level |
+| Operator | id, name, adapter_config (nested per-protocol), health_status, failover_policy | System-level; `adapter_type` column dropped in STORY-090 (migration 20260418120000) |
 | OperatorGrant | tenant_id, operator_id, enabled | Tenant ↔ Operator access |
 | APN | id, tenant_id, operator_id, name, state (ACTIVE/ARCHIVED), rat_types | Soft-delete |
 | SIM | id, tenant_id, iccid, imsi, msisdn, operator_id, apn_id, policy_version_id, state, ip_address_id | Partitioned by operator/state |

@@ -18,12 +18,36 @@ function useOperators(ids: string[]) {
   return { data, loading }
 }
 
+const ADAPTER_DISPLAY: Record<string, string> = {
+  mock: 'Mock',
+  radius: 'RADIUS',
+  diameter: 'Diameter',
+  sba: '5G SBA',
+  http: 'HTTP',
+}
+
 const COMPARE_FIELDS = [
   { key: 'name', label: 'Name' },
   { key: 'code', label: 'Code', render: (v: unknown) => <span className="font-mono text-xs">{String(v)}</span> },
   { key: 'mcc', label: 'MCC', render: (v: unknown) => <span className="font-mono text-xs">{String(v)}</span> },
   { key: 'mnc', label: 'MNC', render: (v: unknown) => <span className="font-mono text-xs">{String(v)}</span> },
-  { key: 'adapter_type', label: 'Adapter' },
+  {
+    key: 'enabled_protocols',
+    label: 'Enabled Protocols',
+    render: (v: unknown) => {
+      const protos = Array.isArray(v) ? (v as string[]) : []
+      if (protos.length === 0) return <span className="text-xs text-text-tertiary">—</span>
+      return (
+        <div className="flex items-center gap-1 flex-wrap">
+          {protos.map((p) => (
+            <Badge key={p} variant="outline" className="text-[10px] font-mono">
+              {ADAPTER_DISPLAY[p] ?? p}
+            </Badge>
+          ))}
+        </div>
+      )
+    },
+  },
   { key: 'health_status', label: 'Health', render: (v: unknown) => <Badge variant={v === 'healthy' ? 'success' : v === 'degraded' ? 'warning' : 'danger'} className="text-[10px]">{String(v)}</Badge> },
   { key: 'state', label: 'State', render: (v: unknown) => <Badge variant={v === 'active' ? 'success' : 'secondary'} className="text-[10px]">{String(v)}</Badge> },
   { key: 'failover_policy', label: 'Failover Policy' },

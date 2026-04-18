@@ -202,10 +202,16 @@ func NewRegistry() *Registry {
 	}, []string{"job_type"})
 	reg.MustRegister(r.JobDuration)
 
+	// STORY-090 AC-10: per-(operator, protocol) fan-out. Previous
+	// `argus_operator_health{operator_id}` single-label series was
+	// insufficient when one operator probes multiple protocols — the
+	// last goroutine to tick would clobber the others' state.
+	// Renamed + label-expanded to `argus_operator_adapter_health_status
+	// {operator_id, protocol}` (breaking change, see decisions.md).
 	r.OperatorHealth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "argus_operator_health",
-		Help: "Health status of operators: 0=down, 1=degraded, 2=healthy.",
-	}, []string{"operator_id"})
+		Name: "argus_operator_adapter_health_status",
+		Help: "Per-protocol health status of operator adapters: 0=down, 1=degraded, 2=healthy.",
+	}, []string{"operator_id", "protocol"})
 	reg.MustRegister(r.OperatorHealth)
 
 	r.CircuitBreakerState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -297,8 +303,9 @@ func (r *Registry) Handler() http.Handler {
 	})
 }
 
-// SetOperatorHealth updates the argus_operator_health gauge for an
-// operator using the canonical numeric mapping:
+// SetOperatorHealth updates the argus_operator_adapter_health_status
+// gauge for an (operator, protocol) pair using the canonical numeric
+// mapping:
 //
 //	down     -> 0
 //	degraded -> 1
@@ -306,11 +313,28 @@ func (r *Registry) Handler() http.Handler {
 //
 // Unknown status strings are treated as down (0) to fail safely.
 // Safe to call on a nil Registry (no-op).
-func (r *Registry) SetOperatorHealth(operatorID, status string) {
+//
+// STORY-090 Wave 3 Gate (F-A1): signature gained the `protocol` label
+// to support per-protocol fan-out (AC-10). Previously a single-label
+// gauge — see decisions.md entry "AC-10 gauge label schema breaking
+// change" for migration notes.
+func (r *Registry) SetOperatorHealth(operatorID, protocol, status string) {
 	if r == nil || r.OperatorHealth == nil {
 		return
 	}
-	r.OperatorHealth.WithLabelValues(operatorID).Set(operatorHealthValue(status))
+	r.OperatorHealth.WithLabelValues(operatorID, protocol).Set(operatorHealthValue(status))
+}
+
+// DeleteOperatorHealth retires a single (operator, protocol) label
+// series. Used when a protocol is disabled via PATCH or when the
+// HealthChecker tears down its loop for that key; without this the
+// gauge continues reporting stale values after the probe stops.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) DeleteOperatorHealth(operatorID, protocol string) {
+	if r == nil || r.OperatorHealth == nil {
+		return
+	}
+	r.OperatorHealth.DeleteLabelValues(operatorID, protocol)
 }
 
 // SetCircuitBreakerState updates the argus_circuit_breaker_state gauge

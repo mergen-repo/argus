@@ -11,8 +11,7 @@ func TestOperatorStruct(t *testing.T) {
 		Code:                     "test_op",
 		MCC:                      "286",
 		MNC:                      "01",
-		AdapterType:              "mock",
-		AdapterConfig:            json.RawMessage(`{}`),
+		AdapterConfig:            json.RawMessage(`{"mock":{"enabled":true}}`),
 		HealthStatus:             "unknown",
 		HealthCheckIntervalSec:   30,
 		FailoverPolicy:           "reject",
@@ -34,8 +33,10 @@ func TestOperatorStruct(t *testing.T) {
 	if o.MNC != "01" {
 		t.Errorf("MNC = %q, want %q", o.MNC, "01")
 	}
-	if o.AdapterType != "mock" {
-		t.Errorf("AdapterType = %q, want %q", o.AdapterType, "mock")
+	// STORY-090 Wave 2 D2-B: AdapterType field removed. The nested
+	// adapter_config carries the per-protocol enablement flags.
+	if string(o.AdapterConfig) != `{"mock":{"enabled":true}}` {
+		t.Errorf("AdapterConfig = %q, want nested mock config", string(o.AdapterConfig))
 	}
 	if o.HealthStatus != "unknown" {
 		t.Errorf("HealthStatus = %q, want %q", o.HealthStatus, "unknown")
@@ -56,11 +57,11 @@ func TestOperatorStruct(t *testing.T) {
 
 func TestCreateOperatorParamsDefaults(t *testing.T) {
 	p := CreateOperatorParams{
-		Name:        "Test",
-		Code:        "test",
-		MCC:         "286",
-		MNC:         "01",
-		AdapterType: "mock",
+		Name:          "Test",
+		Code:          "test",
+		MCC:           "286",
+		MNC:           "01",
+		AdapterConfig: json.RawMessage(`{"mock":{"enabled":true}}`),
 	}
 
 	if p.FailoverPolicy != nil {

@@ -160,7 +160,8 @@ argus/
 │   │   ├── evaluator/            # Rule evaluation
 │   │   └── rollout/              # Staged rollout
 │   ├── operator/                 # SVC-06: Operator routing
-│   │   ├── adapter/              # Pluggable adapters
+│   │   ├── adapter/              # Pluggable adapters — per-(operator, protocol) registry; RADIUS/Diameter/SBA/HTTP/Mock (STORY-090)
+│   │   ├── adapterschema/        # Nested adapter_config JSON schema: detect/validate/upconvert flat→nested (STORY-090)
 │   │   ├── sor/                  # Steering of Roaming
 │   │   ├── circuit/              # Circuit breaker
 │   │   └── mock/                 # Mock simulator

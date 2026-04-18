@@ -33,19 +33,22 @@ VALUES (
 
 -- ─────────────────────────────────────────────────────────────
 -- OPERATORS — Turkcell, Vodafone TR, Türk Telekom
--- adapter_type='mock' so Argus's upstream lookups succeed; RADIUS
--- shared secrets in adapter_config for simulator cross-reference.
+-- STORY-090 Wave 2 D2-B: adapter_type column dropped; adapter_config
+-- carries the nested {"radius":{...},"mock":{...}} shape.
+-- STORY-090 Gate (F-A6): canonical `radius` sub-key with
+-- shared_secret/listen_addr/host/port so the RADIUS adapter factory
+-- consumes the config directly. `mock` sibling with enabled=true keeps
+-- the simulator's RADIUS-style secret lookup path working.
 -- ─────────────────────────────────────────────────────────────
 
-INSERT INTO operators (id, name, code, mcc, mnc, adapter_type, adapter_config, supported_rat_types, health_status, state)
+INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, supported_rat_types, health_status, state)
 VALUES
     (
         '00000000-0000-0000-0000-000000000101',
         'Turkcell',
         'turkcell',
         '286', '01',
-        'mock',
-        '{"latency_ms": 5, "radius_secret": "sim-turkcell-secret-32-chars-long"}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-turkcell-secret-32-chars-long","listen_addr":":1812","host":"radius.turkcell.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
         ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
         'healthy',
         'active'
@@ -55,8 +58,7 @@ VALUES
         'Vodafone TR',
         'vodafone',
         '286', '02',
-        'mock',
-        '{"latency_ms": 5, "radius_secret": "sim-vodafone-secret-32-chars-long"}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-vodafone-secret-32-chars-long","listen_addr":":1812","host":"radius.vodafone.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
         ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
         'healthy',
         'active'
@@ -66,8 +68,7 @@ VALUES
         'Türk Telekom',
         'turk_telekom',
         '286', '03',
-        'mock',
-        '{"latency_ms": 5, "radius_secret": "sim-tt-secret-0000000000-32chars"}',
+        '{"radius":{"enabled":true,"shared_secret":"sim-tt-secret-0000000000-32chars","listen_addr":":1812","host":"radius.turktelekom.sim.local","port":1812,"timeout_ms":3000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
         ARRAY['nb_iot', 'lte_m', 'lte'],
         'healthy',
         'active'

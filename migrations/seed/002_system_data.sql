@@ -2,15 +2,16 @@
 -- Idempotent: all entries use ON CONFLICT DO NOTHING
 
 -- Mock operator (for development/testing)
-INSERT INTO operators (id, name, code, mcc, mnc, adapter_type, adapter_config, supported_rat_types, health_status, state)
+-- STORY-090 Wave 2 D2-B: adapter_type column dropped; adapter_config
+-- carries the nested per-protocol enablement flags.
+INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, supported_rat_types, health_status, state)
 VALUES (
     '00000000-0000-0000-0000-000000000100',
     'Mock Simulator',
     'mock',
     '999',
     '99',
-    'mock',
-    '{"host": "localhost", "port": 1812}',
+    '{"mock":{"enabled":true,"host":"localhost","port":1812}}',
     ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
     'healthy',
     'active'

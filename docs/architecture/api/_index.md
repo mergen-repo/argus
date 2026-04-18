@@ -43,15 +43,17 @@
 | API-013 | PATCH | /api/v1/tenants/:id | Update tenant | JWT (super_admin or tenant_admin) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 | API-014 | GET | /api/v1/tenants/:id/stats | Tenant statistics | JWT (tenant_admin+) | See [STORY-005](../../stories/phase-1/STORY-005-tenant-management.md) |
 
-## Operators (8 endpoints)
+## Operators (10 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-020 | GET | /api/v1/operators | List operators | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 | API-021 | POST | /api/v1/operators | Create operator | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
+| API-306 | GET | /api/v1/operators/:id | Get operator detail — returns full nested `adapter_config` (secrets masked to `"****"`) + per-protocol `enabled_protocols` array | JWT (super_admin) | Added STORY-090 Gate F-A2 (VAL-029); list endpoint (API-020) omits `adapter_config` for payload-slim reasons |
 | API-022 | PATCH | /api/v1/operators/:id | Update operator config | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 | API-023 | GET | /api/v1/operators/:id/health | Get operator health status | JWT (operator_manager+) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md), [STORY-021](../../stories/phase-3/STORY-021-operator-failover.md) |
-| API-024 | POST | /api/v1/operators/:id/test | Test operator connection | JWT (super_admin) | See [STORY-018](../../stories/phase-3/STORY-018-operator-adapter.md) |
+| API-024 | POST | /api/v1/operators/:id/test | Test operator connection (legacy — fires first enabled protocol adapter) — returns `PROTOCOL_NOT_CONFIGURED` (422) when zero protocols enabled. See per-protocol variant API-307. | JWT (super_admin) | See [STORY-018](../../stories/phase-3/STORY-018-operator-adapter.md) |
+| API-307 | POST | /api/v1/operators/:id/test/:protocol | Per-protocol connection test — `protocol` ∈ {radius, diameter, sba, http, mock}; returns `PROTOCOL_NOT_CONFIGURED` (422) when the requested protocol is not enabled | JWT (super_admin) | Added STORY-090 Wave 3 Task 7a |
 | API-025 | GET | /api/v1/operator-grants | List tenant operator grants | JWT (tenant_admin+) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 | API-026 | POST | /api/v1/operator-grants | Grant operator access to tenant | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
 | API-027 | DELETE | /api/v1/operator-grants/:id | Revoke operator grant | JWT (super_admin) | See [STORY-009](../../stories/phase-2/STORY-009-operator-crud.md) |
