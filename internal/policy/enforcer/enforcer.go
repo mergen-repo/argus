@@ -79,7 +79,11 @@ func (e *Enforcer) Evaluate(ctx context.Context, sim *store.SIM, sessionCtx dsl.
 
 	versionID := *sim.PolicyVersionID
 
-	compiled, ok := e.policyCache.Get(versionID)
+	var compiled *dsl.CompiledPolicy
+	var ok bool
+	if e.policyCache != nil {
+		compiled, ok = e.policyCache.Get(versionID)
+	}
 	if !ok {
 		if e.policyStore != nil {
 			pv, err := e.policyStore.GetVersionByID(ctx, versionID)
@@ -93,7 +97,9 @@ func (e *Enforcer) Evaluate(ctx context.Context, sim *store.SIM, sessionCtx dsl.
 				return result, nil
 			}
 			compiled = &cp
-			e.policyCache.Put(versionID, pv.PolicyID, sim.TenantID, compiled)
+			if e.policyCache != nil {
+				e.policyCache.Put(versionID, pv.PolicyID, sim.TenantID, compiled)
+			}
 			result.PolicyID = pv.PolicyID
 		} else {
 			return result, nil

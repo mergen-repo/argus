@@ -1048,6 +1048,10 @@ func runServe(cfg *config.Config) {
 
 	violationStore := store.NewPolicyViolationStore(pg.Pool, log.Logger)
 
+	// TODO(D-038): wire a policy/cache.Cache with a PolicyLoader impl backed
+	// by policyStore. Enforcer is nil-safe (falls through to direct DB fetch
+	// per request) so this is a performance improvement, not a correctness
+	// requirement. Tracked in ROUTEMAP Tech Debt.
 	policyEnforcer := policyenforcer.New(
 		nil,
 		policyStore,
