@@ -275,6 +275,39 @@ Stop condition: After STORY-089 Step 6 post-processing → extend Mini Phase Gat
 
 ---
 
+## UAT Remediation [IN PROGRESS]
+
+> Standalone track opened 2026-04-18 after UAT Batch 1 acceptance testing
+> (UAT-001..003) surfaced 3 CRITICAL + 12 HIGH findings. Objective: make ALL
+> 23 UAT scenarios pass on all 3 layers (UI + API + DB). 7 FIX stories
+> grouped thematically; execution in dependency-driven tiers; full Batch
+> 1-7 rerun after each tier.
+> Source: `docs/reports/uat-acceptance-batch1-2026-04-18.md`
+> Inline fixes + UAT.md drift edits already shipped in commit `7175e53`
+> (F-18, F-19 inline; D-1, D-2, F-20 drift).
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-105 | IP Pool Seed Inventory | 1 (foundational) | M | [ ] PENDING | — |
+| FIX-104 | Audit Hash Chain Integrity | 1 (foundational) | L | [ ] PENDING | — |
+| FIX-101 | Onboarding Flow Complete (F-2, F-3, F-4, F-5, F-9) | 2 (user-visible) | XL | [ ] PENDING | FIX-104 |
+| FIX-103 | Tenant List sim_count/user_count Counts | 2 (user-visible) | S | [ ] PENDING | — |
+| FIX-102 | Bulk Import Completeness (F-11, F-12, F-14) | 3 (flow) | L | [ ] PENDING | FIX-104 |
+| FIX-106 | Operator Test Adapter Registry (F-6, F-7, F-8) | 3 (flow) | M-L | [ ] PENDING | FIX-101 |
+| FIX-107 | Resume State Machine Consistency | 4 (low impact) | S | [ ] PENDING | FIX-105, FIX-102 |
+
+### Batch rerun checkpoints
+
+- **After Tier 1** (FIX-104, FIX-105): rerun UAT audit-chain verify checks + UAT-003 Activate
+- **After Tier 2** (FIX-101, FIX-103): rerun UAT-001 end-to-end, validate tenant counts on dashboard
+- **After Tier 3** (FIX-102, FIX-106): rerun UAT-002 end-to-end
+- **After Tier 4** (FIX-107): rerun UAT-003 end-to-end
+- **After all tiers**: proceed to UAT Batch 2..7 (UAT-004..023), remediate as needed
+
+Stop condition: all 23 UAT scenarios PASS on UI + API + DB; final `docs/reports/uat-acceptance-final-YYYY-MM-DD.md` documents coverage.
+
+---
+
 ## Documentation Phase [NOT STARTED]
 
 | Step | Name | Status | Completed |
