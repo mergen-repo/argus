@@ -399,7 +399,8 @@ func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAd
 		return nil, fmt.Errorf("store: update sim activate: %w", err)
 	}
 
-	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, nil); err != nil {
+	activateReason := "activate"
+	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, &activateReason); err != nil {
 		return nil, err
 	}
 
@@ -489,7 +490,8 @@ func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID
 		return nil, fmt.Errorf("store: update sim resume: %w", err)
 	}
 
-	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, nil); err != nil {
+	resumeReason := "resume"
+	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, &resumeReason); err != nil {
 		return nil, err
 	}
 

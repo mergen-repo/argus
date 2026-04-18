@@ -76,7 +76,7 @@
 |----|--------|------|-------------|------|--------|
 | API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-041 | GET | /api/v1/sims/:id | Get SIM detail (full) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
-| API-042 | POST | /api/v1/sims | Create single SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
+| API-042 | POST | /api/v1/sims | Create single SIM (required body: `iccid`, `imsi`, `msisdn`, `apn_id`, `sim_type` ∈ {`physical`,`esim`}) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-043 | PATCH | /api/v1/sims/:id | Update SIM metadata | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-044 | POST | /api/v1/sims/:id/activate | Activate SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-045 | POST | /api/v1/sims/:id/suspend | Suspend SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |

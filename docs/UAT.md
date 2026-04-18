@@ -23,22 +23,22 @@
 | 1 | Super Admin | SCR-121: Tenant Management | Create new tenant (company name, domain, contact, resource limits) | Tenant record created, admin user auto-created |
 | 2 | System | Email Service | — | Invite email sent to Tenant Admin with credentials |
 | 3 | Tenant Admin | SCR-001: Login | Login with credentials from invite email | Redirected to SCR-003: Onboarding Wizard |
-| 4 | Tenant Admin | SCR-003: Onboarding Wizard | Step 1: Connect operators (select MockTurkcell, MockVodafone) | Operator grants created, adapters initialized |
-| 5 | Tenant Admin | SCR-003: Onboarding Wizard | Step 2: Define APNs (name: "iot.fleet", type: private, operator: MockTurkcell) | APN created with ACTIVE state |
+| 4 | Tenant Admin | SCR-003: Onboarding Wizard | Step 1: Connect operators (select Turkcell, Vodafone TR) | Operator grants created, adapters initialized |
+| 5 | Tenant Admin | SCR-003: Onboarding Wizard | Step 2: Define APNs (name: "iot.fleet", type: private, operator: Turkcell) | APN created with ACTIVE state |
 | 6 | Tenant Admin | SCR-003: Onboarding Wizard | Step 3: Upload first SIM batch (CSV with 100 SIMs) | Background job created, progress bar shown |
 | 7 | System | Job Runner (SVC-09) | — | SIMs created (ORDERED→ACTIVE), IPs allocated, default policy assigned |
 | 8 | Tenant Admin | SCR-003: Onboarding Wizard | Step 4: Assign default policy to SIM segment | Policy version linked to all imported SIMs |
 | 9 | Tenant Admin | SCR-003: Onboarding Wizard | Step 5: Configure notification preferences (in-app + webhook) | Notification config saved |
-| 10 | Tenant Admin | SCR-010: Main Dashboard | Wizard completes, redirected to dashboard | Dashboard shows: 100 SIMs, 1 APN, 2 operators, system health OK |
+| 10 | Tenant Admin | SCR-010: Main Dashboard | Wizard completes, redirected to dashboard | Dashboard shows: total_sims=100 widget, SIM Distribution chart includes new operators, Operator Health table lists both, Top APNs includes new APN, system health OK (per SCR-010 spec — no scalar APN/operator count widgets) |
 
 ### Verify (Post-Flow Checks)
 
 - [ ] Tenant record exists in DB with correct resource limits
 - [ ] Tenant Admin user has `tenant_admin` role
-- [ ] Operator grants exist for both MockTurkcell and MockVodafone
+- [ ] Operator grants exist for both selected operators (Turkcell, Vodafone TR)
 - [ ] APN "iot.fleet" is ACTIVE and scoped to tenant
 - [ ] 100 SIM records exist with state ACTIVE, IP allocated, policy assigned
-- [ ] Dashboard widget counts match (SIMs: 100, APNs: 1, Operators: 2)
+- [ ] Dashboard top-row SIM count widget = 100; SIM Distribution chart + Operator Health table + Top APNs list reflect the newly seeded tenant (SCR-010 has no scalar APN/operator count widgets — verify via list/chart presence, not discrete numbers)
 - [ ] Audit log contains: tenant_created, user_created, operator_grant_created, apn_created, sim_bulk_import events
 - [ ] All data is scoped by tenant_id (no cross-tenant leakage)
 
@@ -58,7 +58,7 @@
 |---|-------|----------------|--------|-----------------|
 | 1 | Tenant Admin | SCR-020: SIM List | Click "Import SIMs" → upload CSV (500 SIMs: ICCID, IMSI, MSISDN, operator, APN) | CSV validated, background job created |
 | 2 | Tenant Admin | SCR-080: Job List | Navigate to jobs | Import job visible with progress bar (0%) |
-| 3 | System | Job Runner (SVC-09) | — | Per-row: create SIM (ORDERED→ACTIVE), assign APN, allocate IP from pool, assign default policy |
+| 3 | System | Job Runner (SVC-09) | — | Per-row: create SIM (ORDERED→ACTIVE), assign APN, assign default policy (IP allocation deferred — STORY-092 dynamic allocation: IP granted on first RADIUS/Diameter/5G auth, not at import) |
 | 4 | Tenant Admin | SCR-080: Job List | Refresh | Progress bar updates (50%... 100%) |
 | 5 | System | Notification (SVC-08) | — | "Bulk import complete: 495 success, 5 failed" notification |
 | 6 | Tenant Admin | SCR-100: Notifications | Check notification bell | Import completion notification with success/fail counts |
@@ -69,9 +69,9 @@
 
 ### Verify (Post-Flow Checks)
 
-- [ ] 495 SIM records with state ACTIVE, each with allocated IP and assigned policy
+- [ ] 495 SIM records with state ACTIVE, each with assigned APN and default policy (IP remains NULL until first auth per STORY-092 dynamic allocation)
 - [ ] 5 failed rows have clear error reasons in error report CSV
-- [ ] IP pool utilization percentage updated correctly
+- [ ] IP pool utilization is unchanged at import time; utilization increments on subsequent auth events
 - [ ] Dashboard SIM count, APN SIM count both reflect new totals
 - [ ] Job record shows final status "completed" with progress 100%
 - [ ] Audit log hash chain integrity maintained across all 990+ entries
