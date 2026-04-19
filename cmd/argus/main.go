@@ -655,7 +655,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	distLock := job.NewDistributedLock(rdb.Client, log.Logger)
-	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, log.Logger)
+	importProcessor := job.NewBulkImportProcessor(jobStore, simStore, operatorStore, apnStore, ippoolStore, eventBus, auditSvc, nil, policyStore, log.Logger)
 	dryRunProcessor := job.NewDryRunProcessor(dryRunSvc, jobStore, eventBus, log.Logger)
 	rolloutStageProc := job.NewRolloutStageProcessor(rolloutSvc, policyStore, jobStore, eventBus, log.Logger)
 	jobRunner := job.NewRunner(jobStore, eventBus, distLock, job.RunnerConfig{
@@ -887,6 +887,7 @@ func runServe(cfg *config.Config) {
 	notifRedisRL := notification.NewRedisRateLimiter(rdb.Client, cfg.NotificationRateLimitPerMin)
 	notifDelivery := notification.NewDeliveryTracker(notifRedisRL, log.Logger)
 	notifSvc.SetDeliveryTracker(notifDelivery)
+	importProcessor.SetNotifier(notifSvc)
 
 	if err := notifSvc.Start(&eventBusNotifSubscriber{eventBus}, bus.SubjectOperatorHealthChanged, bus.SubjectAlertTriggered); err != nil {
 		log.Warn().Err(err).Msg("failed to start notification service")

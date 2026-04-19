@@ -258,6 +258,25 @@ INSERT INTO notification_templates (event_type, locale, subject, body_text, body
   NOW(), NOW()
 )
 
+-- ============================================================
+-- job.completed
+-- ============================================================
+,
+(
+  'job.completed', 'tr',
+  'Toplu İşlem Tamamlandı: {{.ExtraFields.file_name}}',
+  '{{.ExtraFields.file_name}} dosyası için toplu içe aktarma işlemi tamamlandı. Toplam: {{.ExtraFields.total}}, Başarılı: {{.ExtraFields.success_count}}, Başarısız: {{.ExtraFields.fail_count}}. Detaylar için iş geçmişi sayfasını ziyaret edin.',
+  '<p><strong>{{.ExtraFields.file_name}}</strong> dosyası için toplu içe aktarma işlemi tamamlandı.</p><p>Toplam: <strong>{{.ExtraFields.total}}</strong>, Başarılı: <strong>{{.ExtraFields.success_count}}</strong>, Başarısız: <strong>{{.ExtraFields.fail_count}}</strong>.</p>',
+  NOW(), NOW()
+),
+(
+  'job.completed', 'en',
+  'Job Completed: {{.ExtraFields.file_name}}',
+  'Bulk import for {{.ExtraFields.file_name}} completed. Total: {{.ExtraFields.total}}, Successful: {{.ExtraFields.success_count}}, Failed: {{.ExtraFields.fail_count}}. Visit the job history page for details.',
+  '<p>Bulk import for <strong>{{.ExtraFields.file_name}}</strong> completed.</p><p>Total: <strong>{{.ExtraFields.total}}</strong>, Successful: <strong>{{.ExtraFields.success_count}}</strong>, Failed: <strong>{{.ExtraFields.fail_count}}</strong>.</p>',
+  NOW(), NOW()
+)
+
 ON CONFLICT (event_type, locale) DO UPDATE SET
   subject      = EXCLUDED.subject,
   body_text    = EXCLUDED.body_text,
