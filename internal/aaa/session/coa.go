@@ -2,10 +2,13 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	radius "layeh.com/radius"
 	"layeh.com/radius/rfc2865"
@@ -23,26 +26,37 @@ const (
 )
 
 type CoASender struct {
-	secret []byte
-	port   int
-	logger zerolog.Logger
+	secret   []byte
+	port     int
+	logger   zerolog.Logger
+	auditor  audit.Auditor
 }
 
-func NewCoASender(secret string, port int, logger zerolog.Logger) *CoASender {
+func NewCoASender(secret string, port int, logger zerolog.Logger, opts ...func(*CoASender)) *CoASender {
 	if port == 0 {
 		port = defaultCoAPort
 	}
-	return &CoASender{
+	s := &CoASender{
 		secret: []byte(secret),
 		port:   port,
 		logger: logger.With().Str("component", "coa_sender").Logger(),
 	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+func WithCoAAuditor(a audit.Auditor) func(*CoASender) {
+	return func(s *CoASender) { s.auditor = a }
 }
 
 type CoARequest struct {
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
+	SessionID     string
+	TenantID      uuid.UUID
 	Attributes    map[string]interface{}
 }
 
@@ -74,7 +88,9 @@ func (c *CoASender) SendCoA(ctx context.Context, req CoARequest) (*CoAResult, er
 			Str("nas_ip", req.NASIP).
 			Str("acct_session_id", req.AcctSessionID).
 			Msg("CoA send failed")
-		return &CoAResult{Status: CoAResultError, Message: err.Error()}, err
+		errResult := &CoAResult{Status: CoAResultError, Message: err.Error()}
+		c.emitAudit(ctx, req, errResult)
+		return errResult, err
 	}
 
 	c.logger.Info().
@@ -83,7 +99,31 @@ func (c *CoASender) SendCoA(ctx context.Context, req CoARequest) (*CoAResult, er
 		Str("result", result.Status).
 		Msg("CoA sent")
 
+	c.emitAudit(ctx, req, result)
 	return result, nil
+}
+
+func (c *CoASender) emitAudit(ctx context.Context, req CoARequest, result *CoAResult) {
+	if c.auditor == nil || req.TenantID == uuid.Nil {
+		return
+	}
+	afterData, _ := json.Marshal(map[string]interface{}{
+		"nas_ip":          req.NASIP,
+		"acct_session_id": req.AcctSessionID,
+		"imsi":            req.IMSI,
+		"status":          result.Status,
+		"message":         result.Message,
+	})
+	_, err := c.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:   req.TenantID,
+		Action:     "session.coa_sent",
+		EntityType: "session",
+		EntityID:   req.SessionID,
+		AfterData:  afterData,
+	})
+	if err != nil {
+		c.logger.Warn().Err(err).Str("session_id", req.SessionID).Msg("audit coa_sent failed")
+	}
 }
 
 func (c *CoASender) sendPacket(ctx context.Context, addr string, packet *radius.Packet) (*CoAResult, error) {

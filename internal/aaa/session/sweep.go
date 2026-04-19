@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
@@ -185,10 +186,13 @@ func (s *TimeoutSweeper) disconnectSession(sess *Session, cause string) {
 		if idx := strings.Index(nasIP, ":"); idx > 0 {
 			nasIP = nasIP[:idx]
 		}
+		tenantID, _ := uuid.Parse(sess.TenantID)
 		_, err := s.dm.SendDM(ctx, DMRequest{
 			NASIP:         nasIP,
 			AcctSessionID: sess.AcctSessionID,
 			IMSI:          sess.IMSI,
+			SessionID:     sess.ID,
+			TenantID:      tenantID,
 		})
 		if err != nil {
 			s.logger.Warn().Err(err).

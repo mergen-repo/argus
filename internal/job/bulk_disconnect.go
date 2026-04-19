@@ -9,6 +9,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -94,10 +95,13 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 				if idx := strings.Index(nasIP, ":"); idx > 0 {
 					nasIP = nasIP[:idx]
 				}
+				sessTenantID, _ := uuid.Parse(sess.TenantID)
 				_, _ = p.dmSender.SendDM(ctx, session.DMRequest{
 					NASIP:         nasIP,
 					AcctSessionID: sess.AcctSessionID,
 					IMSI:          sess.IMSI,
+					SessionID:     sess.ID,
+					TenantID:      sessTenantID,
 				})
 			}
 

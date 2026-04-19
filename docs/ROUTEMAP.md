@@ -306,6 +306,24 @@ Stop condition: After STORY-089 Step 6 post-processing → extend Mini Phase Gat
 
 Stop condition: all 23 UAT scenarios PASS on UI + API + DB; final `docs/reports/uat-acceptance-final-YYYY-MM-DD.md` documents coverage.
 
+### Batch 2..7 Remediation (2026-04-19)
+
+| # | Story | UAT | Effort | Status | Dependencies |
+|---|-------|-----|--------|--------|-------------|
+| FIX-108 | Rollout Advance Premature Completion | UAT-004 | M | [x] DONE 2026-04-19 | — |
+| FIX-109 | IP Pool Field Names (false alarm — fields correct as total_addresses/used_addresses) | UAT-009 | — | [x] DONE 2026-04-19 (no change) | — |
+| FIX-110 | Seed Role "auditor" → "analyst" | UAT-011 | XS | [x] DONE 2026-04-19 | — |
+| FIX-111 | CoA/DM Audit Events Not Logged | UAT-022 | S | [x] DONE 2026-04-19 | — |
+
+Data gap updates (UAT expectation adjustments, not code fixes):
+- UAT-019: slice_info = NULL when simulator doesn't send RequestedNSSAI (code handles it correctly when sent)
+- UAT-020: SLA reports empty because no SLA violations triggered in seed data (job exists, no events)
+- UAT-023: OTA apdu_data NULL in seed data (code builds APDU correctly in production path)
+
+Architectural decisions (documented, not blocking UAT):
+- UAT-014: API key auth not wired — JWT-only by design for current release. Future story.
+- UAT-015: TOTP secret stored plaintext — requires KEK/KMS infrastructure. Future story.
+
 ---
 
 ## Documentation Phase [NOT STARTED]

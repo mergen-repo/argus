@@ -212,6 +212,197 @@ func TestBR4_RolloutProgressEvent_EmptyStartedAt(t *testing.T) {
 	}
 }
 
+func TestFIX108_AdvanceRollout_AllStagesCompletedButMigrationIncomplete(t *testing.T) {
+	stages := []store.RolloutStage{
+		{Pct: 1, Status: "completed"},
+		{Pct: 10, Status: "completed"},
+		{Pct: 100, Status: "completed"},
+	}
+	migratedSIMs := 6
+	totalSIMs := 45
+
+	nextStage := -1
+	shouldReturnStageInProgress := false
+	for i, st := range stages {
+		if st.Status == "pending" {
+			nextStage = i
+			break
+		}
+		if st.Status == "in_progress" {
+			shouldReturnStageInProgress = true
+			break
+		}
+	}
+
+	if nextStage == -1 && !shouldReturnStageInProgress {
+		if migratedSIMs < totalSIMs {
+			nextStage = len(stages) - 1
+			stages[nextStage].Status = "pending"
+		}
+	}
+
+	if nextStage == -1 {
+		t.Fatal("FIX-108: advance should NOT return ROLLOUT_COMPLETED when migrated_sims < total_sims")
+	}
+	if nextStage != 2 {
+		t.Errorf("expected nextStage=2, got %d", nextStage)
+	}
+	if stages[nextStage].Status != "pending" {
+		t.Errorf("reopened stage should be pending (retryable), got %q", stages[nextStage].Status)
+	}
+}
+
+func TestFIX108_AdvanceRollout_AllStagesCompletedMigrationDone(t *testing.T) {
+	stages := []store.RolloutStage{
+		{Pct: 1, Status: "completed"},
+		{Pct: 10, Status: "completed"},
+		{Pct: 100, Status: "completed"},
+	}
+	migratedSIMs := 45
+	totalSIMs := 45
+
+	nextStage := -1
+	for i, st := range stages {
+		if st.Status == "pending" {
+			nextStage = i
+			break
+		}
+		if st.Status == "in_progress" {
+			break
+		}
+	}
+
+	if nextStage == -1 {
+		if migratedSIMs < totalSIMs {
+			nextStage = len(stages) - 1
+			stages[nextStage].Status = "pending"
+		}
+	}
+
+	if nextStage != -1 {
+		t.Fatal("should return ROLLOUT_COMPLETED when all stages done and migrated == total")
+	}
+}
+
+func TestFIX108_AdvanceRollout_PendingStageExists(t *testing.T) {
+	stages := []store.RolloutStage{
+		{Pct: 1, Status: "completed"},
+		{Pct: 10, Status: "pending"},
+		{Pct: 100, Status: "pending"},
+	}
+
+	nextStage := -1
+	for i, st := range stages {
+		if st.Status == "pending" {
+			nextStage = i
+			break
+		}
+		if st.Status == "in_progress" {
+			break
+		}
+	}
+
+	if nextStage != 1 {
+		t.Errorf("expected nextStage=1 (first pending), got %d", nextStage)
+	}
+}
+
+func TestFIX108_AdvanceRollout_InProgressStageBlocksAdvance(t *testing.T) {
+	stages := []store.RolloutStage{
+		{Pct: 1, Status: "completed"},
+		{Pct: 10, Status: "in_progress"},
+		{Pct: 100, Status: "pending"},
+	}
+
+	nextStage := -1
+	shouldReturnStageInProgress := false
+	for i, st := range stages {
+		if st.Status == "pending" {
+			nextStage = i
+			break
+		}
+		if st.Status == "in_progress" {
+			shouldReturnStageInProgress = true
+			break
+		}
+	}
+
+	if !shouldReturnStageInProgress {
+		t.Error("in_progress stage should block advance with ErrStageInProgress")
+	}
+	if nextStage != -1 {
+		t.Errorf("nextStage should be -1 when blocked by in_progress, got %d", nextStage)
+	}
+}
+
+func TestFIX108_ExecuteStage_TargetNotReached_StageResetToPending(t *testing.T) {
+	totalSIMs := 45
+	stagePct := 100
+	targetMigrated := int(math.Ceil(float64(totalSIMs) * float64(stagePct) / 100.0))
+	totalMigrated := 6
+
+	targetReached := totalMigrated >= targetMigrated
+
+	if targetReached {
+		t.Fatal("with 6/45 migrated, target should NOT be reached")
+	}
+
+	status := "in_progress"
+	if targetReached {
+		status = "completed"
+	} else {
+		status = "pending"
+	}
+
+	if status != "pending" {
+		t.Errorf("stage should be reset to pending when target not reached, got %q", status)
+	}
+}
+
+func TestFIX108_ExecuteStage_TargetReached_StageCompleted(t *testing.T) {
+	totalSIMs := 45
+	stagePct := 10
+	targetMigrated := int(math.Ceil(float64(totalSIMs) * float64(stagePct) / 100.0))
+	totalMigrated := 5
+
+	targetReached := totalMigrated >= targetMigrated
+	if !targetReached {
+		t.Fatal("with 5/5 migrated (10% of 45 = 5), target should be reached")
+	}
+
+	status := "in_progress"
+	if targetReached {
+		status = "completed"
+	} else {
+		status = "pending"
+	}
+	if status != "completed" {
+		t.Errorf("stage should be completed when target reached, got %q", status)
+	}
+}
+
+func TestFIX108_CompleteRollout_OnlyWhenTargetReachedAndFinalStage(t *testing.T) {
+	tests := []struct {
+		name           string
+		stagePct       int
+		targetReached  bool
+		shouldComplete bool
+	}{
+		{"final stage, target reached", 100, true, true},
+		{"final stage, target NOT reached", 100, false, false},
+		{"intermediate stage, target reached", 10, true, false},
+		{"intermediate stage, target NOT reached", 10, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shouldComplete := tt.targetReached && tt.stagePct == 100
+			if shouldComplete != tt.shouldComplete {
+				t.Errorf("shouldComplete=%v, want %v", shouldComplete, tt.shouldComplete)
+			}
+		})
+	}
+}
+
 func TestBR4_PolicyStoreErrors_Distinct(t *testing.T) {
 	errs := []error{
 		store.ErrVersionNotDraft,

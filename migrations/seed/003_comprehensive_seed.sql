@@ -7,7 +7,7 @@
 -- Root cause: migration 20260412000003_enum_check_constraints added chk_* constraints
 -- AFTER this seed was written. Live DB had 0 bad rows; fresh volume aborts on insert.
 -- Fixes applied:
---   users.role: 'analyst' → 'auditor', 'op_manager' → 'sim_manager'
+--   users.role: 'op_manager' → 'sim_manager' (FIX-110: 'auditor' → 'analyst')
 --   policy_versions.state: 'rolled_back' → 'superseded'
 -- RLS is NOT the issue — argus role has rolbypassrls=t (verified).
 
@@ -181,7 +181,7 @@ INSERT INTO users (id, tenant_id, email, password_hash, name, role, state, totp_
 ('40000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'mehmet.demir@nar.com.tr',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Mehmet Demir', 'policy_editor', 'active', true, NOW() - INTERVAL '1 day'),
 ('40000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'zeynep.ozturk@nar.com.tr',
- '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Zeynep Ozturk', 'auditor', 'active', false, NOW() - INTERVAL '4 hours'),
+ '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Zeynep Ozturk', 'analyst', 'active', false, NOW() - INTERVAL '4 hours'),
 ('40000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', 'can.aksoy@nar.com.tr',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Can Aksoy', 'sim_manager', 'active', false, NOW() - INTERVAL '6 hours'),
 ('40000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', 'selin.celik@nar.com.tr',
@@ -194,7 +194,7 @@ INSERT INTO users (id, tenant_id, email, password_hash, name, role, state, totp_
 ('40000000-0000-0000-0000-000000000013', '10000000-0000-0000-0000-000000000002', 'emre.karaca@bosphorus-iot.com',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Emre Karaca', 'policy_editor', 'active', false, NOW() - INTERVAL '5 hours'),
 ('40000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000002', 'deniz.arslan@bosphorus-iot.com',
- '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Deniz Arslan', 'auditor', 'active', false, NOW() - INTERVAL '12 hours'),
+ '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Deniz Arslan', 'analyst', 'active', false, NOW() - INTERVAL '12 hours'),
 ('40000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000002', 'hakan.yildiz@bosphorus-iot.com',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Hakan Yildiz', 'sim_manager', 'active', false, NOW() - INTERVAL '8 hours')
 ON CONFLICT DO NOTHING;
@@ -1154,7 +1154,7 @@ INSERT INTO users (id, tenant_id, email, password_hash, name, role, state, totp_
 ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000001', 'demo.manager@argus.io',
  '$2a$12$ykM9KdOoZNshmojSwWvMpOiLhroGvbUpCKBG2nYSj73vjU1G8oCYK', 'Demo Manager', 'sim_manager', 'active', false, NOW() - INTERVAL '3 hours'),
 ('00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-000000000001', 'demo.analyst@argus.io',
- '$2a$12$ykM9KdOoZNshmojSwWvMpOiLhroGvbUpCKBG2nYSj73vjU1G8oCYK', 'Demo Analyst', 'auditor', 'active', false, NOW() - INTERVAL '6 hours')
+ '$2a$12$ykM9KdOoZNshmojSwWvMpOiLhroGvbUpCKBG2nYSj73vjU1G8oCYK', 'Demo Analyst', 'analyst', 'active', false, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 
 -- Demo tenant policies

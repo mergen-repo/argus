@@ -374,10 +374,13 @@ func (h *Handler) Disconnect(w http.ResponseWriter, r *http.Request) {
 		if idx := strings.Index(nasIP, ":"); idx > 0 {
 			nasIP = nasIP[:idx]
 		}
+		tenantID, _ := uuid.Parse(sess.TenantID)
 		_, dmErr := h.dmSender.SendDM(r.Context(), session.DMRequest{
 			NASIP:         nasIP,
 			AcctSessionID: sess.AcctSessionID,
 			IMSI:          sess.IMSI,
+			SessionID:     sess.ID,
+			TenantID:      tenantID,
 		})
 		if dmErr != nil {
 			h.logger.Warn().Err(dmErr).Str("session_id", sessionID).Msg("DM send failed, terminating locally")
@@ -459,10 +462,13 @@ func (h *Handler) BulkDisconnect(w http.ResponseWriter, r *http.Request) {
 				if idx := strings.Index(nasIP, ":"); idx > 0 {
 					nasIP = nasIP[:idx]
 				}
+				tenantID, _ := uuid.Parse(sess.TenantID)
 				h.dmSender.SendDM(r.Context(), session.DMRequest{
 					NASIP:         nasIP,
 					AcctSessionID: sess.AcctSessionID,
 					IMSI:          sess.IMSI,
+					SessionID:     sess.ID,
+					TenantID:      tenantID,
 				})
 			}
 

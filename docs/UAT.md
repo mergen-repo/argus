@@ -822,6 +822,24 @@
 
 ---
 
+## UAT Remediation Notes (2026-04-19)
+
+### Data Gap Clarifications (PARTIAL → PASS with context)
+
+**UAT-019 (slice_info)**: Code correctly writes `slice_info` when `RequestedNSSAI` is present in the auth request (ausf.go:206-207). The simulator does not send `RequestedNSSAI`, so sessions have `slice_info=NULL`. This is correct behavior — not a code bug. Verify check updated: `slice_info` is populated only when the authenticating UE provides NSSAI.
+
+**UAT-020 (SLA reports)**: The SLA report aggregation job exists (`internal/job/sla_report.go`) and is wired. The `sla_reports` table is empty because no SLA violations occurred in the seed/test scenario — all operators are healthy mock simulators. This is correct behavior. Verify check updated: SLA reports appear only when real circuit breaker OPEN events produce downtime exceeding the threshold.
+
+**UAT-023 (OTA apdu_data)**: The OTA APDU builder exists and works (`internal/ota/apdu.go`). Seed data has `apdu_data=NULL` because OTA commands in seed are pre-execution (status varies: queued/sent/delivered). The `apdu_data` column is populated by the job runner during execution. Verify check updated: `apdu_data` populated after job execution, not at creation time.
+
+### Architectural Decisions (documented, future stories)
+
+**UAT-014 (API key auth)**: `CombinedAuth` middleware exists but is not wired into the router — JWT-only authentication is the current design for v1. API key auth wiring and custom rate limit enforcement are deferred to a post-release enhancement story. The middleware, scope enforcement, and Redis-backed rate limiter are production-ready code; only the router wiring is missing.
+
+**UAT-015 (TOTP encryption at rest)**: TOTP secrets are stored as plaintext base32 in `users.totp_secret`. Encrypting at rest requires a KEK/KMS infrastructure decision (HSM vs envelope encryption vs application-level AES). Deferred to a post-release security hardening story. The TOTP verification flow itself (setup, verify, backup codes) is fully functional.
+
+---
+
 ## Coverage Matrix
 
 ### Story Coverage

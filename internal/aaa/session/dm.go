@@ -2,10 +2,13 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	radius "layeh.com/radius"
 	"layeh.com/radius/rfc2865"
@@ -22,26 +25,37 @@ const (
 )
 
 type DMSender struct {
-	secret []byte
-	port   int
-	logger zerolog.Logger
+	secret  []byte
+	port    int
+	logger  zerolog.Logger
+	auditor audit.Auditor
 }
 
-func NewDMSender(secret string, port int, logger zerolog.Logger) *DMSender {
+func NewDMSender(secret string, port int, logger zerolog.Logger, opts ...func(*DMSender)) *DMSender {
 	if port == 0 {
 		port = defaultCoAPort
 	}
-	return &DMSender{
+	s := &DMSender{
 		secret: []byte(secret),
 		port:   port,
 		logger: logger.With().Str("component", "dm_sender").Logger(),
 	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+func WithDMAuditor(a audit.Auditor) func(*DMSender) {
+	return func(s *DMSender) { s.auditor = a }
 }
 
 type DMRequest struct {
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
+	SessionID     string
+	TenantID      uuid.UUID
 }
 
 type DMResult struct {
@@ -61,7 +75,9 @@ func (d *DMSender) SendDM(ctx context.Context, req DMRequest) (*DMResult, error)
 			Str("nas_ip", req.NASIP).
 			Str("acct_session_id", req.AcctSessionID).
 			Msg("DM send failed")
-		return &DMResult{Status: DMResultError, Message: err.Error()}, err
+		errResult := &DMResult{Status: DMResultError, Message: err.Error()}
+		d.emitAudit(ctx, req, errResult)
+		return errResult, err
 	}
 
 	d.logger.Info().
@@ -70,7 +86,31 @@ func (d *DMSender) SendDM(ctx context.Context, req DMRequest) (*DMResult, error)
 		Str("result", result.Status).
 		Msg("DM sent")
 
+	d.emitAudit(ctx, req, result)
 	return result, nil
+}
+
+func (d *DMSender) emitAudit(ctx context.Context, req DMRequest, result *DMResult) {
+	if d.auditor == nil || req.TenantID == uuid.Nil {
+		return
+	}
+	afterData, _ := json.Marshal(map[string]interface{}{
+		"nas_ip":          req.NASIP,
+		"acct_session_id": req.AcctSessionID,
+		"imsi":            req.IMSI,
+		"status":          result.Status,
+		"message":         result.Message,
+	})
+	_, err := d.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:   req.TenantID,
+		Action:     "session.dm_sent",
+		EntityType: "session",
+		EntityID:   req.SessionID,
+		AfterData:  afterData,
+	})
+	if err != nil {
+		d.logger.Warn().Err(err).Str("session_id", req.SessionID).Msg("audit dm_sent failed")
+	}
 }
 
 func (d *DMSender) sendPacket(ctx context.Context, addr string, packet *radius.Packet) (*DMResult, error) {

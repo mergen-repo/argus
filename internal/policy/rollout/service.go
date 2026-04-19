@@ -21,6 +21,7 @@ const (
 type SessionInfo struct {
 	ID            string
 	SimID         string
+	TenantID      string
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
@@ -30,6 +31,8 @@ type CoARequest struct {
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
+	SessionID     string
+	TenantID      string
 	Attributes    map[string]interface{}
 }
 
@@ -208,6 +211,7 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 	}
 
 	totalMigrated := rollout.MigratedSIMs
+	targetReached := false
 
 	for remaining > 0 {
 		batchCount := batchSize
@@ -249,7 +253,13 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 		s.publishProgress(ctx, rollout, stages, totalMigrated, stageIndex)
 	}
 
-	stages[stageIndex].Status = "completed"
+	targetReached = totalMigrated >= targetMigrated
+
+	if targetReached {
+		stages[stageIndex].Status = "completed"
+	} else {
+		stages[stageIndex].Status = "pending"
+	}
 	finalCount := totalMigrated
 	stages[stageIndex].Migrated = &finalCount
 	stages[stageIndex].SimCount = &finalCount
@@ -259,7 +269,7 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 		return fmt.Errorf("update final progress: %w", err)
 	}
 
-	if stage.Pct == 100 {
+	if targetReached && stage.Pct == 100 {
 		if err := s.policyStore.CompleteRollout(ctx, rollout.ID); err != nil {
 			return fmt.Errorf("complete rollout: %w", err)
 		}
@@ -304,7 +314,12 @@ func (s *Service) AdvanceRollout(ctx context.Context, tenantID, rolloutID uuid.U
 	}
 
 	if nextStage == -1 {
-		return nil, store.ErrRolloutCompleted
+		if rollout.MigratedSIMs < rollout.TotalSIMs {
+			nextStage = len(stages) - 1
+			stages[nextStage].Status = "pending"
+		} else {
+			return nil, store.ErrRolloutCompleted
+		}
 	}
 
 	stagePct := stages[nextStage].Pct
@@ -398,6 +413,8 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 			NASIP:         sess.NASIP,
 			AcctSessionID: sess.AcctSessionID,
 			IMSI:          sess.IMSI,
+			SessionID:     sess.ID,
+			TenantID:      sess.TenantID,
 		})
 
 		status := "sent"

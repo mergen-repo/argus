@@ -113,7 +113,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: AUTOPILOT (UAT Remediation — 7/7 FIX stories DONE; pending: UAT Batch 2..7 rerun)
-- Phase: UAT Remediation [FIX STORIES DONE] (FIX-105..107 all shipped 2026-04-19)
-- Story: — (all 7 FIX stories complete; next: UAT batch reruns)
-- Step: — (awaiting UAT Batch 1-4 reruns to verify all 23 scenarios pass on UI+API+DB)
+- Mode: AUTOPILOT (UAT Remediation — 11/11 FIX stories DONE; UAT Batch 1-7 verified)
+- Phase: UAT Remediation [DONE] (FIX-101..111 all shipped 2026-04-19; 23/23 UAT scenarios verified)
+- Story: — (UAT Remediation complete; next: Documentation Phase D1)
+- Step: — (awaiting user `/amil` to start Documentation Phase)

@@ -744,10 +744,13 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 				Msg("concurrent session limit reached, evicting oldest")
 
 			if s.dmSender != nil && oldest.NASIP != "" && oldest.AcctSessionID != "" {
+				oldestTenantID, _ := uuid.Parse(oldest.TenantID)
 				_, _ = s.dmSender.SendDM(ctx, session.DMRequest{
 					NASIP:         oldest.NASIP,
 					AcctSessionID: oldest.AcctSessionID,
 					IMSI:          oldest.IMSI,
+					SessionID:     oldest.ID,
+					TenantID:      oldestTenantID,
 				})
 			}
 			_ = s.sessionMgr.Terminate(ctx, oldest.ID, "concurrent_limit")
@@ -900,10 +903,13 @@ func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctS
 						Msg("policy quota exceeded, disconnecting session")
 
 					if s.dmSender != nil && sess.NASIP != "" && sess.AcctSessionID != "" {
+						sessTenantID, _ := uuid.Parse(sess.TenantID)
 						_, _ = s.dmSender.SendDM(ctx, session.DMRequest{
 							NASIP:         sess.NASIP,
 							AcctSessionID: sess.AcctSessionID,
 							IMSI:          sess.IMSI,
+							SessionID:     sess.ID,
+							TenantID:      sessTenantID,
 						})
 					}
 					_ = s.sessionMgr.Terminate(ctx, sess.ID, "policy_quota_exceeded")

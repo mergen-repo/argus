@@ -946,8 +946,8 @@ func runServe(cfg *config.Config) {
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 		simCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
 		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
-		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
-		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger)
+		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithCoAAuditor(auditSvc))
+		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithDMAuditor(auditSvc))
 
 		esimHandler.SetSessionDeps(radiusSessionStore, dmSender)
 
@@ -1942,6 +1942,7 @@ func (a *rolloutSessionAdapter) GetSessionsForSIM(ctx context.Context, simID str
 		result = append(result, rollout.SessionInfo{
 			ID:            s.ID,
 			SimID:         s.SimID,
+			TenantID:      s.TenantID,
 			NASIP:         s.NASIP,
 			AcctSessionID: s.AcctSessionID,
 			IMSI:          s.IMSI,
@@ -1955,10 +1956,13 @@ type rolloutCoAAdapter struct {
 }
 
 func (a *rolloutCoAAdapter) SendCoA(ctx context.Context, req rollout.CoARequest) (*rollout.CoAResult, error) {
+	tenantID, _ := uuid.Parse(req.TenantID)
 	result, err := a.sender.SendCoA(ctx, aaasession.CoARequest{
 		NASIP:         req.NASIP,
 		AcctSessionID: req.AcctSessionID,
 		IMSI:          req.IMSI,
+		SessionID:     req.SessionID,
+		TenantID:      tenantID,
 		Attributes:    req.Attributes,
 	})
 	if err != nil {
@@ -1984,6 +1988,7 @@ func (a *bulkPolicySessionAdapter) GetSessionsForSIM(ctx context.Context, simID 
 		result = append(result, job.BulkSessionInfo{
 			ID:            s.ID,
 			SimID:         s.SimID,
+			TenantID:      s.TenantID,
 			NASIP:         s.NASIP,
 			AcctSessionID: s.AcctSessionID,
 			IMSI:          s.IMSI,
@@ -1997,10 +2002,13 @@ type bulkPolicyCoAAdapter struct {
 }
 
 func (a *bulkPolicyCoAAdapter) SendCoA(ctx context.Context, req job.BulkCoARequest) (*job.BulkCoAResult, error) {
+	tenantID, _ := uuid.Parse(req.TenantID)
 	result, err := a.sender.SendCoA(ctx, aaasession.CoARequest{
 		NASIP:         req.NASIP,
 		AcctSessionID: req.AcctSessionID,
 		IMSI:          req.IMSI,
+		SessionID:     req.SessionID,
+		TenantID:      tenantID,
 		Attributes:    req.Attributes,
 	})
 	if err != nil {

@@ -19,6 +19,7 @@ const (
 type BulkSessionInfo struct {
 	ID            string
 	SimID         string
+	TenantID      string
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
@@ -28,6 +29,8 @@ type BulkCoARequest struct {
 	NASIP         string
 	AcctSessionID string
 	IMSI          string
+	SessionID     string
+	TenantID      string
 	Attributes    map[string]interface{}
 }
 
@@ -211,6 +214,8 @@ func (p *BulkPolicyAssignProcessor) dispatchCoAForSIM(ctx context.Context, simID
 			NASIP:         sess.NASIP,
 			AcctSessionID: sess.AcctSessionID,
 			IMSI:          sess.IMSI,
+			SessionID:     sess.ID,
+			TenantID:      sess.TenantID,
 			Attributes:    map[string]interface{}{},
 		})
 

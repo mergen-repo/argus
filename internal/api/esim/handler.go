@@ -714,6 +714,8 @@ func (h *Handler) disconnectActiveSessionsForSwitch(ctx context.Context, simID u
 			NASIP:         nasIP,
 			AcctSessionID: *sess.AcctSessionID,
 			IMSI:          imsi,
+			SessionID:     sess.ID.String(),
+			TenantID:      sess.TenantID,
 		})
 		status := aaasession.DMResultError
 		if dmErr == nil && dmRes != nil {
