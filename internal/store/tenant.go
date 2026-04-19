@@ -38,6 +38,12 @@ type Tenant struct {
 	UpdatedBy          *uuid.UUID      `json:"updated_by,omitempty"`
 }
 
+type TenantWithCounts struct {
+	Tenant
+	SimCount  int `json:"sim_count"`
+	UserCount int `json:"user_count"`
+}
+
 type TenantStats struct {
 	SimCount       int `json:"sim_count"`
 	UserCount      int `json:"user_count"`
@@ -194,6 +200,82 @@ func (s *TenantStore) List(ctx context.Context, cursor string, limit int, stateF
 			return nil, "", fmt.Errorf("store: scan tenant: %w", err)
 		}
 		results = append(results, t)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s *TenantStore) ListWithCounts(ctx context.Context, cursor string, limit int, stateFilter string) ([]TenantWithCounts, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{}
+	conditions := []string{}
+	argIdx := 1
+
+	if stateFilter != "" {
+		conditions = append(conditions, fmt.Sprintf("t.state = $%d", argIdx))
+		args = append(args, stateFilter)
+		argIdx++
+	}
+
+	if cursor != "" {
+		cursorID, parseErr := uuid.Parse(cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("t.id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`
+		SELECT t.id, t.name, t.domain, t.contact_email, t.contact_phone, t.max_sims, t.max_apns, t.max_users, t.max_api_keys,
+			t.purge_retention_days, t.settings, t.state, t.created_at, t.updated_at, t.created_by, t.updated_by,
+			sc.cnt AS sim_count, uc.cnt AS user_count
+		FROM tenants t
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) AS cnt FROM sims WHERE tenant_id = t.id AND state != 'purged'
+		) sc ON true
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) AS cnt FROM users WHERE tenant_id = t.id AND state != 'terminated'
+		) uc ON true
+		%s
+		ORDER BY t.created_at DESC, t.id DESC
+		LIMIT %s
+	`, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list tenants with counts: %w", err)
+	}
+	defer rows.Close()
+
+	var results []TenantWithCounts
+	for rows.Next() {
+		var twc TenantWithCounts
+		t := &twc.Tenant
+		if err := rows.Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
+			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
+			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy,
+			&twc.SimCount, &twc.UserCount); err != nil {
+			return nil, "", fmt.Errorf("store: scan tenant with counts: %w", err)
+		}
+		results = append(results, twc)
 	}
 
 	nextCursor := ""

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -228,6 +229,38 @@ func TestStatsForbiddenForOtherTenant(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestToTenantWithCountsResponse_PopulatesCounts(t *testing.T) {
+	id := uuid.New()
+	twc := store.TenantWithCounts{
+		Tenant: store.Tenant{
+			ID:           id,
+			Name:         "Acme Corp",
+			ContactEmail: "admin@acme.com",
+			MaxSims:      100000,
+			MaxApns:      100,
+			MaxUsers:     50,
+			State:        "active",
+		},
+		SimCount:  15,
+		UserCount: 3,
+	}
+
+	resp := toTenantWithCountsResponse(&twc)
+
+	if resp.ID != id.String() {
+		t.Errorf("ID = %q, want %q", resp.ID, id.String())
+	}
+	if resp.SimCount != 15 {
+		t.Errorf("SimCount = %d, want 15", resp.SimCount)
+	}
+	if resp.UserCount != 3 {
+		t.Errorf("UserCount = %d, want 3", resp.UserCount)
+	}
+	if resp.Slug != "acme-corp" {
+		t.Errorf("Slug = %q, want acme-corp", resp.Slug)
 	}
 }
 

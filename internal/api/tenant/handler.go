@@ -101,11 +101,16 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		MaxUsers:     t.MaxUsers,
 		Settings:     t.Settings,
 		State:        t.State,
-		SimCount:     0,
-		UserCount:    0,
 		CreatedAt:    t.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:    t.UpdatedAt.Format(time.RFC3339Nano),
 	}
+}
+
+func toTenantWithCountsResponse(twc *store.TenantWithCounts) tenantResponse {
+	resp := toTenantResponse(&twc.Tenant)
+	resp.SimCount = twc.SimCount
+	resp.UserCount = twc.UserCount
+	return resp
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +125,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tenants, nextCursor, err := h.tenantStore.List(r.Context(), cursor, limit, stateFilter)
+	tenants, nextCursor, err := h.tenantStore.ListWithCounts(r.Context(), cursor, limit, stateFilter)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list tenants")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -128,8 +133,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	items := make([]tenantResponse, 0, len(tenants))
-	for _, t := range tenants {
-		items = append(items, toTenantResponse(&t))
+	for i := range tenants {
+		items = append(items, toTenantWithCountsResponse(&tenants[i]))
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
@@ -319,7 +324,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "tenant.update", id.String(), existing, updated)
 
-	apierr.WriteSuccess(w, http.StatusOK, toTenantResponse(updated))
+	resp := toTenantResponse(updated)
+	if stats, err := h.tenantStore.GetStats(r.Context(), id); err == nil && stats != nil {
+		resp.SimCount = stats.SimCount
+		resp.UserCount = stats.UserCount
+		resp.APNCount = &stats.APNCount
+	}
+	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
