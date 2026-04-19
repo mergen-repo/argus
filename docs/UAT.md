@@ -111,6 +111,16 @@
 - [ ] After PURGE: IMSI→hash, MSISDN→hash in audit logs (pseudonymization)
 - [ ] Audit log hash chain valid across all transitions
 - [ ] Invalid transitions rejected (e.g., ORDERED→SUSPENDED returns error)
+- [ ] (FIX-107) Resume on ORDERED SIM returns 422 INVALID_STATE_TRANSITION — use Activate instead
+
+### Negative Test: FIX-107 Resume State Guard
+
+| # | Actor | Screen / System | Action | Expected Result |
+|---|-------|----------------|--------|-----------------|
+| N1 | SIM Manager | SCR-021: SIM Detail | Create SIM (state: ORDERED), then POST /sims/{id}/resume | 422 `INVALID_STATE_TRANSITION` — "Cannot resume SIM in 'ordered' state" |
+| N2 | SIM Manager | SCR-021: SIM Detail | Same ORDERED SIM: click "Activate" | 200 OK — SIM → ACTIVE with IP + policy assigned |
+
+**Rule**: Resume is `suspended → active` only. `ordered → active` requires Activate (which performs IP allocation + policy auto-assign).
 
 ---
 

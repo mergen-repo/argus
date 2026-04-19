@@ -113,7 +113,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: AUTOPILOT (UAT Remediation — all 7 FIX stories until 23 UAT scenarios PASS on UI+API+DB)
-- Phase: UAT Remediation [IN PROGRESS] (FIX-105 DONE; FIX-104 IN PROGRESS)
-- Story: FIX-101 DONE → Tier 2 complete → next: FIX-102 (Tier 3)
-- Step: — (FIX-101 committed, proceeding to Tier 3)
+- Mode: AUTOPILOT (UAT Remediation — 7/7 FIX stories DONE; pending: UAT Batch 2..7 rerun)
+- Phase: UAT Remediation [FIX STORIES DONE] (FIX-105..107 all shipped 2026-04-19)
+- Story: — (all 7 FIX stories complete; next: UAT batch reruns)
+- Step: — (awaiting UAT Batch 1-4 reruns to verify all 23 scenarios pass on UI+API+DB)

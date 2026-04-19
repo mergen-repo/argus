@@ -475,6 +475,10 @@ func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID
 		return nil, fmt.Errorf("store: lock sim for resume: %w", err)
 	}
 
+	if currentState != "suspended" {
+		return nil, ErrInvalidStateTransition
+	}
+
 	if err := validateTransition(currentState, "active"); err != nil {
 		return nil, err
 	}

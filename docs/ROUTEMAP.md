@@ -294,7 +294,7 @@ Stop condition: After STORY-089 Step 6 post-processing → extend Mini Phase Gat
 | FIX-103 | Tenant List sim_count/user_count Counts | 2 (user-visible) | S | [x] DONE 2026-04-19 | — | — |
 | FIX-102 | Bulk Import Completeness (F-11, F-12, F-14) | 3 (flow) | L | [x] DONE 2026-04-19 | — | FIX-104 |
 | FIX-106 | Operator Test Adapter Registry (F-6, F-7, F-8) | 3 (flow) | M-L | [x] DONE 2026-04-19 | — | FIX-101 |
-| FIX-107 | Resume State Machine Consistency | 4 (low impact) | S | [ ] PENDING | FIX-105, FIX-102 |
+| FIX-107 | Resume State Machine Consistency | 4 (low impact) | S | [x] DONE 2026-04-19 | — | FIX-105, FIX-102 |
 
 ### Batch rerun checkpoints
 

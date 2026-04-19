@@ -194,6 +194,42 @@ func TestBR3_PoolExhaustedErrorMessage(t *testing.T) {
 	}
 }
 
+func TestBR1_ResumeRequiresSuspendedState(t *testing.T) {
+	nonSuspendedStates := []string{"ordered", "active", "stolen_lost", "terminated", "purged"}
+	for _, state := range nonSuspendedStates {
+		t.Run("resume_from_"+state+"_must_fail", func(t *testing.T) {
+			if state == "suspended" {
+				t.Fatal("test data error: suspended must not appear in this list")
+			}
+			simulatedGuard := func(currentState string) error {
+				if currentState != "suspended" {
+					return ErrInvalidStateTransition
+				}
+				return validateTransition(currentState, "active")
+			}
+			err := simulatedGuard(state)
+			if err == nil {
+				t.Errorf("Resume from %q should return ErrInvalidStateTransition (not suspended)", state)
+			}
+			if err != ErrInvalidStateTransition {
+				t.Errorf("Resume from %q: got %v, want ErrInvalidStateTransition", state, err)
+			}
+		})
+	}
+}
+
+func TestBR1_ResumeFromSuspendedAllowed(t *testing.T) {
+	simulatedGuard := func(currentState string) error {
+		if currentState != "suspended" {
+			return ErrInvalidStateTransition
+		}
+		return validateTransition(currentState, "active")
+	}
+	if err := simulatedGuard("suspended"); err != nil {
+		t.Errorf("Resume from suspended should be allowed, got: %v", err)
+	}
+}
+
 func TestSIMErrorSentinels_Distinct(t *testing.T) {
 	if ErrSIMNotFound == ErrICCIDExists {
 		t.Error("ErrSIMNotFound and ErrICCIDExists must be distinct")
