@@ -13,7 +13,7 @@ VALUES (
     'mock',
     '999',
     '99',
-    '{"mock":{"enabled":true,"host":"localhost","port":1812}}',
+    '{"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
     ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
     'healthy',
     'active'

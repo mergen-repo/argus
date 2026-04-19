@@ -634,6 +634,111 @@ func TestTestConnection_PerProtocol_HelperRejectsInvalidProtocolName(t *testing.
 	}
 }
 
+func TestTestConnection_PerProtocol_HelperRadiusFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"radius":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "radius", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "host") && !strings.Contains(errMsg, "shared_secret") {
+		t.Errorf("error message should mention missing config field, got: %s", errMsg)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperDiameterFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"diameter":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "diameter", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error message should mention missing host, got: %s", err.Error())
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperHTTPFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"http":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "http", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "base_url") {
+		t.Errorf("error message should mention missing base_url, got: %s", err.Error())
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperSBAFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"sba":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error message should mention missing host, got: %s", err.Error())
+	}
+}
+
 func TestTestConnection_PerProtocol_HelperRejectsExplicitDisabled(t *testing.T) {
 	// Both radius and sba present; sba.enabled=false. Asking for sba
 	// must 422 (not enabled) even though the sub-key is present.

@@ -1116,7 +1116,10 @@ func (h *Handler) testConnectionForProtocol(ctx context.Context, op *store.Opera
 
 	a, err := h.adapterRegistry.GetOrCreate(op.ID, protocol, sub)
 	if err != nil {
-		return testResponse{}, http.StatusInternalServerError, err
+		if errors.Is(err, adapter.ErrUnsupportedProtocol) {
+			return testResponse{}, http.StatusBadRequest, err
+		}
+		return testResponse{}, http.StatusUnprocessableEntity, err
 	}
 
 	result := a.HealthCheck(ctx)
@@ -1181,8 +1184,8 @@ func (h *Handler) TestConnection(w http.ResponseWriter, r *http.Request) {
 
 	resp, status, tcErr := h.testConnectionForProtocol(r.Context(), op, primary, nestedPlaintext)
 	if tcErr != nil {
-		h.logger.Error().Err(tcErr).Str("protocol", primary).Msg("create adapter for test")
-		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to create adapter")
+		h.logger.Warn().Err(tcErr).Str("protocol", primary).Msg("adapter config invalid for test")
+		apierr.WriteError(w, status, apierr.CodeAdapterConfigInvalid, tcErr.Error())
 		return
 	}
 	if status != http.StatusOK {
@@ -1228,8 +1231,8 @@ func (h *Handler) TestConnectionForProtocol(w http.ResponseWriter, r *http.Reque
 
 	resp, status, tcErr := h.testConnectionForProtocol(r.Context(), op, protocol, nestedPlaintext)
 	if tcErr != nil {
-		h.logger.Error().Err(tcErr).Str("protocol", protocol).Msg("create adapter for per-protocol test")
-		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to create adapter")
+		h.logger.Warn().Err(tcErr).Str("protocol", protocol).Msg("adapter config invalid for per-protocol test")
+		apierr.WriteError(w, status, apierr.CodeAdapterConfigInvalid, tcErr.Error())
 		return
 	}
 	switch status {

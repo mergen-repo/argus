@@ -77,6 +77,38 @@ func TestValidate_AllDisabledIsAllowed(t *testing.T) {
 	}
 }
 
+func TestDerivePrimaryProtocol_MultiProtocol(t *testing.T) {
+	raw := []byte(`{
+		"diameter":{"enabled":true,"origin_host":"h"},
+		"radius":{"enabled":true,"shared_secret":"s"},
+		"mock":{"enabled":true,"latency_ms":5}
+	}`)
+	n, err := ParseNested(raw)
+	if err != nil {
+		t.Fatalf("ParseNested: %v", err)
+	}
+	got := DerivePrimaryProtocol(n)
+	if got != "diameter" {
+		t.Fatalf("DerivePrimaryProtocol = %q, want %q (canonical order: diameter first)", got, "diameter")
+	}
+}
+
+func TestDerivePrimaryProtocol_SkipsDisabledFirst(t *testing.T) {
+	raw := []byte(`{
+		"diameter":{"enabled":false},
+		"radius":{"enabled":true,"shared_secret":"s"},
+		"mock":{"enabled":true,"latency_ms":5}
+	}`)
+	n, err := ParseNested(raw)
+	if err != nil {
+		t.Fatalf("ParseNested: %v", err)
+	}
+	got := DerivePrimaryProtocol(n)
+	if got != "radius" {
+		t.Fatalf("DerivePrimaryProtocol = %q, want %q (diameter disabled, radius is next)", got, "radius")
+	}
+}
+
 // Case (c) — malformed JSON (garbage bytes). DetectShape MUST return
 // ErrShapeInvalidJSON so callers don't silently fall through.
 func TestDetectShape_GarbageJSON(t *testing.T) {
