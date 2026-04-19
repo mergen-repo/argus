@@ -40,8 +40,30 @@ func NewAuditStore(db *pgxpool.Pool) *AuditStore {
 	return &AuditStore{db: db}
 }
 
-func (s *AuditStore) Create(ctx context.Context, entry *audit.Entry) (*audit.Entry, error) {
-	err := s.db.QueryRow(ctx, `
+func (s *AuditStore) CreateWithChain(ctx context.Context, entry *audit.Entry) (*audit.Entry, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin audit chain tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7166482937211513)`) // fixed sentinel: audit chain single-writer lock
+	if err != nil {
+		return nil, fmt.Errorf("store: acquire audit chain lock: %w", err)
+	}
+
+	var tailHash string
+	err = tx.QueryRow(ctx, `SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1`).Scan(&tailHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		tailHash = audit.GenesisHash
+	} else if err != nil {
+		return nil, fmt.Errorf("store: read chain tail: %w", err)
+	}
+
+	entry.PrevHash = tailHash
+	entry.Hash = audit.ComputeHash(*entry, tailHash)
+
+	err = tx.QueryRow(ctx, `
 		INSERT INTO audit_logs (tenant_id, user_id, api_key_id, action, entity_type, entity_id,
 			before_data, after_data, diff, ip_address, user_agent, correlation_id, hash, prev_hash, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, $11, $12, $13, $14, $15)
@@ -51,26 +73,121 @@ func (s *AuditStore) Create(ctx context.Context, entry *audit.Entry) (*audit.Ent
 		entry.CorrelationID, entry.Hash, entry.PrevHash, entry.CreatedAt).
 		Scan(&entry.ID, &entry.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("store: create audit entry: %w", err)
+		return nil, fmt.Errorf("store: insert audit entry: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit audit chain tx: %w", err)
+	}
+
 	return entry, nil
 }
 
-func (s *AuditStore) GetLastHash(ctx context.Context, tenantID uuid.UUID) (string, error) {
-	var hash string
-	err := s.db.QueryRow(ctx, `
-		SELECT hash FROM audit_logs
-		WHERE tenant_id = $1
-		ORDER BY id DESC
-		LIMIT 1
-	`, tenantID).Scan(&hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return audit.GenesisHash, nil
-	}
+func (s *AuditStore) GetAll(ctx context.Context) ([]audit.Entry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
+			hash, prev_hash, created_at
+		FROM audit_logs
+		ORDER BY id ASC
+	`)
 	if err != nil {
-		return "", fmt.Errorf("store: get last audit hash: %w", err)
+		return nil, fmt.Errorf("store: get all audit logs: %w", err)
 	}
-	return hash, nil
+	defer rows.Close()
+
+	var results []audit.Entry
+	for rows.Next() {
+		var e audit.Entry
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.UserID, &e.APIKeyID,
+			&e.Action, &e.EntityType, &e.EntityID,
+			&e.BeforeData, &e.AfterData, &e.Diff,
+			&e.IPAddress, &e.UserAgent, &e.CorrelationID,
+			&e.Hash, &e.PrevHash, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan audit entry: %w", err)
+		}
+		results = append(results, e)
+	}
+
+	return results, nil
+}
+
+func (s *AuditStore) GetBatch(ctx context.Context, afterID int64, limit int) ([]audit.Entry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
+			hash, prev_hash, created_at
+		FROM audit_logs
+		WHERE id > $1
+		ORDER BY id ASC
+		LIMIT $2
+	`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: get audit batch: %w", err)
+	}
+	defer rows.Close()
+
+	var results []audit.Entry
+	for rows.Next() {
+		var e audit.Entry
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.UserID, &e.APIKeyID,
+			&e.Action, &e.EntityType, &e.EntityID,
+			&e.BeforeData, &e.AfterData, &e.Diff,
+			&e.IPAddress, &e.UserAgent, &e.CorrelationID,
+			&e.Hash, &e.PrevHash, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan audit batch entry: %w", err)
+		}
+		results = append(results, e)
+	}
+
+	return results, nil
+}
+
+const repairBatchSize = 1000
+
+func (s *AuditStore) RepairChain(ctx context.Context) error {
+	prevHash := audit.GenesisHash
+	var afterID int64
+
+	for {
+		batch, err := s.GetBatch(ctx, afterID, repairBatchSize)
+		if err != nil {
+			return fmt.Errorf("store: repair chain read batch after id=%d: %w", afterID, err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		for i := range batch {
+			batch[i].PrevHash = prevHash
+			batch[i].Hash = audit.ComputeHash(batch[i], prevHash)
+			prevHash = batch[i].Hash
+		}
+
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("store: repair chain begin tx: %w", err)
+		}
+
+		for _, e := range batch {
+			_, err := tx.Exec(ctx, `
+				UPDATE audit_logs SET hash = $1, prev_hash = $2
+				WHERE id = $3 AND created_at = $4
+			`, e.Hash, e.PrevHash, e.ID, e.CreatedAt)
+			if err != nil {
+				tx.Rollback(ctx)
+				return fmt.Errorf("store: repair chain update id=%d: %w", e.ID, err)
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("store: repair chain commit tx: %w", err)
+		}
+
+		afterID = batch[len(batch)-1].ID
+	}
+
+	return nil
 }
 
 func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAuditParams) ([]audit.Entry, string, error) {

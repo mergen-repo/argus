@@ -76,7 +76,7 @@ func (s *Service) RunPurgeSweep(ctx context.Context, batchSize int) (*PurgeResul
 
 	tenants := uniqueTenantIDs(sims)
 	for _, tenantID := range tenants {
-		chainResult, chainErr := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+		chainResult, chainErr := s.auditSvc.VerifyChain(ctx)
 		if chainErr != nil {
 			s.logger.Error().Err(chainErr).Str("tenant_id", tenantID.String()).Msg("hash chain verification failed, skipping pseudonymization")
 			continue
@@ -108,7 +108,7 @@ func (s *Service) DataSubjectAccess(ctx context.Context, tenantID, simID uuid.UU
 }
 
 func (s *Service) RightToErasure(ctx context.Context, tenantID, simID uuid.UUID) error {
-	chainResult, err := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+	chainResult, err := s.auditSvc.VerifyChain(ctx)
 	if err != nil {
 		return fmt.Errorf("verify audit chain: %w", err)
 	}
@@ -163,7 +163,7 @@ func (s *Service) Dashboard(ctx context.Context, tenantID uuid.UUID, retentionDa
 		}
 	}
 
-	chainResult, err := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+	chainResult, err := s.auditSvc.VerifyChain(ctx)
 	chainVerified := false
 	if err == nil {
 		chainVerified = chainResult.Verified

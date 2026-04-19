@@ -317,7 +317,21 @@ func TestVerifyChain_BrokenLink(t *testing.T) {
 }
 
 func TestVerifyChain_SingleEntry(t *testing.T) {
-	result := VerifyChain([]Entry{{ID: 1}})
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ts := time.Date(2026, 3, 18, 14, 0, 0, 0, time.UTC)
+
+	entry := Entry{
+		ID:         1,
+		TenantID:   tenantID,
+		Action:     "create",
+		EntityType: "sim",
+		EntityID:   "sim-1",
+		PrevHash:   GenesisHash,
+		CreatedAt:  ts,
+	}
+	entry.Hash = ComputeHash(entry, GenesisHash)
+
+	result := VerifyChain([]Entry{entry})
 	if !result.Verified {
 		t.Fatal("single entry should verify")
 	}
@@ -342,37 +356,42 @@ type mockAuditStore struct {
 	nextID  int64
 }
 
-func (m *mockAuditStore) Create(_ context.Context, entry *Entry) (*Entry, error) {
+func (m *mockAuditStore) CreateWithChain(_ context.Context, entry *Entry) (*Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	prevHash := GenesisHash
+	if len(m.entries) > 0 {
+		prevHash = m.entries[len(m.entries)-1].Hash
+	}
+
+	entry.PrevHash = prevHash
+	entry.Hash = ComputeHash(*entry, prevHash)
 	m.nextID++
 	entry.ID = m.nextID
 	m.entries = append(m.entries, *entry)
 	return entry, nil
 }
 
-func (m *mockAuditStore) GetLastHash(_ context.Context, tenantID uuid.UUID) (string, error) {
+func (m *mockAuditStore) GetAll(_ context.Context) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i := len(m.entries) - 1; i >= 0; i-- {
-		if m.entries[i].TenantID == tenantID {
-			return m.entries[i].Hash, nil
-		}
-	}
-	return GenesisHash, nil
+	result := make([]Entry, len(m.entries))
+	copy(result, m.entries)
+	return result, nil
 }
 
-func (m *mockAuditStore) GetRange(_ context.Context, tenantID uuid.UUID, count int) ([]Entry, error) {
+func (m *mockAuditStore) GetBatch(_ context.Context, afterID int64, limit int) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []Entry
 	for _, e := range m.entries {
-		if e.TenantID == tenantID {
+		if e.ID > afterID {
 			result = append(result, e)
+			if len(result) >= limit {
+				break
+			}
 		}
-	}
-	if len(result) > count {
-		result = result[len(result)-count:]
 	}
 	return result, nil
 }
@@ -519,7 +538,7 @@ func TestFullService_VerifyChain(t *testing.T) {
 		}
 	}
 
-	result, err := svc.VerifyChain(context.Background(), tenantID, 100)
+	result, err := svc.VerifyChain(context.Background())
 	if err != nil {
 		t.Fatalf("VerifyChain: %v", err)
 	}
@@ -528,6 +547,9 @@ func TestFullService_VerifyChain(t *testing.T) {
 	}
 	if result.EntriesChecked != 3 {
 		t.Fatalf("entries_checked = %d, want 3", result.EntriesChecked)
+	}
+	if result.TotalRows != 3 {
+		t.Fatalf("total_rows = %d, want 3", result.TotalRows)
 	}
 }
 
@@ -572,5 +594,194 @@ func TestFullService_CreateEntry_WithoutPublisher(t *testing.T) {
 
 	if len(store.entries) != 1 {
 		t.Fatalf("expected 1 store entry (inline processing), got %d", len(store.entries))
+	}
+}
+
+func TestVerifyChain_FirstEntryNotGenesis(t *testing.T) {
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ts := time.Date(2026, 3, 18, 14, 0, 0, 0, time.UTC)
+
+	badPrev := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	entry := Entry{
+		ID:         1,
+		TenantID:   tenantID,
+		Action:     "create",
+		EntityType: "sim",
+		EntityID:   "sim-1",
+		PrevHash:   badPrev,
+		CreatedAt:  ts,
+	}
+	entry.Hash = ComputeHash(entry, badPrev)
+
+	result := VerifyChain([]Entry{entry})
+	if result.Verified {
+		t.Fatal("chain with non-genesis first entry should NOT verify")
+	}
+	if result.FirstInvalid == nil || *result.FirstInvalid != 1 {
+		t.Fatalf("first_invalid = %v, want 1", result.FirstInvalid)
+	}
+}
+
+func TestVerifyChain_TamperDetection(t *testing.T) {
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+
+	store := &mockAuditStore{}
+	svc := NewFullService(store, nil, zerolog.Nop())
+
+	for i := 0; i < 5; i++ {
+		event := AuditEvent{
+			TenantID:   tenantID,
+			Action:     fmt.Sprintf("action.%d", i),
+			EntityType: "sim",
+			EntityID:   fmt.Sprintf("sim-%d", i),
+			AfterData:  json.RawMessage(fmt.Sprintf(`{"step":%d}`, i)),
+		}
+		if err := svc.ProcessEntry(context.Background(), event); err != nil {
+			t.Fatalf("ProcessEntry %d: %v", i, err)
+		}
+	}
+
+	result := VerifyChain(store.entries)
+	if !result.Verified {
+		t.Fatal("chain should be valid before tampering")
+	}
+
+	store.entries[2].Action = "tampered.action"
+
+	result = VerifyChain(store.entries)
+	if result.Verified {
+		t.Fatal("chain should NOT verify after tampering with action field")
+	}
+	if result.FirstInvalid == nil {
+		t.Fatal("first_invalid should not be nil")
+	}
+	if *result.FirstInvalid != store.entries[2].ID {
+		t.Fatalf("first_invalid = %d, want %d (tampered row)", *result.FirstInvalid, store.entries[2].ID)
+	}
+}
+
+func TestFullService_ConcurrentWrites_ChainIntegrity(t *testing.T) {
+	store := &mockAuditStore{}
+	svc := NewFullService(store, nil, zerolog.Nop())
+
+	tenants := []uuid.UUID{
+		uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+	}
+	actions := []string{"sim.create", "operator.update", "tenant.delete", "policy.activate", "user.login"}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 100)
+
+	for g := 0; g < 10; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				event := AuditEvent{
+					TenantID:   tenants[goroutineID%len(tenants)],
+					Action:     actions[(goroutineID+i)%len(actions)],
+					EntityType: "test",
+					EntityID:   fmt.Sprintf("g%d-e%d", goroutineID, i),
+					AfterData:  json.RawMessage(fmt.Sprintf(`{"g":%d,"i":%d}`, goroutineID, i)),
+				}
+				if err := svc.ProcessEntry(context.Background(), event); err != nil {
+					errs <- fmt.Errorf("goroutine %d entry %d: %w", goroutineID, i, err)
+					return
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent write error: %v", err)
+	}
+
+	if len(store.entries) != 100 {
+		t.Fatalf("entries = %d, want 100", len(store.entries))
+	}
+
+	result := VerifyChain(store.entries)
+	if !result.Verified {
+		t.Fatalf("chain should be verified after concurrent writes, first_invalid=%v", result.FirstInvalid)
+	}
+	if result.TotalRows != 100 {
+		t.Fatalf("total_rows = %d, want 100", result.TotalRows)
+	}
+}
+
+func TestFullService_SystemEvent_GlobalChain(t *testing.T) {
+	store := &mockAuditStore{}
+	svc := NewFullService(store, nil, zerolog.Nop())
+
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	if err := svc.ProcessEntry(context.Background(), AuditEvent{
+		TenantID:   tenantID,
+		Action:     "sim.create",
+		EntityType: "sim",
+		EntityID:   "sim-1",
+	}); err != nil {
+		t.Fatalf("ProcessEntry tenant event: %v", err)
+	}
+
+	if err := svc.ProcessEntry(context.Background(), AuditEvent{
+		TenantID:   uuid.Nil,
+		Action:     "bluegreen_flip",
+		EntityType: "deployment",
+		EntityID:   "deploy-1",
+	}); err != nil {
+		t.Fatalf("ProcessEntry system event: %v", err)
+	}
+
+	if err := svc.ProcessEntry(context.Background(), AuditEvent{
+		TenantID:   tenantID,
+		Action:     "sim.update",
+		EntityType: "sim",
+		EntityID:   "sim-2",
+	}); err != nil {
+		t.Fatalf("ProcessEntry tenant event 2: %v", err)
+	}
+
+	if len(store.entries) != 3 {
+		t.Fatalf("entries = %d, want 3", len(store.entries))
+	}
+
+	if store.entries[1].TenantID != uuid.Nil {
+		t.Fatal("second entry should have uuid.Nil tenant (system event)")
+	}
+
+	result := VerifyChain(store.entries)
+	if !result.Verified {
+		t.Fatalf("global chain with system event should verify, first_invalid=%v", result.FirstInvalid)
+	}
+}
+
+func TestVerifyChain_TotalRowsField(t *testing.T) {
+	result := VerifyChain([]Entry{})
+	if result.TotalRows != 0 {
+		t.Fatalf("total_rows = %d, want 0 for empty chain", result.TotalRows)
+	}
+
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ts := time.Date(2026, 3, 18, 14, 0, 0, 0, time.UTC)
+
+	entry := Entry{
+		ID:         1,
+		TenantID:   tenantID,
+		Action:     "create",
+		EntityType: "sim",
+		EntityID:   "sim-1",
+		PrevHash:   GenesisHash,
+		CreatedAt:  ts,
+	}
+	entry.Hash = ComputeHash(entry, GenesisHash)
+
+	result = VerifyChain([]Entry{entry})
+	if result.TotalRows != 1 {
+		t.Fatalf("total_rows = %d, want 1", result.TotalRows)
 	}
 }

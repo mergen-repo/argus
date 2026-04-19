@@ -164,6 +164,14 @@ db-seed:
 	@echo "Seed verileri yukleniyor..."
 	@docker compose -f deploy/docker-compose.yml exec argus /app/argus seed
 	@echo "Seed tamamlandi."
+	@echo "Audit hash chain onariliyor (post-seed)..."
+	@docker compose -f deploy/docker-compose.yml exec argus /app/argus repair-audit
+	@echo "Audit chain onarimi tamamlandi."
+
+db-repair-audit:
+	@echo "Audit hash chain onariliyor..."
+	@docker compose -f deploy/docker-compose.yml exec argus /app/argus repair-audit
+	@echo "Audit chain onarimi tamamlandi."
 
 db-backup:
 	@echo "Veritabani yedekleniyor..."

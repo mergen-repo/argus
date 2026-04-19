@@ -69,6 +69,7 @@ type VerifyResult struct {
 	Verified       bool   `json:"verified"`
 	EntriesChecked int    `json:"entries_checked"`
 	FirstInvalid   *int64 `json:"first_invalid"`
+	TotalRows      int    `json:"total_rows"`
 }
 
 func ComputeHash(entry Entry, prevHash string) string {
@@ -172,9 +173,23 @@ func VerifyChain(entries []Entry) *VerifyResult {
 	result := &VerifyResult{
 		Verified:       true,
 		EntriesChecked: len(entries),
+		TotalRows:      len(entries),
 	}
 
-	if len(entries) <= 1 {
+	if len(entries) == 0 {
+		return result
+	}
+
+	if entries[0].PrevHash != GenesisHash {
+		result.Verified = false
+		result.FirstInvalid = &entries[0].ID
+		return result
+	}
+
+	expectedHash := ComputeHash(entries[0], GenesisHash)
+	if entries[0].Hash != expectedHash {
+		result.Verified = false
+		result.FirstInvalid = &entries[0].ID
 		return result
 	}
 

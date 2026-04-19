@@ -45,6 +45,7 @@ type verifyResponse struct {
 	Verified       bool   `json:"verified"`
 	EntriesChecked int    `json:"entries_checked"`
 	FirstInvalid   *int64 `json:"first_invalid"`
+	TotalRows      int    `json:"total_rows"`
 }
 
 type exportRequest struct {
@@ -168,20 +169,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
-	if !ok || tenantID == uuid.Nil {
-		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
-		return
-	}
-
-	count := 100
-	if countStr := r.URL.Query().Get("count"); countStr != "" {
-		if v, err := strconv.Atoi(countStr); err == nil && v > 0 && v <= 10000 {
-			count = v
-		}
-	}
-
-	result, err := h.auditSvc.VerifyChain(r.Context(), tenantID, count)
+	result, err := h.auditSvc.VerifyChain(r.Context())
 	if err != nil {
 		h.logger.Error().Err(err).Msg("verify audit chain")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -192,6 +180,7 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 		Verified:       result.Verified,
 		EntriesChecked: result.EntriesChecked,
 		FirstInvalid:   result.FirstInvalid,
+		TotalRows:      result.TotalRows,
 	})
 }
 

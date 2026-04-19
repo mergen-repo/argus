@@ -408,24 +408,16 @@ func (p *KVKKPurgeProcessor) writeAuditLog(ctx context.Context, tenant store.Ten
 		"errors":  res.Errors,
 	})
 
-	prevHash, err := p.auditSt.GetLastHash(ctx, tenant.ID)
-	if err != nil {
-		prevHash = audit.GenesisHash
-	}
-
-	now := time.Now().UTC()
 	entry := &audit.Entry{
 		TenantID:   tenant.ID,
 		Action:     "kvkk.purge.run",
 		EntityType: "tenant",
 		EntityID:   tenant.ID.String(),
 		AfterData:  json.RawMessage(details),
-		PrevHash:   prevHash,
-		CreatedAt:  now,
+		CreatedAt:  time.Now().UTC(),
 	}
-	entry.Hash = audit.ComputeHash(*entry, prevHash)
 
-	if _, err := p.auditSt.Create(ctx, entry); err != nil {
+	if _, err := p.auditSt.CreateWithChain(ctx, entry); err != nil {
 		return fmt.Errorf("create audit entry: %w", err)
 	}
 	return nil

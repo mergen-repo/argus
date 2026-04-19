@@ -161,6 +161,9 @@ func main() {
 	case "seed":
 		runSeed(cfg, subArgs)
 		return
+	case "repair-audit":
+		runRepairAudit(cfg)
+		return
 	}
 
 	runServe(cfg)
@@ -180,6 +183,8 @@ func parseSubcommand(args []string) (sub string, subArgs []string, err error) {
 		return "migrate", args[1:], nil
 	case "seed":
 		return "seed", args[1:], nil
+	case "repair-audit":
+		return "repair-audit", nil, nil
 	case "version":
 		return "version", nil, nil
 	case "--help", "-h":
@@ -312,6 +317,34 @@ func runSeed(cfg *config.Config, args []string) {
 	}
 
 	log.Info().Int("files", len(files)).Msg("seed: completed")
+}
+
+func runRepairAudit(cfg *config.Config) {
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("repair-audit: failed to connect to database")
+	}
+	defer pool.Close()
+
+	auditStore := store.NewAuditStore(pool)
+
+	log.Info().Msg("repair-audit: repairing hash chain...")
+	if err := auditStore.RepairChain(ctx); err != nil {
+		log.Fatal().Err(err).Msg("repair-audit: failed")
+	}
+
+	svc := audit.NewFullService(auditStore, nil, log.Logger)
+	result, err := svc.VerifyChain(ctx)
+	if err != nil {
+		log.Fatal().Err(err).Msg("repair-audit: verify read failed")
+	}
+	if !result.Verified {
+		log.Fatal().Int64("first_invalid", *result.FirstInvalid).Msg("repair-audit: chain still invalid after repair")
+	}
+
+	log.Info().Int("entries", result.TotalRows).Msg("repair-audit: chain verified successfully")
 }
 
 func runServe(cfg *config.Config) {

@@ -965,6 +965,12 @@ ON CONFLICT DO NOTHING;
 -- ============================================================
 -- AUDIT LOGS (200+ with hash chain)
 -- ============================================================
+-- Disable chain guard trigger during seed if it exists (hashes will be repaired by repair-audit)
+DO $guard$ BEGIN
+    ALTER TABLE audit_logs DISABLE TRIGGER trg_audit_chain_guard;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $guard$;
+
 DO $$
 DECLARE
     prev_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
@@ -976,6 +982,8 @@ DECLARE
     ent_type TEXT;
     ent_id TEXT;
     ts TIMESTAMPTZ;
+    ts_text TEXT;
+    user_text TEXT;
     tenants_arr UUID[] := ARRAY['10000000-0000-0000-0000-000000000001'::uuid, '10000000-0000-0000-0000-000000000002'::uuid];
     users_nar UUID[] := ARRAY['40000000-0000-0000-0000-000000000001'::uuid, '40000000-0000-0000-0000-000000000002'::uuid, '40000000-0000-0000-0000-000000000003'::uuid, '40000000-0000-0000-0000-000000000004'::uuid, '40000000-0000-0000-0000-000000000005'::uuid];
     users_bio UUID[] := ARRAY['40000000-0000-0000-0000-000000000011'::uuid, '40000000-0000-0000-0000-000000000012'::uuid, '40000000-0000-0000-0000-000000000013'::uuid, '40000000-0000-0000-0000-000000000014'::uuid];
@@ -996,7 +1004,10 @@ BEGIN
         ent_id := gen_random_uuid()::text;
         ts := NOW() - ((250 - i) * INTERVAL '2 hours') + (random() * INTERVAL '1 hour');
 
-        cur_h := encode(sha256((prev_h || '|' || t_id || '|' || u_id || '|' || act || '|' || ent_type || '|' || ent_id || '|' || ts::text)::bytea), 'hex');
+        -- Match Go's ComputeHash field order: tenant_id|user_id|action|entity_type|entity_id|created_at_RFC3339Nano|prev_hash
+        ts_text := to_char(ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US000"Z"');
+        user_text := u_id::text;
+        cur_h := encode(sha256((t_id::text || '|' || user_text || '|' || act || '|' || ent_type || '|' || ent_id || '|' || ts_text || '|' || prev_h)::bytea), 'hex');
 
         INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, before_data, after_data, ip_address, hash, prev_hash, created_at)
         VALUES (
@@ -1020,6 +1031,12 @@ BEGIN
         prev_h := cur_h;
     END LOOP;
 END $$;
+
+-- Re-enable chain guard trigger after seed if it exists
+DO $guard$ BEGIN
+    ALTER TABLE audit_logs ENABLE TRIGGER trg_audit_chain_guard;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $guard$;
 
 -- ============================================================
 -- SIM STATE HISTORY (for SIM detail history tab)

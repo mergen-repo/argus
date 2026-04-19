@@ -22,37 +22,42 @@ type mockAuditStore struct {
 	nextID  int64
 }
 
-func (m *mockAuditStore) Create(_ context.Context, entry *audit.Entry) (*audit.Entry, error) {
+func (m *mockAuditStore) CreateWithChain(_ context.Context, entry *audit.Entry) (*audit.Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	prevHash := audit.GenesisHash
+	if len(m.entries) > 0 {
+		prevHash = m.entries[len(m.entries)-1].Hash
+	}
+
+	entry.PrevHash = prevHash
+	entry.Hash = audit.ComputeHash(*entry, prevHash)
 	m.nextID++
 	entry.ID = m.nextID
 	m.entries = append(m.entries, *entry)
 	return entry, nil
 }
 
-func (m *mockAuditStore) GetLastHash(_ context.Context, tenantID uuid.UUID) (string, error) {
+func (m *mockAuditStore) GetAll(_ context.Context) ([]audit.Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i := len(m.entries) - 1; i >= 0; i-- {
-		if m.entries[i].TenantID == tenantID {
-			return m.entries[i].Hash, nil
-		}
-	}
-	return audit.GenesisHash, nil
+	result := make([]audit.Entry, len(m.entries))
+	copy(result, m.entries)
+	return result, nil
 }
 
-func (m *mockAuditStore) GetRange(_ context.Context, tenantID uuid.UUID, count int) ([]audit.Entry, error) {
+func (m *mockAuditStore) GetBatch(_ context.Context, afterID int64, limit int) ([]audit.Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []audit.Entry
 	for _, e := range m.entries {
-		if e.TenantID == tenantID {
+		if e.ID > afterID {
 			result = append(result, e)
+			if len(result) >= limit {
+				break
+			}
 		}
-	}
-	if len(result) > count {
-		result = result[len(result)-count:]
 	}
 	return result, nil
 }
@@ -83,16 +88,39 @@ func TestHandler_List_NoTenantContext(t *testing.T) {
 	}
 }
 
-func TestHandler_Verify_NoTenantContext(t *testing.T) {
-	handler := NewHandler(nil, nil, zerolog.Nop())
+func TestHandler_Verify_Success(t *testing.T) {
+	store := &mockAuditStore{}
+	svc := audit.NewFullService(store, nil, zerolog.Nop())
+	handler := NewHandler(nil, svc, zerolog.Nop())
+
+	event := audit.AuditEvent{
+		TenantID:   uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		Action:     "create",
+		EntityType: "sim",
+		EntityID:   "sim-1",
+	}
+	if err := svc.ProcessEntry(context.Background(), event); err != nil {
+		t.Fatalf("ProcessEntry: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs/verify", nil)
 	w := httptest.NewRecorder()
 
 	handler.Verify(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Data verifyResponse `json:"data"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if !resp.Data.Verified {
+		t.Fatal("chain should be verified")
+	}
+	if resp.Data.TotalRows != 1 {
+		t.Fatalf("total_rows = %d, want 1", resp.Data.TotalRows)
 	}
 }
 

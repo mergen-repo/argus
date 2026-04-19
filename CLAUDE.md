@@ -113,7 +113,7 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: — (AUTOPILOT complete 2026-04-18; Mini Phase Gate PASS for Runtime Alignment)
-- Phase: Runtime Alignment [DONE] (3/3 stories + Mini Phase Gate PASS — 2026-04-18)
-- Story: — (ready for Documentation Phase D1 Specification)
-- Step: — (awaiting user `/amil` to start Documentation Phase)
+- Mode: AUTOPILOT (UAT Remediation — all 7 FIX stories until 23 UAT scenarios PASS on UI+API+DB)
+- Phase: UAT Remediation [IN PROGRESS] (FIX-105 DONE; FIX-104 IN PROGRESS)
+- Story: FIX-104 DONE → next: FIX-101 (Tier 2)
+- Step: — (FIX-104 committed, proceeding to next story)

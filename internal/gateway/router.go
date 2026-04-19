@@ -310,7 +310,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/audit-logs", deps.AuditHandler.List)
-			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit-logs/export", deps.AuditHandler.Export)
 			r.Get("/api/v1/audit-logs/export.csv", deps.AuditHandler.ExportCSV)
 			r.Get("/api/v1/audit", deps.AuditHandler.List)
@@ -319,6 +318,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/audit-logs/verify", deps.AuditHandler.Verify)
 			r.Post("/api/v1/audit/system-events", deps.AuditHandler.EmitSystemEvent)
 		})
 	}
