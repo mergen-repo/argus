@@ -61,6 +61,7 @@ func (s *AuditStore) CreateWithChain(ctx context.Context, entry *audit.Entry) (*
 	}
 
 	entry.PrevHash = tailHash
+	entry.CreatedAt = entry.CreatedAt.Truncate(time.Microsecond)
 	entry.Hash = audit.ComputeHash(*entry, tailHash)
 
 	err = tx.QueryRow(ctx, `
