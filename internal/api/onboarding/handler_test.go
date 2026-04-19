@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -312,7 +314,7 @@ func TestStep1_InvalidEmailReturns422SessionUnchanged(t *testing.T) {
 	}
 }
 
-func TestStep3_OperatorGrantFailureRollsBackStepUnchanged(t *testing.T) {
+func TestStep2_OperatorGrantFailureRollsBackStepUnchanged(t *testing.T) {
 	sessions := &mockSessionStore{}
 
 	h := newTestHandler(sessions)
@@ -329,9 +331,9 @@ func TestStep3_OperatorGrantFailureRollsBackStepUnchanged(t *testing.T) {
 		},
 	})
 
-	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/3", body, map[string]string{
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/2", body, map[string]string{
 		"id": testSessionID.String(),
-		"n":  "3",
+		"n":  "2",
 	})
 	req = withTenantUser(req, testTenantID, testUserID)
 	w := httptest.NewRecorder()
@@ -436,6 +438,230 @@ func TestComplete_RequiresAllSteps_Returns409(t *testing.T) {
 	}
 }
 
+func TestStep2_OperatorGrantsValidPayload(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	opID := uuid.New()
+	body, _ := json.Marshal(map[string]interface{}{
+		"operator_grants": []map[string]interface{}{
+			{"operator_id": opID.String(), "enabled": true, "rat_types": []string{"LTE"}},
+		},
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/2", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "2",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	if data["current_step"].(float64) != 3 {
+		t.Errorf("expected current_step 3, got %v", data["current_step"])
+	}
+}
+
+func TestStep3_APNConfigValidPayload(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"apn_name": "internet.acme.com",
+		"apn_type": "internet",
+		"ip_cidr":  "10.0.0.0/24",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/3", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "3",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	if data["current_step"].(float64) != 4 {
+		t.Errorf("expected current_step 4, got %v", data["current_step"])
+	}
+	result := data["step_result"].(map[string]interface{})
+	if result["apn_type"] != "internet" {
+		t.Errorf("expected apn_type 'internet', got %v", result["apn_type"])
+	}
+}
+
+func TestStep3_APNConfigMissingNameReturns422(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"apn_type": "internet",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/3", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "3",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStep4_SIMImportManualMode(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"import_mode": "manual",
+		"iccids":      []string{"8901260882168430001", "8901260882168430002"},
+		"csv_s3_key":  "",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/4", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "4",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	result := data["step_result"].(map[string]interface{})
+	if result["import_mode"] != "manual" {
+		t.Errorf("expected import_mode 'manual', got %v", result["import_mode"])
+	}
+	if result["iccid_count"].(float64) != 2 {
+		t.Errorf("expected iccid_count 2, got %v", result["iccid_count"])
+	}
+	if result["status"] != "captured" {
+		t.Errorf("expected status 'captured', got %v", result["status"])
+	}
+}
+
+func TestStep4_SIMImportSkipped(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"import_mode": "csv",
+		"iccids":      []string{},
+		"csv_s3_key":  "",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/4", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "4",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	result := data["step_result"].(map[string]interface{})
+	if result["status"] != "skipped" {
+		t.Errorf("expected status 'skipped', got %v", result["status"])
+	}
+}
+
+func TestStep5_PolicySetupAccepted(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"policy_name": "Default Access",
+		"dsl_source":  "WHEN subscriber.state = \"active\" THEN ALLOW",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/5", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "5",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	if data["current_step"].(float64) != 6 {
+		t.Errorf("expected current_step 6, got %v", data["current_step"])
+	}
+	result := data["step_result"].(map[string]interface{})
+	if result["status"] != "accepted" {
+		t.Errorf("expected status 'accepted', got %v", result["status"])
+	}
+}
+
+func TestStep5_PolicySetupSkipped(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"policy_name": "",
+		"dsl_source":  "",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/5", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "5",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	result := data["step_result"].(map[string]interface{})
+	if result["status"] != "skipped" {
+		t.Errorf("expected status 'skipped', got %v", result["status"])
+	}
+}
+
 func TestComplete_SuccessCallsPolicyAndNotification(t *testing.T) {
 	auditor := &mockAuditService{}
 	notifier := &mockNotifierService{}
@@ -477,5 +703,130 @@ func TestComplete_SuccessCallsPolicyAndNotification(t *testing.T) {
 	}
 	if !auditor.Called {
 		t.Error("expected audit.CreateEntry to be called")
+	}
+}
+
+func TestStep4_ManualModeWhitespaceOnlyICCIDs(t *testing.T) {
+	sessions := &mockSessionStore{}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"import_mode": "manual",
+		"iccids":      []string{"  ", "\t", ""},
+		"csv_s3_key":  "",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/4", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "4",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	data := resp["data"].(map[string]interface{})
+	result := data["step_result"].(map[string]interface{})
+	if result["status"] != "skipped" {
+		t.Errorf("expected status 'skipped' for whitespace-only ICCIDs, got %v", result["status"])
+	}
+}
+
+func TestStep4_ManualModeTrimsWhitespace(t *testing.T) {
+	sessions := &mockSessionStore{
+		UpdateStepFn: func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error {
+			var data step4SIMImportRequest
+			if err := json.Unmarshal(stepData, &data); err != nil {
+				t.Fatalf("failed to unmarshal step data: %v", err)
+			}
+			if len(data.ICCIDs) != 2 {
+				t.Errorf("expected 2 trimmed ICCIDs, got %d", len(data.ICCIDs))
+			}
+			for _, iccid := range data.ICCIDs {
+				if iccid != strings.TrimSpace(iccid) {
+					t.Errorf("ICCID should be trimmed, got %q", iccid)
+				}
+			}
+			return nil
+		},
+	}
+	h := newTestHandler(sessions)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"import_mode": "manual",
+		"iccids":      []string{"  8901260882168430001  ", "8901260882168430002\t"},
+		"csv_s3_key":  "",
+	})
+
+	req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/4", body, map[string]string{
+		"id": testSessionID.String(),
+		"n":  "4",
+	})
+	req = withTenantUser(req, testTenantID, testUserID)
+	w := httptest.NewRecorder()
+
+	h.step(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFullStepSequence_1Through5(t *testing.T) {
+	stepsCalled := make(map[int]bool)
+	sessions := &mockSessionStore{
+		UpdateStepFn: func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error {
+			stepsCalled[stepN] = true
+			return nil
+		},
+	}
+
+	h := newTestHandler(sessions)
+
+	payloads := []struct {
+		step int
+		body map[string]interface{}
+	}{
+		{1, map[string]interface{}{"company_name": "TestCo", "contact_email": "test@co.com", "locale": "en"}},
+		{2, map[string]interface{}{"operator_grants": []map[string]interface{}{{"operator_id": uuid.New().String(), "enabled": true, "rat_types": []string{"LTE"}}}}},
+		{3, map[string]interface{}{"apn_name": "test.apn", "apn_type": "internet", "ip_cidr": "10.0.0.0/24"}},
+		{4, map[string]interface{}{"import_mode": "manual", "iccids": []string{"8901260882168430001"}, "csv_s3_key": ""}},
+		{5, map[string]interface{}{"policy_name": "Default", "dsl_source": "WHEN subscriber.state = \"active\" THEN ALLOW"}},
+	}
+
+	for _, p := range payloads {
+		body, _ := json.Marshal(p.body)
+		req := buildChiRequest(http.MethodPost, "/onboarding/"+testSessionID.String()+"/step/"+strconv.Itoa(p.step), body, map[string]string{
+			"id": testSessionID.String(),
+			"n":  strconv.Itoa(p.step),
+		})
+		req = withTenantUser(req, testTenantID, testUserID)
+		w := httptest.NewRecorder()
+
+		h.step(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("step %d: expected 200, got %d: %s", p.step, w.Code, w.Body.String())
+		}
+
+		var resp map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&resp)
+		data := resp["data"].(map[string]interface{})
+		expected := float64(p.step + 1)
+		if data["current_step"].(float64) != expected {
+			t.Errorf("step %d: expected current_step %v, got %v", p.step, expected, data["current_step"])
+		}
+	}
+
+	for i := 1; i <= 5; i++ {
+		if !stepsCalled[i] {
+			t.Errorf("step %d was not processed", i)
+		}
 	}
 }

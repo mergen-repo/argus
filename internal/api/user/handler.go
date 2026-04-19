@@ -33,6 +33,7 @@ type userStoreI interface {
 	CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error)
 	CreateUser(ctx context.Context, p store.CreateUserParams) (*store.User, error)
 	CreateUserWithPassword(ctx context.Context, p store.CreateUserParams, passwordHash string) (*store.User, error)
+	CreateUserInTenant(ctx context.Context, tenantID uuid.UUID, p store.CreateUserParams, passwordHash string) (*store.User, error)
 	UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error)
 	DeletePII(ctx context.Context, id uuid.UUID, tenantID uuid.UUID) (*store.PurgeResult, error)
 	ClearLockout(ctx context.Context, userID uuid.UUID) error
@@ -128,9 +129,10 @@ type userResponse struct {
 }
 
 type createUserRequest struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	Email    string  `json:"email"`
+	Name     string  `json:"name"`
+	Role     string  `json:"role"`
+	TenantID *string `json:"tenant_id"`
 }
 
 type updateUserRequest struct {
@@ -352,15 +354,27 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	callerRole, _ := r.Context().Value(apierr.RoleKey).(string)
 	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
-	tenant, err := h.tenantStore.GetByID(r.Context(), tenantID)
+
+	targetTenantID := tenantID
+	if req.TenantID != nil && callerRole == "super_admin" {
+		parsed, parseErr := uuid.Parse(*req.TenantID)
+		if parseErr != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid tenant_id format")
+			return
+		}
+		targetTenantID = parsed
+	}
+
+	tenant, err := h.tenantStore.GetByID(r.Context(), targetTenantID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("get tenant for resource limit check")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
 
-	currentCount, err := h.userStore.CountByTenant(r.Context(), tenantID)
+	currentCount, err := h.userStore.CountByTenant(r.Context(), targetTenantID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("count users for resource limit check")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -394,7 +408,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.userStore.CreateUserWithPassword(r.Context(), store.CreateUserParams{
+	u, err := h.userStore.CreateUserInTenant(r.Context(), targetTenantID, store.CreateUserParams{
 		Email: req.Email,
 		Name:  req.Name,
 		Role:  req.Role,

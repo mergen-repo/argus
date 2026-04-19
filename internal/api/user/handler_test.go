@@ -47,6 +47,10 @@ func (m *mockUserStore) CreateUserWithPassword(ctx context.Context, p store.Crea
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockUserStore) CreateUserInTenant(ctx context.Context, tenantID uuid.UUID, p store.CreateUserParams, passwordHash string) (*store.User, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m *mockUserStore) UpdateUser(ctx context.Context, id uuid.UUID, p store.UpdateUserParams) (*store.User, error) {
 	return nil, errors.New("not implemented")
 }
@@ -940,6 +944,57 @@ func TestGetUser_CrossTenant(t *testing.T) {
 	h.GetUser(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("cross-tenant should return 404, got %d", rr.Code)
+	}
+}
+
+func TestCreateUser_InvalidTenantIDFormat(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, logger)
+
+	body := `{"email":"new@target.com","name":"New User","role":"analyst","tenant_id":"not-a-uuid"}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "super_admin")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateUserRequest_ParsesTenantID(t *testing.T) {
+	var req createUserRequest
+	targetID := uuid.New().String()
+	body := `{"email":"test@example.com","name":"Test","role":"analyst","tenant_id":"` + targetID + `"}`
+	err := json.Unmarshal([]byte(body), &req)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.TenantID == nil {
+		t.Fatal("TenantID should not be nil")
+	}
+	if *req.TenantID != targetID {
+		t.Errorf("TenantID = %q, want %q", *req.TenantID, targetID)
+	}
+}
+
+func TestCreateUserRequest_NoTenantID(t *testing.T) {
+	var req createUserRequest
+	body := `{"email":"test@example.com","name":"Test","role":"analyst"}`
+	err := json.Unmarshal([]byte(body), &req)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.TenantID != nil {
+		t.Errorf("TenantID should be nil when not provided, got %v", *req.TenantID)
 	}
 }
 

@@ -431,8 +431,19 @@ export function useTenantList() {
 export function useCreateTenant() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string; slug: string; plan: string; max_sims: number; max_users: number }) => {
-      const res = await api.post<ApiResponse<Tenant>>('/tenants', payload)
+    mutationFn: async (payload: {
+      name: string
+      contact_email: string
+      contact_phone?: string
+      domain?: string
+      max_sims?: number
+      max_apns?: number
+      max_users?: number
+      admin_name: string
+      admin_email: string
+      admin_initial_password: string
+    }) => {
+      const res = await api.post<ApiResponse<{ tenant: Tenant; admin_user_id: string }>>('/tenants', payload)
       return res.data.data
     },
     onSuccess: () => {

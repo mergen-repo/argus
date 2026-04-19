@@ -19,6 +19,13 @@ var (
 	ErrDomainExists   = errors.New("store: domain already exists")
 )
 
+type CreateTenantWithAdminParams struct {
+	CreateTenantParams
+	AdminName         string
+	AdminEmail        string
+	AdminPasswordHash string
+}
+
 type Tenant struct {
 	ID                 uuid.UUID       `json:"id"`
 	Name               string          `json:"name"`
@@ -123,6 +130,69 @@ func (s *TenantStore) Create(ctx context.Context, p CreateTenantParams) (*Tenant
 		return nil, fmt.Errorf("store: create tenant: %w", err)
 	}
 	return &t, nil
+}
+
+func (s *TenantStore) CreateTenantWithAdmin(ctx context.Context, p CreateTenantWithAdminParams) (*Tenant, *User, error) {
+	maxSims := 100000
+	if p.MaxSims != nil {
+		maxSims = *p.MaxSims
+	}
+	maxApns := 100
+	if p.MaxApns != nil {
+		maxApns = *p.MaxApns
+	}
+	maxUsers := 50
+	if p.MaxUsers != nil {
+		maxUsers = *p.MaxUsers
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("store: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var t Tenant
+	err = tx.QueryRow(ctx, `
+		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
+			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+	`, p.Name, p.Domain, p.ContactEmail, p.ContactPhone, maxSims, maxApns, maxUsers, p.CreatedBy).
+		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
+			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
+			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
+	if err != nil {
+		if isDuplicateKeyError(err) {
+			return nil, nil, ErrDomainExists
+		}
+		return nil, nil, fmt.Errorf("store: create tenant: %w", err)
+	}
+
+	var u User
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (tenant_id, email, password_hash, name, role, state, password_change_required)
+		VALUES ($1, $2, $3, $4, 'tenant_admin', 'active', true)
+		RETURNING id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,
+			state, last_login_at, failed_login_count, locked_until,
+			password_change_required, password_changed_at, created_at, updated_at
+	`, t.ID, p.AdminEmail, p.AdminPasswordHash, p.AdminName).
+		Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+			&u.TOTPSecret, &u.TOTPEnabled, &u.State, &u.LastLoginAt,
+			&u.FailedLoginCount, &u.LockedUntil,
+			&u.PasswordChangeRequired, &u.PasswordChangedAt, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if isDuplicateKeyError(err) {
+			return nil, nil, ErrEmailExists
+		}
+		return nil, nil, fmt.Errorf("store: create admin user: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("store: commit tenant with admin: %w", err)
+	}
+
+	return &t, &u, nil
 }
 
 func (s *TenantStore) GetByID(ctx context.Context, id uuid.UUID) (*Tenant, error) {

@@ -339,10 +339,15 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("super_admin"))
 			r.Post("/api/v1/operators", deps.OperatorHandler.Create)
 			r.Patch("/api/v1/operators/{id}", deps.OperatorHandler.Update)
-			r.Post("/api/v1/operators/{id}/test", deps.OperatorHandler.TestConnection)
-			r.Post("/api/v1/operators/{id}/test/{protocol}", deps.OperatorHandler.TestConnectionForProtocol)
 			r.Post("/api/v1/operator-grants", deps.OperatorHandler.CreateGrant)
 			r.Delete("/api/v1/operator-grants/{id}", deps.OperatorHandler.DeleteGrant)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+			r.Use(RequireRole("tenant_admin"))
+			r.Post("/api/v1/operators/{id}/test", deps.OperatorHandler.TestConnection)
+			r.Post("/api/v1/operators/{id}/test/{protocol}", deps.OperatorHandler.TestConnectionForProtocol)
 		})
 
 		r.Group(func(r chi.Router) {

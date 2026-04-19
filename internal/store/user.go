@@ -410,7 +410,10 @@ func (s *UserStore) CreateUserWithPassword(ctx context.Context, p CreateUserPara
 	if err != nil {
 		return nil, err
 	}
+	return s.CreateUserInTenant(ctx, tenantID, p, passwordHash)
+}
 
+func (s *UserStore) CreateUserInTenant(ctx context.Context, tenantID uuid.UUID, p CreateUserParams, passwordHash string) (*User, error) {
 	state := "invited"
 	pwChangeRequired := true
 	if passwordHash != "" {
@@ -418,7 +421,7 @@ func (s *UserStore) CreateUserWithPassword(ctx context.Context, p CreateUserPara
 	}
 
 	var u User
-	err = s.db.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		INSERT INTO users (tenant_id, email, password_hash, name, role, state, password_change_required)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, tenant_id, email, password_hash, name, role, totp_secret, totp_enabled,

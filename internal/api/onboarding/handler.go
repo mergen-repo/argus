@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
@@ -246,13 +247,13 @@ func (h *Handler) step(w http.ResponseWriter, r *http.Request) {
 	case 1:
 		result, stepDataBytes, err = h.handleStep1(r, tenantID, userID)
 	case 2:
-		result, stepDataBytes, err = h.handleStep2(r, tenantID)
+		result, stepDataBytes, err = h.handleStep2OperatorGrants(r, tenantID, userID)
 	case 3:
-		result, stepDataBytes, err = h.handleStep3(r, tenantID, userID)
+		result, stepDataBytes, err = h.handleStep3APN(r, tenantID, userID)
 	case 4:
-		result, stepDataBytes, err = h.handleStep4(r, tenantID, userID)
+		result, stepDataBytes, err = h.handleStep4SIMImport(r, tenantID, userID)
 	case 5:
-		result, stepDataBytes, err = h.handleStep5(r, tenantID, userID)
+		result, stepDataBytes, err = h.handleStep5Policy(r, tenantID, userID)
 	}
 
 	if err != nil {
@@ -399,79 +400,18 @@ func (h *Handler) handleStep1(r *http.Request, tenantID, _ uuid.UUID) (interface
 	}, stepData, nil
 }
 
-type step2Request struct {
-	AdminEmail    string `json:"admin_email"`
-	AdminName     string `json:"admin_name"`
-	AdminPassword string `json:"admin_password"`
-	TOTPEnabled   bool   `json:"totp_enabled"`
-}
-
-func (h *Handler) handleStep2(r *http.Request, _ uuid.UUID) (interface{}, []byte, error) {
-	var req step2Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, nil, &validationError{Message: "Request body is not valid JSON"}
-	}
-
-	var details []map[string]string
-	if req.AdminEmail == "" {
-		details = append(details, map[string]string{"field": "admin_email", "message": "required"})
-	}
-	if req.AdminName == "" {
-		details = append(details, map[string]string{"field": "admin_name", "message": "required"})
-	}
-	if len(req.AdminPassword) < 8 {
-		details = append(details, map[string]string{"field": "admin_password", "message": "must be at least 8 characters"})
-	}
-	if len(details) > 0 {
-		return nil, nil, &validationError{Message: "Validation failed", Details: details}
-	}
-
-	// NOTE(STORY-069): store.CreateUserParams does not have a password field.
-	// The user is created in 'invited' state with empty password_hash.
-	// admin_password is validated above but not persisted; password setup is deferred
-	// to the user's first login flow. This is a deviation from the spec.
-	user, err := h.Users.CreateUser(r.Context(), store.CreateUserParams{
-		Email: req.AdminEmail,
-		Name:  req.AdminName,
-		Role:  "tenant_admin",
-	})
-	if err != nil {
-		if errors.Is(err, store.ErrEmailExists) {
-			return nil, nil, &validationError{Message: "Email already exists", Details: []map[string]string{
-				{"field": "admin_email", "message": "already exists"},
-			}}
-		}
-		return nil, nil, err
-	}
-
-	// Omit password from stored step data
-	storedData := map[string]interface{}{
-		"admin_email":  req.AdminEmail,
-		"admin_name":   req.AdminName,
-		"totp_enabled": req.TOTPEnabled,
-	}
-	stepData, _ := json.Marshal(storedData)
-
-	return map[string]interface{}{
-		"user_id":      user.ID.String(),
-		"admin_email":  user.Email,
-		"admin_name":   user.Name,
-		"totp_enabled": req.TOTPEnabled,
-	}, stepData, nil
-}
-
 type operatorGrantInput struct {
 	OperatorID string   `json:"operator_id"`
 	Enabled    bool     `json:"enabled"`
 	RATTypes   []string `json:"rat_types"`
 }
 
-type step3Request struct {
+type step2OperatorGrantsRequest struct {
 	OperatorGrants []operatorGrantInput `json:"operator_grants"`
 }
 
-func (h *Handler) handleStep3(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
-	var req step3Request
+func (h *Handler) handleStep2OperatorGrants(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
+	var req step2OperatorGrantsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, nil, &validationError{Message: "Request body is not valid JSON"}
 	}
@@ -527,15 +467,14 @@ func (h *Handler) handleStep3(r *http.Request, tenantID uuid.UUID, userID uuid.U
 	}, stepData, nil
 }
 
-type step4Request struct {
-	APNName    string `json:"apn_name"`
-	Realm      string `json:"realm"`
-	IPPoolCIDR string `json:"ip_pool_cidr"`
-	AuthType   string `json:"auth_type"`
+type step3APNRequest struct {
+	APNName  string `json:"apn_name"`
+	APNType  string `json:"apn_type"`
+	IPCidr   string `json:"ip_cidr"`
 }
 
-func (h *Handler) handleStep4(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
-	var req step4Request
+func (h *Handler) handleStep3APN(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
+	var req step3APNRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, nil, &validationError{Message: "Request body is not valid JSON"}
 	}
@@ -543,15 +482,6 @@ func (h *Handler) handleStep4(r *http.Request, tenantID uuid.UUID, userID uuid.U
 	var details []map[string]string
 	if req.APNName == "" {
 		details = append(details, map[string]string{"field": "apn_name", "message": "required"})
-	}
-	if req.Realm == "" {
-		details = append(details, map[string]string{"field": "realm", "message": "required"})
-	}
-	if req.IPPoolCIDR == "" {
-		details = append(details, map[string]string{"field": "ip_pool_cidr", "message": "required"})
-	}
-	if req.AuthType == "" {
-		details = append(details, map[string]string{"field": "auth_type", "message": "required"})
 	}
 	if len(details) > 0 {
 		return nil, nil, &validationError{Message: "Validation failed", Details: details}
@@ -562,15 +492,19 @@ func (h *Handler) handleStep4(r *http.Request, tenantID uuid.UUID, userID uuid.U
 		uid = &userID
 	}
 
+	apnType := req.APNType
+	if apnType == "" {
+		apnType = "internet"
+	}
+
 	settings, _ := json.Marshal(map[string]string{
-		"realm":        req.Realm,
-		"ip_pool_cidr": req.IPPoolCIDR,
-		"auth_type":    req.AuthType,
+		"ip_cidr":   req.IPCidr,
+		"auth_type": "pap",
 	})
 
 	apn, err := h.APN.Create(r.Context(), tenantID, store.CreateAPNParams{
 		Name:      req.APNName,
-		APNType:   "standard",
+		APNType:   apnType,
 		Settings:  settings,
 		CreatedBy: uid,
 	})
@@ -582,25 +516,20 @@ func (h *Handler) handleStep4(r *http.Request, tenantID uuid.UUID, userID uuid.U
 	return map[string]interface{}{
 		"apn_id":   apn.ID.String(),
 		"apn_name": apn.Name,
-		"realm":    req.Realm,
+		"apn_type": apnType,
 	}, stepData, nil
 }
 
-type step5Request struct {
-	CSVS3Key string `json:"csv_s3_key"`
+type step4SIMImportRequest struct {
+	ImportMode string   `json:"import_mode"`
+	ICCIDs     []string `json:"iccids"`
+	CSVS3Key   string   `json:"csv_s3_key"`
 }
 
-func (h *Handler) handleStep5(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
-	var req step5Request
+func (h *Handler) handleStep4SIMImport(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {
+	var req step4SIMImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, nil, &validationError{Message: "Request body is not valid JSON"}
-	}
-
-	if req.CSVS3Key == "" {
-		return nil, nil, &validationError{
-			Message: "Validation failed",
-			Details: []map[string]string{{"field": "csv_s3_key", "message": "required"}},
-		}
 	}
 
 	var uid *uuid.UUID
@@ -608,16 +537,76 @@ func (h *Handler) handleStep5(r *http.Request, tenantID uuid.UUID, userID uuid.U
 		uid = &userID
 	}
 
-	jobID, err := h.BulkImport.EnqueueImport(r.Context(), tenantID, uid, req.CSVS3Key)
-	if err != nil {
-		return nil, nil, err
+	stepData, _ := json.Marshal(req)
+
+	if req.ImportMode == "csv" && req.CSVS3Key != "" {
+		jobID, err := h.BulkImport.EnqueueImport(r.Context(), tenantID, uid, req.CSVS3Key)
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]interface{}{
+			"job_id":      jobID,
+			"import_mode": "csv",
+			"status":      "queued",
+		}, stepData, nil
+	}
+
+	if req.ImportMode == "manual" && len(req.ICCIDs) > 0 {
+		var validICCIDs []string
+		for _, iccid := range req.ICCIDs {
+			trimmed := strings.TrimSpace(iccid)
+			if trimmed != "" {
+				validICCIDs = append(validICCIDs, trimmed)
+			}
+		}
+
+		if len(validICCIDs) == 0 {
+			return map[string]interface{}{
+				"import_mode": "manual",
+				"iccid_count": 0,
+				"status":      "skipped",
+			}, stepData, nil
+		}
+
+		req.ICCIDs = validICCIDs
+		stepData, _ = json.Marshal(req)
+
+		return map[string]interface{}{
+			"import_mode": "manual",
+			"iccid_count": len(validICCIDs),
+			"status":      "captured",
+			"message":     "ICCIDs saved. Complete SIM provisioning via bulk import after onboarding.",
+		}, stepData, nil
+	}
+
+	return map[string]interface{}{
+		"import_mode": req.ImportMode,
+		"status":      "skipped",
+	}, stepData, nil
+}
+
+type step5PolicyRequest struct {
+	PolicyName string `json:"policy_name"`
+	DSLSource  string `json:"dsl_source"`
+}
+
+func (h *Handler) handleStep5Policy(r *http.Request, tenantID uuid.UUID, _ uuid.UUID) (interface{}, []byte, error) {
+	var req step5PolicyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, nil, &validationError{Message: "Request body is not valid JSON"}
 	}
 
 	stepData, _ := json.Marshal(req)
+
+	if req.PolicyName == "" && req.DSLSource == "" {
+		return map[string]interface{}{
+			"status": "skipped",
+		}, stepData, nil
+	}
+
 	return map[string]interface{}{
-		"job_id":     jobID,
-		"csv_s3_key": req.CSVS3Key,
-		"status":     "queued",
+		"policy_name": req.PolicyName,
+		"status":      "accepted",
 	}, stepData, nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Handler struct {
@@ -51,13 +52,16 @@ type tenantResponse struct {
 }
 
 type createTenantRequest struct {
-	Name         string  `json:"name"`
-	Domain       *string `json:"domain"`
-	ContactEmail string  `json:"contact_email"`
-	ContactPhone *string `json:"contact_phone"`
-	MaxSims      *int    `json:"max_sims"`
-	MaxApns      *int    `json:"max_apns"`
-	MaxUsers     *int    `json:"max_users"`
+	Name                 string  `json:"name"`
+	Domain               *string `json:"domain"`
+	ContactEmail         string  `json:"contact_email"`
+	ContactPhone         *string `json:"contact_phone"`
+	MaxSims              *int    `json:"max_sims"`
+	MaxApns              *int    `json:"max_apns"`
+	MaxUsers             *int    `json:"max_users"`
+	AdminName            string  `json:"admin_name"`
+	AdminEmail           string  `json:"admin_email"`
+	AdminInitialPassword string  `json:"admin_initial_password"`
 }
 
 type updateTenantRequest struct {
@@ -158,22 +162,45 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.ContactEmail == "" {
 		validationErrors = append(validationErrors, map[string]string{"field": "contact_email", "message": "Contact email is required", "code": "required"})
 	}
+	if req.AdminName == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "admin_name", "message": "Admin name is required", "code": "required"})
+	}
+	if req.AdminEmail == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "admin_email", "message": "Admin email is required", "code": "required"})
+	} else if !isValidAdminEmail(req.AdminEmail) {
+		validationErrors = append(validationErrors, map[string]string{"field": "admin_email", "message": "Invalid email format", "code": "format"})
+	}
+	if len(req.AdminInitialPassword) < 8 {
+		validationErrors = append(validationErrors, map[string]string{"field": "admin_initial_password", "message": "Admin password must be at least 8 characters", "code": "min_length"})
+	}
 	if len(validationErrors) > 0 {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
 		return
 	}
 
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(req.AdminInitialPassword), 12)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("hash admin password")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
 	userID := userIDFromContext(r)
 
-	t, err := h.tenantStore.Create(r.Context(), store.CreateTenantParams{
-		Name:         req.Name,
-		Domain:       req.Domain,
-		ContactEmail: req.ContactEmail,
-		ContactPhone: req.ContactPhone,
-		MaxSims:      req.MaxSims,
-		MaxApns:      req.MaxApns,
-		MaxUsers:     req.MaxUsers,
-		CreatedBy:    userID,
+	t, adminUser, err := h.tenantStore.CreateTenantWithAdmin(r.Context(), store.CreateTenantWithAdminParams{
+		CreateTenantParams: store.CreateTenantParams{
+			Name:         req.Name,
+			Domain:       req.Domain,
+			ContactEmail: req.ContactEmail,
+			ContactPhone: req.ContactPhone,
+			MaxSims:      req.MaxSims,
+			MaxApns:      req.MaxApns,
+			MaxUsers:     req.MaxUsers,
+			CreatedBy:    userID,
+		},
+		AdminName:         req.AdminName,
+		AdminEmail:        req.AdminEmail,
+		AdminPasswordHash: string(hashBytes),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrDomainExists) {
@@ -182,14 +209,27 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 				[]map[string]string{{"field": "domain", "value": ptrStr(req.Domain)}})
 			return
 		}
+		if errors.Is(err, store.ErrEmailExists) {
+			apierr.WriteError(w, http.StatusConflict, apierr.CodeAlreadyExists,
+				"A user with this admin email already exists",
+				[]map[string]string{{"field": "admin_email", "value": req.AdminEmail}})
+			return
+		}
 		h.logger.Error().Err(err).Msg("create tenant")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
 
-	h.createAuditEntry(r, "tenant.create", t.ID.String(), nil, t)
+	h.emitAuditForTenant(r, t.ID, "tenant.create", "tenant", t.ID.String(), nil, t)
+	h.emitAuditForTenant(r, t.ID, "user.create", "user", adminUser.ID.String(), nil, map[string]interface{}{
+		"email": adminUser.Email, "name": adminUser.Name, "role": adminUser.Role, "tenant_id": t.ID.String(),
+	})
 
-	apierr.WriteSuccess(w, http.StatusCreated, toTenantResponse(t))
+	resp := toTenantResponse(t)
+	apierr.WriteSuccess(w, http.StatusCreated, map[string]interface{}{
+		"tenant":        resp,
+		"admin_user_id": adminUser.ID.String(),
+	})
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -431,4 +471,58 @@ func ptrStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func (h *Handler) emitAuditForTenant(r *http.Request, tenantID uuid.UUID, action, entityType, entityID string, before, after interface{}) {
+	if h.auditSvc == nil {
+		return
+	}
+
+	userID := userIDFromContext(r)
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, err := uuid.Parse(cidStr); err == nil {
+			correlationID = &cid
+		}
+	}
+
+	var beforeData, afterData json.RawMessage
+	if before != nil {
+		beforeData, _ = json.Marshal(before)
+	}
+	if after != nil {
+		afterData, _ = json.Marshal(after)
+	}
+
+	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    entityType,
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
+	})
+	if auditErr != nil {
+		h.logger.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
+	}
+}
+
+func isValidAdminEmail(email string) bool {
+	at := strings.Index(email, "@")
+	if at <= 0 {
+		return false
+	}
+	domain := email[at+1:]
+	if domain == "" {
+		return false
+	}
+	dot := strings.Index(domain, ".")
+	return dot > 0 && dot < len(domain)-1
 }

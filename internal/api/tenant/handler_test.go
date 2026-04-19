@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -101,18 +102,30 @@ func TestCreateTenantValidation(t *testing.T) {
 		},
 		{
 			name:       "missing name",
-			body:       `{"contact_email":"admin@test.com"}`,
+			body:       `{"contact_email":"admin@test.com","admin_name":"Admin","admin_email":"admin@test.com","admin_initial_password":"password123"}`,
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   apierr.CodeValidationError,
 		},
 		{
 			name:       "missing contact_email",
-			body:       `{"name":"Test"}`,
+			body:       `{"name":"Test","admin_name":"Admin","admin_email":"admin@test.com","admin_initial_password":"password123"}`,
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   apierr.CodeValidationError,
 		},
 		{
-			name:       "missing both",
+			name:       "missing admin fields",
+			body:       `{"name":"Test","contact_email":"admin@test.com"}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeValidationError,
+		},
+		{
+			name:       "admin password too short",
+			body:       `{"name":"Test","contact_email":"admin@test.com","admin_name":"Admin","admin_email":"admin@test.com","admin_initial_password":"short"}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeValidationError,
+		},
+		{
+			name:       "missing all",
 			body:       `{}`,
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   apierr.CodeValidationError,
@@ -264,6 +277,55 @@ func TestToTenantWithCountsResponse_PopulatesCounts(t *testing.T) {
 	}
 }
 
+func TestCreateTenantValidation_AdminPasswordTooShort(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, logger)
+
+	body := `{"name":"Test","contact_email":"contact@test.com","admin_name":"Admin","admin_email":"admin@test.com","admin_initial_password":"short"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "super_admin")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	var resp apierr.ErrorResponse
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.Error.Code != apierr.CodeValidationError {
+		t.Errorf("code = %q, want %q", resp.Error.Code, apierr.CodeValidationError)
+	}
+}
+
+func TestSlugify(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Acme Corp", "acme-corp"},
+		{"Hello World 123", "hello-world-123"},
+		{"  Leading Trailing  ", "leading-trailing"},
+		{"special!@#chars", "special-chars"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := slugify(tt.input)
+			if got != tt.want {
+				t.Errorf("slugify(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPtrStr(t *testing.T) {
 	val := "test"
 	if ptrStr(&val) != "test" {
@@ -271,5 +333,47 @@ func TestPtrStr(t *testing.T) {
 	}
 	if ptrStr(nil) != "" {
 		t.Error("ptrStr(nil) should return empty string")
+	}
+}
+
+type captureAuditService struct {
+	entries []audit.CreateEntryParams
+}
+
+func (m *captureAuditService) CreateEntry(ctx context.Context, p audit.CreateEntryParams) (*audit.Entry, error) {
+	m.entries = append(m.entries, p)
+	return &audit.Entry{}, nil
+}
+
+func TestEmitAuditForTenant_UsesTenantID(t *testing.T) {
+	auditor := &captureAuditService{}
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, auditor, logger)
+
+	callerTenantID := uuid.New()
+	newTenantID := uuid.New()
+	callerUserID := uuid.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", nil)
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, callerTenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, callerUserID)
+	req = req.WithContext(ctx)
+
+	h.emitAuditForTenant(req, newTenantID, "tenant.create", "tenant", newTenantID.String(), nil, map[string]string{"name": "Test"})
+
+	if len(auditor.entries) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(auditor.entries))
+	}
+
+	entry := auditor.entries[0]
+	if entry.TenantID != newTenantID {
+		t.Errorf("audit TenantID = %v, want %v (new tenant, not caller's %v)", entry.TenantID, newTenantID, callerTenantID)
+	}
+	if entry.Action != "tenant.create" {
+		t.Errorf("audit Action = %q, want %q", entry.Action, "tenant.create")
+	}
+	if entry.UserID == nil || *entry.UserID != callerUserID {
+		t.Errorf("audit UserID should be caller's ID %v", callerUserID)
 	}
 }
