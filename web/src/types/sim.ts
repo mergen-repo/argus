@@ -3,6 +3,7 @@ export interface SIM {
   tenant_id: string
   operator_id: string
   operator_name?: string
+  operator_code?: string
   apn_id?: string
   apn_name?: string
   iccid: string
@@ -13,6 +14,7 @@ export interface SIM {
   ip_pool_name?: string
   policy_version_id?: string
   policy_name?: string
+  policy_version_number?: number
   esim_profile_id?: string
   sim_type: 'physical' | 'esim'
   state: SIMState

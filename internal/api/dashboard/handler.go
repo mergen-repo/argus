@@ -87,10 +87,16 @@ type simByStateDTO struct {
 }
 
 type operatorHealthDTO struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Status       string  `json:"status"`
-	HealthPct    float64 `json:"health_pct"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"`
+	HealthPct       float64  `json:"health_pct"`
+	Code            string   `json:"code"`
+	SLATarget       *float64 `json:"sla_target,omitempty"`
+	ActiveSessions  *int64   `json:"active_sessions,omitempty"`
+	LastHealthCheck *string  `json:"last_health_check,omitempty"`
+	LatencyMs       *float64 `json:"latency_ms,omitempty"`
+	AuthRate        *float64 `json:"auth_rate,omitempty"`
 }
 
 type topAPNDTO struct {
@@ -155,6 +161,8 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	var sessionStatsByOp map[string]int64
+
 	wg.Add(8)
 
 	go func() {
@@ -218,6 +226,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		resp.ActiveSessions = activeSessions
 		resp.TopAPNs = topAPNs
+		sessionStatsByOp = stats.ByOperator
 		mu.Unlock()
 	}()
 
@@ -231,12 +240,19 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		health := make([]operatorHealthDTO, 0, len(grants))
 		for _, g := range grants {
 			pct := healthStatusToPct(g.HealthStatus)
-			health = append(health, operatorHealthDTO{
+			dto := operatorHealthDTO{
 				ID:        g.OperatorGrant.OperatorID.String(),
 				Name:      g.OperatorName,
 				Status:    g.HealthStatus,
 				HealthPct: pct,
-			})
+				Code:      g.OperatorCode,
+				SLATarget: g.SLATarget,
+			}
+			if !g.OperatorUpdatedAt.IsZero() {
+				s := g.OperatorUpdatedAt.Format(time.RFC3339)
+				dto.LastHealthCheck = &s
+			}
+			health = append(health, dto)
 		}
 		mu.Lock()
 		resp.OperatorHealth = health
@@ -377,6 +393,19 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	wg.Wait()
+
+	// Merge active-session counts into OperatorHealth after all goroutines have
+	// finished. The mutex inside the goroutines guarantees visibility but not
+	// happens-before ordering between the session and operator-health goroutines,
+	// so doing the merge sequentially post-Wait is the only correct placement.
+	if sessionStatsByOp != nil {
+		for i := range resp.OperatorHealth {
+			if count, ok := sessionStatsByOp[resp.OperatorHealth[i].ID]; ok {
+				c := count
+				resp.OperatorHealth[i].ActiveSessions = &c
+			}
+		}
+	}
 
 	if resp.SIMByState == nil {
 		resp.SIMByState = []simByStateDTO{}

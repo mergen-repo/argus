@@ -42,6 +42,66 @@ func WithSIMStore(s *store.SIMStore) HandlerOption {
 	return func(h *Handler) { h.simStore = s }
 }
 
+// violationDTO is the enriched response shape for violation endpoints.
+// It embeds all PolicyViolation base fields plus joined display names.
+type violationDTO struct {
+	ID                  interface{} `json:"id"`
+	TenantID            interface{} `json:"tenant_id"`
+	SimID               interface{} `json:"sim_id"`
+	PolicyID            interface{} `json:"policy_id"`
+	VersionID           interface{} `json:"version_id"`
+	RuleIndex           int         `json:"rule_index"`
+	ViolationType       string      `json:"violation_type"`
+	ActionTaken         string      `json:"action_taken"`
+	Details             interface{} `json:"details"`
+	SessionID           interface{} `json:"session_id,omitempty"`
+	OperatorID          interface{} `json:"operator_id,omitempty"`
+	APNID               interface{} `json:"apn_id,omitempty"`
+	Severity            string      `json:"severity"`
+	CreatedAt           interface{} `json:"created_at"`
+	AcknowledgedAt      interface{} `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy      interface{} `json:"acknowledged_by,omitempty"`
+	AcknowledgmentNote  interface{} `json:"acknowledgment_note,omitempty"`
+	ICCID               *string     `json:"iccid,omitempty"`
+	IMSI                *string     `json:"imsi,omitempty"`
+	MSISDN              *string     `json:"msisdn,omitempty"`
+	OperatorName        *string     `json:"operator_name,omitempty"`
+	OperatorCode        *string     `json:"operator_code,omitempty"`
+	APNName             *string     `json:"apn_name,omitempty"`
+	PolicyName          *string     `json:"policy_name,omitempty"`
+	PolicyVersionNumber *int        `json:"policy_version_number,omitempty"`
+}
+
+func toViolationDTO(v *store.PolicyViolationWithNames) violationDTO {
+	return violationDTO{
+		ID:                  v.ID,
+		TenantID:            v.TenantID,
+		SimID:               v.SimID,
+		PolicyID:            v.PolicyID,
+		VersionID:           v.VersionID,
+		RuleIndex:           v.RuleIndex,
+		ViolationType:       v.ViolationType,
+		ActionTaken:         v.ActionTaken,
+		Details:             v.Details,
+		SessionID:           v.SessionID,
+		OperatorID:          v.OperatorID,
+		APNID:               v.APNID,
+		Severity:            v.Severity,
+		CreatedAt:           v.CreatedAt,
+		AcknowledgedAt:      v.AcknowledgedAt,
+		AcknowledgedBy:      v.AcknowledgedBy,
+		AcknowledgmentNote:  v.AcknowledgmentNote,
+		ICCID:               v.ICCID,
+		IMSI:                v.IMSI,
+		MSISDN:              v.MSISDN,
+		OperatorName:        v.OperatorName,
+		OperatorCode:        v.OperatorCode,
+		APNName:             v.APNName,
+		PolicyName:          v.PolicyName,
+		PolicyVersionNumber: v.PolicyVersionNumber,
+	}
+}
+
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -56,7 +116,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v, err := h.violationStore.GetByID(r.Context(), id)
+	v, err := h.violationStore.GetByIDEnriched(r.Context(), id, tenantID)
 	if err != nil {
 		if errors.Is(err, store.ErrViolationNotFound) {
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Violation not found")
@@ -67,12 +127,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if v.TenantID != tenantID {
-		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Violation not found")
-		return
-	}
-
-	apierr.WriteSuccess(w, http.StatusOK, v)
+	apierr.WriteSuccess(w, http.StatusOK, toViolationDTO(v))
 }
 
 type remediateRequest struct {
@@ -109,7 +164,7 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v, err := h.violationStore.GetByID(r.Context(), id)
+	v, err := h.violationStore.GetByIDEnriched(r.Context(), id, tenantID)
 	if err != nil {
 		if errors.Is(err, store.ErrViolationNotFound) {
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Violation not found")
@@ -120,12 +175,7 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if v.TenantID != tenantID {
-		apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Violation not found")
-		return
-	}
-
-	response := map[string]interface{}{"violation": v}
+	response := map[string]interface{}{"violation": toViolationDTO(v)}
 
 	switch req.Action {
 	case "suspend_sim":
@@ -241,14 +291,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Acknowledged:  ackFilter,
 	}
 
-	violations, nextCursor, err := h.violationStore.List(r.Context(), tenantID, params)
+	enriched, nextCursor, err := h.violationStore.ListEnriched(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list violations")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to list violations")
 		return
 	}
 
-	apierr.WriteList(w, http.StatusOK, violations, apierr.ListMeta{
+	dtos := make([]violationDTO, len(enriched))
+	for i := range enriched {
+		dtos[i] = toViolationDTO(&enriched[i])
+	}
+
+	apierr.WriteList(w, http.StatusOK, dtos, apierr.ListMeta{
 		Cursor:  nextCursor,
 		Limit:   limit,
 		HasMore: nextCursor != "",

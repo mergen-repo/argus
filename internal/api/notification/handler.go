@@ -55,19 +55,36 @@ func (h *Handler) SetTemplateStore(ts *store.NotificationTemplateStore) {
 	h.templateStore = ts
 }
 
+// entityRefDTO carries a resolved SIM (or future entity) reference persisted at emit-time.
+// display_name is populated from scope_type+scope_ref_id when the entity type is known.
+// Full cross-entity resolution is deferred to FIX-212 (unified event envelope).
+type entityRefDTO struct {
+	EntityType  string `json:"entity_type"`
+	EntityID    string `json:"entity_id"`
+	DisplayName string `json:"display_name"`
+}
+
+// knownEntityScopes are scope_type values that map 1:1 to entity types.
+var knownEntityScopes = map[string]bool{
+	"sim":      true,
+	"apn":      true,
+	"operator": true,
+}
+
 type notificationDTO struct {
-	ID           string   `json:"id"`
-	Type         string   `json:"type"`
-	Title        string   `json:"title"`
-	Message      string   `json:"message"`
-	Scope        string   `json:"scope"`
-	ScopeRefID   *string  `json:"scope_ref_id,omitempty"`
-	Severity     string   `json:"severity"`
-	ChannelsSent []string `json:"channels_sent"`
-	Read         bool     `json:"read"`
-	ReadAt       *string  `json:"read_at,omitempty"`
-	RetryCount   int      `json:"retry_count"`
-	CreatedAt    string   `json:"created_at"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Title        string         `json:"title"`
+	Message      string         `json:"message"`
+	Scope        string         `json:"scope"`
+	ScopeRefID   *string        `json:"scope_ref_id,omitempty"`
+	Severity     string         `json:"severity"`
+	ChannelsSent []string       `json:"channels_sent"`
+	EntityRefs   []entityRefDTO `json:"entity_refs,omitempty"`
+	Read         bool           `json:"read"`
+	ReadAt       *string        `json:"read_at,omitempty"`
+	RetryCount   int            `json:"retry_count"`
+	CreatedAt    string         `json:"created_at"`
 }
 
 func toNotificationDTO(n store.NotificationRow) notificationDTO {
@@ -86,6 +103,15 @@ func toNotificationDTO(n store.NotificationRow) notificationDTO {
 	if n.ScopeRefID != nil {
 		s := n.ScopeRefID.String()
 		dto.ScopeRefID = &s
+		if knownEntityScopes[n.ScopeType] {
+			dto.EntityRefs = []entityRefDTO{
+				{
+					EntityType:  n.ScopeType,
+					EntityID:    n.ScopeRefID.String(),
+					DisplayName: "",
+				},
+			}
+		}
 	}
 	if n.ReadAt != nil {
 		s := n.ReadAt.Format(time.RFC3339)

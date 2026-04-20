@@ -64,13 +64,15 @@ type OperatorGrant struct {
 
 type GrantWithOperator struct {
 	OperatorGrant
-	OperatorName              string   `json:"operator_name"`
-	OperatorCode              string   `json:"operator_code"`
-	MCC                       string   `json:"mcc"`
-	MNC                       string   `json:"mnc"`
-	OperatorSupportedRATTypes []string `json:"operator_supported_rat_types"`
-	HealthStatus              string   `json:"health_status"`
-	OperatorState             string   `json:"operator_state"`
+	OperatorName              string    `json:"operator_name"`
+	OperatorCode              string    `json:"operator_code"`
+	MCC                       string    `json:"mcc"`
+	MNC                       string    `json:"mnc"`
+	OperatorSupportedRATTypes []string  `json:"operator_supported_rat_types"`
+	HealthStatus              string    `json:"health_status"`
+	OperatorState             string    `json:"operator_state"`
+	SLATarget                 *float64  `json:"sla_target,omitempty"`
+	OperatorUpdatedAt         time.Time `json:"operator_updated_at"`
 }
 
 type UpdateGrantParams struct {
@@ -663,7 +665,8 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 	rows, err := s.db.Query(ctx, `
 		SELECT g.id, g.tenant_id, g.operator_id, g.enabled, g.sor_priority, g.cost_per_mb, g.region,
 			g.supported_rat_types, g.granted_at, g.granted_by,
-			o.name, o.code, o.mcc, o.mnc, o.supported_rat_types, o.health_status, o.state
+			o.name, o.code, o.mcc, o.mnc, o.supported_rat_types, o.health_status, o.state,
+			o.sla_uptime_target, o.updated_at
 		FROM operator_grants g
 		LEFT JOIN operators o ON o.id = g.operator_id
 		WHERE g.tenant_id = $1 AND g.enabled = true AND (o.state = 'active' OR o.state IS NULL)
@@ -679,12 +682,15 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 		var gw GrantWithOperator
 		var opName, opCode, opMCC, opMNC, opHealth, opState *string
 		var opRATTypes []string
+		var opSLATarget *float64
+		var opUpdatedAt *time.Time
 		if err := rows.Scan(
 			&gw.ID, &gw.TenantID, &gw.OperatorID, &gw.Enabled,
 			&gw.SoRPriority, &gw.CostPerMB, &gw.Region,
 			&gw.SupportedRATTypes, &gw.GrantedAt, &gw.GrantedBy,
 			&opName, &opCode, &opMCC, &opMNC,
 			&opRATTypes, &opHealth, &opState,
+			&opSLATarget, &opUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("store: scan grant with operator: %w", err)
 		}
@@ -708,6 +714,10 @@ func (s *OperatorStore) ListGrantsWithOperators(ctx context.Context, tenantID uu
 		}
 		if opState != nil {
 			gw.OperatorState = *opState
+		}
+		gw.SLATarget = opSLATarget
+		if opUpdatedAt != nil {
+			gw.OperatorUpdatedAt = *opUpdatedAt
 		}
 		results = append(results, gw)
 	}

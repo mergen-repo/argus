@@ -42,7 +42,7 @@ func TestToSIMResponse(t *testing.T) {
 		UpdatedAt:             now,
 	}
 
-	resp := toSIMResponse(s)
+	resp := toSIMResponseBase(s)
 
 	if resp.ID != s.ID.String() {
 		t.Errorf("ID = %q, want %q", resp.ID, s.ID.String())
@@ -106,7 +106,7 @@ func TestToSIMResponseNilFields(t *testing.T) {
 		UpdatedAt: now,
 	}
 
-	resp := toSIMResponse(s)
+	resp := toSIMResponseBase(s)
 
 	if resp.MSISDN != nil {
 		t.Error("MSISDN should be nil when not set")
@@ -470,7 +470,7 @@ func TestSIMResponseTimestampFormat(t *testing.T) {
 		UpdatedAt:  now,
 	}
 
-	resp := toSIMResponse(s)
+	resp := toSIMResponseBase(s)
 
 	expectedCreatedAt := now.Format(time.RFC3339Nano)
 	if resp.CreatedAt != expectedCreatedAt {

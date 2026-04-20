@@ -77,7 +77,7 @@ import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { FavoriteToggle, EmptyState } from '@/components/shared'
+import { FavoriteToggle, EmptyState, OperatorChip } from '@/components/shared'
 import { ESimTab } from './esim-tab'
 import { RelatedDataTab } from './_tabs/related-data-tab'
 import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
@@ -128,7 +128,10 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Operator" value={sim.operator_name || sim.operator_id} mono={!sim.operator_name} />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">Operator</span>
+            <OperatorChip name={sim.operator_name} code={sim.operator_code} rawId={sim.operator_id} />
+          </div>
           <InfoRow label="APN" value={sim.apn_name || sim.apn_id || 'Not assigned'} mono={!sim.apn_name && !!sim.apn_id} />
           <InfoRow label="RAT Type" value={sim.rat_type ? <RATBadge ratType={sim.rat_type} /> : 'Not set'} />
           <div className="flex items-center justify-between">
@@ -155,7 +158,17 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Policy & Session</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Policy" value={sim.policy_name || sim.policy_version_id || 'None'} mono={!sim.policy_name && !!sim.policy_version_id} />
+          <InfoRow
+            label="Policy"
+            value={
+              sim.policy_name
+                ? sim.policy_version_number != null
+                  ? `${sim.policy_name} (v${sim.policy_version_number})`
+                  : sim.policy_name
+                : sim.policy_version_id || 'None'
+            }
+            mono={!sim.policy_name && !!sim.policy_version_id}
+          />
           <InfoRow label="eSIM Profile" value={sim.esim_profile_id ?? 'N/A'} mono={!!sim.esim_profile_id} />
           <InfoRow label="Max Concurrent Sessions" value={String(sim.max_concurrent_sessions)} />
           <InfoRow label="Idle Timeout" value={formatDuration(sim.session_idle_timeout_sec)} />

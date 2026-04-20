@@ -68,6 +68,7 @@ import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { OperatorChip } from '@/components/shared/operator-chip'
 import { EmptyState } from '@/components/shared/empty-state'
 import { DataFreshness } from '@/components/shared/data-freshness'
 import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
@@ -729,10 +730,19 @@ export default function SimListPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.operator_name || <span className="text-text-tertiary">—</span>}</span>
+                    <OperatorChip
+                      name={sim.operator_name}
+                      code={sim.operator_code}
+                      rawId={sim.operator_id}
+                      clickable
+                      onClick={() => navigate(`/operators/${sim.operator_id}`)}
+                    />
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.apn_name || <span className="text-text-tertiary">—</span>}</span>
+                    {sim.apn_name
+                      ? <span className="text-xs text-text-secondary">{sim.apn_name}</span>
+                      : <span className="text-xs italic text-text-tertiary">(Unknown)</span>
+                    }
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.ip_pool_name || <span className="text-text-tertiary">—</span>}</span>

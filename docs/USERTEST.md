@@ -2681,3 +2681,32 @@ curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
 # {"status":"error","error":{"code":"FORBIDDEN_CROSS_TENANT","details":{"violations":["ffffffff-..."]}}}
 # Hic job row olusturmamali (jobs tablosunda son satiri kontrol et)
 ```
+
+---
+
+## FIX-202: SIM List & Dashboard DTO — Operator Name Resolution
+
+### Manuel test scenaryosu 1 — SIM list operator names
+1. /sims sayfasına git
+2. Operator kolonu: "Turkcell (turkcell)" gibi chip görünmeli, UUID değil
+3. Chip'e tıkla → /operators/:id sayfasına gitmeli
+4. Orphan SIM varsa "(Unknown)" + warning icon görünmeli
+
+### Manuel test scenaryosu 2 — Dashboard operator health
+1. /dashboard git
+2. Her operator kartında: kod (turkcell/vodafone_tr/turk_telekom), chip, aktif session sayısı, SLA target görünmeli
+3. latency_ms ve auth_rate null → hiç gösterilmemeli (scope: FIX-203'e devredildi)
+
+### Manuel test scenaryosu 3 — Violations list enriched
+1. /violations git
+2. ICCID, Operator (chip), APN, Policy (vN) kolonları doldu mu?
+3. Orphan violation varsa (Unknown) fallback çalışıyor mu?
+
+### Manuel test scenaryosu 4 — Session list
+1. /sessions git
+2. Her session'da operator_name, policy_name, policy_version_number görünmeli
+3. Round-trip sayısı: bir sayfa = 1 session fetch + 1 GetManyByIDsEnriched (log ile kontrol)
+
+### Manuel test scenaryosu 5 — eSIM profiles
+1. eSIM profile list sayfasına git
+2. OperatorChip rendering doğru mu?

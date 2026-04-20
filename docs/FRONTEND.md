@@ -152,6 +152,12 @@ Base unit: `4px`
 - **Light mode:** Available via toggle (sidebar bottom)
 - Light overrides: swap bg/text tokens, reduce glow effects, mute neon accents
 
+## Reusable Shared Components
+
+| Component | Path | Usage |
+|-----------|------|-------|
+| `OperatorChip` | `web/src/components/shared/operator-chip.tsx` | Operator name + code + colored dot. Reads `operator_code` (stable key) for color routing (turkcell=warning/yellow, vodafone_tr=danger/red, turk_telekom=info/blue, other=muted). Orphan fallback: `AlertCircle` + "(Unknown)" italic. Clickable prop routes to `/operators/:id`. Color map: `web/src/lib/operator-chip.ts`. Used across SIMs list/detail, Sessions, Violations, eSIM profiles, Dashboard operator health (FIX-202). |
+
 ## Reference Mockups
 
 | File | Screen | Shows |

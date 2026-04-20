@@ -229,6 +229,159 @@ func (s *PolicyViolationStore) GetByID(ctx context.Context, id uuid.UUID) (*Poli
 	return &v, nil
 }
 
+// PolicyViolationWithNames is an enriched PolicyViolation with joined parent-entity display fields.
+// Used by list/detail endpoints that need UI-ready labels without per-row lookups.
+type PolicyViolationWithNames struct {
+	PolicyViolation
+	ICCID               *string
+	IMSI                *string
+	MSISDN              *string
+	OperatorName        *string
+	OperatorCode        *string
+	APNName             *string
+	PolicyName          *string
+	PolicyVersionNumber *int
+}
+
+// violationEnrichedJoin is the JOIN clause shared by all enriched violation queries.
+// LEFT JOINs required for orphan safety. operators is tenant-agnostic.
+// Violation rows are immutable events; no tenant-scoping on JOIN needed.
+const violationEnrichedJoin = `
+LEFT JOIN sims s ON v.sim_id = s.id
+LEFT JOIN operators o ON v.operator_id = o.id
+LEFT JOIN apns a ON v.apn_id = a.id
+LEFT JOIN policies pol ON v.policy_id = pol.id
+LEFT JOIN policy_versions pv ON v.version_id = pv.id`
+
+// violationEnrichedSelect is the SELECT list for enriched violation queries.
+const violationEnrichedSelect = `v.id, v.tenant_id, v.sim_id, v.policy_id, v.version_id,
+	v.rule_index, v.violation_type, v.action_taken, v.details,
+	v.session_id, v.operator_id, v.apn_id, v.severity, v.created_at,
+	v.acknowledged_at, v.acknowledged_by, v.acknowledgment_note,
+	s.iccid, s.imsi, s.msisdn,
+	o.name AS operator_name, o.code AS operator_code,
+	COALESCE(NULLIF(a.display_name, ''), a.name) AS apn_name,
+	pol.name AS policy_name,
+	pv.version AS policy_version_number`
+
+// scanPolicyViolationWithNames is the ONLY scan helper for PolicyViolationWithNames.
+// If you add fields to PolicyViolationWithNames, update this function AND all tests.
+// Never inline-scan PolicyViolationWithNames rows elsewhere.
+func scanPolicyViolationWithNames(row pgx.Row) (*PolicyViolationWithNames, error) {
+	var v PolicyViolationWithNames
+	err := row.Scan(
+		&v.ID, &v.TenantID, &v.SimID, &v.PolicyID, &v.VersionID,
+		&v.RuleIndex, &v.ViolationType, &v.ActionTaken, &v.Details,
+		&v.SessionID, &v.OperatorID, &v.APNID, &v.Severity, &v.CreatedAt,
+		&v.AcknowledgedAt, &v.AcknowledgedBy, &v.AcknowledgmentNote,
+		&v.ICCID, &v.IMSI, &v.MSISDN,
+		&v.OperatorName, &v.OperatorCode,
+		&v.APNName, &v.PolicyName, &v.PolicyVersionNumber,
+	)
+	return &v, err
+}
+
+// ListEnriched returns PolicyViolations with joined parent-entity display names.
+// Signature mirrors List; enriched fields are nullable (LEFT JOIN).
+func (s *PolicyViolationStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, params ListViolationsParams) ([]PolicyViolationWithNames, string, error) {
+	if params.Limit <= 0 || params.Limit > 100 {
+		params.Limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"v.tenant_id = $1"}
+	argIdx := 2
+
+	if params.Cursor != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, params.Cursor); err == nil {
+			conditions = append(conditions, fmt.Sprintf("v.created_at < $%d", argIdx))
+			args = append(args, ts)
+			argIdx++
+		}
+	}
+	if params.ViolationType != "" {
+		conditions = append(conditions, fmt.Sprintf("v.violation_type = $%d", argIdx))
+		args = append(args, params.ViolationType)
+		argIdx++
+	}
+	if params.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("v.severity = $%d", argIdx))
+		args = append(args, params.Severity)
+		argIdx++
+	}
+	if params.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("v.sim_id = $%d", argIdx))
+		args = append(args, *params.SimID)
+		argIdx++
+	}
+	if params.PolicyID != nil {
+		conditions = append(conditions, fmt.Sprintf("v.policy_id = $%d", argIdx))
+		args = append(args, *params.PolicyID)
+		argIdx++
+	}
+	if params.Acknowledged != nil {
+		if *params.Acknowledged {
+			conditions = append(conditions, "v.acknowledged_at IS NOT NULL")
+		} else {
+			conditions = append(conditions, "v.acknowledged_at IS NULL")
+		}
+	}
+
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+	args = append(args, params.Limit+1)
+
+	query := fmt.Sprintf(
+		`SELECT %s FROM policy_violations v %s WHERE %s ORDER BY v.created_at DESC LIMIT %s`,
+		violationEnrichedSelect, violationEnrichedJoin,
+		strings.Join(conditions, " AND "), limitPlaceholder,
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched policy violations: %w", err)
+	}
+	defer rows.Close()
+
+	var violations []PolicyViolationWithNames
+	for rows.Next() {
+		v, err := scanPolicyViolationWithNames(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched policy violation: %w", err)
+		}
+		violations = append(violations, *v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iter enriched policy violations: %w", err)
+	}
+
+	nextCursor := ""
+	if len(violations) > params.Limit {
+		nextCursor = violations[params.Limit-1].CreatedAt.Format(time.RFC3339Nano)
+		violations = violations[:params.Limit]
+	}
+
+	return violations, nextCursor, nil
+}
+
+// GetByIDEnriched returns one enriched PolicyViolation by ID, scoped to tenantID.
+// Returns ErrViolationNotFound when no row matches (including cross-tenant mismatches).
+func (s *PolicyViolationStore) GetByIDEnriched(ctx context.Context, id, tenantID uuid.UUID) (*PolicyViolationWithNames, error) {
+	query := fmt.Sprintf(
+		`SELECT %s FROM policy_violations v %s WHERE v.id = $1 AND v.tenant_id = $2`,
+		violationEnrichedSelect, violationEnrichedJoin,
+	)
+
+	row := s.db.QueryRow(ctx, query, id, tenantID)
+	v, err := scanPolicyViolationWithNames(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrViolationNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get enriched policy violation: %w", err)
+	}
+	return v, nil
+}
+
 func (s *PolicyViolationStore) Acknowledge(ctx context.Context, id, tenantID, userID uuid.UUID, note string) (*PolicyViolation, error) {
 	var notePtr *string
 	if note != "" {

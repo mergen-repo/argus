@@ -52,6 +52,7 @@ import type { ESimProfile, ESimProfileState } from '@/types/esim'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/empty-state'
+import { OperatorChip } from '@/components/shared/operator-chip'
 import { useExport } from '@/hooks/use-export'
 
 const STATE_OPTIONS = [
@@ -310,7 +311,11 @@ export default function EsimListPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary">{profile.operator_id.slice(0, 8)}</span>
+                    <OperatorChip
+                      name={profile.operator_name}
+                      code={profile.operator_code}
+                      rawId={profile.operator_id}
+                    />
                   </TableCell>
                   <TableCell>
                     <Badge variant={stateVariant(profile.profile_state as ESimProfileState)} className="gap-1">

@@ -90,6 +90,8 @@ type profileResponse struct {
 	SMDPPlusID        *string `json:"sm_dp_plus_id,omitempty"`
 	ProfileID         *string `json:"profile_id,omitempty"`
 	OperatorID        string  `json:"operator_id"`
+	OperatorName      string  `json:"operator_name,omitempty"`
+	OperatorCode      string  `json:"operator_code,omitempty"`
 	ProfileState      string  `json:"profile_state"`
 	ICCIDOnProfile    *string `json:"iccid_on_profile,omitempty"`
 	LastProvisionedAt *string `json:"last_provisioned_at,omitempty"`
@@ -141,6 +143,17 @@ func toProfileResponse(p *store.ESimProfile) profileResponse {
 	return resp
 }
 
+func toProfileResponseEnriched(p *store.ESimProfileWithNames) profileResponse {
+	resp := toProfileResponse(&p.ESimProfile)
+	if p.OperatorName != nil {
+		resp.OperatorName = *p.OperatorName
+	}
+	if p.OperatorCode != nil {
+		resp.OperatorCode = *p.OperatorCode
+	}
+	return resp
+}
+
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -184,7 +197,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		State:      q.Get("state"),
 	}
 
-	profiles, nextCursor, err := h.esimStore.List(r.Context(), tenantID, params)
+	profiles, nextCursor, err := h.esimStore.ListEnriched(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list esim profiles")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -193,7 +206,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]profileResponse, 0, len(profiles))
 	for _, p := range profiles {
-		items = append(items, toProfileResponse(&p))
+		items = append(items, toProfileResponseEnriched(&p))
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
@@ -217,7 +230,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.esimStore.GetByID(r.Context(), tenantID, id)
+	profile, err := h.esimStore.GetByIDEnriched(r.Context(), tenantID, id)
 	if err != nil {
 		if errors.Is(err, store.ErrESimProfileNotFound) {
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "eSIM profile not found")
@@ -228,7 +241,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
+	apierr.WriteSuccess(w, http.StatusOK, toProfileResponseEnriched(profile))
 }
 
 func (h *Handler) Enable(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +316,7 @@ func (h *Handler) Enable(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "esim_profile.enable", profileID.String(), existing, profile, userID)
 
+	// TODO(FIX-216+): switch to GetByIDEnriched for consistency
 	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
 }
 
@@ -361,6 +375,7 @@ func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "esim_profile.disable", profileID.String(), existing, profile, userID)
 
+	// TODO(FIX-216+): switch to GetByIDEnriched for consistency
 	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(profile))
 }
 
@@ -626,6 +641,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	h.createAuditEntry(r, "esim_profile.create", profile.ID.String(), nil, profile, userID)
 
+	// TODO(FIX-216+): switch to GetByIDEnriched for consistency
 	apierr.WriteSuccess(w, http.StatusCreated, toProfileResponse(profile))
 }
 
@@ -682,6 +698,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	h.createAuditEntry(r, "esim_profile.delete", profileID.String(), existing, deleted, userID)
 
+	// TODO(FIX-216+): switch to GetByIDEnriched for consistency
 	apierr.WriteSuccess(w, http.StatusOK, toProfileResponse(deleted))
 }
 

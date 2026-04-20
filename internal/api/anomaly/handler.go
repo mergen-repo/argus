@@ -414,16 +414,35 @@ func (h *Handler) Escalate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var iccid string
+	if a.SimID != nil {
+		iccid, _ = h.anomalyStore.GetSimICCID(r.Context(), *a.SimID)
+	}
+
 	var notifID string
 	if h.notifier != nil {
-		notifErr := h.notifier.Notify(r.Context(), notification.NotifyRequest{
+		notifReq := notification.NotifyRequest{
 			TenantID:  tenantID,
 			EventType: notification.EventAnomalyDetected,
 			ScopeType: notification.ScopeSystem,
 			Title:     fmt.Sprintf("[ESCALATED] %s anomaly", a.Type),
 			Body:      fmt.Sprintf("Anomaly %s escalated. Note: %s", a.ID, req.Note),
 			Severity:  a.Severity,
-		})
+		}
+		if a.SimID != nil {
+			notifReq.ScopeType = notification.ScopeSIM
+			notifReq.ScopeRefID = a.SimID
+			simLabel := a.SimID.String()
+			if iccid != "" {
+				simLabel = "ICCID " + iccid
+			}
+			notifReq.ExtraFields = map[string]string{
+				"entity_type":  "sim",
+				"entity_id":   a.SimID.String(),
+				"display_name": simLabel,
+			}
+		}
+		notifErr := h.notifier.Notify(r.Context(), notifReq)
 		if notifErr != nil {
 			h.logger.Warn().Err(notifErr).Str("anomaly_id", id.String()).Msg("escalation notification failed")
 		}
@@ -439,11 +458,6 @@ func (h *Handler) Escalate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	audit.Emit(r, h.logger, h.auditSvc, "anomaly.escalate", "anomaly", id.String(), nil, map[string]string{"note": req.Note})
-
-	var iccid string
-	if a.SimID != nil {
-		iccid, _ = h.anomalyStore.GetSimICCID(r.Context(), *a.SimID)
-	}
 
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"anomaly":         toAnomalyDTO(*a, iccid),

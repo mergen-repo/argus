@@ -348,8 +348,8 @@ func TestBuildDiff_FieldList(t *testing.T) {
 	tenantID := uuid.New()
 	simA := makeSIM(tenantID)
 	simB := makeSIM(tenantID)
-	rA := toSIMResponse(simA)
-	rB := toSIMResponse(simB)
+	rA := toSIMResponseBase(simA)
+	rB := toSIMResponseBase(simB)
 
 	sessA := &store.RadiusSession{ID: uuid.New(), SimID: simA.ID, TenantID: tenantID, OperatorID: simA.OperatorID, SessionState: "closed", StartedAt: now, ProtocolType: "radius"}
 

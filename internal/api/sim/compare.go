@@ -183,8 +183,8 @@ func doCompare(
 		return
 	}
 
-	rA := toSIMResponse(simA)
-	rB := toSIMResponse(simB)
+	rA := toSIMResponseBase(simA)
+	rB := toSIMResponseBase(simB)
 	if enricher != nil {
 		enricher.enrichSIMResponse(r.Context(), tenantID, simA, &rA)
 		enricher.enrichSIMResponse(r.Context(), tenantID, simB, &rB)

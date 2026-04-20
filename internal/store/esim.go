@@ -63,6 +63,12 @@ type ListESimProfilesParams struct {
 	State      string
 }
 
+type ESimProfileWithNames struct {
+	ESimProfile
+	OperatorName *string `json:"operator_name,omitempty"`
+	OperatorCode *string `json:"operator_code,omitempty"`
+}
+
 type ESimProfileStore struct {
 	db *pgxpool.Pool
 }
@@ -505,6 +511,113 @@ func (s *ESimProfileStore) SoftDelete(ctx context.Context, tenantID, profileID u
 		return nil, fmt.Errorf("store: commit soft delete profile: %w", err)
 	}
 
+	return p, nil
+}
+
+var esimEnrichedSelect = esimProfileColumns + `, o.name, o.code`
+var esimEnrichedJoin = `LEFT JOIN operators o ON o.id = ep.operator_id`
+
+func scanESimProfileWithNames(row pgx.Row) (*ESimProfileWithNames, error) {
+	var p ESimProfileWithNames
+	err := row.Scan(
+		&p.ID, &p.SimID, &p.EID, &p.SMDPPlusID, &p.ProfileID, &p.OperatorID,
+		&p.ProfileState, &p.ICCIDOnProfile, &p.LastProvisionedAt, &p.LastError,
+		&p.CreatedAt, &p.UpdatedAt,
+		&p.OperatorName, &p.OperatorCode,
+	)
+	return &p, err
+}
+
+func (s *ESimProfileStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, p ListESimProfilesParams) ([]ESimProfileWithNames, string, error) {
+	limit := p.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"si.tenant_id = $1"}
+	argIdx := 2
+
+	if p.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("ep.sim_id = $%d", argIdx))
+		args = append(args, *p.SimID)
+		argIdx++
+	}
+
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("ep.operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("ep.profile_state = $%d", argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+
+	if p.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(p.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("ep.id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		%s
+		%s ORDER BY ep.created_at DESC, ep.id DESC LIMIT %s`,
+		esimEnrichedSelect, esimEnrichedJoin, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched esim profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ESimProfileWithNames
+	for rows.Next() {
+		p, err := scanESimProfileWithNames(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched esim profile: %w", err)
+		}
+		results = append(results, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iter enriched esim profiles: %w", err)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s *ESimProfileStore) GetByIDEnriched(ctx context.Context, tenantID, id uuid.UUID) (*ESimProfileWithNames, error) {
+	query := fmt.Sprintf(`SELECT %s FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		%s
+		WHERE ep.id = $1 AND si.tenant_id = $2`,
+		esimEnrichedSelect, esimEnrichedJoin)
+
+	row := s.db.QueryRow(ctx, query, id, tenantID)
+	p, err := scanESimProfileWithNames(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrESimProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get enriched esim profile: %w", err)
+	}
 	return p, nil
 }
 

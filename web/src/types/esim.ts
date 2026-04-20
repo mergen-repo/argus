@@ -5,6 +5,8 @@ export interface ESimProfile {
   sm_dp_plus_id?: string
   profile_id?: string
   operator_id: string
+  operator_name?: string
+  operator_code?: string
   profile_state: ESimProfileState
   iccid_on_profile?: string
   last_provisioned_at?: string

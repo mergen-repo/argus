@@ -6,14 +6,14 @@ export interface SIMByState {
 export interface OperatorHealth {
   id: string
   name: string
-  code: string
   status: 'healthy' | 'degraded' | 'down'
   health_pct: number
-  latency_ms: number
-  sla_target: number
-  active_sessions: number
-  auth_rate: number
-  last_check: string
+  code?: string
+  sla_target?: number
+  active_sessions?: number
+  last_health_check?: string
+  latency_ms?: number
+  auth_rate?: number
 }
 
 export interface TopAPN {

@@ -19,6 +19,7 @@ import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Sparkline } from '@/components/ui/sparkline'
 import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
+import { OperatorChip } from '@/components/shared/operator-chip'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -323,12 +324,26 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                     onClick={() => navigate(`/operators/${op.id}`)}
                   >
                     <TableCell className="py-2.5 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] text-text-primary font-medium group-hover:text-accent transition-colors">
-                          {op.name}
-                        </span>
-                        {op.code && (
-                          <span className="text-[10px] font-mono text-text-tertiary">{op.code}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <OperatorChip
+                          name={op.name}
+                          code={op.code}
+                          rawId={op.id}
+                          className="group-hover:ring-1 group-hover:ring-accent/40 transition-all"
+                        />
+                        {(op.active_sessions != null || op.sla_target != null) && (
+                          <div className="flex items-center gap-2 pl-0.5">
+                            {op.active_sessions != null && (
+                              <span className="text-[10px] font-mono text-text-tertiary">
+                                {op.active_sessions.toLocaleString()} active
+                              </span>
+                            )}
+                            {op.sla_target != null && (
+                              <span className="text-[10px] font-mono text-text-tertiary">
+                                SLA {op.sla_target.toFixed(2)}%
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </TableCell>

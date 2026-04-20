@@ -1288,3 +1288,245 @@ func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, [
 	}
 	return total, results, nil
 }
+
+// ---------------------------------------------------------------------------
+// SIMWithNames — enriched SIM with joined parent-entity display fields.
+// ---------------------------------------------------------------------------
+
+// SIMWithNames is an enriched SIM with joined parent-entity display fields.
+// Used by list/detail endpoints that need UI-ready labels without per-row lookups.
+type SIMWithNames struct {
+	SIM
+	OperatorName        *string
+	OperatorCode        *string
+	APNName             *string
+	PolicyName          *string
+	PolicyVersionNumber *int
+}
+
+// PAT-006: scanSIMWithNames is the ONLY scan helper for SIMWithNames.
+// If you add fields to SIMWithNames, update this function AND all tests.
+// Never inline-scan SIMWithNames rows elsewhere.
+func scanSIMWithNames(row pgx.Row) (*SIMWithNames, error) {
+	var s SIMWithNames
+	err := row.Scan(
+		&s.ID, &s.TenantID, &s.OperatorID, &s.APNID, &s.ICCID, &s.IMSI, &s.MSISDN,
+		&s.IPAddressID, &s.PolicyVersionID, &s.ESimProfileID, &s.SimType, &s.State, &s.RATType,
+		&s.MaxConcurrentSessions, &s.SessionIdleTimeoutSec, &s.SessionHardTimeoutSec,
+		&s.Metadata, &s.ActivatedAt, &s.SuspendedAt, &s.TerminatedAt, &s.PurgeAt,
+		&s.CreatedAt, &s.UpdatedAt,
+		&s.OperatorName, &s.OperatorCode, &s.APNName, &s.PolicyName, &s.PolicyVersionNumber,
+	)
+	return &s, err
+}
+
+// simEnrichedJoin is the JOIN clause shared by all enriched SIM queries.
+// LEFT JOINs are required for AC-8 orphan safety — INNER would hide orphan rows.
+// operators is tenant-agnostic; apns and policies are tenant-scoped on the JOIN.
+const simEnrichedJoin = `
+LEFT JOIN operators o ON s.operator_id = o.id
+LEFT JOIN apns a ON s.apn_id = a.id AND a.tenant_id = $1
+LEFT JOIN policy_versions pv ON s.policy_version_id = pv.id
+LEFT JOIN policies pol ON pv.policy_id = pol.id AND pol.tenant_id = $1`
+
+// simEnrichedColumns is the SELECT list for enriched queries (after simColumns with s. prefix).
+const simEnrichedSelect = `s.id, s.tenant_id, s.operator_id, s.apn_id, s.iccid, s.imsi, s.msisdn,
+	s.ip_address_id, s.policy_version_id, s.esim_profile_id, s.sim_type, s.state, s.rat_type,
+	s.max_concurrent_sessions, s.session_idle_timeout_sec, s.session_hard_timeout_sec,
+	s.metadata, s.activated_at, s.suspended_at, s.terminated_at, s.purge_at,
+	s.created_at, s.updated_at,
+	o.name AS operator_name, o.code AS operator_code,
+	COALESCE(NULLIF(a.display_name, ''), a.name) AS apn_name,
+	pol.name AS policy_name,
+	pv.version AS policy_version_number`
+
+// buildSIMWhereClause builds WHERE predicates and args for SIM list queries.
+// tableAlias is the table alias prefix (e.g. "s." for enriched queries, "" for plain queries).
+// The caller MUST provide tenantID as $1 before calling this function.
+// argIdx must start at 2 (since $1 is always tenantID).
+// Returns (conditions, args, nextArgIdx).
+func buildSIMWhereClause(p ListSIMsParams, tableAlias string, args []interface{}, argIdx int) ([]string, []interface{}, int) {
+	ta := tableAlias
+
+	conditions := []string{}
+
+	if p.ICCID != "" {
+		conditions = append(conditions, fmt.Sprintf("%siccid = $%d", ta, argIdx))
+		args = append(args, p.ICCID)
+		argIdx++
+	}
+
+	if p.IMSI != "" {
+		conditions = append(conditions, fmt.Sprintf("%simsi = $%d", ta, argIdx))
+		args = append(args, p.IMSI)
+		argIdx++
+	}
+
+	if p.MSISDN != "" {
+		conditions = append(conditions, fmt.Sprintf("%smsisdn = $%d", ta, argIdx))
+		args = append(args, p.MSISDN)
+		argIdx++
+	}
+
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("%soperator_id = $%d", ta, argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("%sapn_id = $%d", ta, argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("%sstate = $%d", ta, argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("%srat_type = $%d", ta, argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+
+	if p.IPAddress != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"%sip_address_id IN (SELECT id FROM ip_addresses WHERE address_v4::text LIKE $%d)",
+			ta, argIdx,
+		))
+		args = append(args, "%"+p.IPAddress+"%")
+		argIdx++
+	}
+
+	if p.Q != "" {
+		searchTerm := "%" + p.Q + "%"
+		conditions = append(conditions, fmt.Sprintf(
+			"(%siccid ILIKE $%d OR %simsi ILIKE $%d OR %smsisdn ILIKE $%d)",
+			ta, argIdx, ta, argIdx, ta, argIdx,
+		))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+
+	if p.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(p.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("%sid < $%d", ta, argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	return conditions, args, argIdx
+}
+
+// ListEnriched returns SIMs with joined parent-entity display names.
+// Signature mirrors List; enriched fields are nullable (LEFT JOIN).
+func (s *SIMStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams) ([]SIMWithNames, string, error) {
+	limit := p.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"s.tenant_id = $1"}
+	argIdx := 2
+
+	extraConds, args, argIdx := buildSIMWhereClause(p, "s.", args, argIdx)
+	conditions = append(conditions, extraConds...)
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM sims s %s %s ORDER BY s.created_at DESC, s.id DESC LIMIT %s`,
+		simEnrichedSelect, simEnrichedJoin, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched sims: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SIMWithNames
+	for rows.Next() {
+		sim, err := scanSIMWithNames(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched sim: %w", err)
+		}
+		results = append(results, *sim)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iter enriched sims: %w", err)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+// GetByIDEnriched returns one enriched SIM by ID, scoped to tenantID.
+// Returns ErrSIMNotFound when no row matches (including cross-tenant mismatches).
+func (s *SIMStore) GetByIDEnriched(ctx context.Context, tenantID, id uuid.UUID) (*SIMWithNames, error) {
+	query := fmt.Sprintf(`SELECT %s FROM sims s %s WHERE s.tenant_id = $1 AND s.id = $2`,
+		simEnrichedSelect, simEnrichedJoin)
+
+	row := s.db.QueryRow(ctx, query, tenantID, id)
+	sim, err := scanSIMWithNames(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get enriched sim: %w", err)
+	}
+	return sim, nil
+}
+
+// GetManyByIDsEnriched returns a map of enriched SIMs keyed by sim.ID.
+// Only SIMs belonging to tenantID are returned; foreign IDs are silently excluded.
+// Empty input returns an empty map without a DB call.
+// Input is chunked into batches of bulkImportBatchSize (500).
+func (s *SIMStore) GetManyByIDsEnriched(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]*SIMWithNames, error) {
+	result := make(map[uuid.UUID]*SIMWithNames, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	for batchStart := 0; batchStart < len(ids); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(ids) {
+			batchEnd = len(ids)
+		}
+		batch := ids[batchStart:batchEnd]
+
+		query := fmt.Sprintf(`SELECT %s FROM sims s %s WHERE s.tenant_id = $1 AND s.id = ANY($2)`,
+			simEnrichedSelect, simEnrichedJoin)
+
+		rows, err := s.db.Query(ctx, query, tenantID, batch)
+		if err != nil {
+			return nil, fmt.Errorf("store: get many enriched sims: %w", err)
+		}
+		for rows.Next() {
+			sim, err := scanSIMWithNames(rows)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("store: scan many enriched sim: %w", err)
+			}
+			result[sim.ID] = sim
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("store: iter many enriched sims: %w", err)
+		}
+	}
+
+	return result, nil
+}

@@ -29,28 +29,35 @@ import { Spinner } from '@/components/ui/spinner'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { api } from '@/lib/api'
 import { EmptyState } from '@/components/shared/empty-state'
+import { OperatorChip } from '@/components/shared/operator-chip'
 import { useExport } from '@/hooks/use-export'
 import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
+import type { OperatorCode } from '@/lib/operator-chip'
 import type { ListResponse } from '@/types/sim'
 
 interface PolicyViolation {
   id: string
   tenant_id: string
   sim_id: string
+  iccid?: string | null
+  imsi?: string | null
+  msisdn?: string | null
   sim_iccid?: string
   policy_id: string
-  policy_name?: string
+  policy_name?: string | null
+  policy_version_number?: number | null
   version_id: string
   rule_index: number
   violation_type: string
   action_taken: string
   details: Record<string, unknown>
   session_id?: string
-  operator_id?: string
-  operator_name?: string
-  apn_id?: string
-  apn_name?: string
+  operator_id?: string | null
+  operator_name?: string | null
+  operator_code?: string | null
+  apn_id?: string | null
+  apn_name?: string | null
   severity: string
   created_at: string
   acknowledged_at?: string | null
@@ -222,7 +229,8 @@ export default function ViolationsPage() {
     const q = searchInput.toLowerCase()
     return violations.filter((v) =>
       v.violation_type.includes(q) || v.action_taken.includes(q) ||
-      v.sim_iccid?.toLowerCase().includes(q) || v.policy_name?.toLowerCase().includes(q) ||
+      v.iccid?.toLowerCase().includes(q) || v.sim_iccid?.toLowerCase().includes(q) ||
+      v.policy_name?.toLowerCase().includes(q) ||
       v.operator_name?.toLowerCase().includes(q) || v.severity.includes(q)
     )
   }, [violations, searchInput])
@@ -249,7 +257,7 @@ export default function ViolationsPage() {
   const topSims = useMemo(() => {
     const agg: Record<string, { count: number; iccid: string; simId: string }> = {}
     violations.forEach((v) => {
-      if (!agg[v.sim_id]) agg[v.sim_id] = { count: 0, iccid: v.sim_iccid || v.sim_id.slice(0, 12), simId: v.sim_id }
+      if (!agg[v.sim_id]) agg[v.sim_id] = { count: 0, iccid: v.iccid || v.sim_iccid || v.sim_id.slice(0, 12), simId: v.sim_id }
       agg[v.sim_id].count++
     })
     return Object.values(agg).sort((a, b) => b.count - a.count).slice(0, 5)
@@ -430,9 +438,19 @@ export default function ViolationsPage() {
                   <span className="text-xs font-medium text-text-primary">{v.violation_type.replace(/_/g, ' ')}</span>
                   <span className="text-[10px] text-text-tertiary">→ {v.action_taken}</span>
                   <Link to={`/sims/${v.sim_id}`} onClick={(e) => e.stopPropagation()} className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline shrink-0">
-                    <ExternalLink className="h-3 w-3" />{v.sim_iccid || 'SIM'}
+                    <ExternalLink className="h-3 w-3" />{v.iccid || v.sim_iccid || 'SIM'}
                   </Link>
-                  {v.operator_name && <span className="hidden lg:block text-[10px] text-text-tertiary">{v.operator_name}</span>}
+                  {(v.operator_name || v.operator_id) && (
+                    <span className="hidden lg:block" onClick={(e) => e.stopPropagation()}>
+                      <OperatorChip
+                        name={v.operator_name ?? undefined}
+                        code={v.operator_code as OperatorCode | undefined}
+                        rawId={v.operator_id}
+                        clickable
+                        onClick={() => navigate(`/operators/${v.operator_id}`)}
+                      />
+                    </span>
+                  )}
                   <span className="hidden md:flex items-center gap-1 text-[10px] text-text-tertiary font-mono shrink-0 ml-auto"><Clock className="h-3 w-3" />{timeAgo(v.created_at)}</span>
                   <div className="shrink-0 text-text-tertiary">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</div>
                   <DropdownMenu>
@@ -478,18 +496,37 @@ export default function ViolationsPage() {
 
                 {expanded && (
                   <div className="border-t border-border bg-bg-primary/50 px-4 py-3 space-y-3 animate-slide-up-in">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                       <div>
                         <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">SIM</span>
-                        <Link to={`/sims/${v.sim_id}`} className="text-xs text-accent hover:underline font-mono">{v.sim_iccid || v.sim_id.slice(0, 12)}</Link>
+                        <Link to={`/sims/${v.sim_id}`} className="text-xs text-accent hover:underline font-mono">{v.iccid || v.sim_iccid || v.sim_id.slice(0, 12)}</Link>
                       </div>
                       <div>
                         <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Policy</span>
-                        <Link to={`/policies/${v.policy_id}`} className="text-xs text-accent hover:underline">{v.policy_name || 'View Policy'}</Link>
+                        <Link to={`/policies/${v.policy_id}`} className="text-xs text-accent hover:underline">
+                          {v.policy_name ?? 'View Policy'}{v.policy_version_number != null ? ` (v${v.policy_version_number})` : ''}
+                        </Link>
                       </div>
                       <div>
                         <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Operator</span>
-                        <span className="text-xs text-text-primary">{v.operator_name || '—'}</span>
+                        {(v.operator_name || v.operator_id)
+                          ? <OperatorChip
+                              name={v.operator_name ?? undefined}
+                              code={v.operator_code as OperatorCode | undefined}
+                              rawId={v.operator_id}
+                              clickable
+                              onClick={() => navigate(`/operators/${v.operator_id}`)}
+                            />
+                          : <span className="text-xs text-text-tertiary">—</span>
+                        }
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">APN</span>
+                        <span className="text-xs text-text-primary">{v.apn_name ?? '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">ICCID</span>
+                        <span className="text-xs text-text-primary font-mono">{v.iccid ?? v.sim_iccid ?? '—'}</span>
                       </div>
                       <div>
                         <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Time</span>

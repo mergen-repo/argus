@@ -106,6 +106,7 @@ type simResponse struct {
 	TenantID              string          `json:"tenant_id"`
 	OperatorID            string          `json:"operator_id"`
 	OperatorName          string          `json:"operator_name,omitempty"`
+	OperatorCode          string          `json:"operator_code,omitempty"`
 	APNID                 *string         `json:"apn_id,omitempty"`
 	APNName               string          `json:"apn_name,omitempty"`
 	ICCID                 string          `json:"iccid"`
@@ -116,6 +117,7 @@ type simResponse struct {
 	IPPoolName            string          `json:"ip_pool_name,omitempty"`
 	PolicyVersionID       *string         `json:"policy_version_id,omitempty"`
 	PolicyName            string          `json:"policy_name,omitempty"`
+	PolicyVersionNumber   int             `json:"policy_version_number,omitempty"`
 	ESimProfileID         *string         `json:"esim_profile_id,omitempty"`
 	SimType               string          `json:"sim_type"`
 	State                 string          `json:"state"`
@@ -159,7 +161,7 @@ type reasonRequest struct {
 	Reason *string `json:"reason"`
 }
 
-func toSIMResponse(s *store.SIM) simResponse {
+func toSIMResponseBase(s *store.SIM) simResponse {
 	resp := simResponse{
 		ID:                    s.ID.String(),
 		TenantID:              s.TenantID.String(),
@@ -208,6 +210,26 @@ func toSIMResponse(s *store.SIM) simResponse {
 	if s.PurgeAt != nil {
 		v := s.PurgeAt.Format(time.RFC3339Nano)
 		resp.PurgeAt = &v
+	}
+	return resp
+}
+
+func toSIMResponse(s *store.SIMWithNames) simResponse {
+	resp := toSIMResponseBase(&s.SIM)
+	if s.OperatorName != nil {
+		resp.OperatorName = *s.OperatorName
+	}
+	if s.OperatorCode != nil {
+		resp.OperatorCode = *s.OperatorCode
+	}
+	if s.APNName != nil {
+		resp.APNName = *s.APNName
+	}
+	if s.PolicyName != nil {
+		resp.PolicyName = *s.PolicyName
+	}
+	if s.PolicyVersionNumber != nil {
+		resp.PolicyVersionNumber = *s.PolicyVersionNumber
 	}
 	return resp
 }
@@ -340,7 +362,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.create", sim.ID.String(), nil, sim, userID)
 
-	apierr.WriteSuccess(w, http.StatusCreated, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, sim.ID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", sim.ID.String()).Msg("get enriched sim after create")
+		apierr.WriteSuccess(w, http.StatusCreated, toSIMResponseBase(sim))
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusCreated, toSIMResponse(enriched))
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +385,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sim, err := h.simStore.GetByID(r.Context(), tenantID, id)
+	sim, err := h.simStore.GetByIDEnriched(r.Context(), tenantID, id)
 	if err != nil {
 		if errors.Is(err, store.ErrSIMNotFound) {
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
@@ -368,9 +396,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toSIMResponse(sim)
-	h.enrichSIMResponse(r.Context(), tenantID, sim, &resp)
-	apierr.WriteSuccess(w, http.StatusOK, resp)
+	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
 }
 
 func (h *Handler) enrichSIMResponse(ctx context.Context, tenantID uuid.UUID, sim *store.SIM, resp *simResponse) {
@@ -459,7 +485,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Q:          q.Get("q"),
 	}
 
-	sims, nextCursor, err := h.simStore.List(r.Context(), tenantID, params)
+	sims, nextCursor, err := h.simStore.ListEnriched(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list sims")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -487,6 +513,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	poolNameMap := make(map[uuid.UUID]string)
+	apnPoolNameMap := make(map[uuid.UUID]string) // apn_id -> first pool name
 	if len(ipPoolIDMap) > 0 && h.ippoolStore != nil {
 		seen := make(map[uuid.UUID]bool)
 		for _, poolID := range ipPoolIDMap {
@@ -508,53 +535,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	opIDs := make(map[uuid.UUID]bool)
-	apnIDs := make(map[uuid.UUID]bool)
-	for _, s := range sims {
-		opIDs[s.OperatorID] = true
-		if s.APNID != nil {
-			apnIDs[*s.APNID] = true
-		}
-	}
-	opNameMap := make(map[uuid.UUID]string)
-	for opID := range opIDs {
-		if h.nameCache != nil {
-			if name, ok := h.nameCache.GetOperatorName(r.Context(), opID); ok {
-				opNameMap[opID] = name
-				continue
+	if h.ippoolStore != nil {
+		apnIDs := make(map[uuid.UUID]bool)
+		for _, s := range sims {
+			if s.APNID != nil {
+				apnIDs[*s.APNID] = true
 			}
 		}
-		if op, err := h.operatorStore.GetByID(r.Context(), opID); err == nil {
-			opNameMap[opID] = op.Name
-			if h.nameCache != nil {
-				h.nameCache.SetOperatorName(r.Context(), opID, op.Name)
-			}
-		}
-	}
-	apnNameMap := make(map[uuid.UUID]string)
-	apnPoolNameMap := make(map[uuid.UUID]string) // apn_id -> first pool name
-	for aID := range apnIDs {
-		cached := false
-		if h.nameCache != nil {
-			if name, ok := h.nameCache.GetAPNName(r.Context(), aID); ok {
-				apnNameMap[aID] = name
-				cached = true
-			}
-		}
-		if !cached {
-			if apn, err := h.apnStore.GetByID(r.Context(), tenantID, aID); err == nil {
-				if apn.DisplayName != nil && *apn.DisplayName != "" {
-					apnNameMap[aID] = *apn.DisplayName
-				} else {
-					apnNameMap[aID] = apn.Name
-				}
-				if h.nameCache != nil {
-					h.nameCache.SetAPNName(r.Context(), aID, apnNameMap[aID])
-				}
-			}
-		}
-		if h.ippoolStore != nil {
+		for aID := range apnIDs {
 			if pools, _, err := h.ippoolStore.List(r.Context(), tenantID, "", 1, &aID); err == nil && len(pools) > 0 {
 				apnPoolNameMap[aID] = pools[0].Name
 			}
@@ -577,14 +565,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		if resp.IPPoolName == "" && s.APNID != nil {
 			if pname, ok := apnPoolNameMap[*s.APNID]; ok {
 				resp.IPPoolName = pname
-			}
-		}
-		if name, ok := opNameMap[s.OperatorID]; ok {
-			resp.OperatorName = name
-		}
-		if s.APNID != nil {
-			if name, ok := apnNameMap[*s.APNID]; ok {
-				resp.APNName = name
 			}
 		}
 		items = append(items, resp)
@@ -933,7 +913,13 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after activate")
+		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
 }
 
 func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
@@ -979,7 +965,13 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.suspend", simID.String(), existing, sim, userID)
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after suspend")
+		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
+		return
+	}
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
 }
 
 func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
@@ -1022,7 +1014,13 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.resume", simID.String(), existing, sim, userID)
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after resume")
+		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
+		return
+	}
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
 }
 
 func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
@@ -1076,7 +1074,13 @@ func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.terminate", simID.String(), existing, sim, userID)
 
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after terminate")
+		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
 }
 
 func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
@@ -1122,7 +1126,13 @@ func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.report_lost", simID.String(), existing, sim, userID)
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(sim))
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after report lost")
+		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
+		return
+	}
+	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
 }
 
 func (h *Handler) writeSIMWithUndo(w http.ResponseWriter, r *http.Request, simID uuid.UUID, previousState string, data interface{}) {
@@ -1262,9 +1272,13 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.patch_metadata", simID.String(), existing, sim, userID)
 
-	resp := toSIMResponse(sim)
-	h.enrichSIMResponse(r.Context(), tenantID, sim, &resp)
-	apierr.WriteSuccess(w, http.StatusOK, resp)
+	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
+	if enrichErr != nil {
+		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after patch")
+		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
 }
 
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}, userID *uuid.UUID) {

@@ -4,11 +4,14 @@ export interface Session {
   tenant_id: string
   operator_id: string
   operator_name?: string
+  operator_code?: string
   apn_id?: string
   apn_name?: string
   iccid?: string
   imsi: string
   msisdn?: string
+  policy_name?: string
+  policy_version_number?: number
   acct_session_id: string
   nas_ip: string
   framed_ip?: string

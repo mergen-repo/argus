@@ -1,8 +1,8 @@
 package session
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,26 +64,29 @@ func NewHandler(
 }
 
 type sessionDTO struct {
-	ID            string  `json:"id"`
-	SimID         string  `json:"sim_id"`
-	TenantID      string  `json:"tenant_id"`
-	OperatorID    string  `json:"operator_id"`
-	OperatorName  string  `json:"operator_name,omitempty"`
-	APNID         string  `json:"apn_id,omitempty"`
-	APNName       string  `json:"apn_name,omitempty"`
-	ICCID         string  `json:"iccid,omitempty"`
-	IMSI          string  `json:"imsi"`
-	MSISDN        string  `json:"msisdn,omitempty"`
-	AcctSessionID string  `json:"acct_session_id"`
-	NASIP         string  `json:"nas_ip"`
-	FramedIP      string  `json:"framed_ip,omitempty"`
-	RATType       string  `json:"rat_type,omitempty"`
-	State         string  `json:"state"`
-	BytesIn       uint64  `json:"bytes_in"`
-	BytesOut      uint64  `json:"bytes_out"`
-	DurationSec   float64 `json:"duration_sec"`
-	IPAddress     string  `json:"ip_address,omitempty"`
-	StartedAt     string  `json:"started_at"`
+	ID                  string  `json:"id"`
+	SimID               string  `json:"sim_id"`
+	TenantID            string  `json:"tenant_id"`
+	OperatorID          string  `json:"operator_id"`
+	OperatorName        string  `json:"operator_name,omitempty"`
+	OperatorCode        string  `json:"operator_code,omitempty"`
+	APNID               string  `json:"apn_id,omitempty"`
+	APNName             string  `json:"apn_name,omitempty"`
+	ICCID               string  `json:"iccid,omitempty"`
+	IMSI                string  `json:"imsi"`
+	MSISDN              string  `json:"msisdn,omitempty"`
+	PolicyName          string  `json:"policy_name,omitempty"`
+	PolicyVersionNumber int     `json:"policy_version_number,omitempty"`
+	AcctSessionID       string  `json:"acct_session_id"`
+	NASIP               string  `json:"nas_ip"`
+	FramedIP            string  `json:"framed_ip,omitempty"`
+	RATType             string  `json:"rat_type,omitempty"`
+	State               string  `json:"state"`
+	BytesIn             uint64  `json:"bytes_in"`
+	BytesOut            uint64  `json:"bytes_out"`
+	DurationSec         float64 `json:"duration_sec"`
+	IPAddress           string  `json:"ip_address,omitempty"`
+	StartedAt           string  `json:"started_at"`
 }
 
 type sorDecisionDTO struct {
@@ -183,46 +186,30 @@ func toSessionDTO(s *session.Session) sessionDTO {
 	}
 }
 
-func (h *Handler) enrichSessionDTO(ctx context.Context, tenantIDStr string, s *session.Session, dto *sessionDTO) {
-	tenantID, _ := uuid.Parse(tenantIDStr)
-
-	if h.simStore != nil && s.SimID != "" {
-		simID, err := uuid.Parse(s.SimID)
-		if err == nil {
-			if sim, err := h.simStore.GetByID(ctx, tenantID, simID); err == nil {
-				if dto.IMSI == "" {
-					dto.IMSI = sim.IMSI
-				}
-				if dto.ICCID == "" {
-					dto.ICCID = sim.ICCID
-				}
-				if dto.MSISDN == "" && sim.MSISDN != nil {
-					dto.MSISDN = *sim.MSISDN
-				}
-			}
-		}
+func applyEnrichedSIM(dto *sessionDTO, sim *store.SIMWithNames) {
+	if sim.OperatorName != nil {
+		dto.OperatorName = *sim.OperatorName
 	}
-
-	if h.operatorStore != nil && s.OperatorID != "" {
-		opID, err := uuid.Parse(s.OperatorID)
-		if err == nil {
-			if op, err := h.operatorStore.GetByID(ctx, opID); err == nil {
-				dto.OperatorName = op.Name
-			}
-		}
+	if sim.OperatorCode != nil {
+		dto.OperatorCode = *sim.OperatorCode
 	}
-
-	if h.apnStore != nil && s.APNID != "" {
-		apnID, err := uuid.Parse(s.APNID)
-		if err == nil {
-			if apn, err := h.apnStore.GetByID(ctx, tenantID, apnID); err == nil {
-				if apn.DisplayName != nil && *apn.DisplayName != "" {
-					dto.APNName = *apn.DisplayName
-				} else {
-					dto.APNName = apn.Name
-				}
-			}
-		}
+	if sim.APNName != nil {
+		dto.APNName = *sim.APNName
+	}
+	if sim.PolicyName != nil {
+		dto.PolicyName = *sim.PolicyName
+	}
+	if sim.PolicyVersionNumber != nil {
+		dto.PolicyVersionNumber = *sim.PolicyVersionNumber
+	}
+	if dto.IMSI == "" {
+		dto.IMSI = sim.IMSI
+	}
+	if dto.ICCID == "" {
+		dto.ICCID = sim.ICCID
+	}
+	if dto.MSISDN == "" && sim.MSISDN != nil {
+		dto.MSISDN = *sim.MSISDN
 	}
 }
 
@@ -255,7 +242,18 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := toSessionDTO(sess)
-	h.enrichSessionDTO(r.Context(), tenantIDStr, sess, &dto)
+
+	if h.simStore != nil && sess.SimID != "" && tenantIDStr != "" {
+		simID, parseErr := uuid.Parse(sess.SimID)
+		tenantID, tenantParseErr := uuid.Parse(tenantIDStr)
+		if parseErr == nil && tenantParseErr == nil {
+			if enriched, err := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID); err == nil {
+				applyEnrichedSIM(&dto, enriched)
+			} else if !errors.Is(err, store.ErrSIMNotFound) {
+				h.logger.Warn().Err(err).Str("sim_id", sess.SimID).Msg("enrich session dto")
+			}
+		}
+	}
 
 	detail := sessionDetailDTO{sessionDTO: dto}
 	apierr.WriteSuccess(w, http.StatusOK, detail)
@@ -302,10 +300,46 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var simMap map[uuid.UUID]*store.SIMWithNames
+	if h.simStore != nil && tenantIDStr != "" && len(sessions) > 0 {
+		tenantID, parseErr := uuid.Parse(tenantIDStr)
+		if parseErr == nil {
+			seen := make(map[uuid.UUID]struct{}, len(sessions))
+			simIDs := make([]uuid.UUID, 0, len(sessions))
+			for _, s := range sessions {
+				if s.SimID == "" {
+					continue
+				}
+				sid, err := uuid.Parse(s.SimID)
+				if err != nil {
+					continue
+				}
+				if _, dup := seen[sid]; !dup {
+					seen[sid] = struct{}{}
+					simIDs = append(simIDs, sid)
+				}
+			}
+			if len(simIDs) > 0 {
+				m, err := h.simStore.GetManyByIDsEnriched(r.Context(), tenantID, simIDs)
+				if err != nil {
+					h.logger.Warn().Err(err).Msg("batch enrich session list")
+				} else {
+					simMap = m
+				}
+			}
+		}
+	}
+
 	items := make([]sessionDTO, 0, len(sessions))
 	for _, s := range sessions {
 		dto := toSessionDTO(s)
-		h.enrichSessionDTO(r.Context(), tenantIDStr, s, &dto)
+		if simMap != nil && s.SimID != "" {
+			if sid, err := uuid.Parse(s.SimID); err == nil {
+				if enriched, ok := simMap[sid]; ok {
+					applyEnrichedSIM(&dto, enriched)
+				}
+			}
+		}
 		items = append(items, dto)
 	}
 

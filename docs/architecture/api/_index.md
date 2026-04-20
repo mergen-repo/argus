@@ -74,8 +74,8 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
-| API-041 | GET | /api/v1/sims/:id | Get SIM detail (full) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
+| API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged). DTO includes enriched fields: `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via single LEFT JOIN; null for orphan rows). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
+| API-041 | GET | /api/v1/sims/:id | Get SIM detail (full). Same enriched DTO fields as API-040 (`operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number`). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-042 | POST | /api/v1/sims | Create single SIM (required body: `iccid`, `imsi`, `msisdn`, `apn_id`, `sim_type` ∈ {`physical`,`esim`}) | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-043 | PATCH | /api/v1/sims/:id | Update SIM metadata | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
 | API-044 | POST | /api/v1/sims/:id/activate | Activate SIM | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
@@ -109,8 +109,8 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-070 | GET | /api/v1/esim-profiles | List eSIM profiles (supports sim_id filter for multi-profile view) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
-| API-071 | GET | /api/v1/esim-profiles/:id | Get eSIM profile detail | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
+| API-070 | GET | /api/v1/esim-profiles | List eSIM profiles (supports sim_id filter for multi-profile view). DTO includes enriched fields: `operator_name`, `operator_code` (via LEFT JOIN operators — FIX-202). | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
+| API-071 | GET | /api/v1/esim-profiles/:id | Get eSIM profile detail. Same enriched `operator_name`, `operator_code` fields as API-070 (FIX-202). | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-072 | POST | /api/v1/esim-profiles/:id/enable | Enable eSIM profile (accepts `available` or `disabled` state) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); state machine: [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
 | API-073 | POST | /api/v1/esim-profiles/:id/disable | Disable eSIM profile (operator-deactivation → `disabled` state) | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md) |
 | API-074 | POST | /api/v1/esim-profiles/:id/switch | Switch to different operator profile. Dispatches DM (RFC 5176) for active sessions before switching. Old profile transitions to `available` (not `disabled`, per DEV-164). Releases IP for new APN; clears policy. Response includes `disconnected_sessions` count. `force=true` bypasses DM on NAK. Returns 409 `SESSION_DISCONNECT_FAILED` on NAK without force. | JWT (sim_manager+) | See [STORY-028](../../stories/phase-5/STORY-028-esim-profiles.md); DM dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md); switch evolution: [STORY-061](../../stories/phase-10/STORY-061-esim-model-evolution.md) |
@@ -148,17 +148,17 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-100 | GET | /api/v1/sessions | List active sessions | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
+| API-100 | GET | /api/v1/sessions | List active sessions. DTO includes enriched fields: `operator_name`, `operator_code`, `policy_name`, `policy_version_number` (batch-enriched via `GetManyByIDsEnriched` — 1 query per page). | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-101 | GET | /api/v1/sessions/stats | Real-time session statistics | JWT (analyst+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
 | API-102 | POST | /api/v1/sessions/:id/disconnect | Force disconnect session (CoA/DM) | JWT (sim_manager+) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md) |
 | API-103 | POST | /api/v1/sessions/bulk/disconnect | Bulk disconnect on segment | JWT (tenant_admin) | See [STORY-017](../../stories/phase-3/STORY-017-session-management.md), [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
-| API-256 | GET | /api/v1/sessions/:id | Get session detail with enriched SIM + operator + APN context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
+| API-256 | GET | /api/v1/sessions/:id | Get session detail with enriched SIM + operator + APN context; cross-tenant 404 on mismatch. Includes `operator_code`, `policy_name`, `policy_version_number` (FIX-202). | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 
 ## Analytics & CDR (7 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-110 | GET | /api/v1/dashboard | Tenant dashboard data (note: implementation uses `/dashboard`, not `/analytics/dashboard`; path corrected by compliance audit 2026-04-12) | JWT (any) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md) |
+| API-110 | GET | /api/v1/dashboard | Tenant dashboard data (note: implementation uses `/dashboard`, not `/analytics/dashboard`; path corrected by compliance audit 2026-04-12). `operator_health[]` widened with `code`, `sla_target`, `active_sessions`, `last_health_check` (FIX-202); `latency_ms`/`auth_rate` null until FIX-203. | JWT (any) | See [STORY-033](../../stories/phase-6/STORY-033-realtime-metrics.md); DTO widened [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-111 | GET | /api/v1/analytics/usage | Usage analytics (time-series) | JWT (analyst+) | See [STORY-034](../../stories/phase-6/STORY-034-usage-analytics.md) |
 | API-112 | GET | /api/v1/analytics/cost | Cost analytics + optimization | JWT (analyst+) | See [STORY-035](../../stories/phase-6/STORY-035-cost-analytics.md) |
 | API-113 | GET | /api/v1/analytics/anomalies | Anomaly detection results | JWT (analyst+) | See [STORY-036](../../stories/phase-6/STORY-036-anomaly-detection.md) |
@@ -429,10 +429,10 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
-| API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated) | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
+| API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated). DTO includes enriched fields: `iccid`, `imsi`, `msisdn`, `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via `ListEnriched` LEFT JOINs — FIX-202). | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-263 | GET | /api/v1/policy-violations/counts | Violation counts grouped by type/severity | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-266 | GET | /api/v1/policy-violations/export.csv | Stream policy violations as CSV (respects current filters) | JWT (api_user+) | Code already wired in `internal/gateway/router.go:622`; doc entry added by audit (2026-04-15) |
-| API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
+| API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch. Enriched fields: `iccid`, `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (FIX-202). | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
 | API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
 
 ---
