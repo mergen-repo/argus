@@ -2742,3 +2742,40 @@ curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
 2. Cause a <10% latency change (e.g. 200ms → 210ms, 5% delta).
 3. No `operator.health_changed` WS event should fire for this tick (verify via browser DevTools WS frame inspector or NATS subject monitor).
 4. Dashboard row retains the stale latency value until the next 30s poll or a threshold-crossing event fires.
+
+---
+
+## FIX-204: Analytics group_by NULL Scan Bug + APN Orphan Sessions
+
+### Scenario 1 — Group by APN returns 200, shows "Unassigned APN" bucket
+1. `make up` — ensure Docker stack is running.
+2. Navigate to `/analytics`.
+3. Open the "Group by" dropdown and select "APN".
+4. Verify: page does NOT crash with a 500 error. The area chart loads normally.
+5. If any CDR/session rows have NULL apn_id (orphan sessions from seed data), a legend entry or chart series labeled "Unassigned APN" appears in the group breakdown.
+6. Direct API check:
+   ```bash
+   curl -sk -H "Authorization: Bearer $TOKEN" \
+     'http://localhost:8084/api/v1/analytics/usage?group_by=apn&period=24h' \
+     | jq '.data.time_series[0]'
+   ```
+   Response must be HTTP 200; if an unassigned bucket exists, `group_key` is "Unassigned APN" (not raw `__unassigned__` or null).
+
+### Scenario 2 — Group by Operator shows "Unknown Operator" for orphan sessions
+1. On the Analytics page, select "Group by: Operator".
+2. Verify page loads without error.
+3. If any sessions have NULL operator_id, a series labeled "Unknown Operator" appears in chart + legend.
+4. All other series show the resolved operator name (not a UUID).
+
+### Scenario 3 — Group by RAT Type shows "Unknown RAT" for null rows
+1. Select "Group by: RAT Type".
+2. Verify page loads; if null rat_type rows exist a series labeled "Unknown RAT" appears.
+3. Real RAT types (nb_iot, lte_m, lte, nr_5g) display their raw identifiers (handler does not translate rat_type — FE resolveGroupLabel is the sole translation point).
+
+### Scenario 4 — Orphan session detector logs at boot + interval
+1. Run `docker logs argus 2>&1 | grep orphan` immediately after `make up`.
+2. Look for a startup log line: `orphan session detector started` with `interval=30m0s`.
+3. Wait for one detector tick (or set `ORPHAN_SESSION_CHECK_INTERVAL=1m` in `.env` and restart):
+   - If orphan sessions exist: log line `orphan sessions detected — active sessions with NULL apn_id` with `tenant_id` and `count`.
+   - If no orphans: no warning log; detector runs silently.
+4. Verify graceful shutdown: run `docker stop argus` and check logs for `orphan session detector stopped`.

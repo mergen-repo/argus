@@ -111,7 +111,10 @@ func ResolveTimeRange(period string) (time.Time, time.Time) {
 	}
 }
 
-func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryParams) ([]UsageTimePoint, error) {
+// buildTimeSeriesQuery assembles the SQL + args for GetTimeSeries. Extracted so the dynamic
+// query string (including COALESCE sentinel for nullable group_by columns) can be asserted in
+// pure Go tests without a live database. See FIX-204.
+func buildTimeSeriesQuery(p UsageQueryParams) (string, []interface{}) {
 	spec := ResolvePeriod(p.Period, p.From, p.To)
 
 	var selectCols, groupCols, orderCols string
@@ -148,7 +151,7 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 
 	if p.GroupBy != "" {
 		col := groupByColumn(p.GroupBy)
-		selectCols += fmt.Sprintf(`, %s::text AS group_key`, col)
+		selectCols += fmt.Sprintf(`, COALESCE(%s::text, '__unassigned__') AS group_key`, col)
 		groupCols += fmt.Sprintf(`, %s`, col)
 	}
 
@@ -176,6 +179,12 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 		selectCols, fromClause,
 		strings.Join(conditions, " AND "),
 		groupCols, orderCols)
+
+	return query, args
+}
+
+func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryParams) ([]UsageTimePoint, error) {
+	query, args := buildTimeSeriesQuery(p)
 
 	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
@@ -256,7 +265,7 @@ func (s *UsageAnalyticsStore) GetBreakdowns(ctx context.Context, p UsageQueryPar
 	}
 
 	query := fmt.Sprintf(`SELECT
-		COALESCE(%s::text, 'unknown') AS key,
+		COALESCE(%s::text, '__unassigned__') AS key,
 		COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
 		COUNT(*) AS sessions,
 		COUNT(*) FILTER (WHERE record_type = 'start') AS auths

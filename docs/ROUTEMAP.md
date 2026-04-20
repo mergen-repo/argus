@@ -349,7 +349,7 @@ Architectural decisions (documented, not blocking UAT):
 | FIX-201 | Bulk Actions Contract — accept sim_ids (state-change + policy-assign + operator-switch) | P0 | L | [x] DONE (2026-04-20) | — |
 | FIX-202 | SIM List & Dashboard DTO — Operator Name Resolution | P0 | M | [x] DONE (2026-04-20) | — |
 | FIX-203 | Dashboard Operator Health — Uptime/Latency/Activity + WS Push | P0 | L | [x] DONE (2026-04-20) | FIX-202 ¹ |
-| FIX-204 | Analytics group_by NULL Scan Bug + APN Orphan Sessions | P0 | S | [ ] PENDING | — |
+| FIX-204 | Analytics group_by NULL Scan Bug + APN Orphan Sessions | P0 | S | [x] DONE (2026-04-20) | — |
 | FIX-205 | Token Refresh Auto-retry on 401 | P0 | S | [ ] PENDING | — |
 | FIX-206 | Orphan Operator IDs Cleanup + FK Constraints + Seed Fix | P0 | M | [ ] PENDING | — |
 | FIX-207 | Session/CDR Data Integrity — negative duration, cross-pool IP, IMSI format | P0 | M | [ ] PENDING | FIX-206 |

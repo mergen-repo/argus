@@ -384,6 +384,16 @@ func (h *Handler) enrichTopConsumer(ctx context.Context, tenantID, simID uuid.UU
 }
 
 func (h *Handler) resolveGroupKeyName(ctx context.Context, groupBy, key string, tenantID uuid.UUID) string {
+	if key == "__unassigned__" {
+		switch groupBy {
+		case "apn":
+			return "Unassigned APN"
+		case "operator":
+			return "Unknown Operator"
+		default:
+			return "Unassigned"
+		}
+	}
 	id, err := uuid.Parse(key)
 	if err != nil {
 		return key

@@ -212,6 +212,7 @@ Controls server-side password complexity and history enforcement. Applied on reg
 | `JOB_MAX_CONCURRENT_PER_TENANT` | int | `5` | No | Maximum simultaneously running background jobs per tenant. Prevents a single tenant from monopolizing job runner capacity. |
 | `JOB_TIMEOUT_MINUTES` | int | `30` | No | Minutes before a stale running job (no progress) is automatically marked as failed by the timeout detector. |
 | `JOB_TIMEOUT_CHECK_INTERVAL` | duration | `5m` | No | How often the timeout detector sweeps for stale running jobs. |
+| `ORPHAN_SESSION_CHECK_INTERVAL` | duration | `30m` | No | How often the orphan session detector scans for active sessions with NULL apn_id (data integrity check). Accepts Go duration format (e.g. `15m`, `1h`). Non-positive and unparseable values fall back to the 30m default. |
 | `JOB_LOCK_TTL` | duration | `60s` | No | Redis distributed lock TTL for job-level and SIM-level locks (SETNX). Auto-renewed during execution. |
 | `JOB_LOCK_RENEW_INTERVAL` | duration | `30s` | No | How often the lock renewal goroutine extends the lock TTL. Must be less than `JOB_LOCK_TTL`. |
 | `CRON_ENABLED` | bool | `true` | No | Enable/disable the cron scheduler. Set to `false` in test environments or when running multiple instances without Redis dedup. |

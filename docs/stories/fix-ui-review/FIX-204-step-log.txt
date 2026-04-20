@@ -1,0 +1,11 @@
+2026-04-20T12:01:46Z STEP_1 PLAN: EXECUTED | items=5 tasks 2 waves | evidence=FIX-204-plan.md 231 lines | result=PASS
+2026-04-20T12:12:32Z STEP_2 DEV wave=W1 task=T1 SQL-COALESCE-fix: EXECUTED | result=PASS grep-clean
+2026-04-20T12:12:32Z STEP_2 DEV wave=W1 task=T3 FE-resolveGroupLabel: EXECUTED | result=PASS 4-call-sites typecheck-clean
+2026-04-20T12:12:32Z STEP_2 DEV wave=W1 task=T5 OrphanSessionDetector: EXECUTED | result=PASS 4-tests scheduler-wired
+2026-04-20T12:12:32Z STEP_2 DEV wave=W2 task=T2 handler-sentinel: EXECUTED | result=PASS 26-tests
+2026-04-20T12:12:32Z STEP_2 DEV wave=W2 task=T4 regression-tests: EXECUTED | result=PASS 3-subtests
+2026-04-20T12:12:32Z STEP_2.5 LINT: EXECUTED | hex=0 console.log=0 | result=PASS
+2026-04-20T12:12:32Z STEP_2 BUILD final: tests=3282 go=PASS
+2026-04-20T12:55:00Z STEP_3 GATE: EXECUTED | inline-scouts 3 | findings 1 non-blocking | fixes 4 applied (env-configurability + pure-Go SQL assertion + env-override tests + store seam) | tests=3338 go=PASS vet=PASS race=PASS ts=PASS | escalated=0 deferred=0 | result=PASS
+2026-04-20T12:24:28Z STEP_3 GATE: EXECUTED | findings=1 (accepted) fixes=4 (env-var+test-seam) | result=PASS tests=3338
+2026-04-20T12:30:59Z STEP_4 REVIEW: EXECUTED | findings=3 all-fixed-or-deferred unresolved=1 D-061-added | result=PASS

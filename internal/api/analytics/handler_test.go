@@ -362,3 +362,27 @@ func TestHandler_GetCost_InvalidToFormat(t *testing.T) {
 func TestHandler_GetCost_DefaultPeriod(t *testing.T) {
 	t.Skip("requires database connection")
 }
+
+func TestResolveGroupKeyName_UnassignedSentinel(t *testing.T) {
+	h := NewHandler(nil, zerolog.Nop())
+	tenantID := uuid.New()
+	ctx := context.Background()
+
+	tests := []struct {
+		groupBy string
+		want    string
+	}{
+		{"apn", "Unassigned APN"},
+		{"operator", "Unknown Operator"},
+		{"rat_type", "Unassigned"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.groupBy, func(t *testing.T) {
+			got := h.resolveGroupKeyName(ctx, tt.groupBy, "__unassigned__", tenantID)
+			if got != tt.want {
+				t.Errorf("resolveGroupKeyName(ctx, %q, \"__unassigned__\", ...) = %q, want %q", tt.groupBy, got, tt.want)
+			}
+		})
+	}
+}

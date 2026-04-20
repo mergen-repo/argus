@@ -792,6 +792,9 @@ func runServe(cfg *config.Config) {
 	)
 	timeoutDetector.Start()
 
+	orphanDetector := job.NewOrphanSessionDetector(pg.Pool, log.Logger)
+	orphanDetector.Start()
+
 	var cronScheduler *job.Scheduler
 	if cfg.CronEnabled {
 		cronScheduler = job.NewScheduler(jobStore, eventBus, rdb.Client, log.Logger)
@@ -1546,6 +1549,7 @@ func runServe(cfg *config.Config) {
 		sessionSweeper,
 		cronScheduler,
 		timeoutDetector,
+		orphanDetector,
 		jobRunner,
 		metricsPusher,
 		notifSvc,
@@ -1580,6 +1584,7 @@ func gracefulShutdown(
 	sessionSweeper *aaasession.TimeoutSweeper,
 	cronScheduler *job.Scheduler,
 	timeoutDetector *job.TimeoutDetector,
+	orphanDetector *job.OrphanSessionDetector,
 	jobRunner *job.Runner,
 	metricsPusher *analyticmetrics.Pusher,
 	notifSvc *notification.Service,
@@ -1663,6 +1668,11 @@ func gracefulShutdown(
 	logger.Info().Str("subsystem", "timeout_detector").Msg("shutdown step starting")
 	timeoutDetector.Stop()
 	logger.Info().Str("subsystem", "timeout_detector").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	t = time.Now()
+	logger.Info().Str("subsystem", "orphan_session_detector").Msg("shutdown step starting")
+	orphanDetector.Stop()
+	logger.Info().Str("subsystem", "orphan_session_detector").Dur("duration", time.Since(t)).Msg("shutdown step done")
 
 	// 7. Job runner — allow in-flight jobs to complete within ShutdownJobSec budget.
 	t = time.Now()

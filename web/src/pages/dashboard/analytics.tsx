@@ -71,6 +71,19 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useChartExport } from '@/hooks/use-chart-export'
 
+function resolveGroupLabel(groupBy: string | undefined, key: string | undefined | null): string {
+  if (!key) return ''
+  if (key === '__unassigned__') {
+    switch (groupBy) {
+      case 'apn': return 'Unassigned APN'
+      case 'operator': return 'Unknown Operator'
+      case 'rat_type': return 'Unknown RAT'
+      default: return 'Unassigned'
+    }
+  }
+  return key
+}
+
 function formatTimestamp(ts: string, period: string): string {
   const d = new Date(ts)
   if (period === '1h' || period === '24h') {
@@ -406,7 +419,7 @@ export default function AnalyticsPage() {
                         fill={GROUP_COLORS[i % GROUP_COLORS.length]}
                         fillOpacity={0.3}
                         strokeWidth={2}
-                        name={key}
+                        name={resolveGroupLabel(groupBy, key)}
                       />
                     ))
                   ) : (
@@ -432,7 +445,7 @@ export default function AnalyticsPage() {
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] }}
                   />
-                  {key}
+                  {resolveGroupLabel(groupBy, key)}
                 </div>
               ))}
             </div>
@@ -505,8 +518,8 @@ export default function AnalyticsPage() {
                 <div className="flex flex-col gap-2">
                   {items.map((item) => (
                     <div key={item.key} className="flex items-center justify-between">
-                      <span className="text-xs text-text-secondary truncate" title={item.key}>
-                        {item.key}
+                      <span className="text-xs text-text-secondary truncate" title={resolveGroupLabel(dim, item.key)}>
+                        {resolveGroupLabel(dim, item.key)}
                       </span>
                       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                         <div className="w-20 h-1.5 bg-bg-hover rounded-full overflow-hidden">
