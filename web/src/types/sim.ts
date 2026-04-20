@@ -158,6 +158,12 @@ export interface SIMUsageData {
   top_sessions: SIMUsageTopSession[]
 }
 
+export interface BulkJobResponse {
+  job_id: string
+  total_sims: number
+  status: 'queued'
+}
+
 export interface SIMCDR {
   id: number
   session_id: string

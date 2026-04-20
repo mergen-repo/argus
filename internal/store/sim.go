@@ -872,6 +872,122 @@ func (s *SIMStore) GetByIMSIScoped(ctx context.Context, imsi string, tenantID uu
 	return sim, nil
 }
 
+// SIMSummary is a lightweight projection of sims used for bulk processing.
+// OperatorID is non-nil (NOT NULL in schema). PolicyVersionID may be nil.
+type SIMSummary struct {
+	ID              uuid.UUID  `json:"id"`
+	ICCID           string     `json:"iccid"`
+	IMSI            string     `json:"imsi"`
+	State           string     `json:"state"`
+	PolicyVersionID *uuid.UUID `json:"policy_version_id"`
+	OperatorID      uuid.UUID  `json:"operator_id"`
+	SimType         string     `json:"sim_type"`
+}
+
+// FilterSIMIDsByTenant returns (owned, violations, error).
+// owned contains IDs whose sims.tenant_id == tenantID.
+// violations contains IDs with no matching row OR a different tenant_id —
+// callers treat both cases as 403 to avoid revealing existence.
+// Duplicate input IDs are deduplicated: a dup appears at most once in owned
+// and never in violations.
+// Input is chunked into batches of bulkImportBatchSize (500) to stay within
+// Postgres parameter limits.
+func (s *SIMStore) FilterSIMIDsByTenant(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {
+	if len(ids) == 0 {
+		return []uuid.UUID{}, []uuid.UUID{}, nil
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	deduped := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			deduped = append(deduped, id)
+		}
+	}
+
+	ownedSet := make(map[uuid.UUID]struct{}, len(deduped))
+	for batchStart := 0; batchStart < len(deduped); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(deduped) {
+			batchEnd = len(deduped)
+		}
+		batch := deduped[batchStart:batchEnd]
+
+		rows, err := s.db.Query(ctx,
+			`SELECT id FROM sims WHERE tenant_id = $1 AND id = ANY($2)`,
+			tenantID, batch,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("store: filter sim ids by tenant: %w", err)
+		}
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, nil, fmt.Errorf("store: scan sim id: %w", err)
+			}
+			ownedSet[id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, nil, fmt.Errorf("store: iter sim ids: %w", err)
+		}
+	}
+
+	owned := make([]uuid.UUID, 0, len(ownedSet))
+	violations := make([]uuid.UUID, 0)
+	for _, id := range deduped {
+		if _, ok := ownedSet[id]; ok {
+			owned = append(owned, id)
+		} else {
+			violations = append(violations, id)
+		}
+	}
+	return owned, violations, nil
+}
+
+// GetSIMsByIDs returns SIMSummary rows for all IDs owned by tenantID.
+// IDs that do not belong to tenantID are silently excluded (call
+// FilterSIMIDsByTenant first if you need the violations list).
+// Input is chunked into batches of bulkImportBatchSize (500).
+func (s *SIMStore) GetSIMsByIDs(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]SIMSummary, error) {
+	if len(ids) == 0 {
+		return []SIMSummary{}, nil
+	}
+
+	results := make([]SIMSummary, 0, len(ids))
+	for batchStart := 0; batchStart < len(ids); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(ids) {
+			batchEnd = len(ids)
+		}
+		batch := ids[batchStart:batchEnd]
+
+		rows, err := s.db.Query(ctx,
+			`SELECT id, iccid, imsi, state, policy_version_id, operator_id, sim_type
+			 FROM sims WHERE tenant_id = $1 AND id = ANY($2)`,
+			tenantID, batch,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("store: get sims by ids: %w", err)
+		}
+		for rows.Next() {
+			var sim SIMSummary
+			if err := rows.Scan(&sim.ID, &sim.ICCID, &sim.IMSI, &sim.State, &sim.PolicyVersionID, &sim.OperatorID, &sim.SimType); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("store: scan sim summary: %w", err)
+			}
+			results = append(results, sim)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("store: iter sim summaries: %w", err)
+		}
+	}
+	return results, nil
+}
+
 func parseInt64(s string) (int64, error) {
 	var n int64
 	_, err := fmt.Sscanf(s, "%d", &n)

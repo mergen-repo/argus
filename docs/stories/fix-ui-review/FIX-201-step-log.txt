@@ -1,0 +1,18 @@
+2026-04-20T08:38:59Z STEP_1 PLAN: EXECUTED | items=11 tasks 6 waves | evidence=FIX-201-plan.md 501 lines | result=PASS
+2026-04-20T08:47:10Z STEP_2 DEV wave=A task=T1 apierr-const+LimitBulk-key: EXECUTED | result=DONE_WITH_CONCERNS concerns=LimitKey-vs-rate-throttle-semantic-mismatch
+2026-04-20T08:47:10Z STEP_2 DEV wave=A task=T2 SIMStore.FilterSIMIDsByTenant+GetSIMsByIDs: EXECUTED | result=PASS tests=9+added
+2026-04-20T08:47:10Z STEP_2 DEV wave=A task=T10 bulk-actions-docs: EXECUTED | result=PASS files=3 lines=353+updates
+2026-04-20T08:47:10Z STEP_2 BUILD inter-wave-A: PASS
+2026-04-20T08:55:12Z STEP_2 DEV wave=B task=T3 StateChange-dual-shape-refactor: EXECUTED | result=PASS tests=11/11 full=3206/3206
+2026-04-20T08:55:12Z STEP_2 DEV wave=B task=T8 BulkRateLimiter-middleware+wire: EXECUTED | result=PASS tests=7/7 gateway=212/212 LimitBulk-removed
+2026-04-20T08:55:12Z STEP_2 BUILD inter-wave-B: PASS
+2026-04-20T09:02:32Z STEP_2 DEV wave=C task=T4 PolicyAssign+OperatorSwitch-dual-shape: EXECUTED | result=PASS tests=18/18 full=3222/3222
+2026-04-20T09:02:32Z STEP_2 BUILD inter-wave-C: PASS
+2026-04-20T09:21:28Z STEP_2 DEV wave=D task=T5 BulkStateChange-processor+audit: EXECUTED | result=DONE_WITH_CONCERNS tests=helper-level audit=4/4 full=3232/3232
+2026-04-20T09:21:28Z STEP_2 DEV wave=D task=T6 BulkPolicyAssign-processor+audit+CoA: EXECUTED | result=DONE_WITH_CONCERNS tests=20/20 full=3257/3257
+2026-04-20T09:21:28Z STEP_2 DEV wave=D task=T7 BulkEsimSwitch-processor+audit: EXECUTED | result=DONE_WITH_CONCERNS tests=18/18 full=3246/3246
+2026-04-20T09:21:28Z STEP_2 DEV wave=E task=T9 FE-sticky-bar+polling+selection-indicator: EXECUTED | result=PASS (after retry — initial only produced design spec) typecheck=PASS
+2026-04-20T09:21:28Z STEP_2 BUILD inter-wave-DE: go=PASS tsc=PASS
+2026-04-20T09:33:36Z STEP_2.5 LINT: EXECUTED | items=4 checks (hex/console/TODO/fmt.Println) | evidence=no-new-findings-in-story-scope | result=PASS
+2026-04-20T09:50:06Z STEP_3 GATE: EXECUTED | scouts=3 findings=10 fixes=8 deferred=3 accepted=2 | evidence=FIX-201-gate.md | result=PASS tests=3269
+2026-04-20T09:58:40Z STEP_4 REVIEW: EXECUTED | findings=2 fixed=1 deferred=2 unresolved=0 story-impact=5 (FIX-216 D-044) | evidence=FIX-201-review.md | result=PASS

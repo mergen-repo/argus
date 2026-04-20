@@ -227,7 +227,7 @@ func TestErrorCodes_NotEmpty(t *testing.T) {
 		CodeNotFound, CodeConflict, CodeAlreadyExists,
 		CodeInvalidCredentials, CodeAccountLocked, CodeAccountDisabled,
 		CodeInvalid2FACode, CodeTokenExpired, CodeInvalidRefreshToken,
-		CodeForbidden, CodeInsufficientRole, CodeScopeDenied,
+		CodeForbidden, CodeInsufficientRole, CodeScopeDenied, CodeForbiddenCrossTenant,
 		CodeResourceLimitExceeded, CodeTenantSuspended,
 		CodeRateLimited, CodeAPNHasActiveSIMs, CodePoolExhausted,
 		CodeIPAlreadyAllocated, CodeICCIDExists, CodeIMSIExists,

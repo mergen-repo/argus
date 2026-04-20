@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -16,6 +18,15 @@ const (
 	lockTTL       = 30 * time.Second
 )
 
+// simForStateChange is a local normalization of both the segment-resolution
+// path (store.SIMBulkInfo) and the sim_ids path (store.SIMSummary). The state
+// change processor only needs ID/ICCID/State so we strip the rest.
+type simForStateChange struct {
+	ID    uuid.UUID
+	ICCID string
+	State string
+}
+
 type BulkStateChangeProcessor struct {
 	jobs         *store.JobStore
 	sims         *store.SIMStore
@@ -23,6 +34,7 @@ type BulkStateChangeProcessor struct {
 	readSegments *store.SegmentStore
 	distLock     *DistributedLock
 	eventBus     *bus.EventBus
+	auditor      audit.Auditor
 	logger       zerolog.Logger
 }
 
@@ -46,6 +58,13 @@ func NewBulkStateChangeProcessor(
 	}
 }
 
+// SetAuditor wires an audit.Auditor after construction. Mirrors the optional
+// dependency pattern used by BulkPolicyAssignProcessor.SetCoADispatcher so the
+// processor degrades gracefully when the auditor is not injected (e.g. tests).
+func (p *BulkStateChangeProcessor) SetAuditor(a audit.Auditor) {
+	p.auditor = a
+}
+
 func (p *BulkStateChangeProcessor) Type() string {
 	return JobTypeBulkStateChange
 }
@@ -62,13 +81,45 @@ func (p *BulkStateChangeProcessor) Process(ctx context.Context, j *store.Job) er
 	return p.processForward(ctx, j, payload)
 }
 
-func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
-	simDetails, err := p.readSegments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
-	if err != nil {
-		return fmt.Errorf("list segment sims: %w", err)
+// resolveSIMs fans out to either the sim_ids batch fetch (explicit list path)
+// or the segment resolution path. Both return a normalized slice so the main
+// loop stays branch-free. The sim_ids path MUST pre-filter via
+// sims.GetSIMsByIDs (which is tenant-scoped) to keep 10K-SIM jobs from doing
+// per-SIM round trips inside the loop. If both SimIDs and SegmentID are set
+// in the payload the sim_ids path wins (defensive precedence — the enqueue
+// validator is expected to enforce "exactly one of", but the processor is
+// safe either way).
+func (p *BulkStateChangeProcessor) resolveSIMs(ctx context.Context, j *store.Job, payload BulkStateChangePayload) ([]simForStateChange, error) {
+	if len(payload.SimIDs) > 0 {
+		rows, err := p.sims.GetSIMsByIDs(ctx, j.TenantID, payload.SimIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get sims by ids: %w", err)
+		}
+		out := make([]simForStateChange, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, simForStateChange{ID: r.ID, ICCID: r.ICCID, State: r.State})
+		}
+		return out, nil
 	}
 
-	total := len(simDetails)
+	details, err := p.readSegments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list segment sims: %w", err)
+	}
+	out := make([]simForStateChange, 0, len(details))
+	for _, d := range details {
+		out = append(out, simForStateChange{ID: d.ID, ICCID: d.ICCID, State: d.State})
+	}
+	return out, nil
+}
+
+func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
+	sims, err := p.resolveSIMs(ctx, j, payload)
+	if err != nil {
+		return err
+	}
+
+	total := len(sims)
 	if total == 0 {
 		result, _ := json.Marshal(BulkResult{TotalCount: 0})
 		return p.jobs.Complete(ctx, j.ID, nil, result)
@@ -85,7 +136,7 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 
 	holderID := j.ID.String()
 
-	for i, sim := range simDetails {
+	for i, sim := range sims {
 		if (i+1)%bulkBatchSize == 0 {
 			cancelled, checkErr := p.jobs.CheckCancelled(ctx, j.ID)
 			if checkErr == nil && cancelled {
@@ -133,6 +184,11 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 			continue
 		}
 
+		// AC-8: per-SIM audit with bulk_job_id stored in correlation_id.
+		// Only emitted on successful TransitionState — failed transitions are
+		// recorded via error_report, not audit.
+		p.emitStateChangeAudit(ctx, j, sim.ID, previousState, payload.TargetState, payload.Reason)
+
 		undoRecords = append(undoRecords, StateUndoRecord{
 			SimID:         sim.ID,
 			PreviousState: previousState,
@@ -142,6 +198,58 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 	}
 
 	return p.completeJob(ctx, j, processed, failed, total, errors, undoRecords)
+}
+
+// emitStateChangeAudit records a sim.state_change entry with the bulk job ID
+// stored in correlation_id (groups all per-SIM entries by bulk run).
+// Degrades gracefully: nil auditor is a no-op; write failures are logged but
+// never propagated — the state transition already succeeded and a failed
+// audit write should not block legitimate mutations.
+func (p *BulkStateChangeProcessor) emitStateChangeAudit(
+	ctx context.Context,
+	j *store.Job,
+	simID uuid.UUID,
+	previousState, targetState string,
+	reason *string,
+) {
+	if p.auditor == nil {
+		return
+	}
+
+	beforeJSON, beforeErr := json.Marshal(map[string]any{"state": previousState})
+	if beforeErr != nil {
+		p.logger.Warn().Err(beforeErr).Str("sim_id", simID.String()).Msg("marshal audit before state failed")
+		return
+	}
+
+	after := map[string]any{"state": targetState}
+	if reason != nil && *reason != "" {
+		after["reason"] = *reason
+	}
+	afterJSON, afterErr := json.Marshal(after)
+	if afterErr != nil {
+		p.logger.Warn().Err(afterErr).Str("sim_id", simID.String()).Msg("marshal audit after state failed")
+		return
+	}
+
+	jobID := j.ID
+	_, auditErr := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      j.TenantID,
+		UserID:        j.CreatedBy,
+		Action:        "sim.state_change",
+		EntityType:    "sim",
+		EntityID:      simID.String(),
+		BeforeData:    beforeJSON,
+		AfterData:     afterJSON,
+		CorrelationID: &jobID,
+	})
+	if auditErr != nil {
+		p.logger.Warn().
+			Err(auditErr).
+			Str("sim_id", simID.String()).
+			Str("job_id", j.ID.String()).
+			Msg("audit write failed for bulk state change — continuing")
+	}
 }
 
 func (p *BulkStateChangeProcessor) processUndo(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {

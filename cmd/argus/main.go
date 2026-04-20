@@ -572,6 +572,7 @@ func runServe(cfg *config.Config) {
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
 	bulkHandler := simapi.NewBulkHandler(jobStore, segmentStore, eventBus, log.Logger)
+	bulkHandler.SetSIMStore(simStore)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, auditSvc, log.Logger)
 	searchHandler := searchapi.NewHandler(simStore, apnStore, operatorStore, policyStore, userStore, pg.Pool, log.Logger)
 
@@ -676,9 +677,12 @@ func runServe(cfg *config.Config) {
 	slaReportProc := job.NewSLAReportProcessor(jobStore, slaReportStore, operatorStore, tenantStore, slaRadiusSessionStore, eventBus, log.Logger)
 	readSegmentStore := store.NewSegmentStore(readPool)
 	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, readSegmentStore, distLock, eventBus, log.Logger)
+	bulkStateChangeProc.SetAuditor(auditSvc)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
+	bulkPolicyAssignProc.SetAuditor(auditSvc)
 	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
 	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, distLock, eventBus, log.Logger)
+	bulkEsimSwitchProc.SetAuditor(auditSvc)
 	jobRunner.Register(purgeSweepProc)
 	jobRunner.Register(ipReclaimProc)
 	jobRunner.Register(slaReportProc)
@@ -1426,6 +1430,9 @@ func runServe(cfg *config.Config) {
 		capacityCDRStore,
 	)
 
+	bulkRateLimiter := gateway.NewBulkRateLimiter(1.0, 2)
+	defer bulkRateLimiter.Shutdown()
+
 	tenantLimits := gateway.NewTenantLimitsMiddleware(
 		tenantStore,
 		map[gateway.LimitKey]gateway.CountFn{
@@ -1485,6 +1492,7 @@ func runServe(cfg *config.Config) {
 		KillSwitchSvc:        killSwitchSvc,
 		APIKeyStore:          apiKeyStore,
 		TenantLimits:         tenantLimits,
+		BulkRateLimiter:      bulkRateLimiter,
 		RedisClient:          rdb.Client,
 		RateLimitPerMinute:   cfg.RateLimitPerMinute,
 		RateLimitPerHour:     cfg.RateLimitPerHour,

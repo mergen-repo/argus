@@ -258,6 +258,7 @@ Content-Type: application/json
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Details are logged server-side with correlation_id but NOT exposed to client. | `{"status":"error","error":{"code":"INTERNAL_ERROR","message":"An unexpected error occurred. Reference: f47ac10b-58cc-4372-a567-0e02b2c3d479"}}` |
 | `SERVICE_UNAVAILABLE` | 503 | Server is temporarily unavailable (overloaded, shutting down, dependency down) | `{"status":"error","error":{"code":"SERVICE_UNAVAILABLE","message":"Service temporarily unavailable. Please retry."}}` |
 | `DATABASE_ERROR` | 503 | Database connection failed or query timed out. Logged server-side with details. | `{"status":"error","error":{"code":"DATABASE_ERROR","message":"Database operation failed. Reference: f47ac10b-58cc-4372-a567-0e02b2c3d479"}}` |
+| `SERVICE_DEGRADED` | 503 | A kill-switch is active that blocks the requested operation (e.g., `bulk_operations` kill-switch blocks all bulk SIM endpoints). The specific kill-switch key is logged server-side but not exposed in the response. | `{"status":"error","error":{"code":"SERVICE_DEGRADED","message":"This operation is currently disabled. Please try again later."}}` |
 
 ---
 
@@ -364,6 +365,7 @@ const (
     CodeInternalError       = "INTERNAL_ERROR"
     CodeServiceUnavailable  = "SERVICE_UNAVAILABLE"
     CodeDatabaseError       = "DATABASE_ERROR"
+    CodeServiceDegraded     = "SERVICE_DEGRADED"
 )
 ```
 

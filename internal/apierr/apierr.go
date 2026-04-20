@@ -50,6 +50,7 @@ const (
 	CodeForbidden              = "FORBIDDEN"
 	CodeInsufficientRole       = "INSUFFICIENT_ROLE"
 	CodeScopeDenied            = "SCOPE_DENIED"
+	CodeForbiddenCrossTenant   = "FORBIDDEN_CROSS_TENANT"
 	CodeAPIKeyIPNotAllowed     = "API_KEY_IP_NOT_ALLOWED"
 
 	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"

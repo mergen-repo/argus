@@ -1,11 +1,54 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"sync"
 	"testing"
 
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
+
+// --- fake auditor shared by bulk_state_change tests ---
+
+type fakeStateChangeAuditor struct {
+	mu      sync.Mutex
+	entries []audit.CreateEntryParams
+	err     error
+}
+
+func (f *fakeStateChangeAuditor) CreateEntry(_ context.Context, p audit.CreateEntryParams) (*audit.Entry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.entries = append(f.entries, p)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &audit.Entry{}, nil
+}
+
+func (f *fakeStateChangeAuditor) snapshot() []audit.CreateEntryParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := make([]audit.CreateEntryParams, len(f.entries))
+	copy(cp, f.entries)
+	return cp
+}
+
+// newTestStateChangeProcessor returns a processor whose store dependencies are
+// nil. Only the auditor-facing helpers can be exercised; anything that touches
+// p.sims/p.jobs/p.distLock will panic, which is the intended scope for unit
+// tests that mirror bulk_policy_assign_test.go's helper-only pattern.
+func newTestStateChangeProcessor() *BulkStateChangeProcessor {
+	return &BulkStateChangeProcessor{
+		logger: zerolog.New(io.Discard),
+	}
+}
 
 func TestBulkStateChangePayloadMarshal(t *testing.T) {
 	segID := uuid.New()
@@ -216,6 +259,227 @@ func TestEsimUndoRecordMarshal(t *testing.T) {
 	}
 	if decoded.PreviousOperatorID != rec.PreviousOperatorID {
 		t.Errorf("previous_operator_id mismatch")
+	}
+}
+
+func TestBulkStateChangePayload_SimIDsMarshal(t *testing.T) {
+	simID1 := uuid.New()
+	simID2 := uuid.New()
+	reason := "batch-suspend"
+	payload := BulkStateChangePayload{
+		SimIDs:      []uuid.UUID{simID1, simID2},
+		TargetState: "suspended",
+		Reason:      &reason,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded BulkStateChangePayload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(decoded.SimIDs) != 2 {
+		t.Fatalf("sim_ids len = %d, want 2", len(decoded.SimIDs))
+	}
+	if decoded.SimIDs[0] != simID1 || decoded.SimIDs[1] != simID2 {
+		t.Errorf("sim_ids mismatch: got %v, want [%v %v]", decoded.SimIDs, simID1, simID2)
+	}
+	if decoded.TargetState != "suspended" {
+		t.Errorf("target_state = %q, want %q", decoded.TargetState, "suspended")
+	}
+}
+
+func TestSetAuditor_WiresDependency(t *testing.T) {
+	p := newTestStateChangeProcessor()
+	if p.auditor != nil {
+		t.Fatalf("auditor should be nil before SetAuditor")
+	}
+	a := &fakeStateChangeAuditor{}
+	p.SetAuditor(a)
+	if p.auditor == nil {
+		t.Fatalf("auditor should be set after SetAuditor")
+	}
+}
+
+func TestEmitStateChangeAudit_FieldsAndCorrelationID(t *testing.T) {
+	p := newTestStateChangeProcessor()
+	a := &fakeStateChangeAuditor{}
+	p.SetAuditor(a)
+
+	jobID := uuid.New()
+	tenantID := uuid.New()
+	userID := uuid.New()
+	simID := uuid.New()
+	reason := "maintenance window"
+
+	j := &store.Job{ID: jobID, TenantID: tenantID, CreatedBy: &userID}
+	p.emitStateChangeAudit(context.Background(), j, simID, "active", "suspended", &reason)
+
+	entries := a.snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(entries))
+	}
+	e := entries[0]
+
+	if e.Action != "sim.state_change" {
+		t.Errorf("action = %q, want %q", e.Action, "sim.state_change")
+	}
+	if e.EntityType != "sim" {
+		t.Errorf("entity_type = %q, want %q", e.EntityType, "sim")
+	}
+	if e.EntityID != simID.String() {
+		t.Errorf("entity_id = %q, want %q", e.EntityID, simID.String())
+	}
+	if e.TenantID != tenantID {
+		t.Errorf("tenant_id = %v, want %v", e.TenantID, tenantID)
+	}
+	if e.UserID == nil || *e.UserID != userID {
+		t.Errorf("user_id = %v, want %v", e.UserID, userID)
+	}
+	if e.CorrelationID == nil || *e.CorrelationID != jobID {
+		t.Errorf("correlation_id = %v, want %v (bulk_job_id grouping)", e.CorrelationID, jobID)
+	}
+
+	var before map[string]any
+	if err := json.Unmarshal(e.BeforeData, &before); err != nil {
+		t.Fatalf("unmarshal BeforeData: %v", err)
+	}
+	if before["state"] != "active" {
+		t.Errorf("before.state = %v, want %q", before["state"], "active")
+	}
+
+	var after map[string]any
+	if err := json.Unmarshal(e.AfterData, &after); err != nil {
+		t.Fatalf("unmarshal AfterData: %v", err)
+	}
+	if after["state"] != "suspended" {
+		t.Errorf("after.state = %v, want %q", after["state"], "suspended")
+	}
+	if after["reason"] != "maintenance window" {
+		t.Errorf("after.reason = %v, want %q", after["reason"], "maintenance window")
+	}
+}
+
+func TestEmitStateChangeAudit_ReasonOmittedWhenNilOrEmpty(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason *string
+	}{
+		{"nil reason", nil},
+		{"empty reason", func() *string { s := ""; return &s }()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newTestStateChangeProcessor()
+			a := &fakeStateChangeAuditor{}
+			p.SetAuditor(a)
+
+			j := &store.Job{ID: uuid.New(), TenantID: uuid.New()}
+			p.emitStateChangeAudit(context.Background(), j, uuid.New(), "active", "suspended", tc.reason)
+
+			entries := a.snapshot()
+			if len(entries) != 1 {
+				t.Fatalf("expected 1 audit entry, got %d", len(entries))
+			}
+
+			var after map[string]any
+			if err := json.Unmarshal(entries[0].AfterData, &after); err != nil {
+				t.Fatalf("unmarshal AfterData: %v", err)
+			}
+			if _, ok := after["reason"]; ok {
+				t.Errorf("reason key should be omitted when %s; got AfterData=%s", tc.name, string(entries[0].AfterData))
+			}
+			if after["state"] != "suspended" {
+				t.Errorf("after.state = %v, want %q", after["state"], "suspended")
+			}
+		})
+	}
+}
+
+func TestEmitStateChangeAudit_NilAuditor_NoPanic(t *testing.T) {
+	p := newTestStateChangeProcessor()
+	// p.auditor intentionally left nil
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("emitStateChangeAudit panicked with nil auditor: %v", r)
+		}
+	}()
+
+	j := &store.Job{ID: uuid.New(), TenantID: uuid.New()}
+	reason := "test"
+	p.emitStateChangeAudit(context.Background(), j, uuid.New(), "active", "suspended", &reason)
+}
+
+func TestEmitStateChangeAudit_AuditorError_DoesNotPropagate(t *testing.T) {
+	p := newTestStateChangeProcessor()
+	a := &fakeStateChangeAuditor{err: errors.New("nats down")}
+	p.SetAuditor(a)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("emitStateChangeAudit panicked on auditor error: %v", r)
+		}
+	}()
+
+	j := &store.Job{ID: uuid.New(), TenantID: uuid.New()}
+	p.emitStateChangeAudit(context.Background(), j, uuid.New(), "active", "suspended", nil)
+
+	// Helper swallows the error — caller's per-SIM loop must not observe it.
+	// Auditor still recorded the attempt (error returned AFTER append).
+	if got := len(a.snapshot()); got != 1 {
+		t.Errorf("expected 1 CreateEntry call (error swallowed), got %d", got)
+	}
+}
+
+func TestEmitStateChangeAudit_ParamsShape_GuardsAgainstFieldDrift(t *testing.T) {
+	// Defensive: if audit.CreateEntryParams evolves (fields renamed/removed),
+	// this test fails loudly. Rebuild a representative params struct and
+	// assert every field we rely on is set to a non-zero value after emit.
+	p := newTestStateChangeProcessor()
+	a := &fakeStateChangeAuditor{}
+	p.SetAuditor(a)
+
+	jobID := uuid.New()
+	tenantID := uuid.New()
+	userID := uuid.New()
+	simID := uuid.New()
+	reason := "r"
+
+	j := &store.Job{ID: jobID, TenantID: tenantID, CreatedBy: &userID}
+	p.emitStateChangeAudit(context.Background(), j, simID, "active", "suspended", &reason)
+
+	e := a.snapshot()[0]
+
+	checks := []struct {
+		name string
+		zero bool
+	}{
+		{"TenantID", e.TenantID == uuid.Nil},
+		{"UserID", e.UserID == nil},
+		{"Action", e.Action == ""},
+		{"EntityType", e.EntityType == ""},
+		{"EntityID", e.EntityID == ""},
+		{"BeforeData", len(e.BeforeData) == 0},
+		{"AfterData", len(e.AfterData) == 0},
+		{"CorrelationID", e.CorrelationID == nil},
+	}
+	for _, c := range checks {
+		if c.zero {
+			t.Errorf("field %s is zero/empty; CreateEntryParams shape likely drifted", c.name)
+		}
+	}
+}
+
+func TestBulkStateChangeProcessorType(t *testing.T) {
+	p := newTestStateChangeProcessor()
+	if p.Type() != JobTypeBulkStateChange {
+		t.Errorf("Type() = %q, want %q", p.Type(), JobTypeBulkStateChange)
 	}
 }
 

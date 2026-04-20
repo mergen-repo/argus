@@ -1,9 +1,57 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
 import type { Job, JobProgressEvent, JobCompletedEvent, JobError } from '@/types/job'
 import type { ListResponse, ApiResponse } from '@/types/sim'
+
+export interface JobPollingStatus {
+  id: string
+  state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  total_items: number
+  processed_items: number
+  failed_items: number
+  error_report?: unknown
+  result?: unknown
+}
+
+interface UseJobPollingOptions {
+  onComplete?: (job: JobPollingStatus) => void
+  onError?: (job: JobPollingStatus) => void
+  intervalMs?: number
+}
+
+export function useJobPolling(jobId: string | null, options: UseJobPollingOptions = {}) {
+  const { onComplete, onError, intervalMs = 2000 } = options
+  const prevStateRef = useRef<string | null>(null)
+
+  const query = useQuery<JobPollingStatus>({
+    queryKey: ['job', jobId],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<Job>>(`/jobs/${jobId}`)
+      return res.data.data as JobPollingStatus
+    },
+    enabled: !!jobId,
+    refetchInterval: (q) => {
+      const state = q.state.data?.state
+      if (!state) return intervalMs
+      if (state === 'completed' || state === 'failed' || state === 'cancelled') return false
+      return intervalMs
+    },
+  })
+
+  useEffect(() => {
+    const data = query.data
+    if (!data) return
+    const prev = prevStateRef.current
+    prevStateRef.current = data.state
+    if (prev === data.state) return
+    if (data.state === 'completed' && onComplete) onComplete(data)
+    if (data.state === 'failed' && onError) onError(data)
+  }, [query.data?.state])
+
+  return query
+}
 
 const JOBS_KEY = ['jobs'] as const
 

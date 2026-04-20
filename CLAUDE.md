@@ -113,7 +113,19 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: AUTOPILOT (UAT Remediation — 11/11 FIX stories DONE; UAT Batch 1-7 verified)
-- Phase: UAT Remediation [DONE] (FIX-101..111 all shipped 2026-04-19; 23/23 UAT scenarios verified)
-- Story: — (UAT Remediation complete; next: Documentation Phase D1)
-- Step: — (awaiting user `/amil` to start Documentation Phase)
+- Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
+- Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
+- Story: FIX-201
+- Step: Dev
+- Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
+- Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
+- ROUTEMAP: `docs/ROUTEMAP.md` "UI Review Remediation [IN PROGRESS]" track (10 waves)
+- User directive 2026-04-20: Full AUTOPILOT, dikkatli geliştirme, doğru spec, hatasız, canlıya hazırlık
+- Modal decision: Option C (Dialog compact confirm + SlidePanel rich form)
+- AUTOPILOT scope: Runs until ESCALATED / FAILED / end-of-track Phase Gate PASS
+- Key architectural threads:
+  - **Data integrity foundation** (FIX-206): 200 orphan SIM + FK constraints + seed fix → unblocks FIX-202/207/208
+  - **Alert architecture** (FIX-209/210/211): unified alerts table + dedup + taxonomy → unblocks FIX-213/215/229
+  - **Event envelope** (FIX-212): unified schema + name resolution + missing publishers → unblocks FIX-213/219
+  - **Cross-tab aggregation** (FIX-208): single source of truth for usage/cost/sessions math
+  - **Seed discipline** (FIX-206): `make db-seed` must stay clean after FK migration — never defer

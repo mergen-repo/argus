@@ -45,9 +45,11 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import { useSIMList, useSegments, useSegmentCount, useBulkStateChange, useBulkPolicyAssign, useImportSIMs } from '@/hooks/use-sims'
+import { useJobPolling } from '@/hooks/use-jobs'
 import { usePolicyList } from '@/hooks/use-policies'
 import {
   Dialog,
@@ -94,6 +96,8 @@ function detectSearchType(q: string): { field: string; label: string } | null {
 export default function SimListPage() {
   const navigate = useNavigate()
   const tableDensity = useUIStore((s) => s.tableDensity)
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
+  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = useMemo<SIMListFilters>(() => ({
     state: searchParams.get('state') ?? undefined,
@@ -120,6 +124,8 @@ export default function SimListPage() {
   }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+  const [activeBulkJobId, setActiveBulkJobId] = useState<string | null>(null)
   const [bulkDialog, setBulkDialog] = useState<{ action: string; label: string } | null>(null)
   const [bulkReason, setBulkReason] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('')
@@ -140,6 +146,29 @@ export default function SimListPage() {
   const bulkMutation = useBulkStateChange()
   const bulkPolicyAssignMutation = useBulkPolicyAssign()
   const importMutation = useImportSIMs()
+
+  useJobPolling(activeBulkJobId, {
+    onComplete: (job) => {
+      setProcessingIds(new Set())
+      setActiveBulkJobId(null)
+      queryClient.invalidateQueries({ queryKey: ['sims'] })
+      const message = `${job.processed_items ?? 0} processed, ${job.failed_items ?? 0} failed`
+      if ((job.failed_items ?? 0) > 0) {
+        toast.error(message, {
+          action: { label: 'View errors', onClick: () => navigate(`/jobs/${job.id}`) },
+        })
+      } else {
+        toast.success(message)
+      }
+    },
+    onError: (job) => {
+      setProcessingIds(new Set())
+      setActiveBulkJobId(null)
+      toast.error(`Job failed: ${job.failed_items ?? 0} errors`, {
+        action: { label: 'View details', onClick: () => navigate(`/jobs/${job.id}`) },
+      })
+    },
+  })
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
   const [selectedPolicyVersionId, setSelectedPolicyVersionId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
@@ -237,6 +266,15 @@ export default function SimListPage() {
     return data.pages.flatMap((page) => page.data)
   }, [data])
 
+  const { visibleSelectedCount, hiddenSelectedCount } = useMemo(() => {
+    const visible = [...selectedIds].filter((id) => allSims.some((s) => s.id === id)).length
+    return { visibleSelectedCount: visible, hiddenSelectedCount: selectedIds.size - visible }
+  }, [selectedIds, allSims])
+
+  const selectionLabel = hiddenSelectedCount > 0
+    ? `${selectedIds.size} selected (${visibleSelectedCount} visible, ${hiddenSelectedCount} hidden by filter)`
+    : `${selectedIds.size} selected`
+
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -288,20 +326,27 @@ export default function SimListPage() {
 
   const handleBulkAction = async () => {
     if (!bulkDialog) return
+    const ids = selectAllSegment ? [] : Array.from(selectedIds)
+    if (!selectAllSegment) setProcessingIds(new Set(ids))
     try {
-      await bulkMutation.mutateAsync({
+      const result = await bulkMutation.mutateAsync({
         ...(selectAllSegment
           ? { segmentId: selectedSegmentId }
-          : { simIds: Array.from(selectedIds) }),
+          : { simIds: ids }),
         targetState: bulkDialog.action,
         reason: bulkReason || undefined,
       })
+      if (result?.job_id) {
+        setActiveBulkJobId(result.job_id)
+      } else {
+        setProcessingIds(new Set())
+      }
       setSelectedIds(new Set())
       setSelectAllSegment(false)
       setBulkDialog(null)
       setBulkReason('')
     } catch {
-      // error handled by api interceptor
+      setProcessingIds(new Set())
     }
   }
 
@@ -557,7 +602,7 @@ export default function SimListPage() {
       )}
 
       {/* Data Table */}
-      <Card className={cn('overflow-hidden', `density-${tableDensity}`)}>
+      <Card className={cn('overflow-hidden', `density-${tableDensity}`, (selectedIds.size > 0 || selectAllSegment) && 'pb-16')}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
@@ -673,12 +718,15 @@ export default function SimListPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={stateVariant(sim.state)} className="gap-1">
-                      {sim.state === 'active' && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                      )}
-                      {stateLabel(sim.state)}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant={stateVariant(sim.state)} className="gap-1">
+                        {sim.state === 'active' && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                        )}
+                        {stateLabel(sim.state)}
+                      </Badge>
+                      {processingIds.has(sim.id) && <Spinner className="h-3 w-3 text-accent" />}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.operator_name || <span className="text-text-tertiary">—</span>}</span>
@@ -731,13 +779,18 @@ export default function SimListPage() {
 
         {/* Bulk Action Bar */}
         {(selectedIds.size > 0 || selectAllSegment) && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-accent-dim border-t border-accent/20 animate-in slide-in-from-bottom-1">
-            <span className="text-sm font-semibold text-accent">
+          <div
+            className={cn(
+              'fixed bottom-0 right-0 z-30 bg-accent-dim border-t border-accent/20 shadow-[0_-4px_12px_rgba(0,0,0,0.35)] animate-in slide-in-from-bottom-2 duration-200 flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-2 transition-[left]',
+              sidebarCollapsed ? 'left-16' : 'left-60',
+            )}
+          >
+            <span className="text-sm font-semibold text-accent tabular-nums">
               {selectAllSegment
                 ? `${segmentCount?.count.toLocaleString() ?? '?'} selected (entire segment)`
-                : `${selectedIds.size} selected`}
+                : selectionLabel}
             </span>
-            <div className="flex gap-2 ml-2">
+            <div className="flex gap-2 ml-2 flex-wrap">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1102,19 +1155,26 @@ export default function SimListPage() {
               disabled={!selectedPolicyVersionId || bulkPolicyAssignMutation.isPending}
               className="gap-2"
               onClick={async () => {
+                const ids = selectAllSegment ? [] : Array.from(selectedIds)
+                if (!selectAllSegment) setProcessingIds(new Set(ids))
                 try {
-                  await bulkPolicyAssignMutation.mutateAsync({
+                  const result = await bulkPolicyAssignMutation.mutateAsync({
                     ...(selectAllSegment
                       ? { segmentId: selectedSegmentId }
-                      : { simIds: Array.from(selectedIds) }),
+                      : { simIds: ids }),
                     policyVersionId: selectedPolicyVersionId,
                   })
+                  if (result?.job_id) {
+                    setActiveBulkJobId(result.job_id)
+                  } else {
+                    setProcessingIds(new Set())
+                  }
                   setSelectedIds(new Set())
                   setSelectAllSegment(false)
                   setPolicyDialogOpen(false)
                   setSelectedPolicyVersionId('')
                 } catch {
-                  // error handled by api interceptor
+                  setProcessingIds(new Set())
                 }
               }}
             >

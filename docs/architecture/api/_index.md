@@ -101,9 +101,9 @@
 | API-062 | GET | /api/v1/sim-segments/:id/count | Count SIMs in segment | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
 | API-062b | GET | /api/v1/sim-segments/:id/summary | State summary for segment | JWT (sim_manager+) | See [STORY-012](../../stories/phase-2/STORY-012-sim-segments.md) |
 | API-063 | POST | /api/v1/sims/bulk/import | Bulk SIM import (CSV upload) | JWT (sim_manager+) | See [STORY-013](../../stories/phase-2/STORY-013-bulk-import.md) |
-| API-064 | POST | /api/v1/sims/bulk/state-change | Bulk state change on segment | JWT (sim_manager+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
-| API-065 | POST | /api/v1/sims/bulk/policy-assign | Bulk policy assign on segment. Job result includes CoA counters: `coa_sent_count`, `coa_acked_count`, `coa_failed_count` (omitted when 0). CoA dispatched outside distLock after release. | JWT (policy_editor+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); CoA dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md) |
-| API-066 | POST | /api/v1/sims/bulk/operator-switch | Bulk eSIM operator switch | JWT (tenant_admin) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md) |
+| API-064 | POST | /api/v1/sims/bulk/state-change | Bulk state change — dual-shape (sim_ids or segment_id). Async 202; rate-limited 1 req/s per tenant. | JWT (sim_manager+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); full spec: [bulk-actions.md](bulk-actions.md) |
+| API-065 | POST | /api/v1/sims/bulk/policy-assign | Bulk policy assign — dual-shape (sim_ids or segment_id). Triggers per-SIM CoA dispatch for active sessions. Job result includes CoA counters: `coa_sent_count`, `coa_acked_count`, `coa_failed_count` (omitted when 0). CoA dispatched outside distLock after release. | JWT (policy_editor+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); CoA dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md); full spec: [bulk-actions.md](bulk-actions.md) |
+| API-066 | POST | /api/v1/sims/bulk/operator-switch | Bulk eSIM operator switch — dual-shape (sim_ids or segment_id). Non-eSIM SIMs reported as NOT_ESIM in job error_report. | JWT (tenant_admin) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); full spec: [bulk-actions.md](bulk-actions.md) |
 
 ## eSIM (7 endpoints)
 

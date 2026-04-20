@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -51,6 +52,16 @@ type BulkPolicyCoAUpdater interface {
 	UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.UUID, status string) error
 }
 
+// simForPolicyAssign is a local normalization of both the segment-resolution
+// path (store.SIMBulkInfo) and the sim_ids path (store.SIMSummary). The policy
+// assign processor needs ID/ICCID for error reporting and PolicyVersionID to
+// capture the previous assignment for audit + undo.
+type simForPolicyAssign struct {
+	ID              uuid.UUID
+	ICCID           string
+	PolicyVersionID *uuid.UUID
+}
+
 type BulkPolicyAssignProcessor struct {
 	jobs            *store.JobStore
 	sims            *store.SIMStore
@@ -60,6 +71,7 @@ type BulkPolicyAssignProcessor struct {
 	sessionProvider BulkSessionProvider
 	coaDispatcher   BulkCoADispatcher
 	policyUpdater   BulkPolicyCoAUpdater
+	auditor         audit.Auditor
 	logger          zerolog.Logger
 }
 
@@ -93,6 +105,13 @@ func (p *BulkPolicyAssignProcessor) SetPolicyCoAUpdater(u BulkPolicyCoAUpdater) 
 	p.policyUpdater = u
 }
 
+// SetAuditor wires an audit.Auditor after construction. Mirrors the optional
+// dependency pattern used by SetCoADispatcher so the processor degrades
+// gracefully when the auditor is not injected (e.g. tests).
+func (p *BulkPolicyAssignProcessor) SetAuditor(a audit.Auditor) {
+	p.auditor = a
+}
+
 func (p *BulkPolicyAssignProcessor) Type() string {
 	return JobTypeBulkPolicyAssign
 }
@@ -109,13 +128,50 @@ func (p *BulkPolicyAssignProcessor) Process(ctx context.Context, j *store.Job) e
 	return p.processForward(ctx, j, payload)
 }
 
-func (p *BulkPolicyAssignProcessor) processForward(ctx context.Context, j *store.Job, payload BulkPolicyAssignPayload) error {
-	simDetails, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
-	if err != nil {
-		return fmt.Errorf("list segment sims: %w", err)
+// resolveSIMs fans out to either the sim_ids batch fetch (explicit list path)
+// or the segment resolution path. Both return a normalized slice so the main
+// loop stays branch-free. The sim_ids path MUST pre-filter via
+// sims.GetSIMsByIDs (which is tenant-scoped) to keep 10K-SIM jobs from doing
+// per-SIM round trips inside the loop.
+func (p *BulkPolicyAssignProcessor) resolveSIMs(ctx context.Context, j *store.Job, payload BulkPolicyAssignPayload) ([]simForPolicyAssign, error) {
+	if len(payload.SimIDs) > 0 {
+		rows, err := p.sims.GetSIMsByIDs(ctx, j.TenantID, payload.SimIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get sims by ids: %w", err)
+		}
+		out := make([]simForPolicyAssign, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, simForPolicyAssign{
+				ID:              r.ID,
+				ICCID:           r.ICCID,
+				PolicyVersionID: r.PolicyVersionID,
+			})
+		}
+		return out, nil
 	}
 
-	total := len(simDetails)
+	details, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list segment sims: %w", err)
+	}
+	out := make([]simForPolicyAssign, 0, len(details))
+	for _, d := range details {
+		out = append(out, simForPolicyAssign{
+			ID:              d.ID,
+			ICCID:           d.ICCID,
+			PolicyVersionID: d.PolicyVersionID,
+		})
+	}
+	return out, nil
+}
+
+func (p *BulkPolicyAssignProcessor) processForward(ctx context.Context, j *store.Job, payload BulkPolicyAssignPayload) error {
+	sims, err := p.resolveSIMs(ctx, j, payload)
+	if err != nil {
+		return err
+	}
+
+	total := len(sims)
 	if total == 0 {
 		result, _ := json.Marshal(BulkResult{TotalCount: 0})
 		return p.jobs.Complete(ctx, j.ID, nil, result)
@@ -136,7 +192,7 @@ func (p *BulkPolicyAssignProcessor) processForward(ctx context.Context, j *store
 	holderID := j.ID.String()
 	policyID := payload.PolicyVersionID
 
-	for i, sim := range simDetails {
+	for i, sim := range sims {
 		if (i+1)%bulkBatchSize == 0 {
 			cancelled, checkErr := p.jobs.CheckCancelled(ctx, j.ID)
 			if checkErr == nil && cancelled {
@@ -159,9 +215,10 @@ func (p *BulkPolicyAssignProcessor) processForward(ctx context.Context, j *store
 			continue
 		}
 
+		previousPolicyID := sim.PolicyVersionID
 		undoRecords = append(undoRecords, PolicyUndoRecord{
 			SimID:                   sim.ID,
-			PreviousPolicyVersionID: sim.PolicyVersionID,
+			PreviousPolicyVersionID: previousPolicyID,
 		})
 
 		setErr := p.sims.SetIPAndPolicy(ctx, sim.ID, nil, &policyID)
@@ -180,18 +237,85 @@ func (p *BulkPolicyAssignProcessor) processForward(ctx context.Context, j *store
 			continue
 		}
 
-		// AC-7: dispatch CoA to active sessions on the affected SIM.
+		// AC-7/AC-9: dispatch CoA to active sessions on the affected SIM.
+		// Preserved for both segment and sim_ids branches so operators observe
+		// policy changes on active sessions regardless of dispatch shape.
 		// Outside the distributed lock to avoid blocking other SIM ops during UDP I/O.
 		sent, acked, failedCoA := p.dispatchCoAForSIM(ctx, sim.ID)
 		coaSent += sent
 		coaAcked += acked
 		coaFailed += failedCoA
 
+		// AC-8: per-SIM audit with bulk_job_id stored in correlation_id.
+		// Only emitted on successful SetIPAndPolicy — failed assignments are
+		// recorded via error_report, not audit.
+		p.emitPolicyAssignAudit(ctx, j, sim.ID, previousPolicyID, payload)
+
 		processed++
 		p.publishProgress(ctx, j, processed, failed, total, i)
 	}
 
 	return p.completeJob(ctx, j, processed, failed, total, coaSent, coaAcked, coaFailed, errors, undoRecords)
+}
+
+// emitPolicyAssignAudit records a sim.policy_assign entry with the bulk job ID
+// stored in correlation_id (groups all per-SIM entries by bulk run).
+// Degrades gracefully: nil auditor is a no-op; write failures are logged but
+// never propagated — the policy assignment already succeeded and a failed
+// audit write should not block legitimate mutations.
+func (p *BulkPolicyAssignProcessor) emitPolicyAssignAudit(
+	ctx context.Context,
+	j *store.Job,
+	simID uuid.UUID,
+	previousPolicyID *uuid.UUID,
+	payload BulkPolicyAssignPayload,
+) {
+	if p.auditor == nil {
+		return
+	}
+
+	before := map[string]any{}
+	if previousPolicyID != nil {
+		before["policy_version_id"] = previousPolicyID.String()
+	} else {
+		before["policy_version_id"] = nil
+	}
+	beforeJSON, beforeErr := json.Marshal(before)
+	if beforeErr != nil {
+		p.logger.Warn().Err(beforeErr).Str("sim_id", simID.String()).Msg("marshal audit before policy failed")
+		return
+	}
+
+	after := map[string]any{
+		"policy_version_id": payload.PolicyVersionID.String(),
+	}
+	if payload.Reason != "" {
+		after["reason"] = payload.Reason
+	}
+	afterJSON, afterErr := json.Marshal(after)
+	if afterErr != nil {
+		p.logger.Warn().Err(afterErr).Str("sim_id", simID.String()).Msg("marshal audit after policy failed")
+		return
+	}
+
+	jobID := j.ID
+	_, auditErr := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      j.TenantID,
+		UserID:        j.CreatedBy,
+		Action:        "sim.policy_assign",
+		EntityType:    "sim",
+		EntityID:      simID.String(),
+		BeforeData:    beforeJSON,
+		AfterData:     afterJSON,
+		CorrelationID: &jobID,
+	})
+	if auditErr != nil {
+		p.logger.Warn().
+			Err(auditErr).
+			Str("sim_id", simID.String()).
+			Str("job_id", j.ID.String()).
+			Msg("audit write failed for bulk policy assign — continuing")
+	}
 }
 
 // dispatchCoAForSIM sends CoA to all active sessions on the given SIM and returns

@@ -2630,3 +2630,54 @@ go test ./internal/operator/... ./internal/api/operator/... ./internal/aaa/radiu
 5. In each operator's Protocols tab, verify HTTP card shows "Enabled" and health status = green.
 6. `curl -s http://localhost:9596/-/metrics | grep operator_sim_requests_total` — expect non-zero counters for all 3 operators.
 7. `curl -s http://localhost:8080/metrics | grep argus_operator_adapter_health_status | grep protocol=\"http\"` — expect gauge value = 1 for each operator.
+
+---
+
+## FIX-201: Bulk Actions Contract Fix
+
+### Manuel test senaryosu 1 — Bulk SIM state change (sim_ids)
+
+1. Login olup http://localhost:8084/sims sayfasina git.
+2. 3 SIM sec (checkbox).
+3. Sticky bulk bar gorünmeli (altta, sidebar'la cakismadan).
+4. "Suspend" butonuna tikla, reason gir, onayla.
+5. Secili rows'lar spinner gostermeli.
+6. ~2 saniye sonra rows state'i "suspended" olmali; toast "3 processed, 0 failed".
+
+### Manuel test senaryosu 2 — Filter-aware selection indicator
+
+1. 5 SIM sec.
+2. State filter'i degistir → bar label "5 selected (N visible, M hidden by filter)" gosterir.
+3. Farkli bir filter degistir → indicator canli güncellenir.
+
+### Manuel test senaryosu 3 — Rate limit (ayni tenant, hizli ardisik bulk)
+
+```bash
+export TOKEN="$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.access_token')"
+
+# First request — expect 202
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sim_ids":["00000000-0000-0000-0000-000000000001"],"target_state":"suspended"}'
+
+# Second request ~300ms later — expect 429 RATE_LIMITED with Retry-After header
+sleep 0.3
+curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sim_ids":["00000000-0000-0000-0000-000000000001"],"target_state":"active"}'
+# Beklenen: {"status":"error","error":{"code":"RATE_LIMITED",...}} + Retry-After header
+```
+
+### Manuel test senaryosu 4 — Cross-tenant rejection
+
+```bash
+# Tenant A olarak login yap; Tenant B'nin bir SIM UUID'sini body'ye ekle
+curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sim_ids":["ffffffff-ffff-ffff-ffff-ffffffffffff"],"target_state":"suspended"}'
+# Beklenen: 403 FORBIDDEN_CROSS_TENANT
+# {"status":"error","error":{"code":"FORBIDDEN_CROSS_TENANT","details":{"violations":["ffffffff-..."]}}}
+# Hic job row olusturmamali (jobs tablosunda son satiri kontrol et)
+```

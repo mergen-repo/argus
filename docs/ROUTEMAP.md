@@ -326,6 +326,137 @@ Architectural decisions (documented, not blocking UAT):
 
 ---
 
+## UI Review Remediation [IN PROGRESS]
+
+> Standalone track opened 2026-04-19 after interactive UI review (8 sayfa: Login, Dashboard,
+> Analytics, Alerts, SLA, Operators, APNs, IP Pools, SIM Cards). Surfaced 107 active findings.
+> Source: `docs/reviews/ui-review-2026-04-19.md` + plan `docs/reviews/ui-review-remediation-plan.md`
+>
+> User decisions (2026-04-19):
+> - Full 30-story scope (P0+P1+P2+P3)
+> - Remaining 17 pages deferred to 2nd phase
+> - Execution: Wave 1 (FIX-201..207) manual; Wave 2+ AUTOPILOT
+> - Modal pattern: Option C (Dialog compact confirm + SlidePanel rich form)
+>
+> Override 2026-04-20: Full AUTOPILOT — all waves (Wave 1-10 including Phase 2 additions).
+> User directive: "full otopilot ... çok dikkatli geliştirme yap ... hatasız ilerle".
+> AUTOPILOT stops only on ESCALATED / FAILED / end-of-track Phase Gate.
+
+### Wave 1 — P0 Backend Contract + Data Foundation (AUTOPILOT)
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-201 | Bulk Actions Contract — accept sim_ids (state-change + policy-assign + operator-switch) | P0 | L | [x] DONE (2026-04-20) | — |
+| FIX-202 | SIM List & Dashboard DTO — Operator Name Resolution | P0 | M | [ ] PENDING | — |
+| FIX-203 | Dashboard Operator Health — Uptime/Latency/Activity + WS Push | P0 | L | [ ] PENDING | FIX-202 |
+| FIX-204 | Analytics group_by NULL Scan Bug + APN Orphan Sessions | P0 | S | [ ] PENDING | — |
+| FIX-205 | Token Refresh Auto-retry on 401 | P0 | S | [ ] PENDING | — |
+| FIX-206 | Orphan Operator IDs Cleanup + FK Constraints + Seed Fix | P0 | M | [ ] PENDING | — |
+| FIX-207 | Session/CDR Data Integrity — negative duration, cross-pool IP, IMSI format | P0 | M | [ ] PENDING | FIX-206 |
+
+### Wave 2 — P0 Data Aggregation + Alert Architecture (AUTOPILOT begins)
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-208 | Cross-Tab Data Aggregation Unify (SIM usage/cost/sessions + Operator/APN counts) | P0 | L | [ ] PENDING | FIX-206 |
+| FIX-209 | Unified `alerts` Table + Operator/Infra Alert Persistence | P0 | XL | [ ] PENDING | FIX-211 |
+| FIX-210 | Alert Deduplication + State Machine (edge-triggered, cooldown) | P0 | M | [ ] PENDING | — |
+| FIX-211 | Severity Taxonomy Unification (critical/high/medium/low/info) | P0 | M | [ ] PENDING | — |
+
+### Wave 3 — P1 Event System + Dashboard Metrics
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-212 | Unified Event Envelope + Name Resolution + Missing Publishers | P1 | XL | [ ] PENDING | FIX-202 |
+| FIX-213 | Live Event Stream UX — filter chips, usage display, alert body | P1 | M | [ ] PENDING | FIX-212 |
+
+### Wave 4 — P1 Missing Major Features
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-214 | CDR Explorer Page (filter, search, session timeline, export) | P1 | L | [ ] PENDING | — |
+| FIX-215 | SLA Historical Reports + PDF Export + Drill-down | P1 | L | [ ] PENDING | FIX-203 |
+
+### Wave 5 — P2 UI Consistency Standardization
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-216 | Modal Pattern Standardization — Dialog (confirm) vs SlidePanel (rich form) | P2 | M | [ ] PENDING | — |
+| FIX-217 | Timeframe Selector Pill Toggle Unification | P2 | S | [ ] PENDING | — |
+| FIX-218 | Views Button Global Removal + Operators Checkbox Cleanup | P2 | S | [ ] PENDING | — |
+| FIX-219 | Name Resolution + Clickable Cells Everywhere (global audit) | P2 | M | [ ] PENDING | FIX-212 |
+
+### Wave 6 — P2 Polish
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-220 | Analytics Polish — MSISDN, IN/OUT split, tooltip, delta cap | P2 | M | [ ] PENDING | — |
+| FIX-221 | Dashboard Polish — Heatmap tooltip, IP pool KPI clarity | P2 | S | [ ] PENDING | — |
+| FIX-222 | Operator/APN Detail Polish — KPI row, tab consolidation, tooltips | P2 | M | [ ] PENDING | — |
+| FIX-223 | IP Pool Detail Polish — backend search, last_seen, reserve modal ICCID | P2 | M | [ ] PENDING | — |
+| FIX-224 | SIM List/Detail Polish — state filter, Created datetime, bulk bar sticky | P2 | M | [ ] PENDING | FIX-216 |
+| FIX-225 | Docker Restart Policy + Infra Stability | P2 | S | [ ] PENDING | — |
+| FIX-226 | Simulator Coverage + Volume Realism | P2 | M | [ ] PENDING | — |
+| FIX-227 | APN Connected SIMs SlidePanel — CDR + Usage graph + quick stats | P2 | S | [ ] PENDING | FIX-214 |
+
+### Wave 7 — P3 Nice-to-have
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-228 | Login — Forgot Password Flow + version footer | P3 | M | [ ] PENDING | — |
+| FIX-229 | Alert Feature Enhancements (Mute All UX, Export format, Similar clustering, retention) | P3 | M | [ ] PENDING | FIX-209 |
+
+### Wave 2.5 + 3 — Policy Rollout Deep-Fix (added 2026-04-19 after deep-dive)
+
+Added after systematic rollout architecture analysis (F-141..F-148 + flow analysis in `docs/reviews/ui-review-2026-04-19.md`). These stories address fundamental bugs in policy rollout pipeline: DSL match ignored during rollout, wrong total_sims computation, missing version state transitions, dual-source desync between `sims.policy_version_id` and `policy_assignments`, missing advance/rollback UI, no SIM policy visibility.
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-230 | Rollout DSL Match Integration — `SelectSIMsForStage` DSL predicate filter + `total_sims` accurate count | P0 | L | [ ] PENDING | FIX-231 |
+| FIX-231 | Policy Version State Machine — atomic rolling_out→active→superseded + 1-active-rollout constraint + dual-source fix | P0 | XL | [ ] PENDING | FIX-206 |
+| FIX-232 | Rollout UI Active State — progress bar, advance/rollback/abort buttons, WS subscription, correct endpoint paths | P0 | L | [ ] PENDING | FIX-212, FIX-230 |
+| FIX-233 | SIM List Policy column + Rollout Cohort filter — "Policy v{N}" column + filter chips + DTO extension | P1 | M | [ ] PENDING | FIX-230, FIX-231 |
+| FIX-234 | CoA status enum genişletme (no_session/skipped) + idle SIM handling + UI counters | P2 | S | [ ] PENDING | — |
+
+### UI Review Phase 2 — COMPLETED 2026-04-19
+
+**17+ sayfa incelendi** + **retrospective implementation audit** yapıldı. Phase 1 + Phase 2 findings total: **329 finding** (F-01..F-329).
+
+Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notifications, Capacity, Roaming, Knowledge Base, Users & Roles (+ User Detail), API Keys, Security (2FA), Settings (Notifications config), System (Health + Tenants), Admin group (Quotas, Resources, Security Events, Sessions, API Usage, Purge History, Delivery Status — 5 removed: Cost/Compliance/DSAR/Maintenance/Kill Switches→env), Ops-SRE group (Performance, Errors, AAA Live, Infra, Job Queue, Backup, Deploys, Incidents), Reports.
+
+**Phase 2 yeni FIX story'ler (14): FIX-235..FIX-248** (detaylı plan: `docs/reviews/ui-review-remediation-plan.md` "Phase 2 Review Additions" bölümü).
+
+### Wave 8 — Phase 2 P0 Critical
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-241 | Global API nil-slice fix — `WriteList` helper normalize nil → `[]` (global crash root cause) | P0 | XS | [ ] PENDING | — (unblocks many) |
+| FIX-242 | Session Detail extended DTO populate — SoR/Policy/Quota fields backend kod | P0 | M | [ ] PENDING | FIX-231 |
+| FIX-237 | M2M-centric Event Taxonomy + Notification Redesign — aggregate/digest events, per-SIM spam kaldır | P0 | XL | [ ] PENDING | FIX-212 |
+
+### Wave 9 — Phase 2 P1 Feature Completion
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [ ] PENDING | — |
+| FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [ ] PENDING | — |
+| FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [ ] PENDING | — |
+| FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [ ] PENDING | FIX-201 |
+| FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [ ] PENDING | FIX-241 |
+
+### Wave 10 — Phase 2 P2 UX Redesign + Scope Reduction
+
+| # | Story | Tier | Effort | Status | Dependencies |
+|---|-------|------|--------|--------|-------------|
+| FIX-240 | Unified Settings Page + Tabbed Reorganization | P2 | M | [ ] PENDING | — |
+| FIX-246 | Quotas + Resources merge → "Tenant Usage" dashboard + threshold alerts | P2 | M | [ ] PENDING | FIX-209 |
+| FIX-235 | M2M eSIM Provisioning Pipeline — SGP.22 → SGP.02 refactor + SM-SR + bulk | P2 | XL | [ ] PENDING | — |
+| FIX-245 | Remove 5 Admin Sub-pages (Cost/Compliance/DSAR/Maintenance) + Kill Switches→env | P2 | L | [ ] PENDING | — |
+| FIX-238 | Remove Roaming Feature (full stack) | P2 | L | [ ] PENDING | FIX-212 |
+| FIX-247 | Remove Admin Global Sessions UI (backend retain) | P2 | S | [ ] PENDING | — |
+
+---
+
 ## Documentation Phase [NOT STARTED]
 
 | Step | Name | Status | Completed |
@@ -496,6 +627,11 @@ Architectural decisions (documented, not blocking UAT):
 | D-037 | STORY-087 Gate (empirical run) | `migrations/20260412000006_rls_policies.up.sql` `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` fails on any hypertable with columnstore enabled under TimescaleDB 2.26.2 (error: `operation not supported on hypertables that have columnstore enabled`; reverse also blocked: `columnstore cannot be used on table with row security`). ✓ RESOLVED 2026-04-18 (deploy hotfix): migration patched to SKIP sessions + cdrs RLS blocks — compression retained (storage impact significant per STORY-053), defense-in-depth retained via argus_app BYPASSRLS + app-layer tenant_id filter. Companion: `20260417000001_story_077_ux.{up,down}.sql` `audit_events` → `audit_logs` rename (STORY-077 used wrong table name; only surfaced on fresh volume apply). Fresh-volume `argus migrate up` now reaches head (20260417000004), schemacheck passes, argus-app boots healthy. | (hotfix) | ✓ RESOLVED (2026-04-18) |
 | D-039 | STORY-092 Review 2026-04-18 | Pre-existing AUSF/UDM/NRF endpoint indexing gap in `docs/architecture/api/_index.md` — STORY-020 shipped `/nausf-auth/v1/ue-authentications[*]`, `/nudm-ueau/v1/*`, `/nudm-uecm/v1/*`, `/nnrf-nfm/v1/*` but these were never added to the API index (file has no SBA section at all). STORY-092 Review added only its own Nsmf mock (API-304 + API-305) under scope discipline. STORY-089 will absorb the SBA mock into the operator-sim container and is the logical home for a holistic SBA section re-sweep (AUSF + UDM + NRF + NSMF). | STORY-089 | ✓ RESOLVED (2026-04-18) |
 | D-040 | STORY-089 Gate F-A4 | `cmd/operator-sim/main.go:27` creates a bootstrap `initLogger("info","console")` before `config.Load`, then re-initializes with config-driven level/format on line 33. If `config.Load` fails, the intended log.level/format is ignored for the Fatal path. Standard two-phase init pattern — no correctness impact — but consolidating into a single config-aware stderr logger would remove the minor duplication. Scope: design-level cleanup, not a runtime bug. | future log-hygiene story | OPEN |
+| D-041 | FIX-201 Gate F-A4 | FE `BulkJobResponse` type (`web/src/types/sim.ts:161-165`) is narrow — fields are `{ job_id, total_sims, status }`. The segment branch actually returns `estimated_count` instead of `total_sims`, so segment-based bulk responses surface `undefined` for `total_sims`. Should be a discriminated union covering both the sim_ids shape (`total_sims`) and the segment shape (`estimated_count`). Current FE call sites use sim_ids path so no runtime regression today, but type correctness breaks the moment a segment flow is wired. | FIX-216 | OPEN |
+| D-042 | FIX-201 Gate F-A5 | AC-12 10K-SIM p95<30s performance verification is documented as a 5-step manual procedure in `internal/api/sim/bulk_integration_test.go:68-79` but not automated and no captured evidence. Run once before launch cutover against `make infra-up` + seeded 10K SIMs, record job.completed_at − created_at duration, attach output. | POST-GA launch-readiness | OPEN |
+| D-043 | FIX-201 Gate F-B1 | Bulk job processors (`BulkStateChangeProcessor`, `BulkPolicyAssignProcessor`, `BulkEsimSwitchProcessor`) cannot be unit-tested at `Process()` level because they hold concrete `*store.JobStore` / `*store.SIMStore` dependencies with no interface substitution point exposed from the `job` package. Helper-level tests (audit emit, CoA dispatch) and handler-level tests (payload shape) cover the contract edges, but the full dequeue → fetch → transition → write round-trip has no automated coverage. Introduce store interfaces in the job package so `Process()` can be driven by test doubles. Cross-cutting refactor — warrants its own story. | future test-infra story | OPEN |
+| D-044 | FIX-201 Review — FE hook `reason` gap | `web/src/hooks/use-sims.ts:258-281` (`useBulkPolicyAssign`) does not include `reason` in the POST body to `/sims/bulk/policy-assign`. Backend `BulkPolicyAssignPayload.Reason` propagation was fixed in FIX-201 Gate (F-A1), but the FE hook never wired the field. Audit entries for bulk policy-assign will emit `reason=""` until fixed. Same applies for `bulk/operator-switch` which has no dedicated hook yet in this file. FIX-216 (Modal Pattern Standardization) touches the same hooks and is the logical home for this patch. | FIX-216 | OPEN |
+| D-045 | FIX-201 Review — `SERVICE_DEGRADED` missing from apierr constants | `internal/api/sim/bulk_handler.go:90` uses raw string literal `"SERVICE_DEGRADED"` (kill-switch branch). `docs/architecture/ERROR_CODES.md` code block lists `CodeServiceDegraded` as the Go constant name but `internal/apierr/apierr.go` defines no such constant. Pre-existing gap surfaced when FIX-201 Task 10 added `SERVICE_DEGRADED` to the `bulk-actions.md` error catalog. No runtime regression (correct HTTP 503 returned). Fix: add `CodeServiceDegraded = "SERVICE_DEGRADED"` to `apierr.go` and replace the raw string in all handler callsites in a single error-code hygiene sweep. | future error-code hygiene story | OPEN |
 
 ---
 

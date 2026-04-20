@@ -99,6 +99,7 @@ type RouterDeps struct {
 	KillSwitchSvc           killSwitchChecker
 	APIKeyStore      *store.APIKeyStore
 	TenantLimits     *TenantLimitsMiddleware
+	BulkRateLimiter  *BulkRateLimiter
 	RedisClient      *redis.Client
 	RateLimitPerMinute int
 	RateLimitPerHour   int
@@ -139,6 +140,13 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			return func(next http.Handler) http.Handler { return next }
 		}
 		return deps.TenantLimits.Enforce(resource)
+	}
+
+	var bulkRL func(http.Handler) http.Handler
+	if deps.BulkRateLimiter != nil {
+		bulkRL = deps.BulkRateLimiter.Middleware()
+	} else {
+		bulkRL = func(next http.Handler) http.Handler { return next }
 	}
 
 	r.Use(RecoveryWithZerolog(deps.Logger))
@@ -497,7 +505,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("sim_manager"))
 			r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
-			r.Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
+			r.With(bulkRL).Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -506,7 +514,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			}
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("policy_editor"))
-			r.Post("/api/v1/sims/bulk/policy-assign", deps.BulkHandler.PolicyAssign)
+			r.With(bulkRL).Post("/api/v1/sims/bulk/policy-assign", deps.BulkHandler.PolicyAssign)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -515,7 +523,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			}
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
-			r.Post("/api/v1/sims/bulk/operator-switch", deps.BulkHandler.OperatorSwitch)
+			r.With(bulkRL).Post("/api/v1/sims/bulk/operator-switch", deps.BulkHandler.OperatorSwitch)
 		})
 	}
 

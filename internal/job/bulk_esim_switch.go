@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -17,6 +19,7 @@ type BulkEsimSwitchProcessor struct {
 	esimStore *store.ESimProfileStore
 	distLock  *DistributedLock
 	eventBus  *bus.EventBus
+	auditor   audit.Auditor
 	logger    zerolog.Logger
 }
 
@@ -40,6 +43,10 @@ func NewBulkEsimSwitchProcessor(
 	}
 }
 
+func (p *BulkEsimSwitchProcessor) SetAuditor(a audit.Auditor) {
+	p.auditor = a
+}
+
 func (p *BulkEsimSwitchProcessor) Type() string {
 	return JobTypeBulkEsimSwitch
 }
@@ -56,13 +63,49 @@ func (p *BulkEsimSwitchProcessor) Process(ctx context.Context, j *store.Job) err
 	return p.processForward(ctx, j, payload)
 }
 
+// esimSwitchSIM is a unified view of a SIM used inside the forward loop,
+// sourced from either SIMBulkInfo (segment branch) or SIMSummary (sim_ids branch).
+type esimSwitchSIM struct {
+	ID         uuid.UUID
+	ICCID      string
+	SimType    string
+	OperatorID uuid.UUID
+}
+
 func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.Job, payload BulkEsimSwitchPayload) error {
-	simDetails, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
-	if err != nil {
-		return fmt.Errorf("list segment sims: %w", err)
+	var targetSIMs []esimSwitchSIM
+
+	if len(payload.SimIDs) > 0 {
+		summaries, err := p.sims.GetSIMsByIDs(ctx, j.TenantID, payload.SimIDs)
+		if err != nil {
+			return fmt.Errorf("get sims by ids: %w", err)
+		}
+		targetSIMs = make([]esimSwitchSIM, len(summaries))
+		for i, s := range summaries {
+			targetSIMs[i] = esimSwitchSIM{
+				ID:         s.ID,
+				ICCID:      s.ICCID,
+				SimType:    s.SimType,
+				OperatorID: s.OperatorID,
+			}
+		}
+	} else {
+		simDetails, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
+		if err != nil {
+			return fmt.Errorf("list segment sims: %w", err)
+		}
+		targetSIMs = make([]esimSwitchSIM, len(simDetails))
+		for i, s := range simDetails {
+			targetSIMs[i] = esimSwitchSIM{
+				ID:         s.ID,
+				ICCID:      s.ICCID,
+				SimType:    s.SimType,
+				OperatorID: s.OperatorID,
+			}
+		}
 	}
 
-	total := len(simDetails)
+	total := len(targetSIMs)
 	if total == 0 {
 		result, _ := json.Marshal(BulkResult{TotalCount: 0})
 		return p.jobs.Complete(ctx, j.ID, nil, result)
@@ -79,7 +122,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 
 	holderID := j.ID.String()
 
-	for i, sim := range simDetails {
+	for i, sim := range targetSIMs {
 		if (i+1)%bulkBatchSize == 0 {
 			cancelled, checkErr := p.jobs.CheckCancelled(ctx, j.ID)
 			if checkErr == nil && cancelled {
@@ -141,6 +184,9 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 			continue
 		}
 
+		previousOperatorID := sim.OperatorID
+		previousEnabledProfileID := enabledProfile.ID
+
 		targetProfiles, _, listErr := p.esimStore.List(ctx, j.TenantID, store.ListESimProfilesParams{
 			SimID:      &sim.ID,
 			OperatorID: &payload.TargetOperatorID,
@@ -191,11 +237,61 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 			NewProfileID:       targetProfile.ID,
 			PreviousOperatorID: sim.OperatorID,
 		})
+
+		p.emitSwitchAudit(ctx, j, sim.ID, previousOperatorID, previousEnabledProfileID, payload.TargetOperatorID, targetProfile.ID, payload.Reason)
+
 		processed++
 		p.publishProgress(ctx, j, processed, failed, total, i)
 	}
 
 	return p.completeJob(ctx, j, processed, failed, total, errors, undoRecords)
+}
+
+func (p *BulkEsimSwitchProcessor) emitSwitchAudit(
+	ctx context.Context,
+	j *store.Job,
+	simID uuid.UUID,
+	previousOperatorID uuid.UUID,
+	previousProfileID uuid.UUID,
+	targetOperatorID uuid.UUID,
+	targetProfileID uuid.UUID,
+	reason string,
+) {
+	if p.auditor == nil {
+		return
+	}
+
+	beforeData, _ := json.Marshal(map[string]any{
+		"operator_id": previousOperatorID.String(),
+		"profile_id":  previousProfileID.String(),
+	})
+
+	afterMap := map[string]any{
+		"operator_id": targetOperatorID.String(),
+		"profile_id":  targetProfileID.String(),
+	}
+	if reason != "" {
+		afterMap["reason"] = reason
+	}
+	afterData, _ := json.Marshal(afterMap)
+
+	corrID := j.ID
+	_, auditErr := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      j.TenantID,
+		UserID:        j.CreatedBy,
+		Action:        "sim.operator_switch",
+		EntityType:    "sim",
+		EntityID:      simID.String(),
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		CorrelationID: &corrID,
+	})
+	if auditErr != nil {
+		p.logger.Warn().Err(auditErr).
+			Str("sim_id", simID.String()).
+			Str("job_id", j.ID.String()).
+			Msg("audit write failed for bulk esim switch — continuing")
+	}
 }
 
 func (p *BulkEsimSwitchProcessor) processUndo(ctx context.Context, j *store.Job, payload BulkEsimSwitchPayload) error {

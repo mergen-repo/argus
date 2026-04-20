@@ -13,6 +13,7 @@ import type {
   SIMCDR,
   ListResponse,
   ApiResponse,
+  BulkJobResponse,
 } from '@/types/sim'
 
 const SIMS_KEY = ['sims'] as const
@@ -241,12 +242,12 @@ export function useBulkStateChange() {
       targetState: string
       reason?: string
     }) => {
-      const res = await api.post('/sims/bulk/state-change', {
+      const res = await api.post<ApiResponse<BulkJobResponse>>('/sims/bulk/state-change', {
         ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
         target_state: targetState,
         reason,
       })
-      return res.data
+      return res.data.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
@@ -267,11 +268,11 @@ export function useBulkPolicyAssign() {
       segmentId?: string
       policyVersionId: string
     }) => {
-      const res = await api.post('/sims/bulk/policy-assign', {
+      const res = await api.post<ApiResponse<BulkJobResponse>>('/sims/bulk/policy-assign', {
         ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
         policy_version_id: policyVersionId,
       })
-      return res.data
+      return res.data.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })

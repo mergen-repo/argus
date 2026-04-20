@@ -10,7 +10,8 @@ type BulkOpError struct {
 }
 
 type BulkStateChangePayload struct {
-	SegmentID   uuid.UUID          `json:"segment_id"`
+	SegmentID   uuid.UUID          `json:"segment_id,omitempty"`
+	SimIDs      []uuid.UUID        `json:"sim_ids,omitempty"`
 	TargetState string             `json:"target_state"`
 	Reason      *string            `json:"reason,omitempty"`
 	UndoRecords []StateUndoRecord  `json:"undo_records,omitempty"`
@@ -22,9 +23,11 @@ type StateUndoRecord struct {
 }
 
 type BulkPolicyAssignPayload struct {
-	SegmentID       uuid.UUID            `json:"segment_id"`
-	PolicyVersionID uuid.UUID            `json:"policy_version_id"`
-	UndoRecords     []PolicyUndoRecord   `json:"undo_records,omitempty"`
+	SegmentID       uuid.UUID          `json:"segment_id,omitempty"`
+	SimIDs          []uuid.UUID        `json:"sim_ids,omitempty"`
+	PolicyVersionID uuid.UUID          `json:"policy_version_id"`
+	Reason          string             `json:"reason,omitempty"`
+	UndoRecords     []PolicyUndoRecord `json:"undo_records,omitempty"`
 }
 
 type PolicyUndoRecord struct {
@@ -33,10 +36,12 @@ type PolicyUndoRecord struct {
 }
 
 type BulkEsimSwitchPayload struct {
-	SegmentID        uuid.UUID          `json:"segment_id"`
-	TargetOperatorID uuid.UUID          `json:"target_operator_id"`
-	TargetAPNID      uuid.UUID          `json:"target_apn_id"`
-	UndoRecords      []EsimUndoRecord   `json:"undo_records,omitempty"`
+	SegmentID        uuid.UUID        `json:"segment_id,omitempty"`
+	SimIDs           []uuid.UUID      `json:"sim_ids,omitempty"`
+	TargetOperatorID uuid.UUID        `json:"target_operator_id"`
+	TargetAPNID      uuid.UUID        `json:"target_apn_id"`
+	Reason           string           `json:"reason,omitempty"`
+	UndoRecords      []EsimUndoRecord `json:"undo_records,omitempty"`
 }
 
 type EsimUndoRecord struct {
