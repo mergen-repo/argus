@@ -355,6 +355,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 				[]map[string]string{{"field": "imsi", "value": req.IMSI}})
 			return
 		}
+		var refErr *store.InvalidReferenceError
+		if errors.As(err, &refErr) {
+			field := refErr.Column
+			if field == "" {
+				field = "reference"
+			}
+			// Map column name -> referenced entity for a plan-aligned message
+			// (e.g. "operator_id does not reference an existing operator").
+			entity := field
+			switch field {
+			case "operator_id":
+				entity = "operator"
+			case "apn_id":
+				entity = "apn"
+			case "ip_address_id":
+				entity = "ip_address"
+			}
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidReference,
+				field+" does not reference an existing "+entity,
+				[]map[string]string{{"field": field, "constraint": refErr.Constraint}})
+			return
+		}
 		h.logger.Error().Err(err).Msg("create sim")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return

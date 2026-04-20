@@ -172,6 +172,9 @@ func (s *SIMStore) Create(ctx context.Context, tenantID uuid.UUID, p CreateSIMPa
 			}
 			return nil, ErrICCIDExists
 		}
+		if refErr, ok := asInvalidReference(err, simsFKConstraintColumn); ok {
+			return nil, refErr
+		}
 		return nil, fmt.Errorf("store: create sim: %w", err)
 	}
 	return sim, nil

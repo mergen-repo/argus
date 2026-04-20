@@ -452,3 +452,124 @@ func TestIPPoolStore_RecountUsedAddresses_TenantScoping(t *testing.T) {
 
 	_ = tenantB // silence unused if the above asserts evolve
 }
+
+// TestIPPoolStore_FIX105_SeedInventoryCoverage is the FIX-105 regression test:
+// after db-seed, every ip_pools row created by seed 003 / 005 / 006 must have
+// ip_addresses rows covering its full usable CIDR (network + broadcast
+// excluded). Previously POOL_EXHAUSTED on POST /sims/{id}/activate against a
+// freshly seeded DB — UAT Batch 1 F-15. Fails on pre-fix DB (zero ip_addresses
+// rows for seed-003 pools); passes after seed 005a provisions inventory.
+func TestIPPoolStore_FIX105_SeedInventoryCoverage(t *testing.T) {
+	pool := testIPPoolPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+
+	rows, err := pool.Query(ctx, `
+		SELECT p.id, p.name, p.cidr_v4::text, masklen(p.cidr_v4) AS mask,
+		       (SELECT COUNT(*) FROM ip_addresses a WHERE a.pool_id = p.id) AS inventory
+		FROM ip_pools p
+		WHERE p.cidr_v4 IS NOT NULL AND masklen(p.cidr_v4) <= 30`)
+	if err != nil {
+		t.Fatalf("query pools: %v", err)
+	}
+	defer rows.Close()
+
+	checked := 0
+	for rows.Next() {
+		var id uuid.UUID
+		var name, cidr string
+		var mask, inventory int
+		if err := rows.Scan(&id, &name, &cidr, &mask, &inventory); err != nil {
+			t.Fatalf("scan pool: %v", err)
+		}
+		expected := (1 << (32 - mask)) - 2
+		if inventory < expected {
+			t.Errorf("FIX-105: pool %s (%s /%d) has %d ip_addresses rows, want >= %d",
+				name, cidr, mask, inventory, expected)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Skip("no seeded pools to check (DB may be empty or unseeded)")
+	}
+}
+
+// TestIPPoolStore_FIX105_AllocateReleaseCycle covers AC-4 and AC-5:
+// AllocateIP increments used_addresses; ReleaseIP (dynamic branch) returns
+// the IP to 'available' and decrements the counter. Uses an isolated fixture
+// so the assertion is deterministic without depending on seed data.
+func TestIPPoolStore_FIX105_AllocateReleaseCycle(t *testing.T) {
+	pool := testIPPoolPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	tenantID, poolID := recountTestFixture(t, pool, 0, 0, 5, 0)
+	s := NewIPPoolStore(pool)
+	ctx := context.Background()
+
+	// Need a real sim row for the check_sim_exists trigger on ip_addresses.
+	var operatorID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM operators LIMIT 1`).Scan(&operatorID); err != nil {
+		t.Fatalf("lookup operator: %v", err)
+	}
+	var simID uuid.UUID
+	imsi := "286010" + uuid.New().String()[:9]
+	iccid := "8990286010" + uuid.New().String()[:12]
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO sims (tenant_id, operator_id, iccid, imsi, sim_type, state)
+		VALUES ($1, $2, $3, $4, 'physical', 'ordered')
+		RETURNING id`, tenantID, operatorID, iccid, imsi).Scan(&simID); err != nil {
+		t.Fatalf("seed sim: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sims WHERE id = $1`, simID)
+	})
+
+	// Pre-condition: used_addresses = 0.
+	var used int
+	if err := pool.QueryRow(ctx,
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolID).Scan(&used); err != nil {
+		t.Fatalf("pre-allocate read: %v", err)
+	}
+	if used != 0 {
+		t.Fatalf("precondition: used_addresses = %d, want 0", used)
+	}
+
+	// Allocate → used should become 1.
+	addr, err := s.AllocateIP(ctx, poolID, simID)
+	if err != nil {
+		t.Fatalf("AllocateIP: %v", err)
+	}
+	if addr == nil || addr.State != "allocated" {
+		t.Fatalf("allocated address state = %v, want 'allocated'", addr)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolID).Scan(&used); err != nil {
+		t.Fatalf("post-allocate read: %v", err)
+	}
+	if used != 1 {
+		t.Errorf("AC-4: used_addresses after AllocateIP = %d, want 1", used)
+	}
+
+	// Release → counter decrements, IP returns to 'available' (dynamic path).
+	if err := s.ReleaseIP(ctx, poolID, simID); err != nil {
+		t.Fatalf("ReleaseIP: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT used_addresses FROM ip_pools WHERE id = $1`, poolID).Scan(&used); err != nil {
+		t.Fatalf("post-release read: %v", err)
+	}
+	if used != 0 {
+		t.Errorf("AC-5: used_addresses after ReleaseIP = %d, want 0", used)
+	}
+	var state string
+	if err := pool.QueryRow(ctx,
+		`SELECT state FROM ip_addresses WHERE id = $1`, addr.ID).Scan(&state); err != nil {
+		t.Fatalf("re-read ip_address: %v", err)
+	}
+	if state != "available" {
+		t.Errorf("AC-5: ip_address state after ReleaseIP = %q, want 'available'", state)
+	}
+}

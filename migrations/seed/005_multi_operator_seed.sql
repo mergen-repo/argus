@@ -29,7 +29,7 @@ VALUES (
     'admin@abc.local',
     100000, 100, 50,
     'active'
-) ON CONFLICT (domain) DO NOTHING;
+) ON CONFLICT DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────
 -- OPERATORS — Turkcell, Vodafone TR, Türk Telekom

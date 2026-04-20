@@ -16,6 +16,15 @@
 -- IMSI format: <mcc:3><mnc:2>0<tenant_digit:1><seq:3> (10 digits).
 -- ICCID format: 8990<mcc><mnc>0000<tenant_digit>0<seq:3>XXXX (22 digits).
 -- MSISDN format: +905<op>0<tenant><seq:4>.
+--
+-- FIX-206: Operator UUID typo fix (2026-04-20)
+--   Old (wrong): 00000000-0000-0000-0000-0000000001{01,02,03}
+--   New (correct, matches seed 005/operators table):
+--     Turkcell    20000000-0000-0000-0000-000000000001
+--     Vodafone TR 20000000-0000-0000-0000-000000000002
+--     Türk Telekom 20000000-0000-0000-0000-000000000003
+-- APN UUIDs (...-301/302/303/311/312/313) are correct — NOT changed.
+-- APN-operator alignment verified against seed 005: all pairs match.
 
 BEGIN;
 
@@ -76,7 +85,7 @@ WHERE NOT EXISTS (
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000101',
+    '20000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000301',
     '8990286010000100' || lpad(g::text, 3, '0') || '001',
     '286010100' || lpad(g::text, 3, '0'),
@@ -91,7 +100,7 @@ ON CONFLICT (imsi, operator_id) DO NOTHING;
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000102',
+    '20000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000302',
     '8990286020000100' || lpad(g::text, 3, '0') || '001',
     '286020100' || lpad(g::text, 3, '0'),
@@ -106,7 +115,7 @@ ON CONFLICT (imsi, operator_id) DO NOTHING;
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000103',
+    '20000000-0000-0000-0000-000000000003',
     '00000000-0000-0000-0000-000000000303',
     '8990286030000100' || lpad(g::text, 3, '0') || '001',
     '286030100' || lpad(g::text, 3, '0'),
@@ -121,7 +130,7 @@ ON CONFLICT (imsi, operator_id) DO NOTHING;
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000002',
-    '00000000-0000-0000-0000-000000000101',
+    '20000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000311',
     '8990286010000200' || lpad(g::text, 3, '0') || '001',
     '286010200' || lpad(g::text, 3, '0'),
@@ -136,7 +145,7 @@ ON CONFLICT (imsi, operator_id) DO NOTHING;
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000002',
-    '00000000-0000-0000-0000-000000000102',
+    '20000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000312',
     '8990286020000200' || lpad(g::text, 3, '0') || '001',
     '286020200' || lpad(g::text, 3, '0'),
@@ -151,7 +160,7 @@ ON CONFLICT (imsi, operator_id) DO NOTHING;
 INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, msisdn, sim_type, state, rat_type, activated_at)
 SELECT
     '00000000-0000-0000-0000-000000000002',
-    '00000000-0000-0000-0000-000000000103',
+    '20000000-0000-0000-0000-000000000003',
     '00000000-0000-0000-0000-000000000313',
     '8990286030000200' || lpad(g::text, 3, '0') || '001',
     '286030200' || lpad(g::text, 3, '0'),

@@ -49,5 +49,42 @@ F-22 (partial — SIM orphan), F-63, F-81, F-83, F-93
 - Integration: attempt insert with invalid operator_id → 400
 - Browser: no orphan UUIDs in SIM list
 
+## USERTEST — AC-1 Audit Trail Verification
+
+**Scenario 1 — where to find the audit trail**
+
+AC-1 requires "audit log entry per SIM" for each orphan that was reconciled.
+Per the plan's Risk 3 hashchain decision, Migration A uses Option B (RAISE
+NOTICE) instead of writing to the `audit_logs` table directly — the audit_logs
+hashchain is GLOBAL and computed in Go (`internal/audit/audit.go
+ComputeHash`), which cannot be safely replicated in PL/pgSQL without breaking
+the chain for all tenants. The audit trail therefore lives in two places, and
+operators verifying AC-1 should check both:
+
+1. **Postgres migration-run log (primary)** — each `RAISE NOTICE` is captured
+   when `argus migrate up` runs. Grep the container logs for `FIX-206 audit:`:
+   ```bash
+   docker compose logs argus | grep 'FIX-206 audit:'
+   ```
+   Each suspended or remapped SIM emits one line with `sim_id`, `iccid`,
+   `tenant_id`, source and destination `operator_id`, and previous `state`.
+
+2. **`sims.metadata -> fix_206_orphan_cleanup` JSONB (forensic)** — each row
+   touched by Migration A has a structured JSONB entry preserved on the row
+   itself:
+   ```sql
+   SELECT id, iccid, metadata -> 'fix_206_orphan_cleanup'
+   FROM sims
+   WHERE metadata ? 'fix_206_orphan_cleanup';
+   ```
+   Entries have `action` (`remap_operator_id` | `suspend_unknown_orphan`),
+   `reason`, timestamps, and src/dst operator_ids (remap) or prev_state
+   (suspend). This record is durable: subsequent app-level audit queries can
+   reconstruct the cleanup without relying on container logs.
+
+Both artifacts together satisfy AC-1 "audit log entry per SIM" with the
+non-negotiable constraint that the global audit_logs hashchain remains
+untouched.
+
 ## Plan Reference
 Priority: P0 · Effort: M · Wave: 1

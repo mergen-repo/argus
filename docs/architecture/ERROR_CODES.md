@@ -76,6 +76,7 @@ For `ACCOUNT_LOCKED`, the `details` array includes retry information:
 |------|-------------|-------------|------------------|
 | `VALIDATION_ERROR` | 422 | Request body or query parameters failed validation. `details` array lists all field errors. | See below |
 | `INVALID_FORMAT` | 400 | Request body is malformed (not valid JSON, wrong content-type, etc.) | `{"status":"error","error":{"code":"INVALID_FORMAT","message":"Request body is not valid JSON"}}` |
+| `INVALID_REFERENCE` | 400 | A foreign-key reference in the request body points at a non-existent record. Defensive duplicate of handler-layer NOT_FOUND checks — emitted only when the FK would otherwise violate at DB (SQLSTATE 23503). `details[0].field` names the offending column (`operator_id`, `apn_id`, `ip_address_id`); `details[0].constraint` names the DB constraint. Added FIX-206. | `{"status":"error","error":{"code":"INVALID_REFERENCE","message":"operator_id does not reference an existing operator","details":[{"field":"operator_id","constraint":"fk_sims_operator"}]}}` |
 
 ### Validation Error Details
 
@@ -290,8 +291,9 @@ const (
     CodeScopeDenied      = "SCOPE_DENIED"
 
     // Validation
-    CodeValidationError = "VALIDATION_ERROR"
-    CodeInvalidFormat   = "INVALID_FORMAT"
+    CodeValidationError  = "VALIDATION_ERROR"
+    CodeInvalidFormat    = "INVALID_FORMAT"
+    CodeInvalidReference = "INVALID_REFERENCE"  // FIX-206 (FK violation translation)
 
     // Resource
     CodeNotFound      = "NOT_FOUND"

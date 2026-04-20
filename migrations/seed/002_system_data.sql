@@ -1,6 +1,8 @@
 -- SEED-02: System Initial Data
 -- Idempotent: all entries use ON CONFLICT DO NOTHING
 
+BEGIN;
+
 -- Mock operator (for development/testing)
 -- STORY-090 Wave 2 D2-B: adapter_type column dropped; adapter_config
 -- carries the nested per-protocol enablement flags.
@@ -17,7 +19,7 @@ VALUES (
     ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
     'healthy',
     'active'
-) ON CONFLICT (code) DO NOTHING;
+) ON CONFLICT DO NOTHING;
 
 -- Grant mock operator to demo tenant
 INSERT INTO operator_grants (id, tenant_id, operator_id, enabled)
@@ -41,3 +43,5 @@ BEGIN
     END IF;
 END
 $$;
+
+COMMIT;

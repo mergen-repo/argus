@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -170,41 +171,64 @@ func TestSIMStore_ListEnriched_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
-func TestSIMStore_ListEnriched_OrphanOperator(t *testing.T) {
+// TestSIMStore_ListEnriched_OrphanOperator_Blocked is the FIX-206 successor to
+// the original ListEnriched_OrphanOperator test. Before FIX-206 there was no FK
+// on sims.operator_id, so the test inserted a SIM with a ghost operator_id and
+// asserted the ListEnriched LEFT JOIN returned NULL operator_name/code for it.
+//
+// After FIX-206 (migration 20260420000002_sims_fk_constraints), orphan-operator
+// rows are structurally impossible: fk_sims_operator rejects the INSERT with
+// SQLSTATE 23503. The DTO "unknown operator" fallback code path (LEFT JOIN +
+// NULL-safe COALESCE in ListEnriched) is still present and exercised by
+// TestSIMStore_ListEnriched_NoPolicy and by production rows where a race
+// between handler validation and operator delete is still theoretically
+// possible — it just can't be provoked by a simple INSERT in a unit test
+// anymore.
+//
+// This test preserves the regression-guard value of the original by asserting
+// the FK is in fact present and rejects the ghost-operator INSERT with the
+// store-typed ErrInvalidReference.
+func TestSIMStore_ListEnriched_OrphanOperator_Blocked(t *testing.T) {
 	pool := testSIMEnrichedPool(t)
 	if pool == nil {
 		t.Skip("no test database available (set DATABASE_URL)")
 	}
-	s := NewSIMStore(pool)
 	f := seedEnrichedFixture(t, pool)
+	ctx := context.Background()
 
-	// Insert SIM with a non-existent operator_id (no FK on sims.operator_id).
-	// The sims partition table uses LIST by operator_id — sims_default catches unknown IDs.
+	// Ghost operator_id not in operators(id).
 	ghostOperatorID := uuid.New()
-	insertEnrichedSIM(t, pool, f.tenantID, ghostOperatorID, &f.apnID, &f.policyVersionID, 0)
+	nonce := uuid.New().ID() % 1_000_000_000
+	iccid := fmt.Sprintf("89911%02d%09d", 0, nonce)
+	imsi := fmt.Sprintf("28611%02d%08d", 0, nonce%100_000_000)
 
-	results, _, err := s.ListEnriched(context.Background(), f.tenantID, ListSIMsParams{Limit: 10})
-	if err != nil {
-		t.Fatalf("ListEnriched: %v", err)
+	// Direct INSERT: FIX-206 added fk_sims_operator with ON DELETE RESTRICT.
+	// Attempting to insert with a non-existent operator_id must fail with
+	// SQLSTATE 23503 (foreign_key_violation), translated to *InvalidReferenceError
+	// by asInvalidReference() via the store Create path. Here we bypass the
+	// store helper because insertEnrichedSIM uses pool.QueryRow directly; we
+	// attempt the same raw INSERT and assert the PG error.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, sim_type, state, policy_version_id)
+		VALUES ($1, $2, $3, $4, $5, 'physical', 'ordered', $6)`,
+		f.tenantID, ghostOperatorID, &f.apnID, iccid, imsi, &f.policyVersionID,
+	)
+	if err == nil {
+		t.Fatal("expected FK violation on orphan operator_id insert, got nil error " +
+			"— fk_sims_operator may be missing (FIX-206 regression)")
 	}
-	if len(results) == 0 {
-		t.Fatal("expected orphan SIM to be returned (LEFT JOIN), got 0 rows")
-	}
-
-	var found bool
-	for _, sim := range results {
-		if sim.OperatorID == ghostOperatorID {
-			found = true
-			if sim.OperatorName != nil {
-				t.Errorf("OperatorName should be nil for orphan operator, got %q", *sim.OperatorName)
-			}
-			if sim.OperatorCode != nil {
-				t.Errorf("OperatorCode should be nil for orphan operator, got %q", *sim.OperatorCode)
-			}
+	if refErr, ok := asInvalidReference(err, simsFKConstraintColumn); ok {
+		if refErr.Constraint != "fk_sims_operator" {
+			t.Errorf("constraint = %q, want %q", refErr.Constraint, "fk_sims_operator")
 		}
-	}
-	if !found {
-		t.Error("orphan SIM not found in results")
+		if refErr.Column != "operator_id" {
+			t.Errorf("column = %q, want %q", refErr.Column, "operator_id")
+		}
+		if !errors.Is(refErr, ErrInvalidReference) {
+			t.Errorf("refErr should unwrap to ErrInvalidReference")
+		}
+	} else {
+		t.Fatalf("expected *InvalidReferenceError (SQLSTATE 23503), got %T: %v", err, err)
 	}
 }
 

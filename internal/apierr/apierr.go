@@ -35,6 +35,7 @@ const (
 	CodeNotFound           = "NOT_FOUND"
 	CodeConflict           = "CONFLICT"
 	CodeAlreadyExists      = "ALREADY_EXISTS"
+	CodeInvalidReference   = "INVALID_REFERENCE"
 	CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"
 	CodeMSISDNNotAvailable = "MSISDN_NOT_AVAILABLE"
 

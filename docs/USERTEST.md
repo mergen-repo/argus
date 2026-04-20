@@ -2869,3 +2869,82 @@ done
 ```
 
 Expected: Requests 1–60 return 200. Request 61 returns 429 with `{"error":{"code":"RATE_LIMITED",...}}`.
+
+---
+
+## FIX-206: Orphan Operator IDs + FK Constraints + Seed Fix
+
+Backend + migration story. No UI surface changes; manual verification is DB-level.
+
+### Scenario 1 — AC-4: Fresh-volume `make db-seed` produces zero orphan references
+
+```bash
+# Fresh volume: drop + recreate argus DB, then migrate+seed.
+docker exec argus-postgres psql -U argus -d postgres -c "
+  SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+   WHERE datname='argus' AND pid <> pg_backend_pid();
+  DROP DATABASE IF EXISTS argus;
+  CREATE DATABASE argus OWNER argus;"
+docker compose -f deploy/docker-compose.yml exec argus /app/argus migrate up
+docker compose -f deploy/docker-compose.yml exec argus /app/argus seed
+
+# Verify zero orphans across operator / apn / ip_address.
+docker exec argus-postgres psql -U argus -d argus -c "
+  SELECT
+    (SELECT COUNT(*) FROM sims s WHERE NOT EXISTS (SELECT 1 FROM operators o WHERE o.id = s.operator_id)) AS orphan_operator,
+    (SELECT COUNT(*) FROM sims s WHERE s.apn_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM apns a WHERE a.id = s.apn_id)) AS orphan_apn,
+    (SELECT COUNT(*) FROM sims s WHERE s.ip_address_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ip_addresses i WHERE i.id = s.ip_address_id)) AS orphan_ip;"
+```
+
+Expected: all three counts = 0. Total SIM count > 0 (seeds did run).
+
+### Scenario 2 — AC-2/AC-3: Three FK constraints installed on `sims`
+
+```bash
+docker exec argus-postgres psql -U argus -d argus -c "
+  SELECT conname, pg_get_constraintdef(oid)
+  FROM pg_constraint
+  WHERE conrelid='sims'::regclass AND contype='f'
+    AND conname LIKE 'fk_sims_%'
+  ORDER BY conname;"
+```
+
+Expected (3 rows):
+- `fk_sims_apn | FOREIGN KEY (apn_id) REFERENCES apns(id) ON DELETE SET NULL`
+- `fk_sims_ip_address | FOREIGN KEY (ip_address_id) REFERENCES ip_addresses(id) ON DELETE SET NULL`
+- `fk_sims_operator | FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE RESTRICT`
+
+### Scenario 3 — AC-7: FK violation surfaces as HTTP 400 `INVALID_REFERENCE`
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# The handler-layer 404 is the primary path. To hit the FK-violation 400,
+# we need a request whose operator_id is UUID-parseable and passes the
+# operator GetByID check but then vanishes. In normal operation this is
+# a race. For manual repro, use an unused-but-plausible UUID — response
+# is 404 NOT_FOUND (primary), confirming the path works end-to-end.
+curl -s -X POST http://localhost:8084/api/v1/sims \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"operator_id":"99999999-9999-9999-9999-999999999999",
+       "apn_id":"00000000-0000-0000-0000-000000000301",
+       "iccid":"8990286010FIX206TEST001","imsi":"28601FIX206T1",
+       "sim_type":"physical"}' | jq .
+```
+
+Expected: 404 response body `{"status":"error","error":{"code":"NOT_FOUND","message":"Operator not found"}}` — the handler-layer check catches the bogus operator_id before the store layer.
+
+Defensive FK path (race-only — validated by `TestFIX206_SIMCreate_FKViolations` integration test with 2 sub-tests) returns HTTP 400 with `code: "INVALID_REFERENCE"` and a field hint pointing at the offending column.
+
+### Scenario 4 — AC-2: `ON DELETE RESTRICT` blocks operator delete while SIMs exist
+
+```bash
+# Should fail — Turkcell has ~133 SIMs referencing it after seed.
+docker exec argus-postgres psql -U argus -d argus -c "
+  DELETE FROM operators WHERE id = '20000000-0000-0000-0000-000000000001';"
+```
+
+Expected: `ERROR: update or delete on table "operators" violates foreign key constraint "fk_sims_operator" on table "sims_turkcell"` (or sibling partition). Cleanup path for operator removal is "reassign SIMs via bulk operator-switch (FIX-201), then delete operator".

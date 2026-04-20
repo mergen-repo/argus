@@ -2,6 +2,7 @@
 -- Realistic Turkish data for all screens
 -- Idempotent: uses ON CONFLICT DO NOTHING / DO UPDATE
 -- Run after 001_admin_user.sql and 002_system_data.sql
+-- Additive: no DELETE/TRUNCATE statements. Re-runs safely skip existing rows.
 --
 -- D-015 (STORY-079): Fresh-volume fix — CHECK constraint violations, NOT RLS
 -- Root cause: migration 20260412000003_enum_check_constraints added chk_* constraints
@@ -14,102 +15,12 @@
 BEGIN;
 
 -- ============================================================
--- CLEANUP: Remove existing test data so seed is idempotent
--- ============================================================
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ota_commands WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM anomalies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM cdrs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sessions WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ip_pools WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM policy_assignments WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-UPDATE policies SET current_version_id = NULL WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM apns WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM jobs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM notifications WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM api_keys WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sim_segments WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM msisdn_pool WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM notification_configs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM operator_grants WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM users WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename='tenant_retention_config') THEN DELETE FROM tenant_retention_config WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'); END IF; END $$;
-DELETE FROM tenants WHERE id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-
--- Clean data for our target tenants too (re-seed from scratch)
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ota_commands WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM anomalies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM cdrs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sessions WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ip_pools WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-UPDATE policies SET current_version_id = NULL WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM apns WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM jobs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM notifications WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM api_keys WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sim_segments WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM msisdn_pool WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM notification_configs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM audit_logs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM operator_grants WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM users WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename='tenant_retention_config') THEN DELETE FROM tenant_retention_config WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'); END IF; END $$;
-
--- Clean Argus Demo tenant data (full re-seed)
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM anomalies WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM ota_commands WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM cdrs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sessions WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM ip_pools WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id = '00000000-0000-0000-0000-000000000001');
-UPDATE policies SET current_version_id = NULL WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM apns WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policies WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM jobs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM notifications WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM api_keys WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sim_segments WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM msisdn_pool WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM notification_configs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM audit_logs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM operator_grants WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM operator_grants WHERE operator_id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef';
-DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND email != 'admin@argus.io');
-DELETE FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND email != 'admin@argus.io';
-
--- Remove old test operator that conflicts with Turkcell mcc/mnc
-DELETE FROM operator_health_logs WHERE operator_id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef';
-DELETE FROM operators WHERE id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef' AND code = 'TOPG';
-
--- ============================================================
 -- TENANTS (2 tenants + existing Argus Demo)
 -- ============================================================
 INSERT INTO tenants (id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, state) VALUES
 ('10000000-0000-0000-0000-000000000001', 'Nar Teknoloji', 'nar.com.tr', 'info@nar.com.tr', '+902125551234', 500000, 200, 100, 'active'),
 ('10000000-0000-0000-0000-000000000002', 'Bosphorus IoT', 'bosphorus-iot.com', 'admin@bosphorus-iot.com', '+902163339876', 200000, 100, 50, 'active')
-ON CONFLICT (domain) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- OPERATORS (3 Turkish operators)
@@ -141,7 +52,7 @@ INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url,
  '{"radius":{"enabled":true,"shared_secret":"tt-secret","listen_addr":":1812","host":"radius.turktelekom.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turk_telekom","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
  'https://smdp.turktelekom.com.tr/api/v1',
  ARRAY['lte','nr_5g'], 'degraded', 'queue', 'active')
-ON CONFLICT (code) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Create SIM partitions for operators
 DO $$
@@ -476,7 +387,7 @@ UPDATE sims SET esim_profile_id = '80000000-0000-0000-0000-000000000014' WHERE i
 -- SESSIONS (50+ active, 200+ historical)
 -- ============================================================
 
--- Active sessions for Nar Teknoloji SIMs
+-- Active sessions for Nar Teknoloji SIMs (guarded: skip if sessions already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -504,9 +415,10 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 35;
 
--- Active sessions for Bosphorus IoT SIMs
+-- Active sessions for Bosphorus IoT SIMs (guarded: skip if sessions already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -534,9 +446,11 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000002'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000002' LIMIT 1)
 LIMIT 20;
 
 -- Historical sessions (ended, spanning 30 days)
+-- Historical sessions (guarded: skip if already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, ended_at, terminate_cause, bytes_in, bytes_out, packets_in, packets_out)
 SELECT
     gen_random_uuid(),
@@ -564,11 +478,13 @@ CROSS JOIN generate_series(1, 7) AS gs(i)
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000001' AND session_state = 'closed' LIMIT 1)
 LIMIT 200;
 
 -- ============================================================
 -- CDRs (500+ records, spanning 30 days)
 -- ============================================================
+-- CDRs (guarded: skip if CDRs already seeded for these tenants)
 INSERT INTO cdrs (session_id, sim_id, tenant_id, operator_id, apn_id, rat_type, record_type, bytes_in, bytes_out, duration_sec, usage_cost, carrier_cost, rate_per_mb, rat_multiplier, timestamp)
 SELECT
     sess.id,
@@ -594,9 +510,10 @@ SELECT
     sess.started_at + (random() * COALESCE(sess.ended_at - sess.started_at, INTERVAL '4 hours'))
 FROM sessions sess
 WHERE sess.tenant_id IN ('10000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002')
+  AND NOT EXISTS (SELECT 1 FROM cdrs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 500;
 
--- Additional CDRs to fill 30 days of chart data
+-- Additional CDRs to fill 30 days of chart data (guarded)
 INSERT INTO cdrs (session_id, sim_id, tenant_id, operator_id, apn_id, rat_type, record_type, bytes_in, bytes_out, duration_sec, usage_cost, carrier_cost, rate_per_mb, rat_multiplier, timestamp)
 SELECT
     sess.id,
@@ -622,6 +539,7 @@ CROSS JOIN LATERAL (
     ORDER BY random()
     LIMIT 5
 ) sess
+WHERE NOT EXISTS (SELECT 1 FROM cdrs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
@@ -750,7 +668,7 @@ INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title
 ('B0000000-0000-0000-0000-000000000027', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'operator_degraded', 'operator', 'Turk Telekom Degraded', 'Turk Telekom operatoru degraded durumda. Etkilenen SIM''ler icin failover aktif.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 
--- Generate more notifications to reach 50+
+-- Generate more notifications to reach 50+ (guarded: skip if already seeded)
 INSERT INTO notifications (tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at)
 SELECT
     '10000000-0000-0000-0000-000000000001',
@@ -764,7 +682,8 @@ SELECT
     CASE WHEN random() > 0.3 THEN 'read' ELSE 'unread' END,
     CASE WHEN random() > 0.3 THEN NOW() - (i * INTERVAL '2 hours') ELSE NULL END,
     NOW() - (i * INTERVAL '3 hours')
-FROM generate_series(1, 25) AS s(i);
+FROM generate_series(1, 25) AS s(i)
+WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE tenant_id = '10000000-0000-0000-0000-000000000001' AND title LIKE 'Sistem Bildirimi #%' LIMIT 1);
 
 -- ============================================================
 -- API KEYS (3+ per tenant)
@@ -881,6 +800,7 @@ ON CONFLICT DO NOTHING;
 -- ============================================================
 -- OPERATOR HEALTH LOGS (recent entries)
 -- ============================================================
+-- Operator health logs (guarded: skip if already seeded)
 INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
 SELECT
     op_id::uuid,
@@ -908,7 +828,8 @@ FROM (VALUES
     ('20000000-0000-0000-0000-000000000002'),
     ('20000000-0000-0000-0000-000000000003')
 ) AS ops(op_id)
-CROSS JOIN generate_series(1, 20) AS gs(i);
+CROSS JOIN generate_series(1, 20) AS gs(i)
+WHERE NOT EXISTS (SELECT 1 FROM operator_health_logs LIMIT 1);
 
 -- ============================================================
 -- ANOMALIES (variety of types and states)
@@ -971,6 +892,7 @@ DO $guard$ BEGIN
 EXCEPTION WHEN undefined_object THEN NULL;
 END $guard$;
 
+-- Audit logs (guarded: skip if already seeded)
 DO $$
 DECLARE
     prev_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
@@ -989,7 +911,10 @@ DECLARE
     users_bio UUID[] := ARRAY['40000000-0000-0000-0000-000000000011'::uuid, '40000000-0000-0000-0000-000000000012'::uuid, '40000000-0000-0000-0000-000000000013'::uuid, '40000000-0000-0000-0000-000000000014'::uuid];
     actions TEXT[] := ARRAY['sim.create', 'sim.activate', 'sim.suspend', 'sim.terminate', 'apn.create', 'apn.update', 'policy.create', 'policy.activate', 'policy.rollout', 'user.login', 'user.login_failed', 'api_key.create', 'job.create', 'job.complete', 'session.start', 'session.end', 'ip_pool.allocate', 'notification.send', 'operator.health_check', 'sim.bulk_import'];
     entity_types TEXT[] := ARRAY['sim', 'sim', 'sim', 'sim', 'apn', 'apn', 'policy', 'policy', 'policy_rollout', 'user', 'user', 'api_key', 'job', 'job', 'session', 'session', 'ip_address', 'notification', 'operator', 'job'];
+    already_seeded BOOLEAN;
 BEGIN
+    SELECT EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1) INTO already_seeded;
+    IF already_seeded THEN RETURN; END IF;
     FOR i IN 1..250 LOOP
         IF i % 3 != 0 THEN
             t_id := tenants_arr[1];
@@ -1269,7 +1194,7 @@ SELECT
 FROM generate_series(1, 20) AS s(i)
 ON CONFLICT DO NOTHING;
 
--- Active sessions for Demo tenant SIMs
+-- Active sessions for Demo tenant SIMs (guarded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -1297,6 +1222,7 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '00000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '00000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 25;
 
 -- Historical sessions for Demo tenant

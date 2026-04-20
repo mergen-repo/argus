@@ -113,6 +113,11 @@ Indexes:
 - `idx_sims_tenant_policy` on (tenant_id, policy_version_id)
 - `idx_sims_purge` on (purge_at) WHERE state = 'terminated'
 
+Foreign Keys (FIX-206, migrations/20260420000002):
+- `fk_sims_operator` on (operator_id) → `operators(id)` ON DELETE RESTRICT — blocks operator delete while SIMs reference it; enforces "reassign before delete".
+- `fk_sims_apn` on (apn_id) → `apns(id)` ON DELETE SET NULL — APN deletion releases SIMs to default APN at next session.
+- `fk_sims_ip_address` on (ip_address_id) → `ip_addresses(id)` ON DELETE SET NULL — IP release does not block SIM record.
+
 Partitioning:
 ```sql
 CREATE TABLE sims (
