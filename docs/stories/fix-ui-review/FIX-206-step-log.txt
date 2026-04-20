@@ -3,3 +3,5 @@ STEP_2 DEV: EXECUTED | items=6 tasks + 1 mid-flight fix (Migration A fresh-volum
 STEP_2.5 LINT: EXECUTED | items=grep TODO/FIXME/HACK zero hits on changed files | evidence=pre-gate-lint clean | result=PASS
 STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) | evidence=docs/stories/fix-ui-review/FIX-206-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | items=5 findings resolved (4 fixed, 1 deferred to D-065) | evidence=docs/stories/fix-ui-review/FIX-206-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=c784192 files=30 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifacts-verified (plan+gate+review+step-log all present) | evidence=persistence-verified | result=PASS

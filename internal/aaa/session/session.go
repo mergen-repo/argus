@@ -4,13 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
+	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
+
+type ipPoolStore interface {
+	GetIPAddressByID(ctx context.Context, id uuid.UUID) (*store.IPAddress, error)
+	ListByAPN(ctx context.Context, tenantID, apnID uuid.UUID) ([]store.IPPool, error)
+}
 
 const (
 	ProtocolTypeRadius  = "radius"
@@ -86,6 +93,8 @@ type SessionCounters struct {
 type Manager struct {
 	sessionStore *store.RadiusSessionStore
 	simStore     *store.SIMStore
+	ipPoolStore  ipPoolStore
+	metricsReg   *metrics.Registry
 	redisClient  *redis.Client
 	logger       zerolog.Logger
 }
@@ -110,6 +119,80 @@ func WithSIMStore(simStore *store.SIMStore) ManagerOption {
 	}
 }
 
+func WithIPPoolStore(s *store.IPPoolStore) ManagerOption {
+	return func(m *Manager) {
+		m.ipPoolStore = s
+	}
+}
+
+func WithMetrics(reg *metrics.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.metricsReg = reg
+	}
+}
+
+func (m *Manager) validateFramedIP(ctx context.Context, sim *store.SIM, framedIPStr string) (bool, string) {
+	if framedIPStr == "" {
+		return true, ""
+	}
+
+	framedIP := net.ParseIP(framedIPStr)
+	if framedIP == nil {
+		return false, "unparseable_framed_ip"
+	}
+
+	if sim.IPAddressID != nil {
+		addr, err := m.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
+		if err != nil {
+			m.logger.Warn().Err(err).
+				Str("sim_id", sim.ID.String()).
+				Str("framed_ip", framedIPStr).
+				Msg("validateFramedIP: failed to fetch assigned ip address; skipping validation")
+			return true, ""
+		}
+		var assignedStr string
+		if addr.AddressV4 != nil {
+			assignedStr = net.ParseIP(*addr.AddressV4).String()
+		} else if addr.AddressV6 != nil {
+			assignedStr = net.ParseIP(*addr.AddressV6).String()
+		}
+		if assignedStr != "" && framedIP.String() != assignedStr {
+			return false, "mismatch_assigned_address"
+		}
+		return true, ""
+	}
+
+	if sim.APNID == nil {
+		return true, ""
+	}
+
+	pools, err := m.ipPoolStore.ListByAPN(ctx, sim.TenantID, *sim.APNID)
+	if err != nil {
+		m.logger.Warn().Err(err).
+			Str("sim_id", sim.ID.String()).
+			Str("framed_ip", framedIPStr).
+			Msg("validateFramedIP: failed to list apn pools; skipping validation")
+		return true, ""
+	}
+
+	for _, pool := range pools {
+		if pool.CIDRv4 != nil {
+			_, ipNet, err := net.ParseCIDR(*pool.CIDRv4)
+			if err == nil && ipNet.Contains(framedIP) {
+				return true, ""
+			}
+		}
+		if pool.CIDRv6 != nil {
+			_, ipNet, err := net.ParseCIDR(*pool.CIDRv6)
+			if err == nil && ipNet.Contains(framedIP) {
+				return true, ""
+			}
+		}
+	}
+
+	return false, "outside_apn_pools"
+}
+
 func (m *Manager) Create(ctx context.Context, sess *Session) error {
 	if m.sessionStore != nil {
 		simID, _ := uuid.Parse(sess.SimID)
@@ -121,6 +204,25 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			id, err := uuid.Parse(sess.APNID)
 			if err == nil {
 				apnID = &id
+			}
+		}
+
+		if m.ipPoolStore != nil && m.simStore != nil && simID != uuid.Nil && tenantID != uuid.Nil {
+			sim, err := m.simStore.GetByID(ctx, tenantID, simID)
+			if err != nil {
+				m.logger.Warn().Err(err).
+					Str("sim_id", sess.SimID).
+					Msg("session create: failed to fetch SIM for framed_ip validation; skipping")
+			} else if sim != nil {
+				if ok, reason := m.validateFramedIP(ctx, sim, sess.FramedIP); !ok {
+					m.logger.Warn().
+						Str("sim_id", sess.SimID).
+						Str("framed_ip", sess.FramedIP).
+						Str("apn_id", sess.APNID).
+						Str("reason", reason).
+						Msg("session create: framed_ip pool mismatch (AC-3); session allowed to proceed")
+					m.metricsReg.IncFramedIPPoolMismatch(reason)
+				}
 			}
 		}
 

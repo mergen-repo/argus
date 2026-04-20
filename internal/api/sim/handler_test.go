@@ -1,13 +1,19 @@
 package sim
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 func TestToSIMResponse(t *testing.T) {
@@ -453,6 +459,37 @@ func parseInt(s string) (int, error) {
 		n = -n
 	}
 	return n, nil
+}
+
+// TestCreateSIM_RejectsMalformedIMSI verifies that a POST /api/v1/sims request
+// with an invalid IMSI ("abc") returns 400 with error.code = INVALID_IMSI_FORMAT
+// when strict validation is enabled (FIX-207 AC-4).
+func TestCreateSIM_RejectsMalformedIMSI(t *testing.T) {
+	h := &Handler{
+		logger:     zerolog.Nop(),
+		imsiStrict: true,
+	}
+
+	body := `{"iccid":"8990123456789012345","imsi":"abc","operator_id":"550e8400-e29b-41d4-a716-446655440000","apn_id":"550e8400-e29b-41d4-a716-446655440001","sim_type":"physical"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sims", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.Create(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Create(malformed imsi) status = %d, want 400", w.Code)
+	}
+
+	var resp apierr.ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error.Code != apierr.CodeInvalidIMSIFormat {
+		t.Errorf("error.code = %q, want %q", resp.Error.Code, apierr.CodeInvalidIMSIFormat)
+	}
 }
 
 func TestSIMResponseTimestampFormat(t *testing.T) {

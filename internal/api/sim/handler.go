@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/validator"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/cache"
@@ -43,6 +44,7 @@ type Handler struct {
 	nameCache     *cache.NameCache
 	undoRegistry  *undopkg.Registry
 	auditSvc      audit.Auditor
+	imsiStrict    bool
 	logger        zerolog.Logger
 }
 
@@ -98,6 +100,14 @@ func WithSessionStore(ss *store.RadiusSessionStore) func(*Handler) {
 func WithCDRStore(cs *store.CDRStore) func(*Handler) {
 	return func(h *Handler) {
 		h.cdrStore = cs
+	}
+}
+
+// WithIMSIStrictValidation enables PLMN format validation at the SIM Create
+// API boundary (FIX-207 AC-4). Mirrors the IMSI_STRICT_VALIDATION config flag.
+func WithIMSIStrictValidation(v bool) func(*Handler) {
+	return func(h *Handler) {
+		h.imsiStrict = v
 	}
 }
 
@@ -295,6 +305,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(validationErrors) > 0 {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
+		return
+	}
+
+	// FIX-207 AC-4: IMSI format validation at API boundary.
+	if err := validator.ValidateIMSI(req.IMSI, h.imsiStrict); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidIMSIFormat,
+			"IMSI format is invalid",
+			[]map[string]string{{"field": "imsi", "value": req.IMSI, "expected": `^\d{14,15}$`}})
 		return
 	}
 

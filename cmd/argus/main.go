@@ -568,7 +568,7 @@ func runServe(cfg *config.Config) {
 	nameCache := cache.NewNameCache(rdb.Client)
 	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	cdrStore := store.NewCDRStore(pg.Pool)
-	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore))
+	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation))
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
@@ -598,7 +598,7 @@ func runServe(cfg *config.Config) {
 	analyticsHandler.WithStores(simStore, operatorStore, apnStore, ippoolStore)
 	chartAnnotationStore := store.NewChartAnnotationStore(pg.Pool)
 	analyticsHandler.SetChartAnnotationStore(chartAnnotationStore)
-	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger)
+	cdrConsumer := cdrsvc.NewConsumer(cdrStore, operatorStore, log.Logger, metricsReg, cfg.IMSIStrictValidation)
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
 	}
@@ -953,7 +953,11 @@ func runServe(cfg *config.Config) {
 	if cfg.RadiusSecret != "" {
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
 		simCache := aaaradius.NewSIMCache(rdb.Client, simStore, log.Logger)
-		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
+		sessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger,
+			aaasession.WithSIMStore(simStore),
+			aaasession.WithIPPoolStore(ippoolStore),
+			aaasession.WithMetrics(metricsReg),
+		)
 		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithCoAAuditor(auditSvc))
 		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithDMAuditor(auditSvc))
 
@@ -1024,7 +1028,11 @@ func runServe(cfg *config.Config) {
 		}
 
 		radiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
-		diamSessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
+		diamSessionMgr := aaasession.NewManager(radiusSessionStore, rdb.Client, log.Logger,
+			aaasession.WithSIMStore(simStore),
+			aaasession.WithIPPoolStore(ippoolStore),
+			aaasession.WithMetrics(metricsReg),
+		)
 
 		diameterServer = aaadiameter.NewServer(aaadiameter.ServerConfig{
 			Port:        cfg.DiameterPort,
@@ -1058,7 +1066,11 @@ func runServe(cfg *config.Config) {
 	var sbaServer *aaasba.Server
 	if cfg.SBAEnabled {
 		sbaRadiusSessionStore := store.NewRadiusSessionStore(pg.Pool)
-		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger, aaasession.WithSIMStore(simStore))
+		sbaSessionMgr := aaasession.NewManager(sbaRadiusSessionStore, rdb.Client, log.Logger,
+			aaasession.WithSIMStore(simStore),
+			aaasession.WithIPPoolStore(ippoolStore),
+			aaasession.WithMetrics(metricsReg),
+		)
 
 		// STORY-092 Wave 3 (D3-B): thread SIMStore + IPPoolStore + SIMCache
 		// into the SBA server so the mock Nsmf_PDUSession handler can allocate
@@ -1119,10 +1131,12 @@ func runServe(cfg *config.Config) {
 		promAAARecorder := obsmetrics.NewPromAAARecorder(metricsReg, "radius")
 		compositeRecorder := obsmetrics.NewCompositeRecorder(metricsCollector, promAAARecorder)
 		radiusServer.SetMetricsRecorder(compositeRecorder)
+		radiusServer.SetRegistry(metricsReg)
 		radiusServer.SetPolicyEnforcer(policyEnforcer)
 		// STORY-092 Wave 1: wire the SIM store so Access-Accept can persist
 		// the dynamically allocated ip_address_id back to the sims row.
 		radiusServer.SetSIMStore(simStore)
+		radiusServer.SetIMSIStrictValidation(cfg.IMSIStrictValidation)
 	}
 	// Diameter and SBA servers do not currently expose SetMetricsRecorder —
 	// protocol-labelled Prom metrics for those will be wired when those
@@ -1360,6 +1374,14 @@ func runServe(cfg *config.Config) {
 
 	if cronScheduler != nil {
 		cronScheduler.AddEntry(job.CronEntry{Name: "roaming_renewal_sweep", Schedule: cfg.RoamingRenewalCron, JobType: job.JobTypeRoamingRenewal})
+	}
+
+	dataIntegrityProc := job.NewDataIntegrityDetector(pg.Pool, jobStore, eventBus, metricsReg, log.Logger)
+	jobRunner.Register(dataIntegrityProc)
+	log.Info().Msg("FIX-207 data_integrity_scan processor registered")
+
+	if cronScheduler != nil {
+		cronScheduler.AddEntry(job.CronEntry{Name: "data_integrity_scan", Schedule: "17 3 * * *", JobType: job.JobTypeDataIntegrityScan})
 	}
 
 	health := gateway.NewHealthHandler(pg, rdb, ns)

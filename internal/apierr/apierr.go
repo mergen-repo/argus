@@ -36,6 +36,7 @@ const (
 	CodeConflict           = "CONFLICT"
 	CodeAlreadyExists      = "ALREADY_EXISTS"
 	CodeInvalidReference   = "INVALID_REFERENCE"
+	CodeInvalidIMSIFormat  = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
 	CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"
 	CodeMSISDNNotAvailable = "MSISDN_NOT_AVAILABLE"
 

@@ -91,6 +91,14 @@ type Registry struct {
 
 	IPGraceReleasedTotal prometheus.Counter
 
+	FramedIPPoolMismatchTotal *prometheus.CounterVec
+
+	NASIPMissingTotal prometheus.Counter
+
+	IMSIInvalidTotal *prometheus.CounterVec
+
+	DataIntegrityViolationsTotal *prometheus.CounterVec
+
 	KVKKPurgeRowsTotal *prometheus.CounterVec
 
 	WebhookRetriesTotal       *prometheus.CounterVec
@@ -262,6 +270,30 @@ func NewRegistry() *Registry {
 	})
 	reg.MustRegister(r.IPGraceReleasedTotal)
 
+	r.FramedIPPoolMismatchTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_framed_ip_pool_mismatch_total",
+		Help: "Total number of session framed_ip pool validation mismatches detected (AC-3). Does not block session creation.",
+	}, []string{"reason"})
+	reg.MustRegister(r.FramedIPPoolMismatchTotal)
+
+	r.NASIPMissingTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_radius_nas_ip_missing_total",
+		Help: "RADIUS Acct-Start packets received without NAS-IP-Address AVP. FIX-207 AC-7: closure signal for simulator coverage (FIX-226).",
+	})
+	reg.MustRegister(r.NASIPMissingTotal)
+
+	r.IMSIInvalidTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_imsi_invalid_total",
+		Help: "Malformed IMSIs rejected by IMSI_STRICT_VALIDATION. Labels: source.",
+	}, []string{"source"})
+	reg.MustRegister(r.IMSIInvalidTotal)
+
+	r.DataIntegrityViolationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_data_integrity_violations_total",
+		Help: "Daily data-integrity scan violation counts by kind.",
+	}, []string{"kind"})
+	reg.MustRegister(r.DataIntegrityViolationsTotal)
+
 	r.KVKKPurgeRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_kvkk_purge_rows_total",
 		Help: "Total number of rows pseudonymized/redacted by the KVKK purge job.",
@@ -402,6 +434,37 @@ func (r *Registry) IncIPGraceReleased(n int) {
 	}
 }
 
+// IncFramedIPPoolMismatch increments the framed_ip pool mismatch counter for the given reason.
+// Label values: unparseable_framed_ip, mismatch_assigned_address, outside_apn_pools.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncFramedIPPoolMismatch(reason string) {
+	if r == nil || r.FramedIPPoolMismatchTotal == nil {
+		return
+	}
+	r.FramedIPPoolMismatchTotal.WithLabelValues(reason).Inc()
+}
+
+// IncNASIPMissing increments the counter for Acct-Start packets that arrived
+// without a NAS-IP-Address AVP. FIX-207 AC-7: the missing AVP is a simulator
+// gap (FIX-226); this counter surfaces it as an ops-visible signal.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncNASIPMissing() {
+	if r == nil || r.NASIPMissingTotal == nil {
+		return
+	}
+	r.NASIPMissingTotal.Inc()
+}
+
+// IncIMSIInvalid increments the malformed-IMSI counter for the given source label.
+// Label values: radius_auth, radius_acct, api_sim, cdr.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncIMSIInvalid(source string) {
+	if r == nil || r.IMSIInvalidTotal == nil {
+		return
+	}
+	r.IMSIInvalidTotal.WithLabelValues(source).Inc()
+}
+
 // IncKVKKPurgeRows increments the KVKK purge rows counter for the given table and dry_run flag.
 // Safe to call on a nil Registry (no-op).
 func (r *Registry) IncKVKKPurgeRows(table string, dryRun bool, n int) {
@@ -452,6 +515,16 @@ func (r *Registry) Recent5xxCount() int64 {
 		return 0
 	}
 	return r.recent5xx.sum()
+}
+
+// IncDataIntegrity adds by to the argus_data_integrity_violations_total counter for the given kind.
+// Label values: neg_duration_session, neg_duration_cdr, framed_ip_outside_pool, imsi_malformed.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncDataIntegrity(kind string, by float64) {
+	if r == nil || r.DataIntegrityViolationsTotal == nil {
+		return
+	}
+	r.DataIntegrityViolationsTotal.WithLabelValues(kind).Add(by)
 }
 
 func operatorHealthValue(status string) float64 {

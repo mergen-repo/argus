@@ -51,6 +51,8 @@ type Config struct {
 	PasswordHistoryCount  int  `envconfig:"PASSWORD_HISTORY_COUNT"   default:"5"`
 	PasswordMaxAgeDays    int  `envconfig:"PASSWORD_MAX_AGE_DAYS"    default:"0"`
 
+	IMSIStrictValidation bool `envconfig:"IMSI_STRICT_VALIDATION" default:"true"`
+
 	RadiusAuthPort       int    `envconfig:"RADIUS_AUTH_PORT" default:"1812"`
 	RadiusAcctPort       int    `envconfig:"RADIUS_ACCT_PORT" default:"1813"`
 	RadiusSecret         string `envconfig:"RADIUS_SECRET"`

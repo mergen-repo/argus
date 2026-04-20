@@ -2948,3 +2948,94 @@ docker exec argus-postgres psql -U argus -d argus -c "
 ```
 
 Expected: `ERROR: update or delete on table "operators" violates foreign key constraint "fk_sims_operator" on table "sims_turkcell"` (or sibling partition). Cleanup path for operator removal is "reassign SIMs via bulk operator-switch (FIX-201), then delete operator".
+
+---
+
+## FIX-207: Session/CDR Data Integrity
+
+Backend + migration story. No UI surface changes; manual verification is DB-level and metric-level.
+
+### Scenario 1 — AC-4: IMSI format reject (API + RADIUS)
+
+**REST path:**
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# Malformed IMSI (13 digits — too short)
+curl -s -X POST http://localhost:8084/api/v1/sims \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"operator_id":"20000000-0000-0000-0000-000000000001",
+       "iccid":"8990286010FIX207TEST001","imsi":"1234567890123",
+       "sim_type":"physical"}' | jq .
+```
+
+Expected: HTTP 400 with `{"status":"error","error":{"code":"INVALID_IMSI_FORMAT","message":"IMSI must be 14–15 digits (MCC+MNC+MSIN)"}}`.
+
+**RADIUS path** (when `IMSI_STRICT_VALIDATION=true`):
+
+```bash
+# Send Access-Request with a malformed IMSI (16 digits) via radclient.
+# Requires radclient installed and RADIUS listener on :1812.
+echo "User-Name = '1234567890123456', User-Password = 'test'" | \
+  radclient -x localhost:1812 auth testing123
+```
+
+Expected: `Access-Reject` with Reply-Message attribute indicating IMSI format violation.
+
+### Scenario 2 — AC-1/AC-2: CHECK constraint probe via psql
+
+```bash
+# Attempt to insert a session with ended_at before started_at.
+docker exec argus-postgres psql -U argus -d argus -c "
+  INSERT INTO sessions (id, tenant_id, sim_id, operator_id, started_at, ended_at)
+  VALUES (gen_random_uuid(),
+          '10000000-0000-0000-0000-000000000001',
+          (SELECT id FROM sims LIMIT 1),
+          '20000000-0000-0000-0000-000000000001',
+          NOW(), NOW() - INTERVAL '1 hour');"
+
+# Attempt to insert a CDR with negative duration_sec.
+docker exec argus-postgres psql -U argus -d argus -c "
+  INSERT INTO cdrs (id, session_id, tenant_id, timestamp, duration_sec, bytes_in, bytes_out)
+  VALUES (gen_random_uuid(),
+          (SELECT id FROM sessions LIMIT 1),
+          '10000000-0000-0000-0000-000000000001',
+          NOW(), -5, 0, 0);"
+```
+
+Expected: Both INSERTs fail with `ERROR: new row for relation ... violates check constraint` — SQLSTATE 23514. Constraint names: `chk_sessions_ended_after_started` and `chk_cdrs_duration_nonneg`.
+
+### Scenario 3 — AC-5: Daily data-integrity scan job + metric assertion
+
+```bash
+# Check metric baseline before triggering.
+curl -s http://localhost:9596/metrics | grep argus_data_integrity_violations_total
+
+# Trigger job manually via admin API (or wait for cron at 03:17 UTC).
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+curl -s -X POST http://localhost:8084/api/v1/admin/jobs/data_integrity/trigger \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+Expected: After trigger, `argus_data_integrity_violations_total{kind="neg_duration_session"}`, `{kind="neg_duration_cdr"}`, `{kind="framed_ip_outside_pool"}`, and `{kind="imsi_malformed"}` counters are visible in `/metrics`. If dev DB has no violations, all counters remain at 0 (no new increments) — job still completes and returns a result with `counts` map populated (all zeros).
+
+### Scenario 4 — AC-7: NAS-IP missing counter probe
+
+```bash
+# Send an Accounting-Start packet WITHOUT NAS-IP-Address AVP.
+# This requires radclient or a test script that omits attribute 4.
+echo "User-Name = '234100000000001', Acct-Status-Type = Start, Acct-Session-Id = 'test-001'" | \
+  radclient -x localhost:1813 acct testing123
+
+# Check the counter incremented.
+curl -s http://localhost:9596/metrics | grep argus_radius_nas_ip_missing_total
+```
+
+Expected: `argus_radius_nas_ip_missing_total` counter increments by 1. WARN log line visible: `"nas_ip_missing": true` with `acct_session_id` context. When NAS-IP-Address AVP IS present, counter does not increment.

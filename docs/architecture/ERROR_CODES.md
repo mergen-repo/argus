@@ -77,6 +77,20 @@ For `ACCOUNT_LOCKED`, the `details` array includes retry information:
 | `VALIDATION_ERROR` | 422 | Request body or query parameters failed validation. `details` array lists all field errors. | See below |
 | `INVALID_FORMAT` | 400 | Request body is malformed (not valid JSON, wrong content-type, etc.) | `{"status":"error","error":{"code":"INVALID_FORMAT","message":"Request body is not valid JSON"}}` |
 | `INVALID_REFERENCE` | 400 | A foreign-key reference in the request body points at a non-existent record. Defensive duplicate of handler-layer NOT_FOUND checks — emitted only when the FK would otherwise violate at DB (SQLSTATE 23503). `details[0].field` names the offending column (`operator_id`, `apn_id`, `ip_address_id`); `details[0].constraint` names the DB constraint. Added FIX-206. | `{"status":"error","error":{"code":"INVALID_REFERENCE","message":"operator_id does not reference an existing operator","details":[{"field":"operator_id","constraint":"fk_sims_operator"}]}}` |
+| `INVALID_IMSI_FORMAT` | 400 | IMSI does not conform to PLMN format (`^\d{14,15}$`). Emitted when `IMSI_STRICT_VALIDATION=true` (default) and the IMSI fails the regex at API or AAA ingestion boundary. Added FIX-207. | See below |
+
+### INVALID_IMSI_FORMAT Details
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "INVALID_IMSI_FORMAT",
+    "message": "IMSI format is invalid",
+    "details": [{"field": "imsi", "value": "abc123", "expected": "^\\d{14,15}$"}]
+  }
+}
+```
 
 ### Validation Error Details
 
@@ -293,7 +307,8 @@ const (
     // Validation
     CodeValidationError  = "VALIDATION_ERROR"
     CodeInvalidFormat    = "INVALID_FORMAT"
-    CodeInvalidReference = "INVALID_REFERENCE"  // FIX-206 (FK violation translation)
+    CodeInvalidReference  = "INVALID_REFERENCE"  // FIX-206 (FK violation translation)
+    CodeInvalidIMSIFormat = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
 
     // Resource
     CodeNotFound      = "NOT_FOUND"

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/btopcu/argus/internal/aaa/validator"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -21,14 +23,18 @@ type Subscription interface {
 type Consumer struct {
 	cdrStore      *store.CDRStore
 	operatorStore *store.OperatorStore
+	reg           *obsmetrics.Registry
+	imsiStrict    bool
 	logger        zerolog.Logger
 	subs          []Subscription
 }
 
-func NewConsumer(cdrStore *store.CDRStore, operatorStore *store.OperatorStore, logger zerolog.Logger) *Consumer {
+func NewConsumer(cdrStore *store.CDRStore, operatorStore *store.OperatorStore, logger zerolog.Logger, reg *obsmetrics.Registry, imsiStrict bool) *Consumer {
 	return &Consumer{
 		cdrStore:      cdrStore,
 		operatorStore: operatorStore,
+		reg:           reg,
+		imsiStrict:    imsiStrict,
 		logger:        logger.With().Str("component", "cdr_consumer").Logger(),
 	}
 }
@@ -67,6 +73,7 @@ type sessionEvent struct {
 	TenantID       string  `json:"tenant_id"`
 	OperatorID     string  `json:"operator_id"`
 	APNID          string  `json:"apn_id,omitempty"`
+	IMSI           string  `json:"imsi,omitempty"`
 	RATType        string  `json:"rat_type,omitempty"`
 	BytesIn        int64   `json:"bytes_in"`
 	BytesOut       int64   `json:"bytes_out"`
@@ -82,6 +89,13 @@ func (c *Consumer) handleEvent(subject string, data []byte) {
 	var evt sessionEvent
 	if err := json.Unmarshal(data, &evt); err != nil {
 		c.logger.Error().Err(err).Str("subject", subject).Msg("unmarshal session event")
+		return
+	}
+
+	// FIX-207 AC-4: drop events with malformed IMSI when strict validation is active.
+	if evt.IMSI != "" && c.imsiStrict && !validator.IsIMSIFormatValid(evt.IMSI) {
+		c.logger.Warn().Str("imsi", evt.IMSI).Msg("cdr event: malformed imsi — dropping")
+		c.reg.IncIMSIInvalid("cdr")
 		return
 	}
 

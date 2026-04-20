@@ -444,6 +444,7 @@ Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross
 
 Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC-09 job scheduler:
 
+- **DataIntegrityDetector** (`internal/job/data_integrity.go`) — daily cron (`17 3 * * *`) that scans recent sessions/CDRs for four invariant violations: negative-duration sessions (`ended_at < started_at`), negative-duration CDRs (`duration_sec < 0`), framed-IP outside the SIM's assigned pool, and malformed IMSI. Violations are quarantined (sessions/CDRs) or logged+metered (IMSI), and exposed via `argus_data_integrity_violations_total{kind}` Prometheus counter. FIX-207 AC-5.
 - **BackupProcessor** (`internal/job/backup.go`) — schedules daily/weekly/monthly `pg_dump` runs, uploads compressed dumps to S3 (`AWS_REGION`, `BACKUP_S3_BUCKET`, `BACKUP_S3_PREFIX`), and records every run in TBL-32 (`backup_runs`). Configurable retention sweep: `BACKUP_DAILY_RETAIN`, `BACKUP_WEEKLY_RETAIN`, `BACKUP_MONTHLY_RETAIN`.
 - **Weekly verification** — a follow-on job restores the latest daily dump to a scratch container and counts rows in `tenants` and `sims`, writing results to TBL-33 (`backup_verifications`). Deviation > 1% triggers an incident log.
 - **WAL archiving** — `archive_mode = on` and `archive_command` are set in `infra/postgres/postgresql.conf`. The `postgres_wal_archive` Docker volume provides local staging. Live S3/MinIO WAL shipping activates when `ARGUS_WAL_BUCKET` + `ARGUS_WAL_PREFIX` env vars are set at deploy time.

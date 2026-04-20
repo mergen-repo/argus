@@ -965,6 +965,35 @@ func GenerateIPv6Addresses(cidr string) ([]string, int, error) {
 	return addresses, total, nil
 }
 
+// ListByAPN returns all active IP pools associated with the given APN in the given tenant.
+// Used by AC-3 framed_ip validation to determine the legal IP boundary for a SIM's session.
+func (s *IPPoolStore) ListByAPN(ctx context.Context, tenantID, apnID uuid.UUID) ([]IPPool, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT `+ippoolColumns+` FROM ip_pools
+		 WHERE tenant_id = $1 AND apn_id = $2 AND state = 'active'
+		 ORDER BY id`,
+		tenantID, apnID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list ip pools by apn: %w", err)
+	}
+	defer rows.Close()
+
+	var results []IPPool
+	for rows.Next() {
+		var p IPPool
+		if err := rows.Scan(
+			&p.ID, &p.TenantID, &p.APNID, &p.Name, &p.CIDRv4, &p.CIDRv6,
+			&p.TotalAddresses, &p.UsedAddresses, &p.AlertThresholdWarning,
+			&p.AlertThresholdCritical, &p.ReclaimGracePeriodDays, &p.State, &p.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan ip pool by apn: %w", err)
+		}
+		results = append(results, p)
+	}
+	return results, nil
+}
+
 type PoolAPNStats struct {
 	APNID uuid.UUID
 	Used  int

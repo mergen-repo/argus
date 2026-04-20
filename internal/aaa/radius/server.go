@@ -14,7 +14,9 @@ import (
 	"github.com/btopcu/argus/internal/aaa/eap"
 	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
+	"github.com/btopcu/argus/internal/aaa/validator"
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/store"
@@ -64,6 +66,8 @@ type Server struct {
 	metricsRecorder MetricsRecorder
 	policyEnforcer  *enforcer.Enforcer
 	killSwitch      killSwitchChecker
+	reg             *obsmetrics.Registry
+	imsiStrict      bool
 	logger          zerolog.Logger
 
 	authServer *radius.PacketServer
@@ -88,6 +92,16 @@ func parseV4Address(s string) net.IP {
 		s = s[:i]
 	}
 	return net.ParseIP(s)
+}
+
+// extractNASIPFromPacket extracts the NAS-IP-Address AVP from a RADIUS packet.
+// Returns ("", false) when the AVP is absent (FIX-207 AC-7: caller emits metric + log).
+// Pure function — no side effects, testable without DB or server lifecycle.
+func extractNASIPFromPacket(pkt *radius.Packet) (string, bool) {
+	if ip, err := rfc2865.NASIPAddress_Lookup(pkt); err == nil {
+		return ip.String(), true
+	}
+	return "", false
 }
 
 func NewServer(
@@ -219,6 +233,10 @@ func (s *Server) SetMetricsRecorder(mr MetricsRecorder) {
 	s.metricsRecorder = mr
 }
 
+func (s *Server) SetRegistry(reg *obsmetrics.Registry) {
+	s.reg = reg
+}
+
 func (s *Server) SetPolicyEnforcer(pe *enforcer.Enforcer) {
 	s.policyEnforcer = pe
 }
@@ -229,6 +247,14 @@ func (s *Server) SetPolicyEnforcer(pe *enforcer.Enforcer) {
 // Nil is valid and disables dynamic allocation (legacy behaviour retained).
 func (s *Server) SetSIMStore(simStore *store.SIMStore) {
 	s.simStore = simStore
+}
+
+// SetIMSIStrictValidation enables or disables strict PLMN IMSI format
+// validation (FIX-207 AC-4). When true, Access-Requests and Acct-Start
+// packets with non-conforming IMSI values are rejected/dropped and the
+// argus_imsi_invalid_total counter is incremented.
+func (s *Server) SetIMSIStrictValidation(v bool) {
+	s.imsiStrict = v
 }
 
 // allocateDynamicIPIfNeeded implements the STORY-092 Wave 1 dynamic-IP
@@ -549,6 +575,15 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		return
 	}
 
+	// FIX-207 AC-4: IMSI format validation (strict mode when IMSI_STRICT_VALIDATION=true).
+	if err := validator.ValidateIMSI(imsi, s.imsiStrict); err != nil {
+		logger.Warn().Str("imsi", imsi).Err(err).Msg("AAA: malformed IMSI rejected")
+		s.reg.IncIMSIInvalid("radius_auth")
+		s.sendReject(w, r.Packet, "INVALID_IMSI_FORMAT")
+		s.recordAuthMetric(ctx, uuid.Nil, false, startTime)
+		return
+	}
+
 	logger = logger.With().Str("imsi", imsi).Logger()
 
 	sim, err := s.simCache.GetByIMSI(ctx, imsi)
@@ -726,6 +761,13 @@ func (s *Server) handleAcct(w radius.ResponseWriter, r *radius.Request) {
 }
 
 func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSessionID, imsi string, logger zerolog.Logger) {
+	// FIX-207 AC-4: swallow malformed IMSI on accounting (no reject, just log + drop record).
+	if err := validator.ValidateIMSI(imsi, s.imsiStrict); err != nil {
+		logger.Warn().Str("imsi", imsi).Err(err).Msg("Acct: malformed IMSI — dropping record")
+		s.reg.IncIMSIInvalid("radius_acct")
+		return
+	}
+
 	sim, err := s.simCache.GetByIMSI(ctx, imsi)
 	if err != nil {
 		logger.Error().Err(err).Msg("SIM lookup failed during Acct-Start")
@@ -769,9 +811,11 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 		}
 	}
 
-	nasIP := ""
-	if ip, err := rfc2865.NASIPAddress_Lookup(r.Packet); err == nil {
-		nasIP = ip.String()
+	nasIP, nasIPPresent := extractNASIPFromPacket(r.Packet)
+	if !nasIPPresent {
+		// FIX-207 AC-7: surface missing-AVP signal. Simulator-side fix lives in FIX-226.
+		logger.Warn().Msg("NAS-IP AVP missing from Acct-Start — FIX-226 simulator gap")
+		s.reg.IncNASIPMissing()
 	}
 
 	framedIP := ""

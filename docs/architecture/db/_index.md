@@ -59,6 +59,7 @@
 | TBL-49 | chart_annotations | Analytics | → TBL-01 (tenant_id), → TBL-02 (author_id); chart_key + timestamp + label + severity + body; RLS enabled | No |
 | TBL-50 | user_views | Platform/UX | → TBL-02 (user_id); page + name + filters_json; partial unique index (user_id,page) WHERE is_default=true | No |
 | TBL-51 | user_column_preferences | Platform/UX | → TBL-02 (user_id); page + preferences_json (density, columns, language) | No |
+| TBL-52 | session_quarantine | AAA/Data Integrity | Plain (non-hypertable) quarantine store; original_table CHECK ('sessions','cdrs'); quarantined_at, reason, raw_data JSONB; system-level (no tenant_id). Migration A (20260421000001). FIX-207 AC-6. | No |
 
 ## Domain Detail Files
 
