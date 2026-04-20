@@ -1166,6 +1166,7 @@ func runServe(cfg *config.Config) {
 		dashboardapi.WithCDRStore(cdrStore),
 		dashboardapi.WithSessionCounter(sessionCounter),
 		dashboardapi.WithIPPoolStore(ippoolStore),
+		dashboardapi.WithMetricsCollector(metricsCollector),
 	)
 
 	if err := dashboardapi.RegisterDashboardInvalidator(eventBus, rdb.Client, log.Logger); err != nil {

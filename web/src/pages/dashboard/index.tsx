@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Sparkline } from '@/components/ui/sparkline'
-import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions } from '@/hooks/use-dashboard'
+import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions, useRealtimeOperatorHealth } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
 import { OperatorChip } from '@/components/shared/operator-chip'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
@@ -291,6 +291,12 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
     return 'text-danger'
   }
 
+  const authRateColor = (rate: number): string => {
+    if (rate >= 99) return 'text-success'
+    if (rate >= 95) return 'text-warning'
+    return 'text-danger'
+  }
+
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '250ms' }}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -313,6 +319,7 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-right">Activity</TableHead>
                 </TableRow>
               </TableHeader>
@@ -339,8 +346,13 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                               </span>
                             )}
                             {op.sla_target != null && (
-                              <span className="text-[10px] font-mono text-text-tertiary">
-                                SLA {op.sla_target.toFixed(2)}%
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono text-text-tertiary">
+                                  SLA {op.sla_target.toFixed(2)}%
+                                </span>
+                                {op.latency_ms != null && op.latency_ms > (op.sla_latency_ms ?? 500) && (
+                                  <Badge variant="danger" className="text-[9px]">SLA breach</Badge>
+                                )}
                               </span>
                             )}
                           </div>
@@ -365,9 +377,29 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
                       </span>
                     </TableCell>
                     <TableCell className="py-2.5 px-3 text-right">
-                      <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
-                        {(op.latency_ms || 0).toFixed(0)}ms
-                      </span>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
+                          {op.latency_ms != null ? `${op.latency_ms.toFixed(0)}ms` : '—'}
+                        </span>
+                        {op.latency_sparkline && op.latency_sparkline.length > 1 && (
+                          <Sparkline
+                            data={op.latency_sparkline}
+                            width={72}
+                            height={24}
+                            className="ml-2 inline-block align-middle"
+                            color="var(--color-accent)"
+                          />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right px-3">
+                      {op.auth_rate != null ? (
+                        <span className={cn('font-mono text-[12px]', authRateColor(op.auth_rate))}>
+                          {op.auth_rate.toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-text-tertiary">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="py-2.5 pl-3">
                       <div className="flex justify-end">
@@ -982,6 +1014,7 @@ export default function DashboardPage() {
   useRealtimeAlerts()
   useRealtimeMetrics()
   useRealtimeActiveSessions()
+  useRealtimeOperatorHealth()
 
   const navigate = useNavigate()
 

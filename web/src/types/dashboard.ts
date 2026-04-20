@@ -14,6 +14,8 @@ export interface OperatorHealth {
   last_health_check?: string
   latency_ms?: number
   auth_rate?: number
+  latency_sparkline?: number[]
+  sla_latency_ms?: number
 }
 
 export interface TopAPN {

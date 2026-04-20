@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -91,6 +93,14 @@ type OperatorHealthLog struct {
 	LatencyMs    *int      `json:"latency_ms"`
 	ErrorMessage *string   `json:"error_message"`
 	CircuitState string    `json:"circuit_state"`
+}
+
+type OperatorHealthSnapshot struct {
+	OperatorID   uuid.UUID
+	CheckedAt    time.Time
+	Status       string
+	LatencyMs    *int
+	CircuitState string
 }
 
 type CreateOperatorParams struct {
@@ -657,6 +667,93 @@ func (s *OperatorStore) LatestHealthByOperator(ctx context.Context) (map[uuid.UU
 			return nil, fmt.Errorf("store: scan latest health: %w", err)
 		}
 		result[opID] = checkedAt
+	}
+	return result, nil
+}
+
+func (s *OperatorStore) LatestHealthWithLatencyByOperator(ctx context.Context) (map[uuid.UUID]OperatorHealthSnapshot, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT DISTINCT ON (operator_id) operator_id, checked_at, status, latency_ms, circuit_state
+		FROM operator_health_logs
+		ORDER BY operator_id, checked_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("store: latest health with latency by operator: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]OperatorHealthSnapshot)
+	for rows.Next() {
+		var snap OperatorHealthSnapshot
+		var latency sql.NullInt64
+		if err := rows.Scan(&snap.OperatorID, &snap.CheckedAt, &snap.Status, &latency, &snap.CircuitState); err != nil {
+			return nil, fmt.Errorf("store: scan latest health with latency: %w", err)
+		}
+		if latency.Valid {
+			v := int(latency.Int64)
+			snap.LatencyMs = &v
+		}
+		result[snap.OperatorID] = snap
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: rows error latest health with latency: %w", err)
+	}
+	return result, nil
+}
+
+func (s *OperatorStore) GetLatencyTrend(ctx context.Context, operatorID uuid.UUID, since time.Duration, bucket time.Duration) ([]float64, error) {
+	if bucket <= 0 {
+		return nil, fmt.Errorf("store: bucket duration must be positive")
+	}
+	n := int(since / bucket)
+	if n <= 0 {
+		return nil, fmt.Errorf("store: since must be greater than bucket")
+	}
+
+	bucketSec := int64(bucket.Seconds())
+	sinceSec := int64(since.Seconds())
+
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			time_bucket($1::interval, checked_at) AS bin,
+			ROUND(AVG(latency_ms)::numeric, 1)::float8 AS avg_latency
+		FROM operator_health_logs
+		WHERE operator_id = $2
+		  AND checked_at > NOW() - ($3 * INTERVAL '1 second')
+		  AND latency_ms IS NOT NULL
+		GROUP BY bin
+		ORDER BY bin
+	`, fmt.Sprintf("%d seconds", bucketSec), operatorID, sinceSec)
+	if err != nil {
+		return nil, fmt.Errorf("store: get latency trend: %w", err)
+	}
+	defer rows.Close()
+
+	type bucketRow struct {
+		bin     time.Time
+		avgMs   float64
+	}
+	var populated []bucketRow
+	for rows.Next() {
+		var br bucketRow
+		if err := rows.Scan(&br.bin, &br.avgMs); err != nil {
+			return nil, fmt.Errorf("store: scan latency trend row: %w", err)
+		}
+		populated = append(populated, br)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: rows error latency trend: %w", err)
+	}
+
+	now := time.Now().UTC()
+	origin := now.Add(-since).Truncate(bucket)
+
+	result := make([]float64, n)
+	for _, br := range populated {
+		idx := int(br.bin.Sub(origin) / bucket)
+		if idx >= 0 && idx < n {
+			result[idx] = math.Round(br.avgMs*10) / 10
+		}
 	}
 	return result, nil
 }

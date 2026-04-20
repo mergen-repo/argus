@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
-import type { DashboardData, DashboardAlert, DashboardMetrics } from '@/types/dashboard'
+import type { DashboardData, DashboardAlert, DashboardMetrics, OperatorHealth } from '@/types/dashboard'
 
 const DASHBOARD_KEY = ['dashboard'] as const
 
@@ -143,6 +143,54 @@ export function useRealtimeAlerts() {
     const unsub = wsClient.on('alert.new', handler)
     return unsub
   }, [handler])
+}
+
+/**
+ * Subscribes to `operator.health_changed` WS events and patches the operator-health list
+ * in the DashboardData cache without a full refetch.
+ *
+ * Event source: backend operator health worker publishes when status flips OR latency
+ * delta >10% (see FIX-203 plan). Hub relays `argus.events.operator.health` → client event
+ * `operator.health_changed`.
+ *
+ * Orphan protection: if the event carries an operator_id not in the current
+ * operator_health list, the .map() is a no-op (no new row added — the dashboard data
+ * is authoritatively set by the /dashboard fetch + 30s refetch fallback).
+ */
+export function useRealtimeOperatorHealth() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const handler = (data: unknown) => {
+      const d = data as { operator_id?: string; current_status?: string; latency_ms?: number; timestamp?: string }
+      if (!d || typeof d.operator_id !== 'string') return;
+      queryClient.setQueryData<DashboardData>(DASHBOARD_KEY, (old) => {
+        if (!old) return old;
+        const next = old.operator_health.map((op) =>
+          op.id === d.operator_id
+            ? {
+                ...op,
+                status: (d.current_status as OperatorHealth['status']) ?? op.status,
+                latency_ms: typeof d.latency_ms === 'number' ? d.latency_ms : op.latency_ms,
+                last_health_check: d.timestamp ?? op.last_health_check,
+                health_pct: statusToPct(d.current_status),
+              }
+            : op,
+        );
+        return { ...old, operator_health: next };
+      });
+    };
+    const unsubscribe = wsClient.on('operator.health_changed', handler);
+    return unsubscribe;
+  }, [queryClient]);
+}
+
+function statusToPct(s: string | undefined): number {
+  switch (s) {
+    case 'healthy': return 99.9;
+    case 'degraded': return 95;
+    case 'down': return 0;
+    default: return 0;
+  }
 }
 
 export function useRealtimeMetrics() {

@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -330,5 +332,340 @@ func TestHealthChecker_StartOperatorLoop_SingleTickerPerOperator(t *testing.T) {
 	}
 	if breakerCount != 3 {
 		t.Errorf("per-protocol breakers: expected 3 (radius/diameter/mock), got %d", breakerCount)
+	}
+}
+
+// ---------------------------------------------------------------------
+// FIX-203 AC-3 — latency-threshold publish trigger tests
+//
+// The health worker must publish argus.events.operator.health.changed
+// when status flips OR latency delta > 10% vs. the prior tick. Cold
+// start (prevLatency == 0) suppresses the latency-trigger path until
+// the second tick populates a sample.
+// ---------------------------------------------------------------------
+
+// scriptedHealthAdapter returns the next HealthResult in a queue on
+// each HealthCheck call. It implements adapter.Adapter via embed-style
+// passthrough so the compiler is satisfied; only HealthCheck and Type
+// are exercised by these tests.
+type scriptedHealthAdapter struct {
+	mu      sync.Mutex
+	results []adapter.HealthResult
+	idx     int
+}
+
+func (s *scriptedHealthAdapter) HealthCheck(_ context.Context) adapter.HealthResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.idx >= len(s.results) {
+		// Fall through with the last scripted result so unexpected
+		// extra ticks don't panic; tests assert the publish count
+		// instead.
+		if len(s.results) == 0 {
+			return adapter.HealthResult{Success: true, LatencyMs: 0}
+		}
+		return s.results[len(s.results)-1]
+	}
+	r := s.results[s.idx]
+	s.idx++
+	return r
+}
+
+func (s *scriptedHealthAdapter) Type() string { return "mock" }
+func (s *scriptedHealthAdapter) ForwardAuth(_ context.Context, _ adapter.AuthRequest) (*adapter.AuthResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) ForwardAcct(_ context.Context, _ adapter.AcctRequest) error {
+	return fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) SendCoA(_ context.Context, _ adapter.CoARequest) error {
+	return fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) SendDM(_ context.Context, _ adapter.DMRequest) error {
+	return fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) Authenticate(_ context.Context, _ adapter.AuthenticateRequest) (*adapter.AuthenticateResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) AccountingUpdate(_ context.Context, _ adapter.AccountingUpdateRequest) error {
+	return fmt.Errorf("not implemented")
+}
+func (s *scriptedHealthAdapter) FetchAuthVectors(_ context.Context, _ string, _ int) ([]adapter.AuthVector, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// countHealthPublishes returns the number of events published on the
+// health subject. Filters by subject so latency-only down/recovered
+// alert paths don't contaminate the count.
+func countHealthPublishes(pub *mockEventPublisher, subject string) int {
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	n := 0
+	for _, e := range pub.events {
+		if e.subject == subject {
+			n++
+		}
+	}
+	return n
+}
+
+// newHealthCheckerWithRegistry builds a HealthChecker wired to a live
+// adapter.Registry plus a mock event publisher. Store/Redis stay nil
+// — the nil-safe branches in checkOperator short-circuit them.
+func newHealthCheckerWithRegistry(t *testing.T) (*HealthChecker, *mockEventPublisher) {
+	t.Helper()
+	reg := adapter.NewRegistry()
+	hc := &HealthChecker{
+		registry:      reg,
+		logger:        zerolog.Nop(),
+		breakers:      make(map[healthKey]*CircuitBreaker),
+		stopChs:       make(map[uuid.UUID]chan struct{}),
+		lastStatus:    make(map[healthKey]string),
+		lastLatency:   make(map[healthKey]int),
+		operatorNames: make(map[uuid.UUID]string),
+	}
+	pub := &mockEventPublisher{}
+	hc.SetEventPublisher(pub, "argus.events.operator.health.changed", "argus.events.alert.triggered")
+	return hc, pub
+}
+
+// TestCheckOperator_PublishesOnLatencyDelta — latency change > 10%
+// with no status flip must fire a single health event.
+func TestCheckOperator_PublishesOnLatencyDelta(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("66666666-6666-6666-6666-666666666666")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: true, LatencyMs: 120},
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	cb := NewCircuitBreaker(3, 60)
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "healthy"
+	hc.lastLatency[key] = 100 // seed: prev tick landed 100ms
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 1 {
+		t.Fatalf("expected 1 health publish on 20%% latency delta, got %d", got)
+	}
+
+	hc.mu.Lock()
+	gotLatency := hc.lastLatency[key]
+	gotStatus := hc.lastStatus[key]
+	hc.mu.Unlock()
+	if gotLatency != 120 {
+		t.Errorf("lastLatency updated to %d, want 120", gotLatency)
+	}
+	if gotStatus != "healthy" {
+		t.Errorf("lastStatus = %q, want healthy (no flip)", gotStatus)
+	}
+}
+
+// TestCheckOperator_SuppressesSubThresholdLatency — 5% delta is below
+// the 10% threshold and must NOT publish.
+func TestCheckOperator_SuppressesSubThresholdLatency(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("77777777-7777-7777-7777-777777777777")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: true, LatencyMs: 105},
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	cb := NewCircuitBreaker(3, 60)
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "healthy"
+	hc.lastLatency[key] = 100
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 0 {
+		t.Fatalf("expected 0 publishes on 5%% latency delta (below 10%% threshold), got %d", got)
+	}
+
+	// Map updated even when no publish fires, so the next tick measures
+	// delta from the freshest sample.
+	hc.mu.Lock()
+	gotLatency := hc.lastLatency[key]
+	hc.mu.Unlock()
+	if gotLatency != 105 {
+		t.Errorf("lastLatency updated to %d, want 105 (map advances on every tick)", gotLatency)
+	}
+}
+
+// TestCheckOperator_ColdStartSuppressesLatencyTrigger — prevLatency==0
+// suppresses the latency-trigger publish on the first tick; the second
+// tick (now with a non-zero prev sample) fires normally on >10% delta.
+func TestCheckOperator_ColdStartSuppressesLatencyTrigger(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("88888888-8888-8888-8888-888888888888")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: true, LatencyMs: 200}, // first tick — cold start
+			{Success: true, LatencyMs: 250}, // second tick — 25% delta
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	cb := NewCircuitBreaker(3, 60)
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "healthy"
+	hc.lastLatency[key] = 0 // cold-start sentinel
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	// First tick — must NOT publish (cold start).
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 0 {
+		t.Fatalf("cold start must suppress latency-trigger publish; got %d publishes", got)
+	}
+	hc.mu.Lock()
+	midLatency := hc.lastLatency[key]
+	hc.mu.Unlock()
+	if midLatency != 200 {
+		t.Fatalf("after cold-start tick, lastLatency = %d, want 200", midLatency)
+	}
+
+	// Second tick — prevLatency is now 200; 250 is a 25% delta → publish.
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 1 {
+		t.Fatalf("second tick with 25%% delta must publish exactly once; got %d", got)
+	}
+}
+
+// TestCheckOperator_StatusFlipStillPublishes — status flip must
+// publish regardless of latency-trigger state (including cold start).
+func TestCheckOperator_StatusFlipStillPublishes(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("99999999-9999-9999-9999-999999999999")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	// Adapter reports failure → status in checkOperator resolves to
+	// "degraded" (CircuitClosed + !Success). That's a flip from the
+	// seeded "healthy" even though latency is cold-start.
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: false, LatencyMs: 100, Error: "simulated"},
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	cb := NewCircuitBreaker(5, 60) // high threshold — won't open on 1 failure
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "healthy"
+	hc.lastLatency[key] = 0 // cold start
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 1 {
+		t.Fatalf("status flip must publish regardless of cold-start latency; got %d", got)
+	}
+
+	// Verify the event payload reflects the flip direction.
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	evt, ok := pub.events[0].payload.(OperatorHealthEvent)
+	if !ok {
+		t.Fatalf("event payload type = %T, want OperatorHealthEvent", pub.events[0].payload)
+	}
+	if evt.PreviousStatus != "healthy" || evt.CurrentStatus != "degraded" {
+		t.Errorf("event flip direction = %s→%s, want healthy→degraded", evt.PreviousStatus, evt.CurrentStatus)
+	}
+}
+
+// TestCheckOperator_NoFlipNoDeltaSuppressesPublish — belt-and-braces:
+// identical latency with identical status publishes nothing. Guards
+// against the common regression where widening the publish gate would
+// otherwise fire on every tick.
+func TestCheckOperator_NoFlipNoDeltaSuppressesPublish(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: true, LatencyMs: 100},
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	cb := NewCircuitBreaker(3, 60)
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "healthy"
+	hc.lastLatency[key] = 100
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+
+	if got := countHealthPublishes(pub, "argus.events.operator.health.changed"); got != 0 {
+		t.Fatalf("no status flip + zero latency delta must not publish; got %d", got)
+	}
+}
+
+// TestCheckOperator_StatusStaysDownLatencyChangesNoReFiredAlert — a
+// tick where status stays "down" but latency delta > 10% must publish
+// the health.changed event (latency-trigger path) but MUST NOT
+// re-fire the AlertTypeOperatorDown alert. Regression guard against
+// the widened publish gate.
+func TestCheckOperator_StatusStaysDownLatencyChangesNoReFiredAlert(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	key := healthKey{OperatorID: opID, Protocol: "mock"}
+
+	// Pre-open the breaker so state stays Open and status resolves to
+	// "down" on this tick, with no flip from prior "down".
+	cb := NewCircuitBreaker(1, 3600)
+	cb.RecordFailure() // open immediately (threshold=1)
+	if cb.State() != CircuitOpen {
+		t.Fatalf("test setup: breaker state = %s, want open", cb.State())
+	}
+
+	stub := &scriptedHealthAdapter{
+		results: []adapter.HealthResult{
+			{Success: false, LatencyMs: 250, Error: "still down"},
+		},
+	}
+	hc.registry.Set(opID, "mock", stub)
+
+	hc.mu.Lock()
+	hc.breakers[key] = cb
+	hc.lastStatus[key] = "down" // seeded: was already down
+	hc.lastLatency[key] = 100   // 250 vs 100 = 150% delta
+	hc.operatorNames[opID] = "acme"
+	hc.mu.Unlock()
+
+	hc.checkOperator(opID, "mock", json.RawMessage(`{}`), cb, 30)
+
+	// One health.changed event on latency delta (no status flip).
+	healthCount := countHealthPublishes(pub, "argus.events.operator.health.changed")
+	if healthCount != 1 {
+		t.Errorf("expected 1 health.changed event on latency-only trigger, got %d", healthCount)
+	}
+	// Zero alert.triggered events — down→down must not re-fire alerts.
+	alertCount := countHealthPublishes(pub, "argus.events.alert.triggered")
+	if alertCount != 0 {
+		t.Errorf("down→down tick must NOT re-fire AlertTypeOperatorDown; got %d alerts", alertCount)
 	}
 }

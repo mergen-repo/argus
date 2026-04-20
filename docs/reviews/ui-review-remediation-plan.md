@@ -29,6 +29,11 @@
 | **FIX-207** | Session/CDR Data Integrity — negative duration, cross-pool IP, IMSI format | F-98, F-99, F-100, F-101 (verify), F-34 | M |
 | **FIX-208** | Cross-Tab Data Aggregation Unify (SIM usage/cost/sessions + Operator/APN counts) | F-95, F-96, F-65, F-51, F-24, F-25 | L |
 
+**FIX-203 Scope Cuts (shipped):**
+- AC-9: no virtualization; slice(0,50) + Show all → /operators link (deferred: virtual scroll for tenants with >50 operators)
+- AC-7 SLA threshold: hardcoded 500ms default (per-operator config column deferred to future story)
+- Sparkline: BE provides 12 × 5-min buckets for 1h latency trend (session-activity sparkline retained as deferred polish)
+
 ### P0 — Alert System Architecture (3 stories)
 
 | Story | Title | Findings | Effort |

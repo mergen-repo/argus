@@ -222,20 +222,30 @@ Fired when operator health status changes (healthy/degraded/down transitions).
     "operator_name": "turkcell",
     "previous_status": "healthy",
     "current_status": "degraded",
-    "uptime_24h_pct": 99.2,
-    "latency_ms_p95": 45,
-    "consecutive_failures": 3,
     "circuit_breaker_state": "half_open",
-    "last_successful_check": "2026-03-18T14:08:00.000Z",
-    "last_failed_check": "2026-03-18T14:10:00.000Z",
+    "latency_ms": 320,
     "failure_reason": "Connection timeout after 5000ms",
-    "affected_sim_count": 234567
+    "timestamp": "2026-03-18T14:10:00.012Z"
   }
 }
 ```
 
 `current_status` values: `healthy`, `degraded`, `down`.
 `circuit_breaker_state` values: `closed` (normal), `open` (rejecting), `half_open` (testing recovery).
+
+`operator_name`, `latency_ms`, and `failure_reason` are omitted when empty (Go `omitempty`).
+
+### Triggers
+
+Event is published by `internal/operator/health.go` `checkOperator` when either:
+- **Status flip**: `prevStatus != currentStatus` on a per-(operator, protocol) tick.
+- **Latency delta**: `|currentLatency - prevLatency| / prevLatency > 0.10` (both > 0 guard). Cold start (`prevLatency == 0`) suppresses the latency trigger until the second tick populates it — avoids noise on startup.
+
+Steady-state operation with small latency jitter (< 10%) and no status change produces no events. The `lastLatency` map refreshes every tick regardless of publish so the next delta is measured against the freshest sample. The down/recovered alert path remains gated on status flip alone; latency-only publishes do not re-fire `AlertTypeOperatorDown`.
+
+### Tenant scope
+
+`OperatorHealthEvent` carries no `tenant_id` field (operators are cross-tenant resources). The WS hub's `relayNATSEvent` falls back to `BroadcastAll` when `tenant_id` is absent — every connected client receives this event regardless of tenant. Frontend filters by matching `operator_id` against its local operator list; unknown IDs are no-ops.
 
 ### 5. alert.new
 

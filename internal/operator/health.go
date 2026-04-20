@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -59,6 +60,14 @@ type HealthChecker struct {
 	// to N_operators instead of N_operators × N_protocols.
 	stopChs       map[uuid.UUID]chan struct{}
 	lastStatus    map[healthKey]string
+	// lastLatency tracks the most recent LatencyMs probe result per
+	// (operator, protocol) tuple. FIX-203 AC-3: health worker must
+	// publish argus.events.operator.health.changed when status flips
+	// OR when latency delta vs. prior tick exceeds 10%. The value 0
+	// is a cold-start sentinel (no prior probe): it suppresses the
+	// latency-trigger path until the second tick populates it,
+	// avoiding startup noise.
+	lastLatency   map[healthKey]int
 	operatorNames map[uuid.UUID]string
 	wg            sync.WaitGroup
 	stopped       bool
@@ -80,6 +89,7 @@ func NewHealthChecker(
 		breakers:      make(map[healthKey]*CircuitBreaker),
 		stopChs:       make(map[uuid.UUID]chan struct{}),
 		lastStatus:    make(map[healthKey]string),
+		lastLatency:   make(map[healthKey]int),
 		operatorNames: make(map[uuid.UUID]string),
 	}
 }
@@ -281,6 +291,10 @@ func (hc *HealthChecker) startOperatorLoop(op store.Operator) {
 		key := healthKey{OperatorID: op.ID, Protocol: probes[i].name}
 		hc.breakers[key] = cb
 		hc.lastStatus[key] = op.HealthStatus
+		// FIX-203: 0 is the cold-start sentinel — the latency-trigger
+		// publish path stays suppressed until the first probe lands a
+		// non-zero sample on the next tick. See comment on lastLatency.
+		hc.lastLatency[key] = 0
 		hc.attachBreakerHookLocked(op.ID, cb)
 		if hc.metricsReg != nil {
 			hc.metricsReg.SetOperatorHealth(op.ID.String(), probes[i].name, op.HealthStatus)
@@ -398,11 +412,25 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 	hkey := healthKey{OperatorID: opID, Protocol: adapterType}
 	hc.mu.Lock()
 	prevStatus := hc.lastStatus[hkey]
+	prevLatency := hc.lastLatency[hkey]
 	opName := hc.operatorNames[opID]
 	hc.lastStatus[hkey] = status
+	hc.lastLatency[hkey] = result.LatencyMs
 	hc.mu.Unlock()
 
-	if prevStatus != status && hc.eventPub != nil && hc.healthSubject != "" {
+	// FIX-203 AC-3: widen the publish gate to fire the health.changed
+	// event on status flip OR latency delta > 10% vs. the prior tick.
+	// Cold-start (prevLatency == 0) suppresses the latency-trigger path
+	// until the second tick populates a real sample; any tick that lands
+	// result.LatencyMs == 0 (timeout / adapter didn't record a sample)
+	// is likewise excluded from the delta computation so we never divide
+	// by zero nor extrapolate from a missing reading.
+	statusFlipped := prevStatus != status
+	latencyChanged := prevLatency > 0 && result.LatencyMs > 0 &&
+		math.Abs(float64(result.LatencyMs-prevLatency))/float64(prevLatency) > 0.10
+	shouldPublish := hc.eventPub != nil && hc.healthSubject != "" && (statusFlipped || latencyChanged)
+
+	if shouldPublish {
 		evt := OperatorHealthEvent{
 			OperatorID:     opID,
 			OperatorName:   opName,
@@ -421,9 +449,19 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 				Str("protocol", adapterType).
 				Str("from", prevStatus).
 				Str("to", status).
+				Int("prev_latency_ms", prevLatency).
+				Int("latency_ms", result.LatencyMs).
+				Bool("status_flipped", statusFlipped).
+				Bool("latency_changed", latencyChanged).
 				Msg("operator health changed event published")
 		}
+	}
 
+	// FIX-203: down/recovered ALERTS remain gated on status flip alone.
+	// A latency-only tick where status stays "down" must NOT re-fire the
+	// AlertTypeOperatorDown alert — that would be a regression the
+	// widened publish gate would otherwise introduce.
+	if statusFlipped && hc.eventPub != nil && hc.healthSubject != "" {
 		if status == "down" {
 			hc.publishAlert(ctx, opID, opName, AlertTypeOperatorDown, SeverityCritical,
 				fmt.Sprintf("Operator %s is DOWN", opName),
@@ -545,6 +583,10 @@ func (hc *HealthChecker) RefreshOperator(ctx context.Context, opID uuid.UUID) er
 		if k.OperatorID == opID {
 			delete(hc.breakers, k)
 			delete(hc.lastStatus, k)
+			// FIX-203: lastLatency is seeded alongside lastStatus in
+			// startOperatorLoop — drop it together so the re-created
+			// protocol loop starts from the cold-start sentinel.
+			delete(hc.lastLatency, k)
 			// STORY-090 Gate (F-A1): drop the stale gauge series so a
 			// protocol disabled via PATCH stops reporting as "last
 			// known status" forever. A fresh series is created on the

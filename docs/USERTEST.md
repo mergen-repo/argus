@@ -2710,3 +2710,35 @@ curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
 ### Manuel test scenaryosu 5 — eSIM profiles
 1. eSIM profile list sayfasına git
 2. OperatorChip rendering doğru mu?
+
+## FIX-203: Dashboard Operator Health — Uptime/Latency/Activity + WS Push
+
+### Scenario 1 — Operator simulator kill → status badge flip via WS
+1. Run `docker stop argus-operator-sim` to kill the operator simulator.
+2. Navigate to `/dashboard`.
+3. Within 5 seconds (next health worker tick + NATS → WS relay), the affected operator row's status badge should flip from "healthy" to "down" without a page refresh.
+4. Verify: no manual reload needed; WS `operator.health_changed` event patches the row in-place.
+
+### Scenario 2 — Latency spike → sparkline update + SLA breach chip
+1. Cause an operator latency jump of ≥20% (e.g. inject network delay via `tc netem` or adjust simulator response delay).
+2. Watch the "Latency 1h" sparkline on the affected operator row — within two 30s ticks the rightmost bucket should reflect the elevated value.
+3. If `latency_ms > 500` (default SLA threshold), a red "SLA breach" badge should appear under the operator name.
+4. Verify: `auth_rate` column updates with current value; Turkcell ≥99% shows green, Vodafone 94% shows warning color, Turk Telekom 90% shows danger color.
+
+### Scenario 3 — WS disconnect fallback polling
+1. Temporarily stop the argus container or block port 8081 (`sudo pfctl` or Docker network partition) to simulate WS disconnect.
+2. Dashboard should continue refreshing operator health data via 30s HTTP polling (`refetchInterval: 30_000`).
+3. Restore the connection — within one poll cycle the data should be in sync; WS patch resumes once reconnected.
+
+### Scenario 4 — Auth rate threshold colors
+1. Navigate to `/dashboard` with seeded operators: Turkcell auth_rate=99.5%, Vodafone auth_rate=94%, Turk Telekom auth_rate=90%.
+2. Turkcell "Auth" column: green text (≥99).
+3. Vodafone "Auth" column: warning/amber text (≥95).
+4. Turk Telekom "Auth" column: danger/red text (<95).
+5. Verify no hardcoded hex colors — all threshold classes use design tokens.
+
+### Scenario 5 — Sub-threshold latency suppression (no spurious event)
+1. Ensure an operator has stable latency at ~200ms.
+2. Cause a <10% latency change (e.g. 200ms → 210ms, 5% delta).
+3. No `operator.health_changed` WS event should fire for this tick (verify via browser DevTools WS frame inspector or NATS subject monitor).
+4. Dashboard row retains the stale latency value until the next 30s poll or a threshold-crossing event fires.

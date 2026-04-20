@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -20,16 +21,17 @@ type SessionCounter interface {
 }
 
 type Handler struct {
-	simStore       *store.SIMStore
-	sessionStore   *store.RadiusSessionStore
-	operatorStore  *store.OperatorStore
-	anomalyStore   *store.AnomalyStore
-	apnStore       *store.APNStore
-	cdrStore       *store.CDRStore
-	ippoolStore    *store.IPPoolStore
-	redisClient    *redis.Client
-	sessionCounter SessionCounter
-	logger         zerolog.Logger
+	simStore         *store.SIMStore
+	sessionStore     *store.RadiusSessionStore
+	operatorStore    *store.OperatorStore
+	anomalyStore     *store.AnomalyStore
+	apnStore         *store.APNStore
+	cdrStore         *store.CDRStore
+	ippoolStore      *store.IPPoolStore
+	redisClient      *redis.Client
+	sessionCounter   SessionCounter
+	metricsCollector *analyticmetrics.Collector
+	logger           zerolog.Logger
 }
 
 type HandlerOption func(*Handler)
@@ -56,6 +58,10 @@ func WithSessionCounter(sc SessionCounter) HandlerOption {
 	return func(h *Handler) {
 		h.sessionCounter = sc
 	}
+}
+
+func WithMetricsCollector(c *analyticmetrics.Collector) HandlerOption {
+	return func(h *Handler) { h.metricsCollector = c }
 }
 
 func NewHandler(
@@ -87,16 +93,17 @@ type simByStateDTO struct {
 }
 
 type operatorHealthDTO struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Status          string   `json:"status"`
-	HealthPct       float64  `json:"health_pct"`
-	Code            string   `json:"code"`
-	SLATarget       *float64 `json:"sla_target,omitempty"`
-	ActiveSessions  *int64   `json:"active_sessions,omitempty"`
-	LastHealthCheck *string  `json:"last_health_check,omitempty"`
-	LatencyMs       *float64 `json:"latency_ms,omitempty"`
-	AuthRate        *float64 `json:"auth_rate,omitempty"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Status           string    `json:"status"`
+	HealthPct        float64   `json:"health_pct"`
+	Code             string    `json:"code"`
+	SLATarget        *float64  `json:"sla_target,omitempty"`
+	ActiveSessions   *int64    `json:"active_sessions,omitempty"`
+	LastHealthCheck  *string   `json:"last_health_check,omitempty"`
+	LatencyMs        *float64  `json:"latency_ms,omitempty"`
+	AuthRate         *float64  `json:"auth_rate,omitempty"`
+	LatencySparkline []float64 `json:"latency_sparkline,omitempty"`
 }
 
 type topAPNDTO struct {
@@ -237,6 +244,11 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error().Err(err).Msg("list operator grants")
 			return
 		}
+		snapMap, snapErr := h.operatorStore.LatestHealthWithLatencyByOperator(ctx)
+		if snapErr != nil {
+			h.logger.Warn().Err(snapErr).Msg("latest health with latency by operator")
+			snapMap = nil
+		}
 		health := make([]operatorHealthDTO, 0, len(grants))
 		for _, g := range grants {
 			pct := healthStatusToPct(g.HealthStatus)
@@ -251,6 +263,12 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			if !g.OperatorUpdatedAt.IsZero() {
 				s := g.OperatorUpdatedAt.Format(time.RFC3339)
 				dto.LastHealthCheck = &s
+			}
+			if snapMap != nil {
+				if snap, ok := snapMap[g.OperatorGrant.OperatorID]; ok && snap.LatencyMs != nil {
+					v := float64(*snap.LatencyMs)
+					dto.LatencyMs = &v
+				}
 			}
 			health = append(health, dto)
 		}
@@ -406,6 +424,46 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	if h.metricsCollector != nil {
+		metrics, err := h.metricsCollector.GetMetrics(ctx)
+		if err == nil {
+			for i := range resp.OperatorHealth {
+				if m, ok := metrics.ByOperator[resp.OperatorHealth[i].ID]; ok && m != nil {
+					errRate := m.AuthErrorRate
+					rate := 100 * (1 - errRate)
+					if rate < 0 {
+						rate = 0
+					} else if rate > 100 {
+						rate = 100
+					}
+					resp.OperatorHealth[i].AuthRate = &rate
+				}
+			}
+		} else {
+			h.logger.Warn().Err(err).Msg("get metrics for auth_rate")
+		}
+	}
+
+	var sparkWG sync.WaitGroup
+	for i := range resp.OperatorHealth {
+		i := i
+		opID, parseErr := uuid.Parse(resp.OperatorHealth[i].ID)
+		if parseErr != nil {
+			continue
+		}
+		sparkWG.Add(1)
+		go func() {
+			defer sparkWG.Done()
+			trend, tErr := h.operatorStore.GetLatencyTrend(ctx, opID, time.Hour, 5*time.Minute)
+			if tErr != nil {
+				h.logger.Warn().Err(tErr).Str("operator_id", opID.String()).Msg("get latency trend for sparkline")
+				return
+			}
+			resp.OperatorHealth[i].LatencySparkline = trend
+		}()
+	}
+	sparkWG.Wait()
 
 	if resp.SIMByState == nil {
 		resp.SIMByState = []simByStateDTO{}
