@@ -79,6 +79,10 @@ func (h *Handler) ListTenantResources(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteSuccess(w, http.StatusOK, items)
 }
 
+// FIX-208: not migrated to Aggregates — admin-scope (not multi-tenant UI), and
+// audit_logs 5-minute RPS rollup has different caching semantics than the
+// per-tenant 60s TTL facade. Tracked as D-072 for a future admin-observability
+// story when CDR/audit-scope aggregates are added (post-FIX-214).
 func (h *Handler) estimateTenantAPIRPS(ctx context.Context, tenantID uuid.UUID) float64 {
 	if h.db == nil {
 		return 0
@@ -97,6 +101,10 @@ func (h *Handler) estimateTenantAPIRPS(ctx context.Context, tenantID uuid.UUID) 
 	return count / float64((5 * time.Minute).Seconds())
 }
 
+// FIX-208: not migrated to Aggregates — admin-scope (not multi-tenant UI), and
+// cdrs 30-day rollup has different caching semantics than the per-tenant 60s
+// TTL facade. Tracked as D-072 for a future admin-observability story when
+// CDR-scope aggregates are added (post-FIX-214).
 func (h *Handler) cdrBytes30d(ctx context.Context, tenantID uuid.UUID) int64 {
 	if h.db == nil {
 		return 0

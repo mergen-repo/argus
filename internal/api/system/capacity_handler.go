@@ -3,6 +3,7 @@ package system
 import (
 	"net/http"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -44,6 +45,7 @@ type CapacityHandler struct {
 	sessionStore *store.RadiusSessionStore
 	ipPoolStore  *store.IPPoolStore
 	cdrStore     *store.CDRStore
+	agg          aggregates.Aggregates
 }
 
 func NewCapacityHandler(
@@ -52,6 +54,7 @@ func NewCapacityHandler(
 	sessionStore *store.RadiusSessionStore,
 	ipPoolStore *store.IPPoolStore,
 	cdrStore *store.CDRStore,
+	agg aggregates.Aggregates,
 ) *CapacityHandler {
 	return &CapacityHandler{
 		cfg:          cfg,
@@ -59,6 +62,7 @@ func NewCapacityHandler(
 		sessionStore: sessionStore,
 		ipPoolStore:  ipPoolStore,
 		cdrStore:     cdrStore,
+		agg:          agg,
 	}
 }
 
@@ -71,7 +75,7 @@ func (h *CapacityHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalSIMs, err := h.simStore.CountByTenant(ctx, tenantID)
+	totalSIMs, err := h.agg.SIMCountByTenant(ctx, tenantID)
 	if err != nil {
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to count SIMs")
 		return

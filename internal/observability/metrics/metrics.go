@@ -99,6 +99,10 @@ type Registry struct {
 
 	DataIntegrityViolationsTotal *prometheus.CounterVec
 
+	AggregatesCacheHits    *prometheus.CounterVec
+	AggregatesCacheMisses  *prometheus.CounterVec
+	AggregatesCallDuration *prometheus.HistogramVec
+
 	KVKKPurgeRowsTotal *prometheus.CounterVec
 
 	WebhookRetriesTotal       *prometheus.CounterVec
@@ -293,6 +297,34 @@ func NewRegistry() *Registry {
 		Help: "Daily data-integrity scan violation counts by kind.",
 	}, []string{"kind"})
 	reg.MustRegister(r.DataIntegrityViolationsTotal)
+
+	r.AggregatesCacheHits = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_aggregates_cache_hits_total",
+			Help: "Aggregates facade cache hits by method (FIX-208).",
+		},
+		[]string{"method"},
+	)
+	reg.MustRegister(r.AggregatesCacheHits)
+
+	r.AggregatesCacheMisses = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_aggregates_cache_misses_total",
+			Help: "Aggregates facade cache misses by method (FIX-208).",
+		},
+		[]string{"method"},
+	)
+	reg.MustRegister(r.AggregatesCacheMisses)
+
+	r.AggregatesCallDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "argus_aggregates_call_duration_seconds",
+			Help:    "Aggregates facade call duration by method and cache outcome (FIX-208).",
+			Buckets: []float64{0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
+		},
+		[]string{"method", "cache"},
+	)
+	reg.MustRegister(r.AggregatesCallDuration)
 
 	r.KVKKPurgeRowsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_kvkk_purge_rows_total",
@@ -525,6 +557,33 @@ func (r *Registry) IncDataIntegrity(kind string, by float64) {
 		return
 	}
 	r.DataIntegrityViolationsTotal.WithLabelValues(kind).Add(by)
+}
+
+// IncAggregatesCacheHit increments the aggregates cache hit counter for the given method.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncAggregatesCacheHit(method string) {
+	if r == nil || r.AggregatesCacheHits == nil {
+		return
+	}
+	r.AggregatesCacheHits.WithLabelValues(method).Inc()
+}
+
+// IncAggregatesCacheMiss increments the aggregates cache miss counter for the given method.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncAggregatesCacheMiss(method string) {
+	if r == nil || r.AggregatesCacheMisses == nil {
+		return
+	}
+	r.AggregatesCacheMisses.WithLabelValues(method).Inc()
+}
+
+// ObserveAggregatesCallDuration records the call duration for the given method and cache outcome.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) ObserveAggregatesCallDuration(method, cache string, d time.Duration) {
+	if r == nil || r.AggregatesCallDuration == nil {
+		return
+	}
+	r.AggregatesCallDuration.WithLabelValues(method, cache).Observe(d.Seconds())
 }
 
 func operatorHealthValue(status string) float64 {

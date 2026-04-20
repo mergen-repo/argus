@@ -26,6 +26,7 @@ import (
 	aaaradius "github.com/btopcu/argus/internal/aaa/radius"
 	aaasba "github.com/btopcu/argus/internal/aaa/sba"
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	anomalysvc "github.com/btopcu/argus/internal/analytics/anomaly"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
@@ -522,16 +523,29 @@ func runServe(cfg *config.Config) {
 	simStore := store.NewSIMStore(pg.Pool)
 	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	operatorMetricsCDRStore := store.NewCDRStore(pg.Pool)
+	aggSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	aggSvc := aggregates.New(
+		simStore, aggSessionStore,
+		rdb.Client,
+		metricsReg,
+		log.Logger,
+		aggregates.WithTTL(60*time.Second),
+	)
+	if err := aggregates.RegisterInvalidator(eventBus, rdb.Client, log.Logger); err != nil {
+		log.Fatal().Err(err).Msg("register aggregates invalidator")
+	}
 	operatorHandler := operatorapi.NewHandler(operatorStore, tenantStore, auditSvc, cfg.EncryptionKey, adapterRegistry, log.Logger,
 		operatorapi.WithSIMStore(simStore),
 		operatorapi.WithSessionStore(operatorMetricsSessionStore),
 		operatorapi.WithCDRStore(operatorMetricsCDRStore),
+		operatorapi.WithAggregates(aggSvc),
 	)
 	apnCDRStore := store.NewCDRStore(pg.Pool)
 	apnHandler := apnapi.NewHandler(apnStore, operatorStore, auditSvc, log.Logger,
 		apnapi.WithSIMStore(simStore),
 		apnapi.WithCDRStore(apnCDRStore),
 		apnapi.WithIPPoolStore(ippoolStore),
+		apnapi.WithAggregates(aggSvc),
 	)
 	// policyStore for apnHandler wired after policyStore construction (see below)
 	ippoolHandler := ippoolapi.NewHandler(ippoolStore, apnStore, auditSvc, log.Logger)
@@ -571,7 +585,9 @@ func runServe(cfg *config.Config) {
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation))
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
-	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger)
+	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger,
+		policyapi.WithAggregates(aggSvc),
+	)
 	bulkHandler := simapi.NewBulkHandler(jobStore, segmentStore, eventBus, log.Logger)
 	bulkHandler.SetSIMStore(simStore)
 	jobHandler := jobapi.NewHandler(jobStore, eventBus, auditSvc, log.Logger)
@@ -1185,6 +1201,7 @@ func runServe(cfg *config.Config) {
 		dashboardapi.WithSessionCounter(sessionCounter),
 		dashboardapi.WithIPPoolStore(ippoolStore),
 		dashboardapi.WithMetricsCollector(metricsCollector),
+		dashboardapi.WithAggregates(aggSvc),
 	)
 
 	if err := dashboardapi.RegisterDashboardInvalidator(eventBus, rdb.Client, log.Logger); err != nil {
@@ -1455,6 +1472,7 @@ func runServe(cfg *config.Config) {
 		capacitySessionStore,
 		capacityIPPoolStore,
 		capacityCDRStore,
+		aggSvc,
 	)
 
 	bulkRateLimiter := gateway.NewBulkRateLimiter(1.0, 2)
@@ -1463,7 +1481,7 @@ func runServe(cfg *config.Config) {
 	tenantLimits := gateway.NewTenantLimitsMiddleware(
 		tenantStore,
 		map[gateway.LimitKey]gateway.CountFn{
-			gateway.LimitSIMs:    simStore.CountByTenant,
+			gateway.LimitSIMs:    aggSvc.SIMCountByTenant,
 			gateway.LimitAPNs:    apnStore.CountByTenant,
 			gateway.LimitUsers:   userStore.CountByTenant,
 			gateway.LimitAPIKeys: apiKeyStore.CountByTenant,

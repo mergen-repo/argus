@@ -172,7 +172,8 @@ argus/
 │   │   ├── cdr/                  # CDR processing
 │   │   ├── anomaly/              # Anomaly detection
 │   │   ├── cost/                 # Cost optimization
-│   │   └── metrics/              # Redis-backed realtime metrics (WS dashboard, STORY-033)
+│   │   ├── metrics/              # Redis-backed realtime metrics (WS dashboard, STORY-033)
+│   │   └── aggregates/           # Cross-tab aggregation facade — Redis-cached (60s TTL), NATS-invalidated; canonical SIM/session counts (FIX-208)
 │   ├── observability/            # Cross-cutting OTel + Prometheus infrastructure (STORY-065)
 │   │   ├── otel.go               # OTel tracer provider init (OTLP gRPC, resource attrs, shutdown)
 │   │   └── metrics/              # Prometheus registry, metric descriptors, AAA composite recorder
@@ -404,6 +405,7 @@ RADIUS Request → UDP listener (goroutine pool)
 | Auth rate counters | Redis INCR | 5s | Auto-expire (TTL) |
 | Auth latency window | Redis ZSET | 120s | Auto-expire + 60s sliding prune |
 | Dashboard aggregates | TimescaleDB continuous agg | 1hr | Auto-refresh |
+| Aggregates cache (per-tenant, per-method) | Redis | 60s | NATS on sim.updated, policy.changed, session.started, session.ended (queue: aggregates-invalidator) |
 | Dashboard cache (per-tenant) | Redis | 30s | NATS on sim.*, session.*, operator.health_changed, cdr.recorded |
 | Active sessions counter (per-tenant) | Redis INCR | No TTL | NATS session.started/ended + hourly reconciler SET |
 | Diagnostic result (per-SIM) | Redis | 1min | Auto-expire (TTL) |

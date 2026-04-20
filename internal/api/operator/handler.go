@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/crypto"
@@ -49,6 +50,7 @@ type Handler struct {
 	auditSvc        audit.Auditor
 	encryptionKey   string
 	adapterRegistry *adapter.Registry
+	agg             aggregates.Aggregates
 	logger          zerolog.Logger
 }
 
@@ -64,6 +66,10 @@ func WithSessionStore(s *store.RadiusSessionStore) HandlerOption {
 
 func WithCDRStore(cs *store.CDRStore) HandlerOption {
 	return func(h *Handler) { h.cdrStore = cs }
+}
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
 }
 
 func NewHandler(
@@ -589,8 +595,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var simCounts map[uuid.UUID]int
-	if h.simStore != nil && tenantID != uuid.Nil {
-		simCounts, err = h.simStore.CountByOperator(ctx, tenantID)
+	if h.agg != nil && tenantID != uuid.Nil {
+		simCounts, err = h.agg.SIMCountByOperator(ctx, tenantID)
 		if err != nil {
 			h.logger.Warn().Err(err).Msg("count sims by operator")
 		}
@@ -598,17 +604,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	var sessionCounts map[string]int64
 	var trafficMap map[uuid.UUID]int64
-	if h.sessionStore != nil {
-		var tid *uuid.UUID
-		if tenantID != uuid.Nil {
-			tid = &tenantID
-		}
-		if stats, err2 := h.sessionStore.GetActiveStats(ctx, tid); err2 == nil {
+	if h.agg != nil && tenantID != uuid.Nil {
+		if stats, err2 := h.agg.ActiveSessionStats(ctx, tenantID); err2 == nil {
 			sessionCounts = stats.ByOperator
 		} else {
 			h.logger.Warn().Err(err2).Msg("get session stats for operator list")
 		}
-		trafficMap, err = h.sessionStore.TrafficByOperator(ctx, tid)
+		trafficMap, err = h.agg.TrafficByOperator(ctx, tenantID)
 		if err != nil {
 			h.logger.Warn().Err(err).Msg("get traffic by operator")
 		}
@@ -995,20 +997,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Populate SimCount / ActiveSessions / TotalTrafficBytes / health
 	// timestamp the same way the List handler does.
-	if h.simStore != nil && tenantID != uuid.Nil {
-		if simCounts, err := h.simStore.CountByOperator(ctx, tenantID); err == nil {
+	if h.agg != nil && tenantID != uuid.Nil {
+		if simCounts, err := h.agg.SIMCountByOperator(ctx, tenantID); err == nil {
 			resp.SimCount = simCounts[op.ID]
 		}
-	}
-	if h.sessionStore != nil {
-		var tid *uuid.UUID
-		if tenantID != uuid.Nil {
-			tid = &tenantID
-		}
-		if stats, err := h.sessionStore.GetActiveStats(ctx, tid); err == nil {
+		if stats, err := h.agg.ActiveSessionStats(ctx, tenantID); err == nil {
 			resp.ActiveSessions = stats.ByOperator[op.ID.String()]
 		}
-		if trafficMap, err := h.sessionStore.TrafficByOperator(ctx, tid); err == nil {
+		if trafficMap, err := h.agg.TrafficByOperator(ctx, tenantID); err == nil {
 			resp.TotalTrafficBytes = trafficMap[op.ID]
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
@@ -37,6 +38,7 @@ type Handler struct {
 	cdrStore      *store.CDRStore
 	ipPoolStore   *store.IPPoolStore
 	policyStore   *store.PolicyStore
+	agg           aggregates.Aggregates
 	auditSvc      audit.Auditor
 	logger        zerolog.Logger
 }
@@ -55,6 +57,10 @@ func WithCDRStore(cs *store.CDRStore) HandlerOption {
 
 func WithIPPoolStore(ip *store.IPPoolStore) HandlerOption {
 	return func(h *Handler) { h.ipPoolStore = ip }
+}
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
 }
 
 func (h *Handler) SetPolicyStore(ps *store.PolicyStore) {
@@ -191,8 +197,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var bytesByAPN map[uuid.UUID]int64
 	var poolStatsByAPN []store.PoolAPNStats
 
-	if h.simStore != nil {
-		simCountByAPN, _ = h.simStore.CountByAPN(r.Context(), tenantID)
+	if h.agg != nil {
+		simCountByAPN, _ = h.agg.SIMCountByAPN(r.Context(), tenantID)
 	}
 	if h.cdrStore != nil {
 		bytesByAPN, _ = h.cdrStore.SumBytesByAPN24h(r.Context(), tenantID)

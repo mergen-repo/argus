@@ -3039,3 +3039,106 @@ curl -s http://localhost:9596/metrics | grep argus_radius_nas_ip_missing_total
 ```
 
 Expected: `argus_radius_nas_ip_missing_total` counter increments by 1. WARN log line visible: `"nas_ip_missing": true` with `acct_session_id` context. When NAS-IP-Address AVP IS present, counter does not increment.
+
+---
+
+## FIX-208: Cross-Tab Data Aggregation Unify
+
+Backend aggregation story. No UI surface changes; manual verification is API-level and metric-level.
+
+### Scenario 1 — AC-4: Aggregator cross-tab consistency (F-125)
+
+Verify that Dashboard, Operator detail, APN detail, and Policy list all show the same SIM count for the same policy.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# Step 1 — get a policy ID from the policy list
+POLICY_ID=$(curl -s http://localhost:8084/api/v1/policies \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+
+# Step 2 — SIM count from Policy list endpoint (SimCount field)
+curl -s "http://localhost:8084/api/v1/policies?page_size=10" \
+  -H "Authorization: Bearer $TOKEN" | jq ".data[] | select(.id==\"$POLICY_ID\") | .sim_count"
+
+# Step 3 — SIM count from Dashboard (sim_count_by_state total — all non-purged)
+curl -s http://localhost:8084/api/v1/dashboard \
+  -H "Authorization: Bearer $TOKEN" | jq '.data.sim_counts | to_entries | map(.value) | add'
+
+# Step 4 — SIM count from Operator detail (sim_count in operator list)
+OPERATOR_ID=$(curl -s http://localhost:8084/api/v1/operators \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+curl -s "http://localhost:8084/api/v1/operators/$OPERATOR_ID" \
+  -H "Authorization: Bearer $TOKEN" | jq '.data.sim_count'
+```
+
+Expected: All surfaces that report SIMs for the same policy use `sims.policy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $2) AND state != 'purged'` as the canonical source (via `internal/analytics/aggregates` facade). The policy-level `sim_count` returned by Step 2 must be non-zero if the policy has active SIMs in seed — not 0 (which was the F-125 regression: direct `policy_version_id = policy.id` comparison returned 0 rows because the UUID spaces differ). After FIX-208, all four surfaces go through `aggSvc.SIMCountByPolicy` / `aggSvc.SIMCountByOperator` / `aggSvc.SIMCountByTenant` — divergent numbers across tabs must not occur.
+
+### Scenario 2 — AC-3: NATS cache invalidation on sim.updated
+
+Verify that the aggregates Redis cache is evicted when a SIM is updated.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# Step 1 — warm the cache: hit dashboard (forces SIMCountByTenant into Redis)
+curl -s http://localhost:8084/api/v1/dashboard \
+  -H "Authorization: Bearer $TOKEN" | jq '.data.total_sims'
+
+# Step 2 — verify cache key exists in Redis (key pattern: argus:aggregates:v1:<tenant>:*)
+docker exec argus-redis redis-cli KEYS 'argus:aggregates:v1:*' | head -5
+
+# Step 3 — trigger a SIM state change (suspend → resume any active SIM)
+SIM_ID=$(curl -s "http://localhost:8084/api/v1/sims?state=active&page_size=1" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+
+curl -s -X POST "http://localhost:8084/api/v1/sims/$SIM_ID/suspend" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"cache-invalidation-test"}' | jq .status
+
+# Step 4 — within ~1s the NATS invalidator (queue=aggregates-invalidator, SubjectSIMUpdated)
+# should have evicted all tenant-scoped aggregate keys.
+sleep 1
+docker exec argus-redis redis-cli KEYS 'argus:aggregates:v1:*' | wc -l
+
+# Step 5 — restore SIM state
+curl -s -X POST "http://localhost:8084/api/v1/sims/$SIM_ID/activate" \
+  -H "Authorization: Bearer $TOKEN" | jq .status
+```
+
+Expected: After Step 2, one or more `argus:aggregates:v1:<tenant_id>:*` keys are present (cache is warm). After Step 4, those keys are absent (evicted by NATS invalidator). On the next dashboard load the cache re-warms. If Step 4 still shows keys, wait 60s for TTL expiry — TTL is the safety net when NATS delivery is delayed.
+
+### Scenario 3 — AC-6: Prometheus aggregates cache hit/miss metrics
+
+Verify that the three aggregates Prometheus counters are visible and increment.
+
+```bash
+# Step 1 — baseline: check current hit/miss counts
+curl -s http://localhost:9596/metrics | grep 'argus_aggregates_cache'
+
+# Step 2 — warm the cache (first call = miss)
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+curl -s http://localhost:8084/api/v1/dashboard -H "Authorization: Bearer $TOKEN" > /dev/null
+
+# Step 3 — cache miss counter should have incremented
+curl -s http://localhost:9596/metrics | grep 'argus_aggregates_cache_misses_total'
+
+# Step 4 — call dashboard again within 60s (cache hit)
+curl -s http://localhost:8084/api/v1/dashboard -H "Authorization: Bearer $TOKEN" > /dev/null
+
+# Step 5 — cache hit counter should have incremented; duration histogram present
+curl -s http://localhost:9596/metrics | grep 'argus_aggregates_cache_hits_total'
+curl -s http://localhost:9596/metrics | grep 'argus_aggregates_call_duration_seconds'
+```
+
+Expected: Three metric families visible after Step 1 warm-up (may be absent before any aggregator call — Prometheus counters are registered but start at 0):
+- `argus_aggregates_cache_misses_total{method="SIMCountByTenant"}` increments on first cold call (Step 2).
+- `argus_aggregates_cache_hits_total{method="SIMCountByTenant"}` increments on the second call within TTL window (Step 4).
+- `argus_aggregates_call_duration_seconds{method="SIMCountByTenant",cache="miss"}` and `{cache="hit"}` histogram buckets present.
+p95 latency on cache hit should be in the µs range (gate measured 72µs), well under the 50ms AC-6 target.

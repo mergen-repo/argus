@@ -13,7 +13,7 @@ import (
 func TestCapacityHandler_MissingTenant(t *testing.T) {
 	h := NewCapacityHandler(
 		CapacityConfig{SIMs: 15_000_000, Sessions: 2_000_000, AuthPerSec: 5_000, MonthlyGrowth: 72_000},
-		nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/capacity", nil)

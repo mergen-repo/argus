@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
@@ -43,7 +44,14 @@ type Handler struct {
 	eventBus    *bus.EventBus
 	auditSvc    audit.Auditor
 	undoRegistry *undopkg.Registry
+	agg         aggregates.Aggregates
 	logger      zerolog.Logger
+}
+
+type HandlerOption func(*Handler)
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
 }
 
 func NewHandler(
@@ -54,8 +62,9 @@ func NewHandler(
 	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		policyStore: policyStore,
 		dryRunSvc:   dryRunSvc,
 		rolloutSvc:  rolloutSvc,
@@ -64,6 +73,10 @@ func NewHandler(
 		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "policy_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 func (h *Handler) WithUndoRegistry(r *undopkg.Registry) *Handler {
@@ -221,7 +234,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]policyListItem, 0, len(policies))
 	for _, p := range policies {
-		items = append(items, toPolicyListItem(&p))
+		item := toPolicyListItem(&p)
+		if h.agg != nil && tenantID != uuid.Nil {
+			if cnt, cntErr := h.agg.SIMCountByPolicy(r.Context(), tenantID, p.ID); cntErr == nil {
+				item.SimCount = cnt
+			} else {
+				h.logger.Warn().Err(cntErr).Str("policy_id", p.ID.String()).Msg("sim count by policy")
+			}
+		}
+		items = append(items, item)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{

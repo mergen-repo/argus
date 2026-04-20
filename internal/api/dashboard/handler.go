@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
@@ -31,6 +32,7 @@ type Handler struct {
 	redisClient      *redis.Client
 	sessionCounter   SessionCounter
 	metricsCollector *analyticmetrics.Collector
+	agg              aggregates.Aggregates
 	logger           zerolog.Logger
 }
 
@@ -62,6 +64,10 @@ func WithSessionCounter(sc SessionCounter) HandlerOption {
 
 func WithMetricsCollector(c *analyticmetrics.Collector) HandlerOption {
 	return func(h *Handler) { h.metricsCollector = c }
+}
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
 }
 
 func NewHandler(
@@ -174,7 +180,10 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer wg.Done()
-		totalSIMs, simStates, err := h.simStore.CountByState(ctx, tenantID)
+		if h.agg == nil {
+			return
+		}
+		totalSIMs, simStates, err := h.agg.SIMCountByState(ctx, tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("count sims by state")
 			return
@@ -190,10 +199,10 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer wg.Done()
-		if h.sessionStore == nil {
+		if h.agg == nil {
 			return
 		}
-		stats, err := h.sessionStore.GetActiveStats(ctx, &tenantID)
+		stats, err := h.agg.ActiveSessionStats(ctx, tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("get active sessions")
 			return

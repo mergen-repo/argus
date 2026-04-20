@@ -1292,6 +1292,32 @@ func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, [
 	return total, results, nil
 }
 
+// CountByPolicyID returns the number of non-purged SIMs currently on any version of the
+// given policy within the tenant. Canonical source for "SIMs on policy X" (FIX-208 F-125
+// fix). Reads from sims.policy_version_id joined via policy_versions.policy_id, NOT from
+// policy_assignments (which is kept for CoA/audit only and may include rows for removed
+// SIMs — see FIX-208 duplication-audit).
+//
+// The policyID parameter is the policies.id (stable across version bumps), not a
+// policy_version_id. The subquery resolves all versions belonging to that policy so the
+// count reflects the policy regardless of which version is currently applied to each SIM.
+func (s *SIMStore) CountByPolicyID(ctx context.Context, tenantID, policyID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sims
+		WHERE tenant_id = $1
+		  AND state != 'purged'
+		  AND policy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $2)
+	`, tenantID, policyID).Scan(&count)
+	if err == nil {
+		return count, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return 0, fmt.Errorf("store: count sims by policy: %w", err)
+}
+
 // ---------------------------------------------------------------------------
 // SIMWithNames — enriched SIM with joined parent-entity display fields.
 // ---------------------------------------------------------------------------

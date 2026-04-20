@@ -354,3 +354,15 @@ func TestValidateTransition_StolenLostAllowsTerminated(t *testing.T) {
 		}
 	}
 }
+
+// TestSIMStore_CountByPolicyID_Signature verifies CountByPolicyID compiles with the correct signature.
+// Full DB integration test (seed 3 SIMs on P1, 2 on P2, 1 with NULL) requires DATABASE_URL.
+//
+// NEEDS_CONTEXT: DB integration tests are not wired in this file. Add integration coverage
+// when a test DB fixture infrastructure is available (see internal/store/*_integration_test.go pattern).
+func TestSIMStore_CountByPolicyID_Signature(t *testing.T) {
+	var _ func(*SIMStore, uuid.UUID, uuid.UUID) (int, error) = func(s *SIMStore, tid, pvid uuid.UUID) (int, error) {
+		return s.CountByPolicyID(nil, tid, pvid)
+	}
+	t.Log("CountByPolicyID method signature verified: (ctx, tenantID uuid.UUID, policyVersionID uuid.UUID) (int, error)")
+}

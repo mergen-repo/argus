@@ -115,7 +115,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-208
+- Story: FIX-209
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
@@ -127,5 +127,5 @@ docs/            → All documentation
   - **Data integrity foundation** (FIX-206): 200 orphan SIM + FK constraints + seed fix → unblocks FIX-202/207/208
   - **Alert architecture** (FIX-209/210/211): unified alerts table + dedup + taxonomy → unblocks FIX-213/215/229
   - **Event envelope** (FIX-212): unified schema + name resolution + missing publishers → unblocks FIX-213/219
-  - **Cross-tab aggregation** (FIX-208): single source of truth for usage/cost/sessions math
+  - **Cross-tab aggregation** (FIX-208): DONE — single source of truth for usage/cost/sessions math via aggregates facade
   - **Seed discipline** (FIX-206): `make db-seed` must stay clean after FK migration — never defer
