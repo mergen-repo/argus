@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
@@ -33,6 +36,7 @@ type AuthHandler struct {
 	apiKeyStore   *store.APIKeyStore
 	jwtSecret     string
 	jwtExpiry     time.Duration
+	redis         redis.Cmdable
 }
 
 func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCookie bool) *AuthHandler {
@@ -46,6 +50,11 @@ func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCoo
 
 func (h *AuthHandler) WithAPIKeyStore(s *store.APIKeyStore) *AuthHandler {
 	h.apiKeyStore = s
+	return h
+}
+
+func (h *AuthHandler) WithRedis(r redis.Cmdable) *AuthHandler {
+	h.redis = r
 	return h
 }
 
@@ -64,16 +73,20 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	User        authpkg.UserInfo `json:"user"`
-	Token       string           `json:"token"`
-	Requires2FA bool             `json:"requires_2fa"`
-	Partial     bool             `json:"partial,omitempty"`
-	Reason      string           `json:"reason,omitempty"`
-	SessionID   string           `json:"session_id,omitempty"`
+	User             authpkg.UserInfo `json:"user"`
+	Token            string           `json:"token"`
+	Requires2FA      bool             `json:"requires_2fa"`
+	Partial          bool             `json:"partial,omitempty"`
+	Reason           string           `json:"reason,omitempty"`
+	SessionID        string           `json:"session_id,omitempty"`
+	ExpiresIn        int              `json:"expires_in,omitempty"`
+	RefreshExpiresIn int              `json:"refresh_expires_in,omitempty"`
 }
 
 type refreshResponse struct {
-	Token string `json:"token"`
+	Token            string `json:"token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
 }
 
 type setup2FAResponse struct {
@@ -267,6 +280,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if !resp.Partial {
+		resp.ExpiresIn = int(h.jwtExpiry.Seconds())
+		resp.RefreshExpiresIn = h.refreshMaxAge
+	}
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
@@ -276,6 +293,24 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidRefreshToken,
 			"Refresh token is invalid or has been revoked")
 		return
+	}
+
+	if h.redis != nil {
+		sum := sha256.Sum256([]byte(cookie.Value))
+		key := fmt.Sprintf("ratelimit:refresh:%x", sum[:8])
+
+		count, rlErr := h.redis.Incr(r.Context(), key).Result()
+		if rlErr != nil {
+			log.Warn().Err(rlErr).Msg("refresh rate-limit Redis INCR failed — allowing request")
+		} else {
+			if count == 1 {
+				h.redis.Expire(r.Context(), key, 60*time.Second)
+			}
+			if count > 60 {
+				apierr.WriteError(w, http.StatusTooManyRequests, apierr.CodeRateLimited, "Too many refresh requests")
+				return
+			}
+		}
 	}
 
 	ipAddr := extractIP(r.RemoteAddr)
@@ -291,7 +326,9 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	h.setRefreshCookie(w, result.RefreshToken)
 
 	apierr.WriteSuccess(w, http.StatusOK, refreshResponse{
-		Token: result.Token,
+		Token:            result.Token,
+		ExpiresIn:        int(h.jwtExpiry.Seconds()),
+		RefreshExpiresIn: h.refreshMaxAge,
 	})
 }
 

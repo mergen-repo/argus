@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/btopcu/argus/internal/apierr"
 	authpkg "github.com/btopcu/argus/internal/auth"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -735,5 +737,73 @@ func TestAuthHandler_ListSessions_LimitBounds(t *testing.T) {
 				t.Errorf("limit = %d, want %d", limit, tc.wantEffective)
 			}
 		})
+	}
+}
+
+func newRefreshRateLimitTestHandler(t *testing.T) (*AuthHandler, *miniredis.Miniredis) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run: %v", err)
+	}
+	t.Cleanup(mr.Close)
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	users := newHandlerTestUserRepo()
+	sessions := newHandlerTestSessionRepo()
+	svc := authpkg.NewService(users, sessions, nil, authpkg.Config{
+		JWTSecret:        "test-secret-32-bytes-long-padding",
+		JWTExpiry:        15 * time.Minute,
+		JWTRefreshExpiry: 168 * time.Hour,
+		JWTIssuer:        "argus",
+		BcryptCost:       bcrypt.MinCost,
+		MaxLoginAttempts: 5,
+		LockoutDuration:  15 * time.Minute,
+	})
+
+	h := NewAuthHandler(svc, 24*time.Hour, false).WithRedis(client)
+	return h, mr
+}
+
+func TestRefreshHandler_RateLimit_60PerMinute_429(t *testing.T) {
+	h, _ := newRefreshRateLimitTestHandler(t)
+
+	cookieVal := "test-refresh-token-value"
+
+	fireRefresh := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: cookieVal})
+		w := httptest.NewRecorder()
+		h.Refresh(w, req)
+		return w.Code
+	}
+
+	for i := 1; i <= 60; i++ {
+		code := fireRefresh()
+		if code == http.StatusTooManyRequests {
+			t.Errorf("request %d: got 429 too early (expected rate limit after 60)", i)
+		}
+	}
+
+	code := fireRefresh()
+	if code != http.StatusTooManyRequests {
+		t.Errorf("request 61: got %d, want 429", code)
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: cookieVal})
+	h.Refresh(w, req)
+
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error.Code != apierr.CodeRateLimited {
+		t.Errorf("error code = %q, want %q", resp.Error.Code, apierr.CodeRateLimited)
 	}
 }

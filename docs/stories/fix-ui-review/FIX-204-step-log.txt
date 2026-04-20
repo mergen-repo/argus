@@ -9,3 +9,4 @@
 2026-04-20T12:55:00Z STEP_3 GATE: EXECUTED | inline-scouts 3 | findings 1 non-blocking | fixes 4 applied (env-configurability + pure-Go SQL assertion + env-override tests + store seam) | tests=3338 go=PASS vet=PASS race=PASS ts=PASS | escalated=0 deferred=0 | result=PASS
 2026-04-20T12:24:28Z STEP_3 GATE: EXECUTED | findings=1 (accepted) fixes=4 (env-var+test-seam) | result=PASS tests=3338
 2026-04-20T12:30:59Z STEP_4 REVIEW: EXECUTED | findings=3 all-fixed-or-deferred unresolved=1 D-061-added | result=PASS
+2026-04-20T12:31:42Z STEP_5 COMMIT: EXECUTED | commit=c0b7b61 files=19 | result=PASS

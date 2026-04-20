@@ -57,14 +57,23 @@ api.interceptors.response.use(
       try {
         const res = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true })
         const newToken = res.data.data.token
+        // setToken() derives tokenExpiresAt from the JWT `exp` claim; prefer that as the
+        // authoritative source. Only fall back to server `expires_in` wall-clock if the
+        // JWT did not carry an exp (shouldn't happen in prod, but keep a safety net so
+        // the pre-emptive refresh scheduler still arms).
         useAuthStore.getState().setToken(newToken)
+        const storeState = useAuthStore.getState()
+        if (storeState.tokenExpiresAt == null && typeof res.data.data.expires_in === 'number') {
+          storeState.setTokenExpiresAt(Date.now() + res.data.data.expires_in * 1000)
+        }
         processQueue(null, newToken)
         originalRequest.headers.Authorization = `Bearer ${newToken}`
         return api(originalRequest)
       } catch (refreshError) {
         processQueue(refreshError, null)
         useAuthStore.getState().logout()
-        window.location.href = '/login'
+        // FIX-205: refresh loop guarded by _retry flag on retriedConfig above
+        window.location.href = `/login?reason=session_expired&return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`
         return Promise.reject(refreshError)
       } finally {
         isRefreshing = false
@@ -107,10 +116,14 @@ export interface AuthLoginResponse {
   session_id?: string
   partial?: boolean
   reason?: string
+  expires_in?: number
+  refresh_expires_in?: number
 }
 
 export interface AuthRefreshResponse {
   token: string
+  expires_in?: number
+  refresh_expires_in?: number
 }
 
 export interface Auth2FAResponse {

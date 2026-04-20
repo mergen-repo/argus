@@ -319,8 +319,18 @@ API Request: Authorization: Bearer <jwt>
     → injects into request context
 
 Token Refresh: POST /api/v1/auth/refresh (httpOnly cookie)
+    → in-handler rate limit: 60/min per session (SHA-256 cookie → Redis sliding window)
     → validate refresh token against TBL-03
     → issue new JWT + rotate refresh token
+    → return {token, expires_in, refresh_expires_in} in response body
+    → refresh_token rotated in-place (httpOnly cookie; never in body)
+
+FE Refresh Interceptor (web/src/lib/api.ts + web/src/stores/auth.ts):
+    → 401 response → single-flight (isRefreshing + failedQueue): exactly 1 refresh fires
+    → on success: setToken() derives tokenExpiresAt from JWT exp claim (server expires_in is fallback only)
+    → on failure: logout() + redirect /login?reason=session_expired&return_to=<path>
+    → pre-emptive scheduler: fires 5 min before JWT exp — silent refresh, no spinner
+    → cross-tab sync: BroadcastChannel('argus-auth-broadcast') — token_refreshed message propagates to all open tabs
 
 API Key: X-API-Key: argus_<prefix>_<secret>
     → gateway looks up key_prefix in TBL-04

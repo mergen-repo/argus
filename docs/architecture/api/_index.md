@@ -11,8 +11,8 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-001 | POST | /api/v1/auth/login | User login (JWT + refresh token) | None | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |
-| API-002 | POST | /api/v1/auth/refresh | Refresh JWT token | Refresh Token | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |
+| API-001 | POST | /api/v1/auth/login | User login (JWT + refresh token). Fully-authenticated response includes `expires_in` (seconds) and `refresh_expires_in` (seconds); refresh_token remains httpOnly `SameSite=Strict` cookie only. | None | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |
+| API-002 | POST | /api/v1/auth/refresh | Refresh JWT token. Response body: `{token, expires_in, refresh_expires_in}`. Rate-limited: 60 req/min per session (keyed on SHA-256 of refresh cookie, in-handler Redis sliding window). FE interceptor: single-flight + BroadcastChannel cross-tab sync + pre-emptive scheduler (5 min before JWT `exp`). | Refresh Token (httpOnly cookie) | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md); extended by [FIX-205](../../stories/fix-ui-review/FIX-205-token-refresh-auto-retry.md) |
 | API-003 | POST | /api/v1/auth/logout | Revoke session | JWT | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |
 | API-004 | POST | /api/v1/auth/2fa/setup | Enable TOTP 2FA | JWT | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |
 | API-005 | POST | /api/v1/auth/2fa/verify | Verify TOTP code | JWT | See [STORY-003](../../stories/phase-1/STORY-003-auth-jwt.md) |

@@ -2779,3 +2779,93 @@ curl -s -X POST http://localhost:8084/api/v1/sims/bulk/state-change \
    - If orphan sessions exist: log line `orphan sessions detected — active sessions with NULL apn_id` with `tenant_id` and `count`.
    - If no orphans: no warning log; detector runs silently.
 4. Verify graceful shutdown: run `docker stop argus` and check logs for `orphan session detector stopped`.
+
+---
+
+## FIX-205: Token Refresh Auto-retry on 401
+
+Prerequisite: `make up` running; log in as admin@argus.io; Chrome/Firefox DevTools open on Network tab.
+
+### Scenario 1 — Single-flight (AC-3): Two concurrent 401s trigger exactly 1 refresh
+
+1. In DevTools Console, paste:
+   ```js
+   const s = JSON.parse(localStorage.getItem('argus-auth'))
+   s.state.token = 'expired.token.value'
+   localStorage.setItem('argus-auth', JSON.stringify(s))
+   ```
+2. Reload the page (Zustand rehydrates the expired token).
+3. Navigate to Dashboard (`/`) which fires multiple API calls on mount.
+4. In Network tab filter by `auth/refresh`.
+
+Expected: Exactly **one** POST to `/api/v1/auth/refresh`. All original failing requests complete successfully (status 200 after retry).
+
+### Scenario 2 — Redirect on refresh failure (AC-4)
+
+1. Navigate to `/sims?filter=active`.
+2. Block `/api/v1/auth/refresh` in DevTools (right-click → Block request URL) OR stop the backend (`make down`).
+3. Force-expire the token (Scenario 1, step 1), reload.
+4. Wait for the page to 401 → attempt refresh → refresh also fails.
+
+Expected: Browser navigates to `/login?reason=session_expired&return_to=%2Fsims%3Ffilter%3Dactive`. URL contains both `reason=session_expired` and the URL-encoded original path+query.
+
+### Scenario 3 — Loop guard (Risk 1): Refresh 401 does not cause infinite retry
+
+1. With refresh endpoint blocked (same as Scenario 2), trigger a 401.
+
+Expected: Network tab shows exactly **one** POST to `/api/v1/auth/refresh`. No second attempt fires. Browser redirects to `/login?reason=session_expired&...` once. Reason: refresh call uses bare `axios` (not the `api` instance) so the response interceptor cannot re-enter; the `_retry` flag provides a second guard.
+
+### Scenario 4 — Pre-emptive scheduler (AC-5): Refresh fires 5 minutes before expiry
+
+1. In DevTools Console:
+   ```js
+   const s = JSON.parse(localStorage.getItem('argus-auth'))
+   const expiresAt = s.state.tokenExpiresAt
+   const fiveMinBefore = new Date(expiresAt - 5 * 60 * 1000)
+   console.log('Preemptive refresh fires at:', fiveMinBefore.toISOString())
+   console.log('That is in:', Math.round((fiveMinBefore - Date.now()) / 1000 / 60), 'minutes')
+   ```
+2. To verify the timer fires: simulate a 6-minute expiry:
+   ```js
+   import('/src/stores/auth.js').then(m => {
+     m.useAuthStore.getState().setTokenExpiresAt(Date.now() + 6 * 60 * 1000)
+   })
+   ```
+3. Wait ~1 minute.
+
+Expected: A POST to `/api/v1/auth/refresh` fires automatically after ~1 minute (5 min before the 6-min expiry). No user interaction required. No spinner/UI flash.
+
+### Scenario 5 — BroadcastChannel cross-tab sync (Risk 2)
+
+1. Open http://localhost:8084 in **two separate tabs** (Tab A and Tab B), both logged in.
+2. In Tab A's Console:
+   ```js
+   const ch = new BroadcastChannel('argus-auth-broadcast')
+   ch.postMessage({
+     type: 'token_refreshed',
+     token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo5OTk5OTk5OTk5fQ.test',
+     expiresAt: Date.now() + 60 * 60 * 1000
+   })
+   ```
+3. Switch to Tab B's Console:
+   ```js
+   JSON.parse(localStorage.getItem('argus-auth')).state.token
+   ```
+
+Expected: Tab B's localStorage shows the new token value. Tab B did not call the refresh endpoint — it received the update via BroadcastChannel.
+
+### Scenario 6 — Rate limit (AC-8): 60 req/min per session returns 429 on 61st
+
+```bash
+TOKEN=$(curl -s -c /tmp/argus_cookies.txt -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+for i in $(seq 1 61); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/argus_cookies.txt \
+    -X POST http://localhost:8084/api/v1/auth/refresh)
+  echo "Request $i: $STATUS"
+done
+```
+
+Expected: Requests 1–60 return 200. Request 61 returns 429 with `{"error":{"code":"RATE_LIMITED",...}}`.

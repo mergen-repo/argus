@@ -490,6 +490,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	authHandler := authapi.NewAuthHandler(authSvc, cfg.JWTRefreshExpiry, !cfg.IsDev())
+	authHandler.WithRedis(rdb.Client)
 
 	tenantStore := store.NewTenantStore(pg.Pool).WithRedis(rdb.Client)
 	auditStore := store.NewAuditStore(pg.Pool)
