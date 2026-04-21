@@ -149,6 +149,10 @@ export interface Alert {
   acknowledged_at: string | null
   acknowledged_by: string | null
   resolved_at: string | null
+  occurrence_count: number
+  first_seen_at: string
+  last_seen_at: string
+  cooldown_until: string | null
 }
 
 export type UsagePeriod = '1h' | '24h' | '7d' | '30d' | 'custom'

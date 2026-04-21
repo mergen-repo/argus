@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   AlertCircle,
   AlertTriangle,
+  BellOff,
   CheckCircle2,
   XCircle,
   ArrowUpRight,
@@ -38,6 +39,7 @@ import {
 import { EntityLink, RelatedAuditTab, FavoriteToggle } from '@/components/shared'
 import { useAlert, useSimilarAlerts, useUpdateAlertState } from '@/hooks/use-alert-detail'
 import { timeAgo } from '@/lib/format'
+import { formatOccurrence, isCooldownActive } from '@/lib/alerts'
 import { toast } from 'sonner'
 import type { Alert } from '@/types/analytics'
 import { useUIStore } from '@/stores/ui'
@@ -218,7 +220,19 @@ export default function AlertDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-4">
+        <TabsContent value="overview" className="mt-4 space-y-4">
+          {alert.state === 'resolved' && isCooldownActive(alert.cooldown_until) && (
+            <div className="flex items-start gap-2 rounded-md border border-border border-l-2 border-l-accent/60 bg-bg-elevated px-4 py-3 text-sm text-text-secondary">
+              <BellOff className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" aria-hidden="true" />
+              <div>
+                <span className="font-medium text-text-primary">Cooldown active</span>
+                {' · '}
+                New occurrences of this condition are suppressed until{' '}
+                {new Date(alert.cooldown_until!).toLocaleString()}.
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
               <CardHeader className="py-3 px-4 border-b border-border-subtle">
@@ -281,9 +295,39 @@ export default function AlertDetailPage() {
                     </pre>
                   </div>
                 )}
+                {typeof alert.meta?.suppress_reason === 'string' && (
+                  <p className="text-[11px] text-text-tertiary mt-2">Suppress reason: {alert.meta.suppress_reason}</p>
+                )}
               </CardContent>
             </Card>
           </div>
+
+          {(alert.occurrence_count ?? 0) > 1 && (
+            <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
+              <CardHeader className="py-3 px-4 border-b border-border-subtle">
+                <CardTitle className="text-[13px] font-medium text-text-primary">Occurrence</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2">
+                <InfoRow label="First seen" value={
+                  <span className="text-[12px] text-text-secondary" title={alert.first_seen_at}>
+                    {new Date(alert.first_seen_at).toLocaleString()} · {timeAgo(alert.first_seen_at)}
+                  </span>
+                } />
+                <InfoRow label="Last seen" value={
+                  <span className="text-[12px] text-text-secondary" title={alert.last_seen_at}>
+                    {new Date(alert.last_seen_at).toLocaleString()} · {timeAgo(alert.last_seen_at)}
+                  </span>
+                } />
+                <InfoRow label="Count" value={
+                  <span className="text-[12px] font-mono text-text-primary">
+                    {alert.occurrence_count} occurrences
+                    {' · '}
+                    <span className="text-text-secondary">{formatOccurrence(alert.occurrence_count, alert.first_seen_at, alert.last_seen_at)}</span>
+                  </span>
+                } />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="similar" className="mt-4">

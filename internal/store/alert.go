@@ -11,39 +11,60 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/btopcu/argus/internal/alertstate"
 )
 
 var (
 	ErrAlertNotFound          = errors.New("alert not found")
-	ErrInvalidAlertTransition = errors.New("invalid alert state transition")
+	ErrInvalidAlertTransition = alertstate.ErrInvalidAlertTransition
 )
 
-// suppressed not exposed via UpdateState — FIX-210
-var validAlertTransitions = map[string]map[string]bool{
-	"open":         {"acknowledged": true, "resolved": true},
-	"acknowledged": {"resolved": true},
+type UpsertResult int
+
+const (
+	UpsertInserted UpsertResult = iota
+	UpsertDeduplicated
+	UpsertCoolingDown
+)
+
+func (r UpsertResult) String() string {
+	switch r {
+	case UpsertInserted:
+		return "inserted"
+	case UpsertDeduplicated:
+		return "deduplicated"
+	case UpsertCoolingDown:
+		return "cooling_down"
+	default:
+		return "unknown"
+	}
 }
 
 type Alert struct {
-	ID             uuid.UUID       `json:"id"`
-	TenantID       uuid.UUID       `json:"tenant_id"`
-	Type           string          `json:"type"`
-	Severity       string          `json:"severity"`
-	Source         string          `json:"source"`
-	State          string          `json:"state"`
-	Title          string          `json:"title"`
-	Description    string          `json:"description"`
-	Meta           json.RawMessage `json:"meta"`
-	SimID          *uuid.UUID      `json:"sim_id,omitempty"`
-	OperatorID     *uuid.UUID      `json:"operator_id,omitempty"`
-	APNID          *uuid.UUID      `json:"apn_id,omitempty"`
-	DedupKey       *string         `json:"dedup_key,omitempty"`
-	FiredAt        time.Time       `json:"fired_at"`
-	AcknowledgedAt *time.Time      `json:"acknowledged_at,omitempty"`
-	AcknowledgedBy *uuid.UUID      `json:"acknowledged_by,omitempty"`
-	ResolvedAt     *time.Time      `json:"resolved_at,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID              uuid.UUID       `json:"id"`
+	TenantID        uuid.UUID       `json:"tenant_id"`
+	Type            string          `json:"type"`
+	Severity        string          `json:"severity"`
+	Source          string          `json:"source"`
+	State           string          `json:"state"`
+	Title           string          `json:"title"`
+	Description     string          `json:"description"`
+	Meta            json.RawMessage `json:"meta"`
+	SimID           *uuid.UUID      `json:"sim_id,omitempty"`
+	OperatorID      *uuid.UUID      `json:"operator_id,omitempty"`
+	APNID           *uuid.UUID      `json:"apn_id,omitempty"`
+	DedupKey        *string         `json:"dedup_key,omitempty"`
+	FiredAt         time.Time       `json:"fired_at"`
+	AcknowledgedAt  *time.Time      `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy  *uuid.UUID      `json:"acknowledged_by,omitempty"`
+	ResolvedAt      *time.Time      `json:"resolved_at,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	OccurrenceCount int             `json:"occurrence_count"`
+	FirstSeenAt     time.Time       `json:"first_seen_at"`
+	LastSeenAt      time.Time       `json:"last_seen_at"`
+	CooldownUntil   *time.Time      `json:"cooldown_until,omitempty"`
 }
 
 type CreateAlertParams struct {
@@ -86,7 +107,8 @@ func NewAlertStore(db *pgxpool.Pool) *AlertStore {
 
 var alertColumns = `id, tenant_id, type, severity, source, state, title, description, meta,
 	sim_id, operator_id, apn_id, dedup_key,
-	fired_at, acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at`
+	fired_at, acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at,
+	occurrence_count, first_seen_at, last_seen_at, cooldown_until`
 
 func scanAlert(row pgx.Row) (*Alert, error) {
 	var a Alert
@@ -96,6 +118,7 @@ func scanAlert(row pgx.Row) (*Alert, error) {
 		&a.SimID, &a.OperatorID, &a.APNID, &a.DedupKey,
 		&a.FiredAt, &a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt,
 		&a.CreatedAt, &a.UpdatedAt,
+		&a.OccurrenceCount, &a.FirstSeenAt, &a.LastSeenAt, &a.CooldownUntil,
 	)
 	return &a, err
 }
@@ -119,8 +142,8 @@ func (s *AlertStore) Create(ctx context.Context, p CreateAlertParams) (*Alert, e
 	} else {
 		row = s.db.QueryRow(ctx, `
 			INSERT INTO alerts (tenant_id, type, severity, source, title, description, meta,
-				sim_id, operator_id, apn_id, dedup_key, fired_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+				sim_id, operator_id, apn_id, dedup_key, fired_at, first_seen_at, last_seen_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $12)
 			RETURNING `+alertColumns,
 			p.TenantID, p.Type, p.Severity, p.Source, p.Title, p.Description, meta,
 			p.SimID, p.OperatorID, p.APNID, p.DedupKey, p.FiredAt,
@@ -134,6 +157,92 @@ func (s *AlertStore) Create(ctx context.Context, p CreateAlertParams) (*Alert, e
 	return a, nil
 }
 
+func (s *AlertStore) UpsertWithDedup(ctx context.Context, p CreateAlertParams, severityOrdinal int) (*Alert, UpsertResult, error) {
+	if p.DedupKey == nil || *p.DedupKey == "" {
+		a, err := s.Create(ctx, p)
+		if err != nil {
+			return nil, UpsertInserted, err
+		}
+		return a, UpsertInserted, nil
+	}
+
+	var sentinel int
+	err := s.db.QueryRow(ctx, `
+		SELECT 1 FROM alerts
+		 WHERE tenant_id = $1 AND dedup_key = $2 AND state = 'resolved' AND cooldown_until > NOW()
+		 LIMIT 1`,
+		p.TenantID, *p.DedupKey,
+	).Scan(&sentinel)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, UpsertInserted, fmt.Errorf("store: upsert alert cooldown check: %w", err)
+	}
+	if err == nil {
+		return nil, UpsertCoolingDown, nil
+	}
+
+	meta := p.Meta
+	if len(meta) == 0 {
+		meta = json.RawMessage(`{}`)
+	}
+
+	var firedAt interface{}
+	if p.FiredAt.IsZero() {
+		firedAt = nil
+	} else {
+		firedAt = p.FiredAt
+	}
+
+	query := `
+		INSERT INTO alerts (
+			tenant_id, type, severity, source, state, title, description, meta,
+			sim_id, operator_id, apn_id, dedup_key, fired_at,
+			occurrence_count, first_seen_at, last_seen_at
+		) VALUES (
+			$1, $2, $3, $4, 'open', $5, $6, COALESCE($7::jsonb, '{}'::jsonb),
+			$8, $9, $10, $11, COALESCE($12, NOW()),
+			1, COALESCE($12, NOW()), COALESCE($12, NOW())
+		)
+		ON CONFLICT (tenant_id, dedup_key) WHERE dedup_key IS NOT NULL AND state IN ('open','acknowledged','suppressed')
+		DO UPDATE SET
+			occurrence_count = alerts.occurrence_count + 1,
+			last_seen_at     = NOW(),
+			severity         = CASE
+				WHEN $13::int > CASE alerts.severity
+					WHEN 'critical' THEN 5 WHEN 'high' THEN 4
+					WHEN 'medium'   THEN 3 WHEN 'low'  THEN 2
+					WHEN 'info'     THEN 1 ELSE 0 END
+				THEN EXCLUDED.severity
+				ELSE alerts.severity
+			END,
+			meta       = alerts.meta || EXCLUDED.meta,
+			updated_at = NOW()
+		RETURNING ` + alertColumns + `, (xmax = 0) AS was_inserted`
+
+	row := s.db.QueryRow(ctx, query,
+		p.TenantID, p.Type, p.Severity, p.Source, p.Title, p.Description, meta,
+		p.SimID, p.OperatorID, p.APNID, p.DedupKey, firedAt, severityOrdinal,
+	)
+
+	var a Alert
+	var wasInserted bool
+	if err := row.Scan(
+		&a.ID, &a.TenantID, &a.Type, &a.Severity, &a.Source, &a.State,
+		&a.Title, &a.Description, &a.Meta,
+		&a.SimID, &a.OperatorID, &a.APNID, &a.DedupKey,
+		&a.FiredAt, &a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt,
+		&a.CreatedAt, &a.UpdatedAt,
+		&a.OccurrenceCount, &a.FirstSeenAt, &a.LastSeenAt, &a.CooldownUntil,
+		&wasInserted,
+	); err != nil {
+		return nil, UpsertInserted, fmt.Errorf("store: upsert alert: %w", err)
+	}
+
+	if wasInserted {
+		return &a, UpsertInserted, nil
+	}
+	return &a, UpsertDeduplicated, nil
+}
+
 func (s *AlertStore) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Alert, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+alertColumns+` FROM alerts WHERE id = $1 AND tenant_id = $2`,
@@ -145,6 +254,24 @@ func (s *AlertStore) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Aler
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: get alert: %w", err)
+	}
+	return a, nil
+}
+
+func (s *AlertStore) FindActiveByDedupKey(ctx context.Context, tenantID uuid.UUID, dedupKey string) (*Alert, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+alertColumns+` FROM alerts
+		  WHERE tenant_id = $1 AND dedup_key = $2
+		    AND state IN ('open','acknowledged','suppressed')
+		  LIMIT 1`,
+		tenantID, dedupKey,
+	)
+	a, err := scanAlert(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAlertNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: find active alert by dedup key: %w", err)
 	}
 	return a, nil
 }
@@ -242,6 +369,7 @@ func (s *AlertStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, p Lis
 			&a.SimID, &a.OperatorID, &a.APNID, &a.DedupKey,
 			&a.FiredAt, &a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt,
 			&a.CreatedAt, &a.UpdatedAt,
+			&a.OccurrenceCount, &a.FirstSeenAt, &a.LastSeenAt, &a.CooldownUntil,
 		); err != nil {
 			return nil, nil, fmt.Errorf("store: scan alert: %w", err)
 		}
@@ -258,13 +386,17 @@ func (s *AlertStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, p Lis
 	return results, nextCursor, nil
 }
 
-func (s *AlertStore) UpdateState(ctx context.Context, tenantID, id uuid.UUID, newState string, userID *uuid.UUID) (*Alert, error) {
+func (s *AlertStore) UpdateState(ctx context.Context, tenantID, id uuid.UUID, newState string, userID *uuid.UUID, cooldownMinutes int) (*Alert, error) {
+	if !alertstate.IsUpdateAllowed(newState) {
+		return nil, ErrInvalidAlertTransition
+	}
+
 	current, err := s.GetByID(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if !validAlertTransitions[current.State][newState] {
+	if !alertstate.CanTransition(current.State, newState) {
 		return nil, ErrInvalidAlertTransition
 	}
 
@@ -274,10 +406,10 @@ func (s *AlertStore) UpdateState(ctx context.Context, tenantID, id uuid.UUID, ne
 	var resAt *time.Time
 
 	switch newState {
-	case "acknowledged":
+	case alertstate.StateAcknowledged:
 		ackAt = &now
 		ackBy = userID
-	case "resolved":
+	case alertstate.StateResolved:
 		resAt = &now
 		if current.AcknowledgedAt != nil {
 			ackAt = current.AcknowledgedAt
@@ -285,21 +417,84 @@ func (s *AlertStore) UpdateState(ctx context.Context, tenantID, id uuid.UUID, ne
 		}
 	}
 
+	var cooldownArg interface{}
+	if newState == alertstate.StateResolved && cooldownMinutes > 0 {
+		cooldownArg = cooldownMinutes
+	}
+
 	row := s.db.QueryRow(ctx, `
 		UPDATE alerts SET
-			state = $3,
+			state = $3::text,
 			acknowledged_at = COALESCE($4, acknowledged_at),
 			acknowledged_by = COALESCE($5, acknowledged_by),
 			resolved_at = COALESCE($6, resolved_at),
+			cooldown_until = CASE
+				WHEN $7::int IS NOT NULL AND $3::text = 'resolved'
+					THEN NOW() + ($7::int * INTERVAL '1 minute')
+				ELSE cooldown_until
+			END,
 			updated_at = now()
 		WHERE id = $1 AND tenant_id = $2
 		RETURNING `+alertColumns,
-		id, tenantID, newState, ackAt, ackBy, resAt,
+		id, tenantID, newState, ackAt, ackBy, resAt, cooldownArg,
 	)
 
 	a, err := scanAlert(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: update alert state: %w", err)
+	}
+	return a, nil
+}
+
+func (s *AlertStore) SuppressAlert(ctx context.Context, tenantID, id uuid.UUID, reason string) (*Alert, error) {
+	current, err := s.GetByID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if !alertstate.CanTransition(current.State, alertstate.StateSuppressed) {
+		return nil, ErrInvalidAlertTransition
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE alerts SET
+			state = 'suppressed',
+			meta = meta || jsonb_build_object('suppress_reason', $3::text),
+			updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+alertColumns,
+		id, tenantID, reason,
+	)
+
+	a, err := scanAlert(row)
+	if err != nil {
+		return nil, fmt.Errorf("store: suppress alert: %w", err)
+	}
+	return a, nil
+}
+
+func (s *AlertStore) UnsuppressAlert(ctx context.Context, tenantID, id uuid.UUID) (*Alert, error) {
+	current, err := s.GetByID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if !alertstate.CanTransition(current.State, alertstate.StateOpen) {
+		return nil, ErrInvalidAlertTransition
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE alerts SET
+			state = 'open',
+			updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+alertColumns,
+		id, tenantID,
+	)
+
+	a, err := scanAlert(row)
+	if err != nil {
+		return nil, fmt.Errorf("store: unsuppress alert: %w", err)
 	}
 	return a, nil
 }

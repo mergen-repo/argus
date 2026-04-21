@@ -177,14 +177,15 @@ argus/
 │   ├── observability/            # Cross-cutting OTel + Prometheus infrastructure (STORY-065)
 │   │   ├── otel.go               # OTel tracer provider init (OTLP gRPC, resource attrs, shutdown)
 │   │   └── metrics/              # Prometheus registry, metric descriptors, AAA composite recorder
-│   ├── notification/             # SVC-08: Notification service — handleAlertPersist subscriber (FIX-209): tolerant parseAlertPayload across 4 payload shapes, publisherSourceMap, SetAlertStore wiring
+│   ├── alertstate/               # Alert state + dedup package (FIX-210, D-076): StateOpen/Acknowledged/Resolved/Suppressed constants, Transitions map, CanTransition/IsUpdateAllowed/IsActive predicates, DedupKey SHA-256 helper (excludes severity per D3)
+│   ├── notification/             # SVC-08: Notification service — handleAlertPersist subscriber (FIX-209/FIX-210): UpsertWithDedup replaces Create; cooldown gate; 3 Prometheus outcome branches (inserted/dedup/cooldown)
 │   ├── api/
-│   │   └── alert/                # Alert API handler (FIX-209): GET /alerts, GET /alerts/{id}, PATCH /alerts/{id} state transition
+│   │   └── alert/                # Alert API handler (FIX-209/FIX-210): GET /alerts, GET /alerts/{id}, PATCH /alerts/{id} state transition; cooldownMinutes wired from cfg; suppressed NOT patchable (API contract)
 │   ├── job/                      # SVC-09: Job runner
 │   ├── audit/                    # SVC-10: Audit service
 │   ├── model/                    # Domain models
 │   ├── store/                    # Database access (PG)
-│   │   ├── alert.go              # AlertStore (FIX-209): Create/GetByID/ListByTenant/UpdateState/CountByTenantAndState/DeleteOlderThan; tenant-scoped; rows.Err() checked
+│   │   ├── alert.go              # AlertStore (FIX-209/FIX-210): UpsertWithDedup/SuppressAlert/UnsuppressAlert/FindActiveByDedupKey; UpdateState stamps cooldown_until on resolve; 4 new columns scanned (occurrence_count, first/last_seen_at, cooldown_until)
 │   │   └── schemacheck/          # Boot-time schema integrity check (STORY-086): CriticalTables manifest + Verify — FATAL on missing table
 │   ├── cache/                    # Redis cache layer
 │   ├── bus/                      # NATS event bus

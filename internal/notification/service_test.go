@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -943,21 +947,37 @@ func TestService_Notify_NoPrefStore_UsesLegacyChannels(t *testing.T) {
 }
 
 // -- FIX-209: handleAlertPersist — unified alerts persist + dispatch tests --
+// -- FIX-210: extended with dedup + cooldown outcome programming --
 
-// mockAlertStore is a fake AlertStoreWriter for FIX-209 tests.
+// mockAlertStore is a fake AlertStoreWriter for FIX-209 / FIX-210 tests.
+// FIX-210: implements UpsertWithDedup; outcomes is a FIFO queue of
+// UpsertResult values the mock returns per call (defaults to
+// UpsertInserted when the queue is empty, matching legacy behaviour).
 type mockAlertStore struct {
-	mu      sync.Mutex
-	calls   []store.CreateAlertParams
-	failErr error
+	mu       sync.Mutex
+	calls    []store.CreateAlertParams
+	outcomes []store.UpsertResult
+	failErr  error
 }
 
-func (m *mockAlertStore) Create(_ context.Context, p store.CreateAlertParams) (*store.Alert, error) {
+func (m *mockAlertStore) UpsertWithDedup(_ context.Context, p store.CreateAlertParams, _ int) (*store.Alert, store.UpsertResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failErr != nil {
-		return nil, m.failErr
+		return nil, store.UpsertInserted, m.failErr
 	}
 	m.calls = append(m.calls, p)
+
+	result := store.UpsertInserted
+	if len(m.outcomes) > 0 {
+		result = m.outcomes[0]
+		m.outcomes = m.outcomes[1:]
+	}
+
+	// UpsertCoolingDown does not return a row (mirrors the real store).
+	if result == store.UpsertCoolingDown {
+		return nil, result, nil
+	}
 	return &store.Alert{
 		ID:       uuid.New(),
 		TenantID: p.TenantID,
@@ -966,7 +986,7 @@ func (m *mockAlertStore) Create(_ context.Context, p store.CreateAlertParams) (*
 		Source:   p.Source,
 		Title:    p.Title,
 		FiredAt:  p.FiredAt,
-	}, nil
+	}, result, nil
 }
 
 func newPersistSvc(t *testing.T, email *mockEmailSender, alertStore *mockAlertStore) (*Service, *mockSubscriber) {
@@ -980,6 +1000,39 @@ func newPersistSvc(t *testing.T, email *mockEmailSender, alertStore *mockAlertSt
 		t.Fatalf("start: %v", err)
 	}
 	return svc, sub
+}
+
+// newPersistSvcWithMetrics is newPersistSvc + a wired metrics registry.
+// Used by FIX-210 tests that need to assert dedup / cooldown counter
+// increments end-to-end through handleAlertPersist.
+func newPersistSvcWithMetrics(t *testing.T, email *mockEmailSender, alertStore *mockAlertStore) (*Service, *mockSubscriber, *obsmetrics.Registry) {
+	t.Helper()
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+	if alertStore != nil {
+		svc.SetAlertStore(alertStore)
+	}
+	reg := obsmetrics.NewRegistry()
+	svc.SetMetricsRegistry(reg)
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "argus.events.operator.health", "argus.events.alert.triggered"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	return svc, sub, reg
+}
+
+// scrapeNotifMetrics fetches the /metrics body from the supplied registry.
+// Mirrors the helper in internal/operator/health_test.go.
+func scrapeNotifMetrics(t *testing.T, reg *obsmetrics.Registry) string {
+	t.Helper()
+	srv := httptest.NewServer(reg.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return string(body)
 }
 
 // TestHandleAlertPersist_FullAlertEvent_PersistsAllFields — shape A (operator.AlertEvent JSON).
@@ -1469,4 +1522,206 @@ func TestParseAlertPayload_MissingTenantID_UsesSentinel(t *testing.T) {
 	if p.Title == "" {
 		t.Errorf("title must be synthesized for payloads without explicit title")
 	}
+}
+
+// TestParseAlertPayload_DedupKeyAlwaysPopulated — FIX-210 Task 4.
+// Every parsed event must carry a 64-char hex dedup_key so
+// handleAlertPersist always exercises the upsert path. This is the
+// runtime invariant documented in plan D2.
+func TestParseAlertPayload_DedupKeyAlwaysPopulated(t *testing.T) {
+	// Shape A — operator.AlertEvent with an explicit tenant_id.
+	tenantID := uuid.New()
+	opID := uuid.New()
+	raw := map[string]interface{}{
+		"alert_type":  "operator_down",
+		"tenant_id":   tenantID.String(),
+		"severity":    "critical",
+		"title":       "Operator turkcell is DOWN",
+		"entity_type": "operator",
+		"entity_id":   opID.String(),
+	}
+	data, _ := json.Marshal(raw)
+
+	p, err := parseAlertPayload(data)
+	if err != nil {
+		t.Fatalf("parseAlertPayload: %v", err)
+	}
+	if p.DedupKey == nil {
+		t.Fatal("dedup_key must be non-nil post-FIX-210")
+	}
+	if len(*p.DedupKey) != 64 {
+		t.Errorf("dedup_key length = %d, want 64 (sha256 hex)", len(*p.DedupKey))
+	}
+
+	// Shape D — consumer_lag event with no entity triple → "-" prefix,
+	// key still non-nil and 64 chars.
+	raw2 := map[string]interface{}{
+		"source":   "nats_consumer_lag",
+		"consumer": "argus-anomaly-events",
+		"pending":  float64(150),
+	}
+	data2, _ := json.Marshal(raw2)
+	p2, err := parseAlertPayload(data2)
+	if err != nil {
+		t.Fatalf("parseAlertPayload (no tenant): %v", err)
+	}
+	if p2.DedupKey == nil || len(*p2.DedupKey) != 64 {
+		t.Error("dedup_key must be non-nil 64-char hex even for no-entity / no-tenant events")
+	}
+}
+
+// -- FIX-210: handleAlertPersist — dedup + cooldown outcome tests --
+
+// TestHandleAlertPersist_SecondEvent_Deduplicates — two identical events
+// must result in one UpsertInserted then one UpsertDeduplicated. Dispatch
+// runs both times (availability); persist count reflects both attempts
+// (mock still records both calls — dedup is about the STORE outcome, not
+// the publisher suppressing the event). Also asserts the dedup metric
+// increments exactly once through the end-to-end handleAlertPersist path.
+func TestHandleAlertPersist_SecondEvent_Deduplicates(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{
+		outcomes: []store.UpsertResult{store.UpsertInserted, store.UpsertDeduplicated},
+	}
+	svc, sub, reg := newPersistSvcWithMetrics(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	simID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_type":  "anomaly_data_spike",
+		"tenant_id":   tenantID.String(),
+		"severity":    "high",
+		"title":       "Data spike on SIM",
+		"sim_id":      simID.String(),
+		"entity_type": "sim",
+		"entity_id":   simID.String(),
+	}
+	data, _ := json.Marshal(payload)
+
+	sub.Publish("argus.events.alert.triggered", data)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(80 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	if len(alertStore.calls) != 2 {
+		t.Errorf("UpsertWithDedup calls = %d, want 2 (both attempts reach the store)", len(alertStore.calls))
+	}
+	// Both params must carry identical dedup_keys — deterministic.
+	if alertStore.calls[0].DedupKey == nil || alertStore.calls[1].DedupKey == nil {
+		t.Fatal("dedup_key must be non-nil on every call")
+	}
+	if *alertStore.calls[0].DedupKey != *alertStore.calls[1].DedupKey {
+		t.Errorf("dedup_key not stable across identical events: %q vs %q",
+			*alertStore.calls[0].DedupKey, *alertStore.calls[1].DedupKey)
+	}
+	alertStore.mu.Unlock()
+
+	// Dispatch MUST run twice — availability > durability.
+	email.mu.Lock()
+	if len(email.calls) != 2 {
+		t.Errorf("dispatch calls = %d, want 2 (dispatch runs regardless of persist outcome)", len(email.calls))
+	}
+	email.mu.Unlock()
+
+	// Dedup metric must have incremented exactly once for the
+	// deduplicated event. The first event (UpsertInserted) does not
+	// touch this counter.
+	text := scrapeNotifMetrics(t, reg)
+	want := `argus_alerts_deduplicated_total{source="sim",type="anomaly_data_spike"} 1`
+	if !strings.Contains(text, want) {
+		t.Errorf("missing dedup counter line %q\n%s", want, text)
+	}
+	// The cooldown counter for this label set must NOT appear (zero value
+	// ⇒ Prometheus omits the series unless it was emitted at least once).
+	if strings.Contains(text, `argus_alerts_cooldown_dropped_total{source="sim",type="anomaly_data_spike"}`) {
+		t.Errorf("cooldown counter should not have been incremented during a pure-dedup test:\n%s", text)
+	}
+}
+
+// TestHandleAlertPersist_Cooldown_DropsEvent — UpsertCoolingDown path
+// logs + emits the cooldown metric, and dispatch still runs (events are
+// never silently lost from notifications even when dropped from the DB).
+func TestHandleAlertPersist_Cooldown_DropsEvent(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{
+		outcomes: []store.UpsertResult{store.UpsertCoolingDown},
+	}
+	svc, sub, reg := newPersistSvcWithMetrics(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_type": "operator_down",
+		"tenant_id":  tenantID.String(),
+		"severity":   "critical",
+		"title":      "Operator DOWN (cooldown window)",
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	if len(alertStore.calls) != 1 {
+		t.Errorf("UpsertWithDedup calls = %d, want 1", len(alertStore.calls))
+	}
+	alertStore.mu.Unlock()
+
+	// Dispatch MUST still run — availability guarantee.
+	email.mu.Lock()
+	if len(email.calls) != 1 {
+		t.Errorf("dispatch calls = %d, want 1 (cooldown drops persist, never dispatch)", len(email.calls))
+	}
+	email.mu.Unlock()
+
+	// Cooldown counter must have incremented exactly once.
+	text := scrapeNotifMetrics(t, reg)
+	want := `argus_alerts_cooldown_dropped_total{source="operator",type="operator_down"} 1`
+	if !strings.Contains(text, want) {
+		t.Errorf("missing cooldown counter line %q\n%s", want, text)
+	}
+	// And the dedup counter for this label set must NOT appear.
+	if strings.Contains(text, `argus_alerts_deduplicated_total{source="operator",type="operator_down"}`) {
+		t.Errorf("dedup counter should not have been incremented during a pure-cooldown test:\n%s", text)
+	}
+}
+
+// TestHandleAlertPersist_CooldownExpired_InsertsFresh — after the
+// cooldown window expires the store switches back to UpsertInserted
+// (new alert row). No special metric is emitted for a plain insert.
+func TestHandleAlertPersist_CooldownExpired_InsertsFresh(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{
+		outcomes: []store.UpsertResult{store.UpsertCoolingDown, store.UpsertInserted},
+	}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_type": "operator_down",
+		"tenant_id":  tenantID.String(),
+		"severity":   "critical",
+		"title":      "Operator DOWN (cooldown → reopen)",
+	}
+	data, _ := json.Marshal(payload)
+
+	sub.Publish("argus.events.alert.triggered", data) // during cooldown
+	sub.Publish("argus.events.alert.triggered", data) // after cooldown
+
+	time.Sleep(80 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	if len(alertStore.calls) != 2 {
+		t.Errorf("UpsertWithDedup calls = %d, want 2 (both attempts reach the store)", len(alertStore.calls))
+	}
+	alertStore.mu.Unlock()
+
+	email.mu.Lock()
+	if len(email.calls) != 2 {
+		t.Errorf("dispatch calls = %d, want 2", len(email.calls))
+	}
+	email.mu.Unlock()
 }

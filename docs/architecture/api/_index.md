@@ -541,13 +541,13 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
-## Alerts (3 endpoints) — FIX-209
+## Alerts (3 endpoints) — FIX-209 + FIX-210
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
-| API-313 | GET | /api/v1/alerts | List alerts with filters (type, severity, source, state, sim/operator/apn, date range, substring, cursor). FIX-209. | JWT (analyst+) | Cursor-paginated; tenant-scoped; 7 filter params. |
-| API-314 | GET | /api/v1/alerts/{id} | Get alert by ID (tenant-scoped). FIX-209. | JWT (analyst+) | 404 `ALERT_NOT_FOUND` on missing or cross-tenant. |
-| API-315 | PATCH | /api/v1/alerts/{id} | Transition alert state (`open`→`acknowledged`, `open`/`ack`→`resolved`). FIX-209. | JWT (sim_manager+) | `suppressed` NOT settable via this endpoint (FIX-210). |
+| API-313 | GET | /api/v1/alerts | List alerts with filters (type, severity, source, state, sim/operator/apn, date range, substring, cursor). FIX-209. | JWT (analyst+) | Cursor-paginated; tenant-scoped; 7 filter params. Alert response shape expanded by FIX-210: includes `dedup_key`, `occurrence_count`, `first_seen_at`, `last_seen_at`, `cooldown_until`. |
+| API-314 | GET | /api/v1/alerts/{id} | Get alert by ID (tenant-scoped). FIX-209. | JWT (analyst+) | 404 `ALERT_NOT_FOUND` on missing or cross-tenant. Alert response shape expanded by FIX-210: includes `dedup_key`, `occurrence_count`, `first_seen_at`, `last_seen_at`, `cooldown_until`. |
+| API-315 | PATCH | /api/v1/alerts/{id} | Transition alert state (`open`→`acknowledged`, `open`/`ack`→`resolved`). FIX-209. | JWT (sim_manager+) | `suppressed` NOT settable via this endpoint — managed by dedup state machine (FIX-210). |
 
 ---
 

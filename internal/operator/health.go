@@ -69,8 +69,16 @@ type HealthChecker struct {
 	// avoiding startup noise.
 	lastLatency   map[healthKey]int
 	operatorNames map[uuid.UUID]string
-	wg            sync.WaitGroup
-	stopped       bool
+	// FIX-210 Task 4: per-operator edge-trigger tracking. lastAlertStatus
+	// records the last status for which an AlertTypeOperatorDown /
+	// AlertTypeOperatorUp alert was published for the operator (across
+	// ALL protocols). Prevents two protocols from firing twin "DOWN"
+	// alerts for the same operator on a single tick — the second call
+	// hits shouldPublishAlert → false and increments the rate-limit
+	// counter instead of re-publishing.
+	lastAlertStatus map[uuid.UUID]string
+	wg              sync.WaitGroup
+	stopped         bool
 }
 
 func NewHealthChecker(
@@ -81,16 +89,17 @@ func NewHealthChecker(
 	logger zerolog.Logger,
 ) *HealthChecker {
 	return &HealthChecker{
-		store:         opStore,
-		registry:      registry,
-		redisClient:   redisClient,
-		encryptionKey: encryptionKey,
-		logger:        logger.With().Str("component", "health_checker").Logger(),
-		breakers:      make(map[healthKey]*CircuitBreaker),
-		stopChs:       make(map[uuid.UUID]chan struct{}),
-		lastStatus:    make(map[healthKey]string),
-		lastLatency:   make(map[healthKey]int),
-		operatorNames: make(map[uuid.UUID]string),
+		store:           opStore,
+		registry:        registry,
+		redisClient:     redisClient,
+		encryptionKey:   encryptionKey,
+		logger:          logger.With().Str("component", "health_checker").Logger(),
+		breakers:        make(map[healthKey]*CircuitBreaker),
+		stopChs:         make(map[uuid.UUID]chan struct{}),
+		lastStatus:      make(map[healthKey]string),
+		lastLatency:     make(map[healthKey]int),
+		operatorNames:   make(map[uuid.UUID]string),
+		lastAlertStatus: make(map[uuid.UUID]string),
 	}
 }
 
@@ -461,26 +470,51 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 	// A latency-only tick where status stays "down" must NOT re-fire the
 	// AlertTypeOperatorDown alert — that would be a regression the
 	// widened publish gate would otherwise introduce.
+	//
+	// FIX-210 Task 4: the publish is now additionally edge-triggered per
+	// operator (shouldPublishAlert). When two protocols flip simultaneously
+	// the second one's alert is suppressed (counted to the rate-limit
+	// metric) — dedup_key would collapse them at the DB layer anyway, but
+	// this saves the NATS round-trip and the duplicate log lines.
 	if statusFlipped && hc.eventPub != nil && hc.healthSubject != "" {
 		if status == "down" {
-			hc.publishAlert(ctx, opID, opName, AlertTypeOperatorDown, SeverityCritical,
-				fmt.Sprintf("Operator %s is DOWN", opName),
-				fmt.Sprintf("Operator %s circuit breaker opened. Reason: %s", opName, result.Error),
-			)
+			if hc.shouldPublishAlert(opID, "down") {
+				hc.publishAlert(ctx, opID, opName, AlertTypeOperatorDown, SeverityCritical,
+					fmt.Sprintf("Operator %s is DOWN", opName),
+					fmt.Sprintf("Operator %s circuit breaker opened. Reason: %s", opName, result.Error),
+					prevStatus,
+				)
+			} else {
+				hc.recordRateLimited()
+			}
 		} else if prevStatus == "down" && (status == "healthy" || status == "degraded") {
-			hc.publishAlert(ctx, opID, opName, AlertTypeOperatorUp, SeverityInfo,
-				fmt.Sprintf("Operator %s recovered", opName),
-				fmt.Sprintf("Operator %s recovered from down state, current status: %s", opName, status),
-			)
+			if hc.shouldPublishAlert(opID, "up") {
+				hc.publishAlert(ctx, opID, opName, AlertTypeOperatorUp, SeverityInfo,
+					fmt.Sprintf("Operator %s recovered", opName),
+					fmt.Sprintf("Operator %s recovered from down state, current status: %s", opName, status),
+					prevStatus,
+				)
+			} else {
+				hc.recordRateLimited()
+			}
 		}
 	}
 
 	hc.checkSLAViolation(ctx, opID, opName)
 }
 
-func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opName, alertType, severity, title, description string) {
+// publishAlert emits an alert event on the alertSubject. FIX-210 Task 4:
+// optional previousStatus is propagated via metadata so consumers can
+// see the transition without hitting the DB.
+func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opName, alertType, severity, title, description string, previousStatus ...string) {
 	if hc.eventPub == nil || hc.alertSubject == "" {
 		return
+	}
+	meta := map[string]interface{}{
+		"operator_name": opName,
+	}
+	if len(previousStatus) > 0 && previousStatus[0] != "" {
+		meta["previous_status"] = previousStatus[0]
 	}
 	evt := AlertEvent{
 		AlertID:     uuid.New().String(),
@@ -490,14 +524,40 @@ func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opNam
 		Description: description,
 		EntityType:  "operator",
 		EntityID:    opID,
-		Metadata: map[string]interface{}{
-			"operator_name": opName,
-		},
-		Timestamp: time.Now(),
+		Metadata:    meta,
+		Timestamp:   time.Now(),
 	}
 	if err := hc.eventPub.Publish(ctx, hc.alertSubject, evt); err != nil {
 		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("publish alert event")
 	}
+}
+
+// shouldPublishAlert is the FIX-210 per-operator edge-trigger gate.
+// Returns true when the alertState ("down" or "up") differs from the
+// last state we published for this operator — suppressing redundant
+// publishes across protocols. Caller increments the rate-limit metric
+// via recordRateLimited when this returns false.
+func (hc *HealthChecker) shouldPublishAlert(opID uuid.UUID, alertState string) bool {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	if hc.lastAlertStatus == nil {
+		hc.lastAlertStatus = make(map[uuid.UUID]string)
+	}
+	if prev, ok := hc.lastAlertStatus[opID]; ok && prev == alertState {
+		return false
+	}
+	hc.lastAlertStatus[opID] = alertState
+	return true
+}
+
+// recordRateLimited bumps the argus_alerts_rate_limited_publishes_total
+// counter for the operator_health publisher when the edge-trigger gate
+// suppressed an alert.
+func (hc *HealthChecker) recordRateLimited() {
+	hc.mu.Lock()
+	reg := hc.metricsReg
+	hc.mu.Unlock()
+	reg.IncAlertsRateLimitedPublishes("operator_health")
 }
 
 func (hc *HealthChecker) checkSLAViolation(ctx context.Context, opID uuid.UUID, opName string) {
@@ -597,6 +657,9 @@ func (hc *HealthChecker) RefreshOperator(ctx context.Context, opID uuid.UUID) er
 		}
 	}
 	delete(hc.operatorNames, opID)
+	// FIX-210: clear edge-trigger state so a refreshed operator starts
+	// from a clean slate (first transition always publishes).
+	delete(hc.lastAlertStatus, opID)
 
 	hc.registry.Remove(opID)
 

@@ -3,3 +3,5 @@
 2026-04-21T08:42:00Z STEP_2.5 LINT: EXECUTED | items=0 matches (hex/todo/raw-html/stale-urls all empty) | result=PASS
 2026-04-21T12:05:11Z STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) fixes=8 deferred=4 | evidence=docs/stories/fix-ui-review/FIX-209-gate.md | result=PASS
 2026-04-21T12:16:01Z STEP_4 REVIEW: EXECUTED | items=7 findings (fixed=7 deferred=0 escalated=0) | evidence=docs/stories/fix-ui-review/FIX-209-review.md | result=PASS
+2026-04-21T12:17:43Z STEP_5 COMMIT: EXECUTED | items=1 commit=2e6c69a | evidence=git log -1 | result=PASS
+2026-04-21T12:17:43Z STEP_6 POSTPROC: EXECUTED | items=6 checks | evidence=persistence-verified | result=PASS

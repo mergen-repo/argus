@@ -658,7 +658,7 @@ func runServe(cfg *config.Config) {
 
 	// FIX-209 Task 4 — unified alerts table + API + retention job.
 	alertStore := store.NewAlertStore(pg.Pool)
-	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger)
+	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger, cfg.AlertCooldownMinutes)
 
 	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
 	batchDetector := anomalysvc.NewBatchDetector(
@@ -924,6 +924,9 @@ func runServe(cfg *config.Config) {
 	notifSvc.SetNotifStore(&notifStoreAdapter{notifStore})
 	notifSvc.SetEventPublisher(eventBus, bus.SubjectNotification)
 	notifSvc.SetAlertStore(alertStore)
+	// FIX-210 Task 4: wire the metrics registry so handleAlertPersist
+	// emits argus_alerts_deduplicated_total / _cooldown_dropped_total.
+	notifSvc.SetMetricsRegistry(metricsReg)
 
 	notifRedisRL := notification.NewRedisRateLimiter(rdb.Client, cfg.NotificationRateLimitPerMin)
 	notifDelivery := notification.NewDeliveryTracker(notifRedisRL, log.Logger)
@@ -1159,6 +1162,9 @@ func runServe(cfg *config.Config) {
 		rdb.Client,
 		log.Logger,
 	)
+	// FIX-210 Task 4: wire metrics registry so the rate-limited publish
+	// path increments argus_alerts_rate_limited_publishes_total{publisher="enforcer"}.
+	policyEnforcer.SetMetricsRegistry(metricsReg)
 
 	if radiusServer != nil {
 		promAAARecorder := obsmetrics.NewPromAAARecorder(metricsReg, "radius")

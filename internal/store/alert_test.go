@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -330,7 +331,7 @@ func TestAlertStore_UpdateState_ValidTransition(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	acked, err := s.UpdateState(ctx, tenantID, a.ID, "acknowledged", &userID)
+	acked, err := s.UpdateState(ctx, tenantID, a.ID, "acknowledged", &userID, 0)
 	if err != nil {
 		t.Fatalf("UpdateState open→acknowledged: %v", err)
 	}
@@ -344,7 +345,7 @@ func TestAlertStore_UpdateState_ValidTransition(t *testing.T) {
 		t.Error("AcknowledgedBy should match userID")
 	}
 
-	resolved, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil)
+	resolved, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil, 0)
 	if err != nil {
 		t.Fatalf("UpdateState acknowledged→resolved: %v", err)
 	}
@@ -377,7 +378,7 @@ func TestAlertStore_UpdateState_InvalidTransition(t *testing.T) {
 		t.Fatalf("direct insert resolved alert: %v", err)
 	}
 
-	_, err = s.UpdateState(ctx, tenantID, id, "open", nil)
+	_, err = s.UpdateState(ctx, tenantID, id, "open", nil, 0)
 	if !errors.Is(err, ErrInvalidAlertTransition) {
 		t.Errorf("expected ErrInvalidAlertTransition, got: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestAlertStore_UpdateState_SuppressedNotExposed(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	_, err = s.UpdateState(ctx, tenantID, a.ID, "suppressed", nil)
+	_, err = s.UpdateState(ctx, tenantID, a.ID, "suppressed", nil, 0)
 	if !errors.Is(err, ErrInvalidAlertTransition) {
 		t.Errorf("expected ErrInvalidAlertTransition for suppressed, got: %v", err)
 	}
@@ -412,7 +413,7 @@ func TestAlertStore_UpdateState_NotFound(t *testing.T) {
 	s := NewAlertStore(pool)
 	ctx := context.Background()
 
-	_, err := s.UpdateState(ctx, tenantID, uuid.New(), "acknowledged", nil)
+	_, err := s.UpdateState(ctx, tenantID, uuid.New(), "acknowledged", nil, 0)
 	if !errors.Is(err, ErrAlertNotFound) {
 		t.Errorf("expected ErrAlertNotFound, got: %v", err)
 	}
@@ -433,7 +434,7 @@ func TestAlertStore_UpdateState_TenantIsolation(t *testing.T) {
 		t.Fatalf("Create under tenantA: %v", err)
 	}
 
-	_, err = s.UpdateState(ctx, tenantB, a.ID, "acknowledged", nil)
+	_, err = s.UpdateState(ctx, tenantB, a.ID, "acknowledged", nil, 0)
 	if !errors.Is(err, ErrAlertNotFound) {
 		t.Errorf("expected ErrAlertNotFound from tenantB scope, got: %v", err)
 	}
@@ -528,5 +529,527 @@ func TestAlertStore_DeleteOlderThan(t *testing.T) {
 	}
 	if len(remaining) != 2 {
 		t.Errorf("remaining new alerts: got %d, want 2", len(remaining))
+	}
+}
+
+func makeDedupParams(tenantID uuid.UUID, dedupKey, sev string) CreateAlertParams {
+	dk := dedupKey
+	return CreateAlertParams{
+		TenantID:    tenantID,
+		Type:        "sim.data_spike",
+		Severity:    sev,
+		Source:      "sim",
+		Title:       "Dedup Alert",
+		Description: "dedup test",
+		DedupKey:    &dk,
+	}
+}
+
+func severityOrdinalOf(sev string) int {
+	switch sev {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	case "info":
+		return 1
+	}
+	return 0
+}
+
+func TestAlertStore_UpsertWithDedup_FirstEventInserts(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	firedAt := time.Now().UTC().Add(-30 * time.Second).Truncate(time.Microsecond)
+	p := makeDedupParams(tenantID, "dk-"+uuid.New().String(), "high")
+	p.FiredAt = firedAt
+
+	a, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("UpsertWithDedup: %v", err)
+	}
+	if res != UpsertInserted {
+		t.Errorf("result: got %v, want UpsertInserted", res)
+	}
+	if a.OccurrenceCount != 1 {
+		t.Errorf("OccurrenceCount: got %d, want 1", a.OccurrenceCount)
+	}
+	if !a.FirstSeenAt.Equal(firedAt) {
+		t.Errorf("FirstSeenAt: got %v, want %v", a.FirstSeenAt, firedAt)
+	}
+	if !a.LastSeenAt.Equal(firedAt) {
+		t.Errorf("LastSeenAt: got %v, want %v", a.LastSeenAt, firedAt)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_SecondEventIncrements(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	p := makeDedupParams(tenantID, dk, "high")
+
+	first, _, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	firstFiredAt := first.FiredAt
+	firstLastSeen := first.LastSeenAt
+
+	time.Sleep(15 * time.Millisecond)
+
+	second, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if res != UpsertDeduplicated {
+		t.Errorf("result: got %v, want UpsertDeduplicated", res)
+	}
+	if second.ID != first.ID {
+		t.Errorf("id drift: got %s, want %s", second.ID, first.ID)
+	}
+	if second.OccurrenceCount != 2 {
+		t.Errorf("OccurrenceCount: got %d, want 2", second.OccurrenceCount)
+	}
+	if !second.LastSeenAt.After(firstLastSeen) {
+		t.Errorf("LastSeenAt should advance: first=%v second=%v", firstLastSeen, second.LastSeenAt)
+	}
+	if !second.FiredAt.Equal(firstFiredAt) {
+		t.Errorf("FiredAt drift: first=%v second=%v", firstFiredAt, second.FiredAt)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_SeverityEscalationUpdatesInPlace(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	pMed := makeDedupParams(tenantID, dk, "medium")
+	if _, _, err := s.UpsertWithDedup(ctx, pMed, severityOrdinalOf("medium")); err != nil {
+		t.Fatalf("first (medium): %v", err)
+	}
+
+	pHigh := makeDedupParams(tenantID, dk, "high")
+	second, _, err := s.UpsertWithDedup(ctx, pHigh, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("second (high): %v", err)
+	}
+	if second.Severity != "high" {
+		t.Errorf("Severity: got %q, want high (escalation)", second.Severity)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_SeverityDowngradeKeepsHigher(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	pCrit := makeDedupParams(tenantID, dk, "critical")
+	if _, _, err := s.UpsertWithDedup(ctx, pCrit, severityOrdinalOf("critical")); err != nil {
+		t.Fatalf("first (critical): %v", err)
+	}
+
+	pLow := makeDedupParams(tenantID, dk, "low")
+	second, _, err := s.UpsertWithDedup(ctx, pLow, severityOrdinalOf("low"))
+	if err != nil {
+		t.Fatalf("second (low): %v", err)
+	}
+	if second.Severity != "critical" {
+		t.Errorf("Severity: got %q, want critical (no downgrade)", second.Severity)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_ConcurrentHit(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	const n = 10
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		inserted int
+		deduped  int
+		errs     []error
+	)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			p := makeDedupParams(tenantID, dk, "high")
+			_, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			switch res {
+			case UpsertInserted:
+				inserted++
+			case UpsertDeduplicated:
+				deduped++
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) != 0 {
+		t.Fatalf("goroutine errors: %v", errs)
+	}
+	if inserted != 1 {
+		t.Errorf("inserted: got %d, want 1", inserted)
+	}
+	if deduped != n-1 {
+		t.Errorf("deduplicated: got %d, want %d", deduped, n-1)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND dedup_key=$2`, tenantID, dk).Scan(&rowCount); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if rowCount != 1 {
+		t.Errorf("row count: got %d, want 1", rowCount)
+	}
+
+	final, err := s.FindActiveByDedupKey(ctx, tenantID, dk)
+	if err != nil {
+		t.Fatalf("FindActiveByDedupKey: %v", err)
+	}
+	if final.OccurrenceCount != n {
+		t.Errorf("OccurrenceCount: got %d, want %d", final.OccurrenceCount, n)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_CooldownActive_ReturnsCoolingDown(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO alerts (id, tenant_id, type, severity, source, state, title, dedup_key, cooldown_until)
+		VALUES ($1, $2, 'sim.data_spike', 'high', 'sim', 'resolved', 'seed', $3, NOW() + INTERVAL '5 minutes')
+	`, id, tenantID, dk); err != nil {
+		t.Fatalf("seed resolved with cooldown: %v", err)
+	}
+
+	p := makeDedupParams(tenantID, dk, "high")
+	a, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("UpsertWithDedup: %v", err)
+	}
+	if res != UpsertCoolingDown {
+		t.Errorf("result: got %v, want UpsertCoolingDown", res)
+	}
+	if a != nil {
+		t.Errorf("alert should be nil on cooling down, got %+v", a)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND dedup_key=$2`, tenantID, dk).Scan(&rowCount); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rowCount != 1 {
+		t.Errorf("row count: got %d, want 1 (no new row during cooldown)", rowCount)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_CooldownExpired_InsertsFresh(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO alerts (id, tenant_id, type, severity, source, state, title, dedup_key, cooldown_until)
+		VALUES ($1, $2, 'sim.data_spike', 'high', 'sim', 'resolved', 'seed', $3, NOW() - INTERVAL '1 second')
+	`, id, tenantID, dk); err != nil {
+		t.Fatalf("seed resolved with expired cooldown: %v", err)
+	}
+
+	p := makeDedupParams(tenantID, dk, "high")
+	a, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("UpsertWithDedup: %v", err)
+	}
+	if res != UpsertInserted {
+		t.Errorf("result: got %v, want UpsertInserted", res)
+	}
+	if a == nil || a.State != "open" {
+		t.Errorf("alert: got %+v, want open", a)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND dedup_key=$2`, tenantID, dk).Scan(&rowCount); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rowCount != 2 {
+		t.Errorf("row count: got %d, want 2 (resolved + new open)", rowCount)
+	}
+}
+
+func TestAlertStore_UpdateState_ResolveStampsCooldownUntil(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, makeAlertParams(tenantID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	before := time.Now().UTC()
+	resolved, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil, 5)
+	if err != nil {
+		t.Fatalf("UpdateState resolve with cooldown: %v", err)
+	}
+	if resolved.CooldownUntil == nil {
+		t.Fatal("CooldownUntil should not be nil")
+	}
+	minExpected := before.Add(4 * time.Minute)
+	maxExpected := before.Add(6 * time.Minute)
+	if resolved.CooldownUntil.Before(minExpected) || resolved.CooldownUntil.After(maxExpected) {
+		t.Errorf("CooldownUntil: got %v, want in [%v, %v]", *resolved.CooldownUntil, minExpected, maxExpected)
+	}
+}
+
+func TestAlertStore_UpdateState_ResolveWithZeroCooldown_NoStamp(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, makeAlertParams(tenantID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	resolved, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil, 0)
+	if err != nil {
+		t.Fatalf("UpdateState resolve without cooldown: %v", err)
+	}
+	if resolved.CooldownUntil != nil {
+		t.Errorf("CooldownUntil should remain nil, got %v", *resolved.CooldownUntil)
+	}
+}
+
+func TestAlertStore_SuppressAlert_FromOpen_Succeeds(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, makeAlertParams(tenantID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	supp, err := s.SuppressAlert(ctx, tenantID, a.ID, "maintenance window")
+	if err != nil {
+		t.Fatalf("SuppressAlert: %v", err)
+	}
+	if supp.State != "suppressed" {
+		t.Errorf("State: got %q, want suppressed", supp.State)
+	}
+	var meta map[string]interface{}
+	if err := json.Unmarshal(supp.Meta, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	if meta["suppress_reason"] != "maintenance window" {
+		t.Errorf("suppress_reason: got %v, want 'maintenance window'", meta["suppress_reason"])
+	}
+}
+
+func TestAlertStore_SuppressAlert_FromResolved_Fails(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO alerts (id, tenant_id, type, severity, source, state, title)
+		VALUES ($1, $2, 'test', 'info', 'system', 'resolved', 'resolved seed')
+	`, id, tenantID); err != nil {
+		t.Fatalf("seed resolved: %v", err)
+	}
+
+	_, err := s.SuppressAlert(ctx, tenantID, id, "no reason")
+	if !errors.Is(err, ErrInvalidAlertTransition) {
+		t.Errorf("expected ErrInvalidAlertTransition, got: %v", err)
+	}
+}
+
+func TestAlertStore_UnsuppressAlert_ReopensToOpen(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	userID := seedAlertUser(t, pool, tenantID)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, makeAlertParams(tenantID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	acked, err := s.UpdateState(ctx, tenantID, a.ID, "acknowledged", &userID, 0)
+	if err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	if acked.AcknowledgedAt == nil {
+		t.Fatal("AcknowledgedAt should be set after ack")
+	}
+	originalAckAt := *acked.AcknowledgedAt
+
+	supp, err := s.SuppressAlert(ctx, tenantID, a.ID, "temp mute")
+	if err != nil {
+		t.Fatalf("SuppressAlert: %v", err)
+	}
+	if supp.State != "suppressed" {
+		t.Fatalf("state: got %q, want suppressed", supp.State)
+	}
+
+	reopened, err := s.UnsuppressAlert(ctx, tenantID, a.ID)
+	if err != nil {
+		t.Fatalf("UnsuppressAlert: %v", err)
+	}
+	if reopened.State != "open" {
+		t.Errorf("State: got %q, want open", reopened.State)
+	}
+	if reopened.AcknowledgedAt == nil || !reopened.AcknowledgedAt.Equal(originalAckAt) {
+		t.Errorf("AcknowledgedAt not preserved: got %v, want %v", reopened.AcknowledgedAt, originalAckAt)
+	}
+	if reopened.AcknowledgedBy == nil || *reopened.AcknowledgedBy != userID {
+		t.Errorf("AcknowledgedBy not preserved: got %v, want %v", reopened.AcknowledgedBy, userID)
+	}
+}
+
+func TestAlertStore_UnsuppressAlert_FromOpen_Fails(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, makeAlertParams(tenantID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = s.UnsuppressAlert(ctx, tenantID, a.ID)
+	if !errors.Is(err, ErrInvalidAlertTransition) {
+		t.Errorf("expected ErrInvalidAlertTransition, got: %v", err)
+	}
+}
+
+func TestAlertStore_FindActiveByDedupKey_ResolvedNotReturned(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	dk := "dk-" + uuid.New().String()
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO alerts (id, tenant_id, type, severity, source, state, title, dedup_key)
+		VALUES ($1, $2, 'test', 'info', 'system', 'resolved', 'resolved seed', $3)
+	`, id, tenantID, dk); err != nil {
+		t.Fatalf("seed resolved with dedup_key: %v", err)
+	}
+
+	_, err := s.FindActiveByDedupKey(ctx, tenantID, dk)
+	if !errors.Is(err, ErrAlertNotFound) {
+		t.Errorf("expected ErrAlertNotFound for resolved row, got: %v", err)
+	}
+}
+
+func TestAlertStore_UpsertWithDedup_NilDedupKey_FallsThroughToCreate(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	p := makeAlertParams(tenantID)
+	if p.DedupKey != nil {
+		t.Fatalf("makeAlertParams should have nil DedupKey")
+	}
+
+	a, res, err := s.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("UpsertWithDedup nil dedup: %v", err)
+	}
+	if res != UpsertInserted {
+		t.Errorf("result: got %v, want UpsertInserted", res)
+	}
+	if a == nil || a.ID == uuid.Nil {
+		t.Fatalf("alert ID should be set, got %+v", a)
+	}
+	if a.State != "open" {
+		t.Errorf("State: got %q, want open", a.State)
 	}
 }

@@ -105,8 +105,15 @@ type Registry struct {
 
 	KVKKPurgeRowsTotal *prometheus.CounterVec
 
-	WebhookRetriesTotal       *prometheus.CounterVec
-	ScheduledReportRunsTotal  *prometheus.CounterVec
+	WebhookRetriesTotal      *prometheus.CounterVec
+	ScheduledReportRunsTotal *prometheus.CounterVec
+
+	// FIX-210 — alert dedup + cooldown + publisher rate-limit counters.
+	// Bounded label cardinality by design: type+source ≈ 50×5, publisher ≤ 3.
+	// Never label with tenant_id or UUIDs (PAT-003).
+	AlertsDeduplicatedTotal         *prometheus.CounterVec
+	AlertsCooldownDroppedTotal      *prometheus.CounterVec
+	AlertsRateLimitedPublishesTotal *prometheus.CounterVec
 
 	BuildInfo *prometheus.GaugeVec
 
@@ -344,6 +351,32 @@ func NewRegistry() *Registry {
 	}, []string{"type", "result"})
 	reg.MustRegister(r.ScheduledReportRunsTotal)
 
+	// FIX-210 — deduplicated inbound alert events (existing active alert
+	// hit: occurrence_count++, no new row). Cardinality: alert type × source
+	// (bounded; no tenant_id / UUIDs).
+	r.AlertsDeduplicatedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_alerts_deduplicated_total",
+		Help: "Number of alert events that hit an existing active alert and were deduplicated (FIX-210).",
+	}, []string{"type", "source"})
+	reg.MustRegister(r.AlertsDeduplicatedTotal)
+
+	// FIX-210 — alerts dropped because the matching dedup_key is still
+	// inside its post-resolve cooldown window.
+	r.AlertsCooldownDroppedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_alerts_cooldown_dropped_total",
+		Help: "Number of alert events dropped because a matching dedup_key is still within cooldown window after resolve (FIX-210).",
+	}, []string{"type", "source"})
+	reg.MustRegister(r.AlertsCooldownDroppedTotal)
+
+	// FIX-210 — alert publishes suppressed at the publisher edge-trigger
+	// (operator health: same-status probe; policy enforcer: below 60s
+	// min-interval per (policy, sim)).
+	r.AlertsRateLimitedPublishesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_alerts_rate_limited_publishes_total",
+		Help: "Number of alert publishes suppressed at the publisher edge-trigger (FIX-210).",
+	}, []string{"publisher"})
+	reg.MustRegister(r.AlertsRateLimitedPublishesTotal)
+
 	r.BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "argus_build_info",
 		Help: "Argus build information (always 1).",
@@ -526,6 +559,35 @@ func (r *Registry) IncScheduledReportRun(reportType, result string) {
 		return
 	}
 	r.ScheduledReportRunsTotal.WithLabelValues(reportType, result).Inc()
+}
+
+// IncAlertsDeduplicated increments the alert dedup counter (FIX-210).
+// Label values: type = canonical alert type; source = sim|operator|infra|policy|system.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncAlertsDeduplicated(alertType, source string) {
+	if r == nil || r.AlertsDeduplicatedTotal == nil {
+		return
+	}
+	r.AlertsDeduplicatedTotal.WithLabelValues(alertType, source).Inc()
+}
+
+// IncAlertsCooldownDropped increments the cooldown-dropped counter (FIX-210).
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncAlertsCooldownDropped(alertType, source string) {
+	if r == nil || r.AlertsCooldownDroppedTotal == nil {
+		return
+	}
+	r.AlertsCooldownDroppedTotal.WithLabelValues(alertType, source).Inc()
+}
+
+// IncAlertsRateLimitedPublishes increments the publisher-edge rate-limit
+// counter (FIX-210). Label values: publisher = operator_health | enforcer.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncAlertsRateLimitedPublishes(publisher string) {
+	if r == nil || r.AlertsRateLimitedPublishesTotal == nil {
+		return
+	}
+	r.AlertsRateLimitedPublishesTotal.WithLabelValues(publisher).Inc()
 }
 
 // RecordHTTPStatus records a 5xx HTTP response for the recent_error_5m

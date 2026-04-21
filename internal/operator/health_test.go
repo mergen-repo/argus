@@ -114,6 +114,9 @@ func TestNewHealthCheckerNilSafe(t *testing.T) {
 	if hc.operatorNames == nil {
 		t.Error("operatorNames map should be initialized")
 	}
+	if hc.lastAlertStatus == nil {
+		t.Error("lastAlertStatus map should be initialized (FIX-210)")
+	}
 }
 
 type mockEventPublisher struct {
@@ -299,11 +302,11 @@ func TestHealthChecker_StartOperatorLoop_SingleTickerPerOperator(t *testing.T) {
 	hc := NewHealthChecker(nil, nil, nil, "", zerolog.Nop())
 	opID := uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	op := store.Operator{
-		ID:                      opID,
-		Name:                    "multi-proto",
-		HealthStatus:            "healthy",
-		HealthCheckIntervalSec:  30,
-		CircuitBreakerThreshold: 3,
+		ID:                        opID,
+		Name:                      "multi-proto",
+		HealthStatus:              "healthy",
+		HealthCheckIntervalSec:    30,
+		CircuitBreakerThreshold:   3,
 		CircuitBreakerRecoverySec: 60,
 		AdapterConfig: json.RawMessage(`{
 			"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"},
@@ -416,13 +419,14 @@ func newHealthCheckerWithRegistry(t *testing.T) (*HealthChecker, *mockEventPubli
 	t.Helper()
 	reg := adapter.NewRegistry()
 	hc := &HealthChecker{
-		registry:      reg,
-		logger:        zerolog.Nop(),
-		breakers:      make(map[healthKey]*CircuitBreaker),
-		stopChs:       make(map[uuid.UUID]chan struct{}),
-		lastStatus:    make(map[healthKey]string),
-		lastLatency:   make(map[healthKey]int),
-		operatorNames: make(map[uuid.UUID]string),
+		registry:        reg,
+		logger:          zerolog.Nop(),
+		breakers:        make(map[healthKey]*CircuitBreaker),
+		stopChs:         make(map[uuid.UUID]chan struct{}),
+		lastStatus:      make(map[healthKey]string),
+		lastLatency:     make(map[healthKey]int),
+		operatorNames:   make(map[uuid.UUID]string),
+		lastAlertStatus: make(map[uuid.UUID]string),
 	}
 	pub := &mockEventPublisher{}
 	hc.SetEventPublisher(pub, "argus.events.operator.health.changed", "argus.events.alert.triggered")
@@ -667,5 +671,118 @@ func TestCheckOperator_StatusStaysDownLatencyChangesNoReFiredAlert(t *testing.T)
 	alertCount := countHealthPublishes(pub, "argus.events.alert.triggered")
 	if alertCount != 0 {
 		t.Errorf("down→down tick must NOT re-fire AlertTypeOperatorDown; got %d alerts", alertCount)
+	}
+}
+
+// ---------------------------------------------------------------------
+// FIX-210 Task 4 — operator health alert edge-trigger tests
+//
+// The alert publish site (AlertTypeOperatorDown / AlertTypeOperatorUp)
+// must be edge-triggered per operator. Two protocols flipping to "down"
+// on the same tick for the same operator must result in exactly ONE
+// AlertTypeOperatorDown publish — the second attempt is suppressed by
+// the shouldPublishAlert gate and counted to the rate-limit metric.
+// ---------------------------------------------------------------------
+
+// TestOperatorHealth_SameStatusTwice_NoPublish — two identical-status
+// alert publish attempts (simulating two protocols flipping together)
+// fire the alert once, not twice. Uses shouldPublishAlert directly to
+// assert the gate semantics without a full checkOperator fixture.
+func TestOperatorHealth_SameStatusTwice_NoPublish(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+	// First attempt — gate allows; alert publishes.
+	if !hc.shouldPublishAlert(opID, "down") {
+		t.Fatal("first 'down' edge must be allowed")
+	}
+	hc.publishAlert(context.Background(), opID, "acme", AlertTypeOperatorDown, SeverityCritical,
+		"Operator acme is DOWN", "CB opened", "healthy")
+
+	// Second attempt with the same state — gate must suppress it.
+	if hc.shouldPublishAlert(opID, "down") {
+		t.Fatal("second 'down' edge with unchanged state must be suppressed")
+	}
+
+	alerts := countHealthPublishes(pub, "argus.events.alert.triggered")
+	if alerts != 1 {
+		t.Errorf("same-status twice: got %d alert publishes, want 1", alerts)
+	}
+}
+
+// TestOperatorHealth_StatusChange_Publishes — alternating down/up
+// transitions publish every time (each call is a genuine edge).
+func TestOperatorHealth_StatusChange_Publishes(t *testing.T) {
+	hc, pub := newHealthCheckerWithRegistry(t)
+	opID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+
+	if !hc.shouldPublishAlert(opID, "down") {
+		t.Fatal("first 'down' edge must be allowed")
+	}
+	hc.publishAlert(context.Background(), opID, "acme", AlertTypeOperatorDown, SeverityCritical,
+		"down", "desc", "healthy")
+
+	if !hc.shouldPublishAlert(opID, "up") {
+		t.Fatal("'up' edge after 'down' must be allowed")
+	}
+	hc.publishAlert(context.Background(), opID, "acme", AlertTypeOperatorUp, SeverityInfo,
+		"recovered", "desc", "down")
+
+	if !hc.shouldPublishAlert(opID, "down") {
+		t.Fatal("'down' edge after 'up' must be allowed")
+	}
+	hc.publishAlert(context.Background(), opID, "acme", AlertTypeOperatorDown, SeverityCritical,
+		"down again", "desc", "healthy")
+
+	alerts := countHealthPublishes(pub, "argus.events.alert.triggered")
+	if alerts != 3 {
+		t.Errorf("alternating down/up/down: got %d alert publishes, want 3", alerts)
+	}
+}
+
+// TestOperatorHealth_EdgeTrigger_IsolatedPerOperator — each operator
+// has its own edge-trigger history; one operator's 'down' must not
+// suppress another operator's 'down'.
+func TestOperatorHealth_EdgeTrigger_IsolatedPerOperator(t *testing.T) {
+	hc, _ := newHealthCheckerWithRegistry(t)
+	opA := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	opB := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+	if !hc.shouldPublishAlert(opA, "down") {
+		t.Fatal("opA 'down' must be allowed")
+	}
+	if !hc.shouldPublishAlert(opB, "down") {
+		t.Fatal("opB 'down' must be allowed (independent of opA)")
+	}
+	if hc.shouldPublishAlert(opA, "down") {
+		t.Fatal("opA 'down' repeat must be suppressed")
+	}
+	if hc.shouldPublishAlert(opB, "down") {
+		t.Fatal("opB 'down' repeat must be suppressed")
+	}
+}
+
+// TestOperatorHealth_RecordRateLimited_NilRegIsSafe — recordRateLimited
+// must not panic when metricsReg has never been wired (common in tests
+// and in the zero-config path).
+func TestOperatorHealth_RecordRateLimited_NilRegIsSafe(t *testing.T) {
+	hc, _ := newHealthCheckerWithRegistry(t)
+	hc.recordRateLimited() // should not panic
+}
+
+// TestOperatorHealth_RecordRateLimited_IncrementsMetric — when a
+// metricsReg is wired, recordRateLimited increments the counter under
+// the "operator_health" publisher label.
+func TestOperatorHealth_RecordRateLimited_IncrementsMetric(t *testing.T) {
+	hc, _ := newHealthCheckerWithRegistry(t)
+	reg := obsmetrics.NewRegistry()
+	hc.SetMetricsRegistry(reg)
+
+	hc.recordRateLimited()
+
+	text := scrapeMetrics(t, reg)
+	want := `argus_alerts_rate_limited_publishes_total{publisher="operator_health"} 1`
+	if !strings.Contains(text, want) {
+		t.Errorf("missing rate-limit counter line %q\n%s", want, text)
 	}
 }

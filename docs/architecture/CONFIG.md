@@ -363,6 +363,7 @@ These values are used when creating new tenants. They can be overridden per-tena
 | `DEFAULT_AUDIT_RETENTION_DAYS` | int | `365` | No | Days to retain audit logs before archiving to S3. |
 | `DEFAULT_CDR_RETENTION_DAYS` | int | `180` | No | Days to retain CDR records in TimescaleDB before compression/archiving. |
 | `ALERTS_RETENTION_DAYS` | int | `180` | No | FIX-209 — days to retain rows in the unified `alerts` table. Minimum enforced: `30`. Older rows are purged daily at 03:15 UTC by the `alerts_retention` job. |
+| `ALERT_COOLDOWN_MINUTES` | int | `5` | No | FIX-210 — minutes an alert stays in cooldown after resolve. Repeat events with the same `dedup_key` are dropped (metric: `argus_alerts_cooldown_dropped_total`) during the window. Range: `0..1440` (0 disables cooldown; values above 1440 are clamped). |
 
 ---
 

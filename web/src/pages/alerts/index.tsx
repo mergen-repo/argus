@@ -5,12 +5,12 @@ import {
   AlertCircle, AlertTriangle, CheckCircle, Clock, Shield,
   ChevronDown, ChevronUp, Search, BellOff, ExternalLink, BookOpen,
   RefreshCw, Eye, Radio, Zap, Wifi, WifiOff, Database, Lock,
-  Activity, TrendingUp, MessageSquare, Download, Loader2,
+  Activity, TrendingUp, MessageSquare, Download, Loader2, Repeat,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { SeverityBadge } from '@/components/shared/severity-badge'
 import { SEVERITY_FILTER_OPTIONS, SEVERITY_PILL_CLASSES } from '@/lib/severity'
-import { ALERT_SOURCE_OPTIONS, ALERT_STATE_OPTIONS } from '@/lib/alerts'
+import { ALERT_SOURCE_OPTIONS, ALERT_STATE_OPTIONS, formatOccurrence } from '@/lib/alerts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -505,6 +505,17 @@ function AlertCard({
         <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary flex-shrink-0">
           {alert.source}
         </span>
+
+        {(alert.occurrence_count ?? 0) > 1 && (
+          <Badge
+            variant="outline"
+            className="ml-1 h-5 gap-1 border-border bg-bg-elevated text-[10px] text-text-secondary flex-shrink-0"
+            aria-label={`occurred ${alert.occurrence_count} times`}
+          >
+            <Repeat className="h-3 w-3" />
+            {formatOccurrence(alert.occurrence_count, alert.first_seen_at, alert.last_seen_at)}
+          </Badge>
+        )}
 
         <div className="flex-1 min-w-0">
           <p className={cn(

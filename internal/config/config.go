@@ -129,6 +129,14 @@ type Config struct {
 	// job. Min floor is 30 (enforced both here and in the processor).
 	AlertsRetentionDays int `envconfig:"ALERTS_RETENTION_DAYS" default:"180"`
 
+	// AlertCooldownMinutes — FIX-210 Task 4. Cooldown window in minutes
+	// stamped on an alert when it is resolved. During the window, repeated
+	// events with the same dedup_key are dropped (UpsertCoolingDown) rather
+	// than reopening the alert — prevents rapid-flap reopen storms. 0
+	// disables the feature (every resolve allows immediate reopen). Floored
+	// at 0 and clamped to 1440 (24h) for sanity.
+	AlertCooldownMinutes int `envconfig:"ALERT_COOLDOWN_MINUTES" default:"5"`
+
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
 	GOGC         int    `envconfig:"GOGC" default:"100"`
@@ -297,6 +305,17 @@ func (c *Config) Validate() error {
 	// here ensures bad configs fail fast instead of silently purging too much.
 	if c.AlertsRetentionDays < 30 {
 		c.AlertsRetentionDays = 30
+	}
+
+	// FIX-210 — ALERT_COOLDOWN_MINUTES sanity clamp: floor to 0 (0 disables
+	// cooldown entirely), ceiling at 1440 (24h). Silent coercion keeps bad
+	// envvars from crashing the app — misconfigured long cooldowns still
+	// bounded to one day.
+	if c.AlertCooldownMinutes < 0 {
+		c.AlertCooldownMinutes = 0
+	}
+	if c.AlertCooldownMinutes > 1440 {
+		c.AlertCooldownMinutes = 1440
 	}
 
 	if c.PprofEnabled && !c.IsDev() && len(c.PprofToken) < 32 {

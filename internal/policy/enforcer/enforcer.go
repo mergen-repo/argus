@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	policycache "github.com/btopcu/argus/internal/policy/cache"
 	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/severity"
@@ -15,6 +17,21 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
+
+// enforcerAlertKey is the (policy_id, sim_id) tuple used as the
+// rate-limiter map key. Struct with UUID values (not pointers) so it is
+// comparable and usable as a map key.
+type enforcerAlertKey struct {
+	PolicyID uuid.UUID
+	SIMID    uuid.UUID
+}
+
+// defaultEnforcerMinInterval is the minimum interval between two alert
+// publishes for the same (policy_id, sim_id) tuple. FIX-210 Task 4:
+// prevents a rapid-violation loop from spamming the alert bus — the DB
+// would dedup them anyway, but this saves the NATS round-trip per
+// suppressed event.
+const defaultEnforcerMinInterval = 60 * time.Second
 
 type EnforcementResult struct {
 	Allow          bool
@@ -45,6 +62,15 @@ type Enforcer struct {
 	rdb            *redis.Client
 	evaluator      *dsl.Evaluator
 	logger         zerolog.Logger
+
+	// FIX-210 Task 4 — per-(policy, sim) rate limiter for alert publishes.
+	// Map of last-publish time; entries are never evicted (10K SIMs ×
+	// 10 policies = ~100K entries, trivial memory). Guarded by rlMu.
+	rlMu          sync.Mutex
+	rlLastEmitted map[enforcerAlertKey]time.Time
+	rlMinInterval time.Duration
+	rlNow         func() time.Time // injection point for tests
+	metricsReg    *obsmetrics.Registry
 }
 
 func New(
@@ -63,7 +89,43 @@ func New(
 		rdb:            rdb,
 		evaluator:      dsl.NewEvaluator(),
 		logger:         logger.With().Str("component", "policy_enforcer").Logger(),
+		rlLastEmitted:  make(map[enforcerAlertKey]time.Time),
+		rlMinInterval:  defaultEnforcerMinInterval,
+		rlNow:          time.Now,
 	}
+}
+
+// SetMetricsRegistry wires the Prometheus registry used to emit
+// argus_alerts_rate_limited_publishes_total when a suppressed publish
+// is detected. Safe to leave unset — increments become no-ops.
+func (e *Enforcer) SetMetricsRegistry(reg *obsmetrics.Registry) {
+	e.metricsReg = reg
+}
+
+// shouldPublishViolationAlert returns true when at least rlMinInterval
+// has elapsed since the last alert publish for this (policy, sim) tuple.
+// When it returns false the caller must skip the publish and log it as
+// rate-limited (metric increment is the caller's responsibility).
+//
+// Defensive fallthrough: if policyID is uuid.Nil (a degenerate state
+// possible when policyStore is nil and cache misses), all SIMs would
+// collapse to a single rate-limit bucket and mask unrelated violations.
+// Always allow the publish in that case — the DB dedup_key still
+// collapses duplicate rows, so correctness is preserved.
+func (e *Enforcer) shouldPublishViolationAlert(policyID, simID uuid.UUID) bool {
+	if policyID == uuid.Nil {
+		return true
+	}
+	key := enforcerAlertKey{PolicyID: policyID, SIMID: simID}
+	now := e.rlNow()
+
+	e.rlMu.Lock()
+	defer e.rlMu.Unlock()
+	if last, ok := e.rlLastEmitted[key]; ok && now.Sub(last) < e.rlMinInterval {
+		return false
+	}
+	e.rlLastEmitted[key] = now
+	return true
 }
 
 func (e *Enforcer) Evaluate(ctx context.Context, sim *store.SIM, sessionCtx dsl.SessionContext) (*EnforcementResult, error) {
@@ -238,18 +300,33 @@ func (e *Enforcer) RecordViolations(ctx context.Context, sim *store.SIM, result 
 		}
 
 		if e.eventBus != nil && (v.Severity == severity.Critical || v.Severity == severity.High || v.Severity == severity.Medium) {
-			_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
-				"id":          violation.ID.String(),
-				"tenant_id":   sim.TenantID.String(),
-				"type":        "policy_violation",
-				"severity":    v.Severity,
-				"state":       "open",
-				"message":     fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID),
-				"sim_id":      sim.ID.String(),
-				"entity_type": "sim",
-				"entity_id":   sim.ID.String(),
-				"detected_at": time.Now().UTC().Format(time.RFC3339),
-			})
+			// FIX-210 Task 4: rate-limit per (policy_id, sim_id). A
+			// rapid-violation loop would otherwise flood the alert bus
+			// on every tick; the DB dedup_key collapses the rows but
+			// network and log overhead is still paid. 60s min-interval
+			// is a good default — critical issues still surface
+			// promptly; pathological loops are bounded.
+			if !e.shouldPublishViolationAlert(result.PolicyID, sim.ID) {
+				e.metricsReg.IncAlertsRateLimitedPublishes("enforcer")
+				e.logger.Debug().
+					Str("policy_id", result.PolicyID.String()).
+					Str("sim_id", sim.ID.String()).
+					Str("violation_type", v.ViolationType).
+					Msg("enforcer: alert publish rate-limited (60s min-interval)")
+			} else {
+				_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
+					"id":          violation.ID.String(),
+					"tenant_id":   sim.TenantID.String(),
+					"type":        "policy_violation",
+					"severity":    v.Severity,
+					"state":       "open",
+					"message":     fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID),
+					"sim_id":      sim.ID.String(),
+					"entity_type": "sim",
+					"entity_id":   sim.ID.String(),
+					"detected_at": time.Now().UTC().Format(time.RFC3339),
+				})
+			}
 		}
 
 		if v.ActionTaken == "notify" && e.eventBus != nil {

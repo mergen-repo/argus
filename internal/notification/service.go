@@ -12,6 +12,8 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/btopcu/argus/internal/alertstate"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -104,8 +106,10 @@ type NotifStore interface {
 // inbound alert events before dispatching notifications. Kept narrow to avoid
 // tight coupling to *store.AlertStore (mirrors NotifStore pattern).
 // FIX-209: unified alerts table.
+// FIX-210: swapped Create → UpsertWithDedup for dedup + cooldown. *store.AlertStore
+// implements both methods, so main.go wiring is unchanged.
 type AlertStoreWriter interface {
-	Create(ctx context.Context, p store.CreateAlertParams) (*store.Alert, error)
+	UpsertWithDedup(ctx context.Context, p store.CreateAlertParams, severityOrdinal int) (*store.Alert, store.UpsertResult, error)
 }
 
 type NotifCreateParams struct {
@@ -210,6 +214,7 @@ type Service struct {
 	templateStore TemplateStore
 
 	alertStore AlertStoreWriter
+	metricsReg *obsmetrics.Registry
 
 	mu   sync.Mutex
 	subs []Subscription
@@ -295,6 +300,13 @@ func (s *Service) SetTemplateStore(ts TemplateStore) {
 // keeps pre-FIX-209 tests and offline tooling working without the dependency.
 func (s *Service) SetAlertStore(as AlertStoreWriter) {
 	s.alertStore = as
+}
+
+// SetMetricsRegistry wires the Prometheus registry used to emit FIX-210
+// dedup / cooldown counters. Safe to leave unset (all increments become
+// no-ops when the registry is nil — mirrors SetAlertStore semantics).
+func (s *Service) SetMetricsRegistry(reg *obsmetrics.Registry) {
+	s.metricsReg = reg
 }
 
 func (s *Service) Start(subscriber Subscriber, healthSubject, alertSubject string) error {
@@ -725,6 +737,14 @@ func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
 
 	firedAt := firstTime(flex.Timestamp, flex.DetectedAt, timePtr(time.Now().UTC()))
 
+	// FIX-210 Task 4: compute dedup_key after all entity resolution. The key
+	// is stable across severity changes (plan D2) and across null-entity
+	// events (entity triple = "-"), so post-runtime every persisted row has
+	// a non-nil dedup_key and every UpsertWithDedup call exercises the
+	// dedup path. Only parseAlertPayload computes the key (PAT-006 defense:
+	// single compute point).
+	dedupKey := alertstate.DedupKey(tenantID, alertType, src, simID, operatorID, apnID)
+
 	return store.CreateAlertParams{
 		TenantID:    tenantID,
 		Type:        alertType,
@@ -736,7 +756,7 @@ func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
 		SimID:       simID,
 		OperatorID:  operatorID,
 		APNID:       apnID,
-		DedupKey:    nil, // FIX-210 populates
+		DedupKey:    &dedupKey,
 		FiredAt:     *firedAt,
 	}, nil
 }
@@ -843,11 +863,17 @@ func timePtr(t time.Time) *time.Time {
 	return &t
 }
 
-// handleAlertPersist is the NATS alert-event subscriber (FIX-209).
+// handleAlertPersist is the NATS alert-event subscriber (FIX-209 / FIX-210).
 // Ordering: persist BEFORE dispatch — a persisted alert that fails to
 // dispatch is recoverable via retry; a dispatched alert that fails to
 // persist is lost from the UI. Availability > durability for dispatch,
 // so persist errors DO NOT block the dispatch path.
+//
+// FIX-210: the persist step routes through UpsertWithDedup which either
+// inserts a fresh row, increments occurrence_count on the existing active
+// alert, or drops the event when a matching dedup_key is still in cooldown.
+// Metrics are emitted per-outcome so operators can see dedup/cooldown
+// effectiveness without sampling.
 func (s *Service) handleAlertPersist(data []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -861,12 +887,51 @@ func (s *Service) handleAlertPersist(data []byte) {
 			Msg("alert: parse into unified schema failed; dispatch will continue with legacy AlertPayload")
 	} else if s.alertStore != nil {
 		// 2. Persist (ordered before dispatch). Log-and-continue on error.
-		if _, perr := s.alertStore.Create(ctx, params); perr != nil {
+		//    FIX-210: UpsertWithDedup replaces Create. Outcome drives metrics.
+		ordinal := severity.Ordinal(params.Severity)
+		_, result, perr := s.alertStore.UpsertWithDedup(ctx, params, ordinal)
+		if perr != nil {
 			s.logger.Error().
 				Err(perr).
 				Str("type", params.Type).
 				Str("tenant_id", params.TenantID.String()).
 				Msg("persist alert failed")
+		} else {
+			switch result {
+			case store.UpsertInserted:
+				// Normal path — fresh row created. No extra metric.
+			case store.UpsertDeduplicated:
+				s.metricsReg.IncAlertsDeduplicated(params.Type, params.Source)
+				dk := ""
+				if params.DedupKey != nil {
+					dk = *params.DedupKey
+				}
+				s.logger.Debug().
+					Str("type", params.Type).
+					Str("source", params.Source).
+					Str("dedup_key", dk).
+					Msg("alert deduplicated (occurrence_count incremented)")
+			case store.UpsertCoolingDown:
+				s.metricsReg.IncAlertsCooldownDropped(params.Type, params.Source)
+				dk := ""
+				if params.DedupKey != nil {
+					k := *params.DedupKey
+					if len(k) > 8 {
+						dk = k[:8]
+					} else {
+						dk = k
+					}
+				}
+				// FIX-210 Gate F-A4 — demoted from Warn to Debug; cooldown drops are
+				// expected (not anomalous) under flapping publishers, and the metric
+				// argus_alerts_cooldown_dropped_total is the primary ops signal.
+				// dedup_key truncated to 8 chars to reduce log volume under burst.
+				s.logger.Debug().
+					Str("type", params.Type).
+					Str("source", params.Source).
+					Str("dedup_key_prefix", dk).
+					Msg("alert dropped: dedup_key still in cooldown window")
+			}
 		}
 	}
 

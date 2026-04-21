@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btopcu/argus/internal/alertstate"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/severity"
@@ -16,13 +17,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var validAlertStates = map[string]bool{
-	"open":         true,
-	"acknowledged": true,
-	"resolved":     true,
-	"suppressed":   true,
-}
-
 var validAlertSources = map[string]bool{
 	"sim":      true,
 	"operator": true,
@@ -31,58 +25,65 @@ var validAlertSources = map[string]bool{
 	"system":   true,
 }
 
-var allowedUpdateStates = map[string]bool{
-	"acknowledged": true,
-	"resolved":     true,
-}
-
 type Handler struct {
-	alertStore *store.AlertStore
-	auditSvc   audit.Auditor
-	logger     zerolog.Logger
+	alertStore       *store.AlertStore
+	auditSvc         audit.Auditor
+	logger           zerolog.Logger
+	cooldownMinutes  int
 }
 
-func NewHandler(alertStore *store.AlertStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
+func NewHandler(alertStore *store.AlertStore, auditSvc audit.Auditor, logger zerolog.Logger, cooldownMinutes int) *Handler {
+	if cooldownMinutes < 0 {
+		cooldownMinutes = 0
+	}
 	return &Handler{
-		alertStore: alertStore,
-		auditSvc:   auditSvc,
-		logger:     logger.With().Str("component", "alert_handler").Logger(),
+		alertStore:      alertStore,
+		auditSvc:        auditSvc,
+		logger:          logger.With().Str("component", "alert_handler").Logger(),
+		cooldownMinutes: cooldownMinutes,
 	}
 }
 
 type alertDTO struct {
-	ID             string          `json:"id"`
-	TenantID       string          `json:"tenant_id"`
-	Type           string          `json:"type"`
-	Severity       string          `json:"severity"`
-	Source         string          `json:"source"`
-	State          string          `json:"state"`
-	Title          string          `json:"title"`
-	Description    string          `json:"description"`
-	Meta           json.RawMessage `json:"meta"`
-	SimID          *string         `json:"sim_id"`
-	OperatorID     *string         `json:"operator_id"`
-	APNID          *string         `json:"apn_id"`
-	DedupKey       *string         `json:"dedup_key"`
-	FiredAt        string          `json:"fired_at"`
-	AcknowledgedAt *string         `json:"acknowledged_at"`
-	AcknowledgedBy *string         `json:"acknowledged_by"`
-	ResolvedAt     *string         `json:"resolved_at"`
+	ID              string          `json:"id"`
+	TenantID        string          `json:"tenant_id"`
+	Type            string          `json:"type"`
+	Severity        string          `json:"severity"`
+	Source          string          `json:"source"`
+	State           string          `json:"state"`
+	Title           string          `json:"title"`
+	Description     string          `json:"description"`
+	Meta            json.RawMessage `json:"meta"`
+	SimID           *string         `json:"sim_id"`
+	OperatorID      *string         `json:"operator_id"`
+	APNID           *string         `json:"apn_id"`
+	DedupKey        *string         `json:"dedup_key"`
+	FiredAt         string          `json:"fired_at"`
+	AcknowledgedAt  *string         `json:"acknowledged_at"`
+	AcknowledgedBy  *string         `json:"acknowledged_by"`
+	ResolvedAt      *string         `json:"resolved_at"`
+	OccurrenceCount int             `json:"occurrence_count"`
+	FirstSeenAt     string          `json:"first_seen_at"`
+	LastSeenAt      string          `json:"last_seen_at"`
+	CooldownUntil   *string         `json:"cooldown_until"`
 }
 
 func toAlertDTO(a *store.Alert) alertDTO {
 	dto := alertDTO{
-		ID:          a.ID.String(),
-		TenantID:    a.TenantID.String(),
-		Type:        a.Type,
-		Severity:    a.Severity,
-		Source:      a.Source,
-		State:       a.State,
-		Title:       a.Title,
-		Description: a.Description,
-		Meta:        a.Meta,
-		DedupKey:    a.DedupKey,
-		FiredAt:     a.FiredAt.UTC().Format(time.RFC3339),
+		ID:              a.ID.String(),
+		TenantID:        a.TenantID.String(),
+		Type:            a.Type,
+		Severity:        a.Severity,
+		Source:          a.Source,
+		State:           a.State,
+		Title:           a.Title,
+		Description:     a.Description,
+		Meta:            a.Meta,
+		DedupKey:        a.DedupKey,
+		FiredAt:         a.FiredAt.UTC().Format(time.RFC3339),
+		OccurrenceCount: a.OccurrenceCount,
+		FirstSeenAt:     a.FirstSeenAt.UTC().Format(time.RFC3339),
+		LastSeenAt:      a.LastSeenAt.UTC().Format(time.RFC3339),
 	}
 	if a.SimID != nil {
 		s := a.SimID.String()
@@ -107,6 +108,10 @@ func toAlertDTO(a *store.Alert) alertDTO {
 	if a.ResolvedAt != nil {
 		s := a.ResolvedAt.UTC().Format(time.RFC3339)
 		dto.ResolvedAt = &s
+	}
+	if a.CooldownUntil != nil {
+		s := a.CooldownUntil.UTC().Format(time.RFC3339)
+		dto.CooldownUntil = &s
 	}
 	return dto
 }
@@ -137,7 +142,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stateFilter := q.Get("state")
-	if stateFilter != "" && !validAlertStates[stateFilter] {
+	if stateFilter != "" && alertstate.Validate(stateFilter) != nil {
 		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
 			"state must be one of: open, acknowledged, resolved, suppressed; got '"+stateFilter+"'")
 		return
@@ -283,7 +288,7 @@ func (h *Handler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !allowedUpdateStates[req.State] {
+	if !alertstate.IsUpdateAllowed(req.State) {
 		apierr.WriteError(w, http.StatusConflict, apierr.CodeInvalidStateTransition,
 			"invalid alert state transition; allowed: acknowledged, resolved")
 		return
@@ -299,7 +304,7 @@ func (h *Handler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		userPtr = &uid
 	}
 
-	a, err := h.alertStore.UpdateState(r.Context(), tenantID, id, req.State, userPtr)
+	a, err := h.alertStore.UpdateState(r.Context(), tenantID, id, req.State, userPtr, h.cooldownMinutes)
 	if errors.Is(err, store.ErrAlertNotFound) {
 		apierr.WriteError(w, http.StatusNotFound, apierr.CodeAlertNotFound, "alert not found")
 		return

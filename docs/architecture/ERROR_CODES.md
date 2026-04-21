@@ -486,10 +486,12 @@ Uses the canonical 5-value enum from FIX-211 (see [§Severity Taxonomy](#severit
 
 | State | Meaning | Transitions |
 |---|---|---|
-| `open` | New, unacknowledged | → `acknowledged`, `resolved` (`suppressed` reserved for FIX-210 dedup state machine — not exposed via `PATCH /alerts/{id}`) |
-| `acknowledged` | Operator has seen / owns it | → `resolved` |
+| `open` | New, unacknowledged | → `acknowledged`, `resolved`, `suppressed` |
+| `acknowledged` | Operator has seen / owns it | → `resolved`, `suppressed` |
+| `suppressed` | Dedup/cooldown suppression — managed by `SuppressAlert`/`UnsuppressAlert` internally or by admin action. NOT settable via `PATCH /alerts/{id}`. | → `open`, `resolved` |
 | `resolved` | Fixed or no longer actionable | terminal |
-| `suppressed` | FIX-210 dedup/cooldown suppression. NOT transitionable via `PATCH /alerts/{id}` — managed automatically by the dedup state machine. | terminal via this endpoint |
+
+Transitions via `PATCH /alerts/{id}` (API contract): `open → acknowledged`, `open/acknowledged → resolved` only. `suppressed` transitions are managed exclusively by the dedup state machine (`SuppressAlert`/`UnsuppressAlert` store methods).
 
 Constraint: `chk_alerts_state CHECK (state IN ('open','acknowledged','resolved','suppressed'))`.
 
@@ -526,18 +528,52 @@ The notification subscriber `parseAlertPayload` resolves `source` from `alert_ty
 
 FIX-209 persists alerts tolerantly: publisher payload shapes differ across the 7 sites. Until FIX-212 normalizes the envelope, the subscriber accepts a flexible struct with both `alert_type`/`type`, `title`/`message`, `timestamp`/`detected_at`, `metadata`/`details` field aliases, and synthesizes missing titles/descriptions. Publishers with NO `tenant_id` in their payload today (e.g. `nats_consumer_lag`, `anomaly_batch_crash`, `storage_monitor` explicit-nil, `operator.AlertEvent`, `notification.AlertPayload`) currently skip persist but STILL dispatch notifications — FIX-212 closes that gap.
 
+### Dedup & Cooldown
+
+Introduced by FIX-210. Every incoming alert event is assigned a `dedup_key` computed as:
+
+```
+SHA-256( tenant_id | type | source | entity_triple )
+```
+
+where `entity_triple` is one of `sim:<uuid>`, `op:<uuid>`, `apn:<uuid>`, or `-` (no entity).
+
+**Why severity is excluded from the hash (Decision D3):** Dedup identity represents root cause, not measurement intensity. Two events for the same operator/type pair that differ only in severity are the same underlying incident (the severity of an open alert escalates-only on dedup hit; downgrades are ignored).
+
+**Upsert mechanics (`UpsertWithDedup`):**
+
+Uses an atomic `INSERT ... ON CONFLICT (tenant_id, dedup_key) WHERE state IN ('open','acknowledged','suppressed') DO UPDATE`. The partial unique index is `idx_alerts_dedup_unique`. On conflict:
+- `occurrence_count += 1`
+- `last_seen_at = NOW()`
+- `severity` escalates only (higher ordinal wins; downgrade ignored)
+- `fired_at` and `first_seen_at` NEVER change after INSERT (stable cursor pagination)
+
+**Cooldown:**
+
+On resolve, `cooldown_until = NOW() + ALERT_COOLDOWN_MINUTES`. New events matching the `dedup_key` within the cooldown window return `UpsertCoolingDown` from the store. The Prometheus counter `argus_alerts_cooldown_dropped_total` increments; notification dispatch still runs.
+
+A second partial index `idx_alerts_cooldown_lookup` covers resolved rows with a non-null `cooldown_until` for efficient cooldown checks.
+
+**Edge-triggering:**
+
+In-scope publishers (operator health checker, policy enforcer) only publish on state transitions or when min-interval elapses. The operator health worker persists `previous_state` per entity in Redis to survive restarts.
+
 ### Retention
 
 Controlled by `ALERTS_RETENTION_DAYS` (default 180, min 30) — see [CONFIG.md](CONFIG.md). Daily cron job `alerts_retention` at 03:15 UTC calls `AlertStore.DeleteOlderThan(now - retention_days)`.
 
-### Cross-reference for FIX-210
+### Cross-reference for FIX-210 — SHIPPED 2026-04-21
 
-FIX-210 introduces alert deduplication + state-machine transitions involving `suppressed`. FIX-209 reserves:
-- `dedup_key VARCHAR(255)` column (always NULL in FIX-209).
-- `idx_alerts_dedup` partial index on `(tenant_id, dedup_key) WHERE dedup_key IS NOT NULL AND state IN ('open','suppressed')`.
-- `suppressed` value in `chk_alerts_state`.
-
-FIX-210 MUST populate `dedup_key` at publish or persist time and manage transitions `open ↔ suppressed` via a separate store method (not `UpdateState`, which rejects `suppressed`).
+FIX-210 (Alert Deduplication + State Machine) is fully shipped. Delivered:
+- `dedup_key VARCHAR(255) NOT NULL` column populated at persist time via SHA-256 hash.
+- Partial unique index `idx_alerts_dedup_unique` on `(tenant_id, dedup_key) WHERE state IN ('open','acknowledged','suppressed')`.
+- Partial lookup index `idx_alerts_cooldown_lookup` on resolved rows with non-null `cooldown_until`.
+- `UpsertWithDedup` store method (atomic upsert, occurrence increment, severity escalation).
+- `SuppressAlert` / `UnsuppressAlert` store methods (not exposed via public PATCH API).
+- Cooldown logic gated by `ALERT_COOLDOWN_MINUTES` (default 5, range 0–1440).
+- Edge-triggered publishers: operator health checker + policy enforcer.
+- Prometheus counters: `argus_alerts_deduplicated_total{type}`, `argus_alerts_cooldown_dropped_total`.
+- `suppressed` state is now actively used (previously reserved).
 
 ---
 

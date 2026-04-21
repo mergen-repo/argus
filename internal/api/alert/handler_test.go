@@ -22,7 +22,7 @@ import (
 // ---- Pure httptest (no DB) --------------------------------------------------
 
 func TestList_RejectsInvalidSeverity(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop(), 5)
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
 
@@ -46,7 +46,7 @@ func TestList_RejectsInvalidSeverity(t *testing.T) {
 }
 
 func TestList_RejectsInvalidState(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop(), 5)
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
 
@@ -65,7 +65,7 @@ func TestList_RejectsInvalidState(t *testing.T) {
 }
 
 func TestList_RejectsInvalidSource(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop(), 5)
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
 
@@ -84,7 +84,7 @@ func TestList_RejectsInvalidSource(t *testing.T) {
 }
 
 func TestUpdateState_SuppressedNotAllowed_Returns409(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop(), 5)
 	tenantID := uuid.New()
 	alertID := uuid.New()
 
@@ -109,7 +109,7 @@ func TestUpdateState_SuppressedNotAllowed_Returns409(t *testing.T) {
 }
 
 func TestUpdateState_UnknownState_Returns409(t *testing.T) {
-	h := NewHandler(nil, nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop(), 5)
 	tenantID := uuid.New()
 	alertID := uuid.New()
 
@@ -200,7 +200,11 @@ func (c *captureAuditor) CreateEntry(_ context.Context, p audit.CreateEntryParam
 }
 
 func newTestHandler(pool *pgxpool.Pool, auditor audit.Auditor) *Handler {
-	return NewHandler(store.NewAlertStore(pool), auditor, zerolog.Nop())
+	return newTestHandlerWithCooldown(pool, auditor, 5)
+}
+
+func newTestHandlerWithCooldown(pool *pgxpool.Pool, auditor audit.Auditor, cooldownMinutes int) *Handler {
+	return NewHandler(store.NewAlertStore(pool), auditor, zerolog.Nop(), cooldownMinutes)
 }
 
 func alertCtx(tenantID uuid.UUID) context.Context {
@@ -461,7 +465,7 @@ func TestUpdateState_Resolved_To_Open_Returns409InvalidStateTransition(t *testin
 		t.Fatalf("seed: %v", err)
 	}
 	// open -> resolved (direct transition is allowed)
-	if _, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil); err != nil {
+	if _, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil, 0); err != nil {
 		t.Fatalf("seed transition to resolved: %v", err)
 	}
 
@@ -503,7 +507,7 @@ func TestUpdateState_Resolved_To_Ack_Returns409_FromStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil); err != nil {
+	if _, err := s.UpdateState(ctx, tenantID, a.ID, "resolved", nil, 0); err != nil {
 		t.Fatalf("seed resolve: %v", err)
 	}
 
@@ -567,5 +571,56 @@ func TestUpdateState_EmitsAudit(t *testing.T) {
 	}
 	if !strings.Contains(string(auditor.last.AfterData), `"note":"ok"`) {
 		t.Errorf("after_data missing note: %s", string(auditor.last.AfterData))
+	}
+}
+
+// TestUpdateState_ResolveHandler_StampsCooldownFromConfig — FIX-210 Gate F-A1 regression.
+// The handler-level resolve path MUST pass the configured cooldown minutes through
+// to the store. A hardcoded 0 here would silently disable AC-5 in the primary
+// (REST) resolve path even though store-level tests pass with explicit cooldown.
+func TestUpdateState_ResolveHandler_StampsCooldownFromConfig(t *testing.T) {
+	pool := testAlertHandlerPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated handler test")
+	}
+	tenantID := seedTenant(t, pool)
+	userID := seedUser(t, pool, tenantID)
+	s := store.NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, store.CreateAlertParams{
+		TenantID: tenantID, Type: "sim.data_spike", Severity: "high", Source: "sim",
+		Title: "resolve-via-handler", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	const cooldownMin = 7
+	h := newTestHandlerWithCooldown(pool, nil, cooldownMin)
+	reqCtx := withUser(withRouteID(alertCtx(tenantID), a.ID.String()), userID)
+	body := `{"state":"resolved"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/alerts/"+a.ID.String(), strings.NewReader(body)).WithContext(reqCtx)
+	w := httptest.NewRecorder()
+	h.UpdateState(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+
+	got, err := s.GetByID(ctx, tenantID, a.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got.State != "resolved" {
+		t.Fatalf("state = %q, want resolved", got.State)
+	}
+	if got.CooldownUntil == nil {
+		t.Fatal("cooldown_until is nil; handler did not thread config (F-A1 regression)")
+	}
+	wantMin := time.Now().UTC().Add(time.Duration(cooldownMin-1) * time.Minute)
+	wantMax := time.Now().UTC().Add(time.Duration(cooldownMin+1) * time.Minute)
+	if got.CooldownUntil.Before(wantMin) || got.CooldownUntil.After(wantMax) {
+		t.Errorf("cooldown_until = %v, want within ~%dm of now", got.CooldownUntil, cooldownMin)
 	}
 }

@@ -60,7 +60,7 @@
 | TBL-50 | user_views | Platform/UX | → TBL-02 (user_id); page + name + filters_json; partial unique index (user_id,page) WHERE is_default=true | No |
 | TBL-51 | user_column_preferences | Platform/UX | → TBL-02 (user_id); page + preferences_json (density, columns, language) | No |
 | TBL-52 | session_quarantine | AAA/Data Integrity | Plain (non-hypertable) quarantine store; original_table CHECK ('sessions','cdrs'); quarantined_at, reason, raw_data JSONB; system-level (no tenant_id). Migration A (20260421000001). FIX-207 AC-6. | No |
-| TBL-53 | alerts | Analytics/Alerts | Unified alert history: operator, infra, policy, SIM-level. 3 CHECK constraints (severity 5-val, state 4-val, source 5-val), 7 indices, RLS tenant-scoped. Retention 180d via `alerts_retention` cron. FIX-209. | No |
+| TBL-53 | alerts | Analytics/Alerts | Unified alert history: operator, infra, policy, SIM-level. 3 CHECK constraints (severity 5-val, state 4-val, source 5-val), 7 indices + 2 FIX-210 indices, RLS tenant-scoped. Retention 180d via `alerts_retention` cron. FIX-209. Extended by FIX-210: +4 columns (`occurrence_count INT DEFAULT 1`, `first_seen_at TIMESTAMPTZ`, `last_seen_at TIMESTAMPTZ`, `cooldown_until TIMESTAMPTZ NULL`), partial unique index `idx_alerts_dedup_unique` on `(tenant_id, dedup_key) WHERE state IN ('open','acknowledged','suppressed')`, partial lookup index `idx_alerts_cooldown_lookup` on resolved rows with non-null `cooldown_until`. | No |
 
 ## Domain Detail Files
 

@@ -3276,6 +3276,134 @@ Beklenti: `ALERTS_RETENTION_DAYS` satiri mevcut, default `180`, min `30` olarak 
 
 ---
 
+## FIX-210: Alert Deduplication + State Machine (Edge-triggered, Cooldown)
+
+Bu story birincil olarak backend + veritabani degisikligidir (dedup, cooldown, edge-trigger). Ana UI degisiklikleri: Alerts listesinde "N× in last Xm" badge + Alerts detail panelinde First/Last seen + cooldown banner.
+
+### Senaryo 1 — Dedup badge (AC-6): ayni alert 3+ kez tetiklenince tek satir goster
+
+```bash
+# Step 1 — simülatör ile 5 adet ayni operator-health eventi tetikle
+# (ayni operator, ayni tip — örn. degraded probe)
+# Ortam: make up
+
+# Operator health_worker'i otomatik tetikler. Alternatif: simulator ile
+# birden fazla kez operator'u unavailable yap (SoR endpoint kapatilabilir)
+curl -s "http://localhost:8084/api/v1/alerts" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq '[.data[] | {id, type, occurrence_count, dedup_key}] | first'
+```
+
+Beklenti: Ayni kaynak/tip/entity icin tek alert satiri, `occurrence_count` 2 veya daha buyuk deger.
+
+```bash
+# Step 2 — Alerts listesi badge'i kontrol et (UI)
+# http://localhost:8084/alerts adresini tarayicide ac
+# occurrence_count > 1 olan satirda "N× in last Xm" badge gorulmeli (Repeat ikonu ile)
+# occurrence_count == 1 olan satirlarda badge gorulmemeli
+```
+
+Beklenti: Dedup badge yalnizca `occurrence_count > 1` satirlarda gozukur; uppercase/tracking-wide stili yoktur; Repeat ikonu badge'in solunda gorunur.
+
+### Senaryo 2 — Alert detail: Occurrence bilgisi + cooldown banner
+
+```bash
+# Step 1 — Occurrence bilgisi olan bir alert'in detayini al
+ALERT_ID=$(curl -s "http://localhost:8084/api/v1/alerts" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq -r '[.data[] | select(.occurrence_count > 1)] | first | .id')
+
+curl -s "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq '{id, occurrence_count, first_seen_at, last_seen_at, cooldown_until, state}'
+```
+
+Beklenti: `first_seen_at`, `last_seen_at`, `occurrence_count`, `cooldown_until` alanlari JSON'da mevcut. `first_seen_at <= last_seen_at`.
+
+```bash
+# Step 2 — Alert'i resolve et (cooldown_until set edilmeli)
+curl -s -X PATCH "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"state":"resolved"}' | jq '{state: .data.state, cooldown_until: .data.cooldown_until}'
+```
+
+Beklenti: `state: "resolved"`, `cooldown_until` simdi + yaklasik 5 dakika ilerisini gostermeli (bos olmamali).
+
+```bash
+# Step 3 — Detail sayfasinda cooldown banner gorunumunu kontrol et (UI)
+# http://localhost:8084/alerts/<ALERT_ID> adresini tarayicide ac
+# state=resolved + cooldown aktifken: BellOff ikonu + sol accent stripe + "Cooldown active until HH:MM" metni gorunmeli
+```
+
+Beklenti: Cooldown banner'i `border-l-2 border-l-accent/60` stilinde, `BellOff` ikonuyla sol tarafta gorulur.
+
+### Senaryo 3 — Publisher edge-trigger: ayni durum iki kez → tek alert publish
+
+```bash
+# Step 1 — Operator health worker'in edge-trigger davranisini dogrula
+# Ayni operator'a iki kez ayni status dondurmek alinip yeni alert olusturmamali
+# Prometheus metrigi: argus_alerts_rate_limited_publishes_total{publisher="enforcer"}
+curl -s "http://localhost:8084/metrics" | grep 'argus_alerts_rate_limited_publishes_total'
+```
+
+Beklenti: Metrik mevcut (sifir veya daha buyuk deger). Policy enforcer icin 60s aralikta tekrar tetikleme yapilmamali.
+
+```bash
+# Step 2 — Operator health worker edge-trigger dogrulama
+# Ayni operator saglikli durumdayken iki kez probe — yalnizca bir alert olusturmali
+# Prometheus metrigi kontrol et
+curl -s "http://localhost:8084/metrics" | grep 'argus_alerts_deduplicated_total'
+```
+
+Beklenti: `argus_alerts_deduplicated_total` metrigi mevcut; tekrarlayan problar yalnizca bir satira donusmeli.
+
+### Senaryo 4 — Cooldown via REST: PATCH resolve → cooldown_until set + yeni event drop
+
+```bash
+# Step 1 — Resolve edilmis alert ile ayni dedup_key ile yeni event gelmesi halinde drop edilmeli
+ALERT_ID=$(curl -s "http://localhost:8084/api/v1/alerts" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq -r '[.data[] | select(.state == "resolved" and .cooldown_until != null)] | first | .id')
+
+# Step 2 — cooldown drop metrigini kontrol et
+curl -s "http://localhost:8084/metrics" | grep 'argus_alerts_cooldown_dropped_total'
+```
+
+Beklenti: `argus_alerts_cooldown_dropped_total` metrigi mevcut. Cooldown suresi icinde ayni `dedup_key` ile gelen event yeni alert satiri OLUSTURMAZ, metrik artar.
+
+```bash
+# Step 3 — ALERT_COOLDOWN_MINUTES konfigurasyonu dogrula
+grep 'ALERT_COOLDOWN_MINUTES' .env.example docs/architecture/CONFIG.md
+```
+
+Beklenti: `.env.example` ve `CONFIG.md` icinde `ALERT_COOLDOWN_MINUTES=5` mevcut, default 5 olarak belirtilmis.
+
+### Senaryo 5 — Suppressed state: SuppressAlert yolu (PATCH /alerts/{id} ile DEGIL)
+
+```bash
+# Step 1 — PATCH ile suppressed set etme 400/409 hatasi vermeli (API contract preserved)
+ALERT_ID=$(curl -s "http://localhost:8084/api/v1/alerts" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq -r '[.data[] | select(.state == "open")] | first | .id')
+
+curl -s -X PATCH "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"state":"suppressed"}' | jq '{status, code: .error.code}'
+```
+
+Beklenti: HTTP 409, `code: "INVALID_STATE_TRANSITION"` — suppressed durumu PATCH endpoint'i ile ayarlanamaz; yalnizca store-level `SuppressAlert` methodu ile kullanilir (admin/dedup yolu).
+
+```bash
+# Step 2 — Suppressed alert detail sayfasi (UI)
+# Eger dedup ile suppressed bir alert varsa http://localhost:8084/alerts/<ID>
+# Durum pill'i muted/neutral renkte gozukmeli (alarming kirmizi degil)
+# meta.suppress_reason mevcutsa detayda gorulecek
+```
+
+Beklenti: Suppressed state, turuncu/kirmizi degil, muted/neutral tonunda gorunur. `meta.suppress_reason` varsa goruntulenir.
+
+---
+
 ## FIX-211: Severity Taxonomy Unification
 
 Bu story birincil olarak backend + frontend altyapi degisikligidir (5-degerli kanonik taxonomy: info/low/medium/high/critical). Ana UI degisiklikleri: Alerts/Violations/Notifications sayfalarinda 5 severity secenegi + eski "warning"/"error" degerlerini reddeden 400 dogrulama.
