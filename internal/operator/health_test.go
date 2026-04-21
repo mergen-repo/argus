@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/btopcu/argus/internal/bus"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
@@ -585,15 +586,18 @@ func TestCheckOperator_StatusFlipStillPublishes(t *testing.T) {
 		t.Fatalf("status flip must publish regardless of cold-start latency; got %d", got)
 	}
 
-	// Verify the event payload reflects the flip direction.
+	// Verify the event payload reflects the flip direction. FIX-212:
+	// health.changed is now a bus.Envelope; the transition lives in meta.
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
-	evt, ok := pub.events[0].payload.(OperatorHealthEvent)
+	env, ok := pub.events[0].payload.(*bus.Envelope)
 	if !ok {
-		t.Fatalf("event payload type = %T, want OperatorHealthEvent", pub.events[0].payload)
+		t.Fatalf("event payload type = %T, want *bus.Envelope (FIX-212)", pub.events[0].payload)
 	}
-	if evt.PreviousStatus != "healthy" || evt.CurrentStatus != "degraded" {
-		t.Errorf("event flip direction = %s→%s, want healthy→degraded", evt.PreviousStatus, evt.CurrentStatus)
+	prev, _ := env.Meta["previous_status"].(string)
+	curr, _ := env.Meta["current_status"].(string)
+	if prev != "healthy" || curr != "degraded" {
+		t.Errorf("event flip direction = %s→%s, want healthy→degraded", prev, curr)
 	}
 }
 

@@ -458,21 +458,30 @@ func (s *Service) publishProgressWithState(ctx context.Context, rollout *store.P
 	}
 
 	tenantID := s.resolveTenantID(ctx, rollout)
-	event := RolloutProgressEvent{
-		RolloutID:    rollout.ID.String(),
-		TenantID:     tenantID.String(),
-		VersionID:    rollout.PolicyVersionID.String(),
-		State:        state,
-		CurrentStage: currentStage,
-		TotalStages:  len(stages),
-		Stages:       stages,
-		TotalSIMs:    rollout.TotalSIMs,
-		MigratedSIMs: migrated,
-		ProgressPct:  progressPct,
-		StartedAt:    startedAt,
-	}
 
-	if err := s.eventBus.Publish(ctx, bus.SubjectPolicyRolloutProgress, event); err != nil {
+	// FIX-212 AC-6: policy.name lookup would require a cross-package resolver
+	// that the rollout service doesn't own today. Fall back to a short tag
+	// formed from the version id — FE can still render a distinct label
+	// ("policy <short>") and the matching rollout row is retrievable via the
+	// rollout_id meta field. Proper policy-name resolution is tracked in
+	// FIX-240 (Notification Preferences) where the catalog wire-up happens.
+	policyDisplay := shortPolicyTag(rollout.PolicyVersionID)
+	env := bus.NewEnvelope("policy.rollout_progress", tenantID.String(), "info").
+		WithSource("policy").
+		WithTitle("Policy rollout progress").
+		SetEntity("policy", rollout.PolicyVersionID.String(), policyDisplay).
+		WithMeta("rollout_id", rollout.ID.String()).
+		WithMeta("version_id", rollout.PolicyVersionID.String()).
+		WithMeta("state", state).
+		WithMeta("current_stage", currentStage).
+		WithMeta("total_stages", len(stages)).
+		WithMeta("total_sims", rollout.TotalSIMs).
+		WithMeta("migrated_sims", migrated).
+		WithMeta("progress_pct", progressPct).
+		WithMeta("started_at", startedAt).
+		WithMeta("stages", stages)
+
+	if err := s.eventBus.Publish(ctx, bus.SubjectPolicyRolloutProgress, env); err != nil {
 		s.logger.Warn().Err(err).Msg("publish rollout progress")
 	}
 }
@@ -516,4 +525,16 @@ func (s *Service) resolveTenantID(ctx context.Context, rollout *store.PolicyRoll
 		return uuid.Nil
 	}
 	return tenantID
+}
+
+// shortPolicyTag returns a compact human-ish label for a policy-version UUID
+// suitable for event entity.display_name. Format: "policy <first-8-chars>".
+// A full policy.name resolver is out of scope for FIX-212 (FIX-240 adds the
+// subscriber-side enrichment path once the catalog wire-up lands).
+func shortPolicyTag(pvID uuid.UUID) string {
+	s := pvID.String()
+	if len(s) >= 8 {
+		return "policy " + s[:8]
+	}
+	return "policy " + s
 }

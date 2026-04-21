@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-
 type BulkDisconnectPayload struct {
 	SimIDs    []string `json:"sim_ids"`
 	SegmentID *string  `json:"segment_id,omitempty"`
@@ -112,14 +111,12 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 			}
 
 			if p.eventBus != nil {
-				_ = p.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
-					"session_id":      sess.ID,
-					"sim_id":          sess.SimID,
-					"tenant_id":       sess.TenantID,
-					"operator_id":     sess.OperatorID,
-					"imsi":            sess.IMSI,
-					"terminate_cause": payload.Reason,
-				})
+				env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (bulk)").
+					WithMeta("session_id", sess.ID).
+					WithMeta("operator_id", sess.OperatorID).
+					WithMeta("imsi", sess.IMSI).
+					WithMeta("termination_cause", payload.Reason)
+				_ = p.eventBus.Publish(ctx, bus.SubjectSessionEnded, env)
 			}
 			disconnected++
 		}
@@ -142,11 +139,11 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
 			"job_id":             job.ID.String(),
-			"tenant_id":         job.TenantID.String(),
-			"type":              JobTypeBulkDisconnect,
-			"state":             "completed",
+			"tenant_id":          job.TenantID.String(),
+			"type":               JobTypeBulkDisconnect,
+			"state":              "completed",
 			"disconnected_count": disconnected,
-			"failed_count":      failed,
+			"failed_count":       failed,
 		})
 	}
 

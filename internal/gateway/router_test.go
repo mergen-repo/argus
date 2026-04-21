@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	eventsapi "github.com/btopcu/argus/internal/api/events"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
 	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/rs/zerolog"
@@ -182,5 +183,33 @@ func TestRouter_SystemMetricsEndpointRouteRegistered(t *testing.T) {
 
 	if w.Code == http.StatusNotFound {
 		t.Errorf("GET /api/v1/system/metrics with MetricsHandler set: expected route to be registered (not 404), got %d", w.Code)
+	}
+}
+
+// TestEventsCatalogHandler_List_RequiresAuth verifies the FIX-212 AC-5
+// catalog endpoint is gated behind JWTAuth. An anonymous request must be
+// rejected by the middleware (401/403) — it must NEVER return a 200
+// response (which would leak the canonical catalog to unauth clients).
+func TestEventsCatalogHandler_List_RequiresAuth(t *testing.T) {
+	h := eventsapi.NewHandler(zerolog.Nop())
+	router := NewRouterWithDeps(RouterDeps{
+		Health:               &HealthHandler{},
+		JWTSecret:            "test-secret",
+		Logger:               zerolog.Nop(),
+		EventsCatalogHandler: h,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/catalog", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("GET /api/v1/events/catalog without auth: expected 401/403, got 200 (leaks catalog)")
+	}
+	if w.Code == http.StatusNotFound {
+		t.Fatalf("GET /api/v1/events/catalog: expected route registered, got 404")
+	}
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+		t.Errorf("GET /api/v1/events/catalog without auth: expected 401/403, got %d", w.Code)
 	}
 }

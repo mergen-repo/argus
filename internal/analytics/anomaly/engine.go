@@ -3,12 +3,24 @@ package anomaly
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// simDisplayName formats an ICCID into a human-readable display_name for
+// entity:{type:"sim"}. Empty iccid yields empty display_name (FE falls back
+// to entity.id).
+func simDisplayName(iccid string) string {
+	if iccid == "" {
+		return ""
+	}
+	return fmt.Sprintf("ICCID %s", iccid)
+}
 
 type MessageSubscriber interface {
 	QueueSubscribe(subject, queue string, handler func(subject string, data []byte)) (Subscription, error)
@@ -179,53 +191,40 @@ func (e *Engine) publishEvents(ctx context.Context, record *store.Anomaly, iccid
 		return
 	}
 
-	evt := AnomalyEvent{
-		ID:         record.ID,
-		TenantID:   record.TenantID,
-		SimID:      record.SimID,
-		SimICCID:   iccid,
-		Type:       record.Type,
-		Severity:   record.Severity,
-		Details:    details,
-		DetectedAt: record.DetectedAt,
-	}
-
 	if e.anomalySubject != "" {
-		if err := e.publisher.Publish(ctx, e.anomalySubject, evt); err != nil {
+		anomalyEnv := bus.NewEnvelope("anomaly.detected", record.TenantID.String(), record.Severity).
+			WithSource("analytics").
+			WithTitle(anomalyTitle(record.Type, iccid)).
+			WithMessage(anomalyDescription(record.Type, details)).
+			WithMeta("anomaly_type", record.Type).
+			WithMeta("anomaly_id", record.ID.String()).
+			WithMeta("details", details)
+		if record.SimID != nil {
+			anomalyEnv.SetEntity("sim", record.SimID.String(), simDisplayName(iccid))
+			anomalyEnv.WithMeta("sim_id", record.SimID.String())
+		}
+		if err := e.publisher.Publish(ctx, e.anomalySubject, anomalyEnv); err != nil {
 			e.logger.Warn().Err(err).Msg("publish anomaly event failed")
 		}
 	}
 
 	if e.alertSubject != "" {
-		// FIX-209: clone details into metadata and augment with linkage keys
-		// (anomaly_id + sim_id) so the notification subscriber can tie
-		// alerts back to anomalies without a dedicated FK column.
-		// Clone to avoid mutating the caller's map or the anomaly event payload.
-		meta := make(map[string]interface{}, len(details)+2)
+		// FIX-212: migrated to bus.Envelope. Entity is the SIM (primary
+		// entity for the alert); anomaly linkage lives in meta.
+		alertEnv := bus.NewEnvelope("anomaly_"+record.Type, record.TenantID.String(), record.Severity).
+			WithSource("sim").
+			WithTitle(anomalyTitle(record.Type, iccid)).
+			WithMessage(anomalyDescription(record.Type, details)).
+			WithMeta("anomaly_id", record.ID.String()).
+			WithMeta("anomaly_type", record.Type)
 		for k, v := range details {
-			meta[k] = v
-		}
-		meta["anomaly_id"] = record.ID.String()
-		if record.SimID != nil {
-			meta["sim_id"] = record.SimID.String()
-		}
-
-		alert := map[string]interface{}{
-			"alert_id":    record.ID.String(),
-			"tenant_id":   record.TenantID.String(),
-			"alert_type":  "anomaly_" + record.Type,
-			"severity":    record.Severity,
-			"title":       anomalyTitle(record.Type, iccid),
-			"description": anomalyDescription(record.Type, details),
-			"entity_type": "anomaly",
-			"entity_id":   record.ID.String(),
-			"metadata":    meta,
-			"timestamp":   record.DetectedAt.Format(time.RFC3339),
+			alertEnv.WithMeta(k, v)
 		}
 		if record.SimID != nil {
-			alert["sim_id"] = record.SimID.String()
+			alertEnv.SetEntity("sim", record.SimID.String(), simDisplayName(iccid))
+			alertEnv.WithMeta("sim_id", record.SimID.String())
 		}
-		if err := e.publisher.Publish(ctx, e.alertSubject, alert); err != nil {
+		if err := e.publisher.Publish(ctx, e.alertSubject, alertEnv); err != nil {
 			e.logger.Warn().Err(err).Msg("publish alert event failed")
 		}
 	}

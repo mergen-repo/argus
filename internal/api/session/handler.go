@@ -34,7 +34,7 @@ type Handler struct {
 
 type HandlerOption func(*Handler)
 
-func WithSIMStore(s *store.SIMStore) HandlerOption      { return func(h *Handler) { h.simStore = s } }
+func WithSIMStore(s *store.SIMStore) HandlerOption { return func(h *Handler) { h.simStore = s } }
 func WithOperatorStore(s *store.OperatorStore) HandlerOption {
 	return func(h *Handler) { h.operatorStore = s }
 }
@@ -90,8 +90,8 @@ type sessionDTO struct {
 }
 
 type sorDecisionDTO struct {
-	ChosenOperatorID string           `json:"chosen_operator_id,omitempty"`
-	Scoring          []sorScoreEntry  `json:"scoring,omitempty"`
+	ChosenOperatorID string          `json:"chosen_operator_id,omitempty"`
+	Scoring          []sorScoreEntry `json:"scoring,omitempty"`
 }
 
 type sorScoreEntry struct {
@@ -101,9 +101,9 @@ type sorScoreEntry struct {
 }
 
 type policyAppliedDTO struct {
-	PolicyID     string  `json:"policy_id,omitempty"`
-	VersionID    string  `json:"version_id,omitempty"`
-	MatchedRules []int   `json:"matched_rules,omitempty"`
+	PolicyID     string `json:"policy_id,omitempty"`
+	VersionID    string `json:"version_id,omitempty"`
+	MatchedRules []int  `json:"matched_rules,omitempty"`
 }
 
 type quotaUsageDTO struct {
@@ -562,17 +562,14 @@ func (h *Handler) publishSessionEnded(r *http.Request, sess *session.Session, ca
 		return
 	}
 
-	payload := map[string]interface{}{
-		"session_id":      sess.ID,
-		"sim_id":          sess.SimID,
-		"tenant_id":       sess.TenantID,
-		"operator_id":     sess.OperatorID,
-		"imsi":            sess.IMSI,
-		"terminate_cause": cause,
-		"ended_at":        time.Now().UTC().Format(time.RFC3339),
-	}
+	env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (operator)").
+		WithMeta("session_id", sess.ID).
+		WithMeta("operator_id", sess.OperatorID).
+		WithMeta("imsi", sess.IMSI).
+		WithMeta("termination_cause", cause).
+		WithMeta("ended_at", time.Now().UTC().Format(time.RFC3339))
 
-	if err := h.eventBus.Publish(r.Context(), bus.SubjectSessionEnded, payload); err != nil {
+	if err := h.eventBus.Publish(r.Context(), bus.SubjectSessionEnded, env); err != nil {
 		h.logger.Warn().Err(err).Str("session_id", sess.ID).Msg("publish session.ended event failed")
 	}
 }

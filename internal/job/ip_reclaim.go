@@ -120,12 +120,14 @@ func (p *IPReclaimProcessor) Process(ctx context.Context, job *store.Job) error 
 				} else if ip.AddressV6 != nil {
 					addr = *ip.AddressV6
 				}
-				if pubErr := p.eventBus.Publish(ctx, bus.SubjectIPReclaimed, map[string]any{
-					"tenant_id": ip.TenantID,
-					"pool_id":   ip.PoolID,
-					"ip_id":     ip.ID,
-					"addr":      addr,
-				}); pubErr != nil {
+				env := bus.NewEnvelope("ip.reclaimed", ip.TenantID.String(), "info").
+					WithSource("job").
+					WithTitle("IP reclaimed").
+					SetEntity("ip", ip.ID.String(), addr).
+					WithMeta("pool_id", ip.PoolID.String()).
+					WithMeta("ip_id", ip.ID.String()).
+					WithMeta("addr", addr)
+				if pubErr := p.eventBus.Publish(ctx, bus.SubjectIPReclaimed, env); pubErr != nil {
 					p.logger.Warn().Err(pubErr).Str("ip_id", ip.ID.String()).Msg("publish ip.reclaimed failed")
 				}
 			}

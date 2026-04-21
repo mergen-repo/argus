@@ -503,14 +503,24 @@ func (s *Server) watchdogLoop(peer *Peer, done chan struct{}) {
 				peer.conn.Close()
 
 				if s.eventBus != nil {
-					s.eventBus.Publish(context.Background(), bus.SubjectOperatorHealthChanged, map[string]interface{}{
-						"peer_host":  peer.originHost,
-						"peer_realm": peer.originRealm,
-						"tenant_id":  nil,
-						"status":     "down",
-						"reason":     "watchdog_timeout",
-						"timestamp":  time.Now().UTC(),
-					})
+					// FIX-212 AC-2: migrate raw-map publish to canonical bus.Envelope.
+					// Watchdog-timeout events are infra-global (no owning tenant),
+					// so tenant_id=SystemTenantID per D5 (publisher-authored
+					// sentinel). The peer remains the primary entity; the
+					// originRealm travels via meta.
+					env := bus.NewEnvelope("operator.health_changed", bus.SystemTenantID.String(), "high").
+						WithSource("operator").
+						WithTitle(fmt.Sprintf("Diameter peer %s watchdog timeout", peer.originHost)).
+						WithMessage("Peer marked DOWN after exceeding watchdog interval").
+						SetEntity("operator", peer.originHost, peer.originHost).
+						WithMeta("peer_host", peer.originHost).
+						WithMeta("peer_realm", peer.originRealm).
+						WithMeta("current_status", "down").
+						WithMeta("previous_status", "up").
+						WithMeta("reason", "watchdog_timeout")
+					if pubErr := s.eventBus.Publish(context.Background(), bus.SubjectOperatorHealthChanged, env); pubErr != nil {
+						s.logger.Warn().Err(pubErr).Str("peer", peer.originHost).Msg("publish peer watchdog timeout event failed")
+					}
 				}
 				return
 			}

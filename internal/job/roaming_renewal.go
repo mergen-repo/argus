@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/bus"
-	"github.com/btopcu/argus/internal/notification"
 	sev "github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -95,32 +94,22 @@ func (p *RoamingRenewalSweeper) Process(ctx context.Context, j *store.Job) error
 			severity = sev.Critical
 		}
 
-		alertPayload := notification.AlertPayload{
-			AlertID:     fmt.Sprintf("roaming-renewal-%s-%s", ag.ID.String(), now.Format("2006-01")),
-			AlertType:   "roaming.agreement.renewal_due",
-			Severity:    severity,
-			Title:       fmt.Sprintf("Roaming agreement expiring in %d days", daysToExpiry),
-			Description: fmt.Sprintf("Agreement with %s expires on %s. Review terms and renew if needed.", ag.PartnerOperatorName, ag.EndDate.Format("2006-01-02")),
-			EntityType:  "roaming_agreement",
-			EntityID:    ag.ID,
-			Metadata: map[string]interface{}{
-				"operator_id":           ag.OperatorID.String(),
-				"partner_operator_name": ag.PartnerOperatorName,
-				"end_date":              ag.EndDate.Format("2006-01-02"),
-				"days_to_expiry":        daysToExpiry,
-				"auto_renew":            ag.AutoRenew,
-			},
-			Timestamp: now,
-		}
+		title := fmt.Sprintf("Roaming agreement expiring in %d days", daysToExpiry)
+		description := fmt.Sprintf("Agreement with %s expires on %s. Review terms and renew if needed.", ag.PartnerOperatorName, ag.EndDate.Format("2006-01-02"))
 
-		payload, marshalErr := json.Marshal(alertPayload)
-		if marshalErr != nil {
-			p.logger.Error().Err(marshalErr).Str("agreement_id", ag.ID.String()).Msg("roaming renewal: marshal alert payload")
-			continue
-		}
+		env := bus.NewEnvelope("roaming.agreement.renewal_due", ag.TenantID.String(), severity).
+			WithSource("operator").
+			WithTitle(title).
+			WithMessage(description).
+			SetEntity("agreement", ag.ID.String(), ag.PartnerOperatorName).
+			WithMeta("operator_id", ag.OperatorID.String()).
+			WithMeta("partner_operator_name", ag.PartnerOperatorName).
+			WithMeta("end_date", ag.EndDate.Format("2006-01-02")).
+			WithMeta("days_to_expiry", daysToExpiry).
+			WithMeta("auto_renew", ag.AutoRenew)
 
 		if p.eventBus != nil {
-			if publishErr := p.eventBus.Publish(ctx, bus.SubjectAlertTriggered, json.RawMessage(payload)); publishErr != nil {
+			if publishErr := p.eventBus.Publish(ctx, bus.SubjectAlertTriggered, env); publishErr != nil {
 				p.logger.Error().Err(publishErr).
 					Str("agreement_id", ag.ID.String()).
 					Str("tenant_id", ag.TenantID.String()).

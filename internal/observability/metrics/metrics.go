@@ -115,6 +115,14 @@ type Registry struct {
 	AlertsCooldownDroppedTotal      *prometheus.CounterVec
 	AlertsRateLimitedPublishesTotal *prometheus.CounterVec
 
+	// FIX-212 — canonical envelope rollout observability.
+	// Low-cardinality labels: subject (~14 in-scope), reason (enum ≤6),
+	// kind (sim|operator|apn), kind+reason (≤ 3×3).
+	EventsLegacyShapeTotal *prometheus.CounterVec
+	EventsInvalidTotal     *prometheus.CounterVec
+	EventsResolverHits     *prometheus.CounterVec
+	EventsResolverMisses   *prometheus.CounterVec
+
 	BuildInfo *prometheus.GaugeVec
 
 	recent5xx *errorRingBuffer
@@ -376,6 +384,30 @@ func NewRegistry() *Registry {
 		Help: "Number of alert publishes suppressed at the publisher edge-trigger (FIX-210).",
 	}, []string{"publisher"})
 	reg.MustRegister(r.AlertsRateLimitedPublishesTotal)
+
+	r.EventsLegacyShapeTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_legacy_shape_total",
+		Help: "Number of NATS events received in pre-FIX-212 legacy shape (event_version missing or != 1).",
+	}, []string{"subject"})
+	reg.MustRegister(r.EventsLegacyShapeTotal)
+
+	r.EventsInvalidTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_invalid_total",
+		Help: "Number of NATS events that failed bus.Envelope.Validate() (FIX-212).",
+	}, []string{"subject", "reason"})
+	reg.MustRegister(r.EventsInvalidTotal)
+
+	r.EventsResolverHits = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_resolver_hit_total",
+		Help: "Name-resolver cache hits per entity kind (FIX-212).",
+	}, []string{"kind"})
+	reg.MustRegister(r.EventsResolverHits)
+
+	r.EventsResolverMisses = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_resolver_miss_total",
+		Help: "Name-resolver cache misses per entity kind and reason (FIX-212).",
+	}, []string{"kind", "reason"})
+	reg.MustRegister(r.EventsResolverMisses)
 
 	r.BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "argus_build_info",
@@ -646,6 +678,44 @@ func (r *Registry) ObserveAggregatesCallDuration(method, cache string, d time.Du
 		return
 	}
 	r.AggregatesCallDuration.WithLabelValues(method, cache).Observe(d.Seconds())
+}
+
+// IncEventsLegacyShape increments the legacy-shape counter for the given
+// NATS subject. Safe to call on a nil Registry (no-op). FIX-212.
+func (r *Registry) IncEventsLegacyShape(subject string) {
+	if r == nil || r.EventsLegacyShapeTotal == nil {
+		return
+	}
+	r.EventsLegacyShapeTotal.WithLabelValues(subject).Inc()
+}
+
+// IncEventsInvalid increments the invalid-envelope counter for the given
+// NATS subject and reason. Reason is one of: "legacy_shape", "invalid_severity",
+// "invalid_tenant", "missing_field", "invalid_entity", "dedup_key_too_long",
+// "unmarshal". Safe to call on a nil Registry (no-op). FIX-212.
+func (r *Registry) IncEventsInvalid(subject, reason string) {
+	if r == nil || r.EventsInvalidTotal == nil {
+		return
+	}
+	r.EventsInvalidTotal.WithLabelValues(subject, reason).Inc()
+}
+
+// IncResolverHit increments the name-resolver cache hit counter.
+// Safe to call on a nil Registry (no-op). FIX-212.
+func (r *Registry) IncResolverHit(kind string) {
+	if r == nil || r.EventsResolverHits == nil {
+		return
+	}
+	r.EventsResolverHits.WithLabelValues(kind).Inc()
+}
+
+// IncResolverMiss increments the name-resolver cache miss counter.
+// Safe to call on a nil Registry (no-op). FIX-212.
+func (r *Registry) IncResolverMiss(kind, reason string) {
+	if r == nil || r.EventsResolverMisses == nil {
+		return
+	}
+	r.EventsResolverMisses.WithLabelValues(kind, reason).Inc()
 }
 
 func operatorHealthValue(status string) float64 {

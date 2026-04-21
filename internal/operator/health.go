@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/crypto"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/operator/adapter"
@@ -440,17 +441,22 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 	shouldPublish := hc.eventPub != nil && hc.healthSubject != "" && (statusFlipped || latencyChanged)
 
 	if shouldPublish {
-		evt := OperatorHealthEvent{
-			OperatorID:     opID,
-			OperatorName:   opName,
-			PreviousStatus: prevStatus,
-			CurrentStatus:  status,
-			CircuitState:   string(cbState),
-			LatencyMs:      result.LatencyMs,
-			FailureReason:  result.Error,
-			Timestamp:      time.Now(),
+		sevLevel := SeverityInfo
+		if status == "down" {
+			sevLevel = SeverityHigh
 		}
-		if pubErr := hc.eventPub.Publish(ctx, hc.healthSubject, evt); pubErr != nil {
+		title := fmt.Sprintf("Operator %s %s→%s", opName, prevStatus, status)
+		env := bus.NewEnvelope("operator.health_changed", bus.SystemTenantID.String(), sevLevel).
+			WithSource("operator").
+			WithTitle(title).
+			WithMessage(result.Error).
+			SetEntity("operator", opID.String(), opName).
+			WithMeta("previous_status", prevStatus).
+			WithMeta("current_status", status).
+			WithMeta("circuit_state", string(cbState)).
+			WithMeta("latency_ms", result.LatencyMs).
+			WithMeta("failure_reason", result.Error)
+		if pubErr := hc.eventPub.Publish(ctx, hc.healthSubject, env); pubErr != nil {
 			hc.logger.Error().Err(pubErr).Str("operator_id", opID.String()).Msg("publish health event")
 		} else {
 			hc.logger.Info().
@@ -505,29 +511,23 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 
 // publishAlert emits an alert event on the alertSubject. FIX-210 Task 4:
 // optional previousStatus is propagated via metadata so consumers can
-// see the transition without hitting the DB.
-func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opName, alertType, severity, title, description string, previousStatus ...string) {
+// see the transition without hitting the DB. FIX-212: bus.Envelope wire
+// format; tenant_id set to infra-global sentinel because operators are
+// cross-tenant resources (D5).
+func (hc *HealthChecker) publishAlert(ctx context.Context, opID uuid.UUID, opName, alertType, sev, title, description string, previousStatus ...string) {
 	if hc.eventPub == nil || hc.alertSubject == "" {
 		return
 	}
-	meta := map[string]interface{}{
-		"operator_name": opName,
-	}
+	env := bus.NewEnvelope(alertType, bus.SystemTenantID.String(), sev).
+		WithSource("operator").
+		WithTitle(title).
+		WithMessage(description).
+		SetEntity("operator", opID.String(), opName).
+		WithMeta("operator_name", opName)
 	if len(previousStatus) > 0 && previousStatus[0] != "" {
-		meta["previous_status"] = previousStatus[0]
+		env.WithMeta("previous_status", previousStatus[0])
 	}
-	evt := AlertEvent{
-		AlertID:     uuid.New().String(),
-		AlertType:   alertType,
-		Severity:    severity,
-		Title:       title,
-		Description: description,
-		EntityType:  "operator",
-		EntityID:    opID,
-		Metadata:    meta,
-		Timestamp:   time.Now(),
-	}
-	if err := hc.eventPub.Publish(ctx, hc.alertSubject, evt); err != nil {
+	if err := hc.eventPub.Publish(ctx, hc.alertSubject, env); err != nil {
 		hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("publish alert event")
 	}
 }

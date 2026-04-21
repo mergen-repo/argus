@@ -13,12 +13,37 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/alertstate"
+	"github.com/btopcu/argus/internal/bus"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// SystemTenantID is a re-export of bus.SystemTenantID kept for backward
+// compatibility of notification package users. The canonical constant lives
+// in internal/bus (FIX-212 D5).
+//
+// TODO(D-078): retire once every in-scope publisher is on bus.Envelope
+// (FIX-212 AC-2). Today the legacy-shape shim (`handleAlertPersist`) still
+// falls back to `bus.SystemTenantID` for infra-global subjects like
+// consumer_lag. Removing this re-export is blocked on closing D-078 — all
+// raw-map publishers listed in FIX-212 plan §Out of Scope (job/cache/backup,
+// etc.) must migrate first. Tracked in ROUTEMAP Tech Debt D-078.
+var SystemTenantID = bus.SystemTenantID
+
+// truncateRaw returns the prefix of s capped at n bytes with a `…(truncated)`
+// suffix when it had to trim. Used for debug-log snippets that may contain
+// PII (raw NATS payloads) — keeps log forensics useful while bounding PII
+// surface area. Safe on non-UTF8-aligned cuts because zerolog serializes the
+// result as a JSON string (invalid runes become U+FFFD in the sink).
+func truncateRaw(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…(truncated)"
+}
 
 type Channel string
 
@@ -29,14 +54,6 @@ const (
 	ChannelWebhook  Channel = "webhook"
 	ChannelSMS      Channel = "sms"
 )
-
-// systemTenantID is the sentinel tenant UUID used by parseAlertPayload when
-// an inbound alert event arrives with no tenant_id (5 of 7 publishers today —
-// see FIX-209 Gate F-A1 + AC-3 + PAT-006). FIX-212 will normalize publishers
-// to carry tenant_id; until then infra/operator-without-context alerts are
-// written under this row so dashboards are not silently blind.
-// Matches migrations/seed/001_admin_user.sql demo tenant.
-var systemTenantID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 type AlertPayload struct {
 	AlertID     string                 `json:"alert_id"`
@@ -428,15 +445,15 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 			_ = s.notifStore.UpdateDelivery(ctx, created.ID, &now, nil, nil, 0, channelsSent)
 
 			if s.eventPublisher != nil && s.notifSubject != "" {
-				wsPayload := map[string]interface{}{
-					"id":         created.ID.String(),
-					"tenant_id":  created.TenantID.String(),
-					"event_type": string(req.EventType),
-					"title":      title,
-					"severity":   req.Severity,
-					"created_at": created.CreatedAt.Format(time.RFC3339),
-				}
-				if pubErr := s.eventPublisher.Publish(ctx, s.notifSubject, wsPayload); pubErr != nil {
+				env := bus.NewEnvelope("notification.dispatch", created.TenantID.String(), req.Severity).
+					WithSource("notification").
+					WithTitle(title).
+					WithMessage(bodyText).
+					WithMeta("notification_id", created.ID.String()).
+					WithMeta("event_type", string(req.EventType)).
+					WithMeta("channels_sent", channelsSent).
+					WithMeta("created_at", created.CreatedAt.Format(time.RFC3339))
+				if pubErr := s.eventPublisher.Publish(ctx, s.notifSubject, env); pubErr != nil {
 					s.logger.Warn().Err(pubErr).Msg("publish notification.new event")
 				}
 			}
@@ -609,19 +626,55 @@ func (s *Service) dispatchToActiveChannels(ctx context.Context, channels []Chann
 }
 
 func (s *Service) handleHealthChanged(data []byte) {
+	// FIX-212: prefer envelope path; fall back to legacy shape for 1 release
+	// grace window (D-078). Envelope meta carries previous_status / current_status;
+	// entity.display_name carries operator name.
+	var env bus.Envelope
+	if err := json.Unmarshal(data, &env); err == nil && env.EventVersion == bus.CurrentEventVersion {
+		payload := HealthChangedPayload{
+			PreviousStatus: mapGetString(env.Meta, "previous_status"),
+			CurrentStatus:  mapGetString(env.Meta, "current_status"),
+			CircuitState:   mapGetString(env.Meta, "circuit_state"),
+			FailureReason:  mapGetString(env.Meta, "failure_reason"),
+			Timestamp:      env.Timestamp,
+		}
+		if env.Entity != nil {
+			if id, perr := uuid.Parse(env.Entity.ID); perr == nil {
+				payload.OperatorID = id
+			}
+			payload.OperatorName = env.Entity.DisplayName
+		}
+		if latRaw, ok := env.Meta["latency_ms"]; ok {
+			switch v := latRaw.(type) {
+			case float64:
+				payload.LatencyMs = int(v)
+			case int:
+				payload.LatencyMs = v
+			}
+		}
+		if payload.CurrentStatus != "down" {
+			if payload.PreviousStatus == "down" {
+				s.dispatchRecovery(payload)
+			}
+			return
+		}
+		s.dispatchOperatorDown(payload)
+		return
+	}
+
+	// Legacy path.
+	s.metricsReg.IncEventsLegacyShape("operator.health")
 	var payload HealthChangedPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		s.logger.Error().Err(err).Msg("unmarshal health changed event")
 		return
 	}
-
 	if payload.CurrentStatus != "down" {
 		if payload.PreviousStatus == "down" {
 			s.dispatchRecovery(payload)
 		}
 		return
 	}
-
 	s.dispatchOperatorDown(payload)
 }
 
@@ -679,9 +732,16 @@ type alertEventFlexible struct {
 	DetectedAt  *time.Time             `json:"detected_at,omitempty"`
 }
 
-// parseAlertPayload normalizes an inbound alert event into store.CreateAlertParams.
-// Tolerant of the publisher heterogeneity documented in FIX-209 §Publisher inventory.
-func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
+// parseAlertPayloadLegacy is the legacy tolerant parser used for pre-FIX-212
+// envelope-less alert payloads. Kept for the 1-release grace window per
+// FIX-212 D3 (D-078). When an inbound alert arrives with event_version != 1,
+// handleAlertPersist routes through this shim and increments
+// argus_events_legacy_shape_total{subject=alert.triggered}.
+//
+// DO NOT use as the primary path — strict alertParamsFromEnvelope is
+// authoritative. Remove this function when the metric stays at 0 across a
+// full release cycle (D-078).
+func parseAlertPayloadLegacy(data []byte) (store.CreateAlertParams, error) {
 	var flex alertEventFlexible
 	if err := json.Unmarshal(data, &flex); err != nil {
 		return store.CreateAlertParams{}, err
@@ -720,16 +780,11 @@ func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
 		mapGetString(flex.Details, "apn_id"),
 	)
 
-	// FIX-209 Gate (F-A1): publishers for operator.AlertEvent, nats_consumer_lag,
-	// anomaly_batch_crash, storage_monitor (explicit nil), and roaming_renewal
-	// do NOT currently emit tenant_id — AC-3 + PAT-006 forbid rewriting
-	// publisher payloads in this story. Full envelope unification lands in
-	// FIX-212. Until then, fall back to the system-tenant sentinel so
-	// operator/infra alerts still persist instead of being silently dropped.
-	// Tracked as ROUTEMAP Tech Debt D-075 (system-tenant sentinel → FIX-212).
+	// FIX-212: legacy path — if tenant_id absent, fall back to SystemTenantID
+	// sentinel. New publishers author tenant_id themselves (D5).
 	tenantID, err := uuid.Parse(flex.TenantID)
 	if err != nil {
-		tenantID = systemTenantID
+		tenantID = SystemTenantID
 	}
 
 	meta := mergeMaps(flex.Metadata, flex.Details)
@@ -737,12 +792,6 @@ func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
 
 	firedAt := firstTime(flex.Timestamp, flex.DetectedAt, timePtr(time.Now().UTC()))
 
-	// FIX-210 Task 4: compute dedup_key after all entity resolution. The key
-	// is stable across severity changes (plan D2) and across null-entity
-	// events (entity triple = "-"), so post-runtime every persisted row has
-	// a non-nil dedup_key and every UpsertWithDedup call exercises the
-	// dedup path. Only parseAlertPayload computes the key (PAT-006 defense:
-	// single compute point).
 	dedupKey := alertstate.DedupKey(tenantID, alertType, src, simID, operatorID, apnID)
 
 	return store.CreateAlertParams{
@@ -758,6 +807,89 @@ func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
 		APNID:       apnID,
 		DedupKey:    &dedupKey,
 		FiredAt:     *firedAt,
+	}, nil
+}
+
+// alertParamsFromEnvelope is the FIX-212 primary path — converts a validated
+// bus.Envelope into store.CreateAlertParams. Dedup key is computed here
+// (FIX-210 PAT-006 single compute point) unless the publisher pre-authored
+// one on the envelope (FIX-212 D4 optional override).
+func alertParamsFromEnvelope(env *bus.Envelope) (store.CreateAlertParams, error) {
+	tenantID, err := uuid.Parse(env.TenantID)
+	if err != nil {
+		return store.CreateAlertParams{}, fmt.Errorf("notification: envelope tenant_id invalid: %w", err)
+	}
+
+	alertType := env.Type
+	if alertType == "" {
+		alertType = "unknown"
+	}
+
+	src := env.Source
+	if src == "" {
+		src = resolveSource(alertType)
+	}
+
+	// Extract tri-entity IDs: prefer envelope.entity when its type matches
+	// one of the alert scopes; also probe meta for operator_id/sim_id/apn_id
+	// so cross-entity alerts (sim alert with operator context) resolve.
+	var simID, operatorID, apnID *uuid.UUID
+	if env.Entity != nil {
+		switch env.Entity.Type {
+		case "sim":
+			if id, perr := uuid.Parse(env.Entity.ID); perr == nil && id != uuid.Nil {
+				simID = &id
+			}
+		case "operator":
+			if id, perr := uuid.Parse(env.Entity.ID); perr == nil && id != uuid.Nil {
+				operatorID = &id
+			}
+		case "apn":
+			if id, perr := uuid.Parse(env.Entity.ID); perr == nil && id != uuid.Nil {
+				apnID = &id
+			}
+		}
+	}
+	if simID == nil {
+		simID = firstUUID(mapGetString(env.Meta, "sim_id"))
+	}
+	if operatorID == nil {
+		operatorID = firstUUID(mapGetString(env.Meta, "operator_id"))
+	}
+	if apnID == nil {
+		apnID = firstUUID(mapGetString(env.Meta, "apn_id"))
+	}
+
+	metaBytes, _ := json.Marshal(env.Meta)
+
+	firedAt := env.Timestamp
+	if firedAt.IsZero() {
+		firedAt = time.Now().UTC()
+	}
+
+	// FIX-212 D4: publisher may optionally pre-author dedup_key.
+	var dkPtr *string
+	if env.DedupKey != nil && *env.DedupKey != "" {
+		dk := *env.DedupKey
+		dkPtr = &dk
+	} else {
+		dk := alertstate.DedupKey(tenantID, alertType, src, simID, operatorID, apnID)
+		dkPtr = &dk
+	}
+
+	return store.CreateAlertParams{
+		TenantID:    tenantID,
+		Type:        alertType,
+		Severity:    env.Severity,
+		Source:      src,
+		Title:       env.Title,
+		Description: env.Message,
+		Meta:        metaBytes,
+		SimID:       simID,
+		OperatorID:  operatorID,
+		APNID:       apnID,
+		DedupKey:    dkPtr,
+		FiredAt:     firedAt,
 	}, nil
 }
 
@@ -863,6 +995,29 @@ func timePtr(t time.Time) *time.Time {
 	return &t
 }
 
+// validationReason maps an envelope Validate error onto the canonical
+// argus_events_invalid_total{reason} label (FIX-212 Task 6 metric).
+func validationReason(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, bus.ErrLegacyShape):
+		return "legacy_shape"
+	case errors.Is(err, bus.ErrInvalidSeverity):
+		return "invalid_severity"
+	case errors.Is(err, bus.ErrInvalidTenant):
+		return "invalid_tenant"
+	case errors.Is(err, bus.ErrMissingField):
+		return "missing_field"
+	case errors.Is(err, bus.ErrInvalidEntity):
+		return "invalid_entity"
+	case errors.Is(err, bus.ErrDedupKeyTooLong):
+		return "dedup_key_too_long"
+	default:
+		return "unknown"
+	}
+}
+
 // handleAlertPersist is the NATS alert-event subscriber (FIX-209 / FIX-210).
 // Ordering: persist BEFORE dispatch — a persisted alert that fails to
 // dispatch is recoverable via retry; a dispatched alert that fails to
@@ -878,12 +1033,44 @@ func (s *Service) handleAlertPersist(data []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. Parse into canonical CreateAlertParams (tolerant of publisher heterogeneity).
-	params, parseErr := parseAlertPayload(data)
+	// 1. FIX-212: parse into canonical bus.Envelope first; fall back to the
+	//    legacy tolerant parser when the payload predates the migration
+	//    (event_version missing or != 1). Legacy hits increment the per-subject
+	//    metric so D-078 (shim removal) has an observability signal.
+	var env bus.Envelope
+	unmarshalErr := json.Unmarshal(data, &env)
+	var params store.CreateAlertParams
+	var parseErr error
+	useLegacy := unmarshalErr != nil || env.EventVersion != bus.CurrentEventVersion
+	if !useLegacy {
+		if verr := env.Validate(); verr != nil {
+			if errors.Is(verr, bus.ErrLegacyShape) {
+				useLegacy = true
+			} else {
+				s.metricsReg.IncEventsInvalid("alert.triggered", validationReason(verr))
+				s.logger.Warn().
+					Err(verr).
+					Str("subject", "alert.triggered").
+					Str("raw", truncateRaw(string(data), 512)).
+					Msg("alert: envelope validation failed; dropping")
+				return
+			}
+		}
+	}
+	if useLegacy {
+		s.metricsReg.IncEventsLegacyShape("alert.triggered")
+		s.logger.Debug().
+			Str("subject", "alert.triggered").
+			Msg("alert: legacy-shape payload routed through FIX-212 shim (D-078)")
+		params, parseErr = parseAlertPayloadLegacy(data)
+	} else {
+		params, parseErr = alertParamsFromEnvelope(&env)
+	}
+
 	if parseErr != nil {
 		s.logger.Warn().
 			Err(parseErr).
-			Str("raw", string(data)).
+			Str("raw", truncateRaw(string(data), 512)).
 			Msg("alert: parse into unified schema failed; dispatch will continue with legacy AlertPayload")
 	} else if s.alertStore != nil {
 		// 2. Persist (ordered before dispatch). Log-and-continue on error.

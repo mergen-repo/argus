@@ -161,11 +161,16 @@ func (p *SLAReportProcessor) Process(ctx context.Context, job *store.Job) error 
 				reportsGenerated++
 
 				if p.eventBus != nil {
-					if pubErr := p.eventBus.Publish(ctx, bus.SubjectSLAReportGenerated, map[string]any{
-						"tenant_id":   tenant.ID,
-						"operator_id": opID,
-						"uptime_pct":  agg.UptimePct,
-					}); pubErr != nil {
+					// FIX-212 AC-6: operator name available from grant row —
+					// no resolver round-trip needed.
+					env := bus.NewEnvelope("sla.report.generated", tenant.ID.String(), "info").
+						WithSource("job").
+						WithTitle("SLA report generated").
+						SetEntity("operator", opID.String(), grant.OperatorName).
+						WithMeta("operator_id", opID.String()).
+						WithMeta("operator_name", grant.OperatorName).
+						WithMeta("uptime_pct", agg.UptimePct)
+					if pubErr := p.eventBus.Publish(ctx, bus.SubjectSLAReportGenerated, env); pubErr != nil {
 						p.logger.Warn().Err(pubErr).Msg("publish sla.report.generated failed")
 					}
 				}

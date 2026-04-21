@@ -42,14 +42,14 @@ func (p *StorageMonitorProcessor) Type() string {
 }
 
 type storageMonitorResult struct {
-	DatabaseSize       int64              `json:"database_size"`
-	DatabaseSizeHuman  string             `json:"database_size_human"`
-	ActiveConnections  int64              `json:"active_connections"`
-	MaxConnections     int64              `json:"max_connections"`
-	ConnectionUsagePct float64            `json:"connection_usage_pct"`
-	CompressionStats   []compressionInfo  `json:"compression_stats"`
-	LargestTables      []tableInfo        `json:"largest_tables"`
-	AlertsTriggered    int                `json:"alerts_triggered"`
+	DatabaseSize       int64             `json:"database_size"`
+	DatabaseSizeHuman  string            `json:"database_size_human"`
+	ActiveConnections  int64             `json:"active_connections"`
+	MaxConnections     int64             `json:"max_connections"`
+	ConnectionUsagePct float64           `json:"connection_usage_pct"`
+	CompressionStats   []compressionInfo `json:"compression_stats"`
+	LargestTables      []tableInfo       `json:"largest_tables"`
+	AlertsTriggered    int               `json:"alerts_triggered"`
 }
 
 type compressionInfo struct {
@@ -60,9 +60,9 @@ type compressionInfo struct {
 }
 
 type tableInfo struct {
-	Name     string `json:"name"`
-	Size     string `json:"size"`
-	Rows     int64  `json:"rows"`
+	Name string `json:"name"`
+	Size string `json:"size"`
+	Rows int64  `json:"rows"`
 }
 
 func (p *StorageMonitorProcessor) Process(ctx context.Context, job *store.Job) error {
@@ -144,7 +144,7 @@ func (p *StorageMonitorProcessor) Process(ctx context.Context, job *store.Job) e
 
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
-			"job_id":            job.ID.String(),
+			"job_id":           job.ID.String(),
 			"tenant_id":        job.TenantID.String(),
 			"type":             JobTypeStorageMonitor,
 			"state":            "completed",
@@ -162,17 +162,17 @@ func (p *StorageMonitorProcessor) Process(ctx context.Context, job *store.Job) e
 	return nil
 }
 
-func (p *StorageMonitorProcessor) sendStorageAlert(ctx context.Context, alertType, description, severity string) {
+func (p *StorageMonitorProcessor) sendStorageAlert(ctx context.Context, alertType, description, sev string) {
 	if p.eventBus == nil {
 		return
 	}
 
-	_ = p.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
-		"alert_type":  "storage." + alertType,
-		"tenant_id":   nil,
-		"severity":    severity,
-		"title":       "Storage Alert: " + alertType,
-		"description": description,
-		"entity_type": "system",
-	})
+	env := bus.NewEnvelope("storage."+alertType, bus.SystemTenantID.String(), sev).
+		WithSource("infra").
+		WithTitle("Storage Alert: "+alertType).
+		WithMessage(description).
+		SetEntity("system", "storage", "Storage").
+		WithMeta("component", alertType)
+
+	_ = p.eventBus.Publish(ctx, bus.SubjectAlertTriggered, env)
 }

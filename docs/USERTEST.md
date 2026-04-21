@@ -3475,3 +3475,24 @@ Beklenti: `{"status": "error", "code": "INVALID_SEVERITY"}` — HTTP 400 (oncede
 2. "Medium" seciminde sayfa medium satirlari filtrelemeli; badge renkleri token-tabanli olmali (sari/warning-dim).
 3. http://localhost:8084/notifications/preferences — severity threshold select'inde 5 deger gorulmeli, default "Info".
 4. http://localhost:8084/violations — severity sutunu "medium"/"high" badge'leri gostermeli; "warning"/"error" badge'i gozukmemeli.
+
+## FIX-212: Unified Event Envelope + Name Resolution + Missing Publishers
+
+Bu story icin manuel test senaryosu yok (backend/altyapi — NATS event envelope migration + publisher wiring, FE tarafindan WS hub uzerinden passthrough). Otomasyonla dogrulanabilir:
+
+```bash
+# 1. Event catalog endpoint — envelope contract verification
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/events/catalog | jq '.[0] | keys'
+# Beklenti: ["default_severity","entity_type","meta_schema","source","subject","type"]
+
+# 2. Event envelope shape via WS — after triggering a SIM state change, verify envelope fields:
+#    entity.display_name should be ICCID (not UUID), event_version=1, tenant_id non-null
+# Use wscat or browser DevTools WS panel: ws://localhost:8081/ws/v1/events?token=<JWT>
+
+# 3. Legacy shape metric — should be zero for all 14 in-scope subjects:
+curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
+# Beklenti: metric absent or 0 for session.started, sim.state_changed, operator.health_changed, etc.
+
+# 4. Infra-global publisher tenant_id (SystemTenantID) — trigger NATS consumer lag alert:
+#    Observe alert in /alerts with tenant_id = 00000000-0000-0000-0000-000000000001 (SystemTenantID)
+```

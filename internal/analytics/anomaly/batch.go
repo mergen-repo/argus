@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -150,53 +151,38 @@ func (d *BatchDetector) publishAlert(ctx context.Context, record *AnomalyRecord,
 		return
 	}
 
-	evt := AnomalyEvent{
-		ID:         record.ID,
-		TenantID:   record.TenantID,
-		SimID:      record.SimID,
-		SimICCID:   iccid,
-		Type:       record.Type,
-		Severity:   record.Severity,
-		Details:    details,
-		DetectedAt: record.DetectedAt,
-	}
-
 	if d.anomalySubject != "" {
-		if err := d.publisher.Publish(ctx, d.anomalySubject, evt); err != nil {
+		anomalyEnv := bus.NewEnvelope("anomaly.detected", record.TenantID.String(), record.Severity).
+			WithSource("analytics").
+			WithTitle(anomalyTitle(record.Type, iccid)).
+			WithMessage(anomalyDescription(record.Type, details)).
+			WithMeta("anomaly_type", record.Type).
+			WithMeta("anomaly_id", record.ID.String()).
+			WithMeta("details", details)
+		if record.SimID != nil {
+			anomalyEnv.SetEntity("sim", record.SimID.String(), simDisplayName(iccid))
+			anomalyEnv.WithMeta("sim_id", record.SimID.String())
+		}
+		if err := d.publisher.Publish(ctx, d.anomalySubject, anomalyEnv); err != nil {
 			d.logger.Warn().Err(err).Msg("publish anomaly event failed")
 		}
 	}
 
 	if d.alertSubject != "" {
-		// FIX-209: clone details into metadata and augment with linkage keys
-		// (anomaly_id + sim_id) so the notification subscriber can tie
-		// alerts back to anomalies. Mirrors engine.go:200 for batch-detected
-		// anomalies — must stay in sync.
-		meta := make(map[string]interface{}, len(details)+2)
+		alertEnv := bus.NewEnvelope("anomaly_"+record.Type, record.TenantID.String(), record.Severity).
+			WithSource("sim").
+			WithTitle(anomalyTitle(record.Type, iccid)).
+			WithMessage(anomalyDescription(record.Type, details)).
+			WithMeta("anomaly_id", record.ID.String()).
+			WithMeta("anomaly_type", record.Type)
 		for k, v := range details {
-			meta[k] = v
-		}
-		meta["anomaly_id"] = record.ID.String()
-		if record.SimID != nil {
-			meta["sim_id"] = record.SimID.String()
-		}
-
-		alert := map[string]interface{}{
-			"alert_id":    record.ID.String(),
-			"tenant_id":   record.TenantID.String(),
-			"alert_type":  "anomaly_" + record.Type,
-			"severity":    record.Severity,
-			"title":       anomalyTitle(record.Type, iccid),
-			"description": anomalyDescription(record.Type, details),
-			"entity_type": "anomaly",
-			"entity_id":   record.ID.String(),
-			"metadata":    meta,
-			"timestamp":   record.DetectedAt.Format(time.RFC3339),
+			alertEnv.WithMeta(k, v)
 		}
 		if record.SimID != nil {
-			alert["sim_id"] = record.SimID.String()
+			alertEnv.SetEntity("sim", record.SimID.String(), simDisplayName(iccid))
+			alertEnv.WithMeta("sim_id", record.SimID.String())
 		}
-		if err := d.publisher.Publish(ctx, d.alertSubject, alert); err != nil {
+		if err := d.publisher.Publish(ctx, d.alertSubject, alertEnv); err != nil {
 			d.logger.Warn().Err(err).Msg("publish alert event failed")
 		}
 	}

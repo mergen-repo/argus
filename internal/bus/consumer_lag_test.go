@@ -166,18 +166,27 @@ func TestLagPoller_AlertAfterFiveConsecutivePolls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	var alert lagAlert
-	if err := json.Unmarshal(raw, &alert); err != nil {
-		t.Fatalf("unmarshal alert: %v", err)
+	var env Envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
 	}
-	if alert.Severity != "medium" {
-		t.Errorf("expected severity=medium, got %s", alert.Severity)
+	if env.EventVersion != CurrentEventVersion {
+		t.Errorf("event_version = %d, want %d", env.EventVersion, CurrentEventVersion)
 	}
-	if alert.Source != "nats_consumer_lag" {
-		t.Errorf("expected source=nats_consumer_lag, got %s", alert.Source)
+	if env.Severity != "high" {
+		t.Errorf("expected severity=high (post-FIX-212), got %s", env.Severity)
 	}
-	if alert.Consumer != "slow-consumer" {
-		t.Errorf("expected consumer=slow-consumer, got %s", alert.Consumer)
+	if env.Source != "infra" {
+		t.Errorf("expected source=infra, got %s", env.Source)
+	}
+	if env.Type != "nats_consumer_lag" {
+		t.Errorf("expected type=nats_consumer_lag, got %s", env.Type)
+	}
+	if env.Entity == nil || env.Entity.ID != "slow-consumer" {
+		t.Errorf("expected entity.id=slow-consumer, got %+v", env.Entity)
+	}
+	if env.TenantID != SystemTenantID.String() {
+		t.Errorf("expected tenant_id=SystemTenantID, got %s", env.TenantID)
 	}
 }
 

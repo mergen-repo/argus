@@ -2,10 +2,12 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -58,6 +60,16 @@ type Subscription interface {
 	Unsubscribe() error
 }
 
+// HubMetrics is the narrow metrics contract used by the Hub to track
+// legacy-shape + invalid NATS events during the FIX-212 rollout window
+// (D-078). IncEventsInvalid counts strict-Validate failures on current-
+// shape envelopes; IncEventsLegacyShape counts payloads that never had
+// event_version or had a non-current version.
+type HubMetrics interface {
+	IncEventsLegacyShape(subject string)
+	IncEventsInvalid(subject, reason string)
+}
+
 type Hub struct {
 	mu    sync.RWMutex
 	conns map[uuid.UUID]map[*Connection]struct{}
@@ -65,7 +77,8 @@ type Hub struct {
 
 	dropped uint64
 
-	logger zerolog.Logger
+	metrics HubMetrics
+	logger  zerolog.Logger
 }
 
 func (h *Hub) safeSend(conn *Connection, msg []byte) {
@@ -98,6 +111,12 @@ func NewHub(logger zerolog.Logger) *Hub {
 		conns:  make(map[uuid.UUID]map[*Connection]struct{}),
 		logger: logger.With().Str("component", "ws_hub").Logger(),
 	}
+}
+
+// SetMetrics wires the legacy-shape + invalid-envelope counters for the
+// FIX-212 rollout window. Safe to leave nil — no-ops when unset.
+func (h *Hub) SetMetrics(m HubMetrics) {
+	h.metrics = m
 }
 
 func (h *Hub) Register(conn *Connection) {
@@ -207,18 +226,85 @@ func (h *Hub) SubscribeToNATS(subscriber Subscriber, subjects []string) error {
 
 func (h *Hub) relayNATSEvent(subject string, data []byte) {
 	eventType := natsSubjectToWSType(subject)
+
+	// FIX-212 AC-8 strict path: try envelope parse first; a successfully-
+	// parsed envelope that also validates authorizes tenant routing by
+	// env.TenantID. If Validate() fails (legacy shape OR corrupt current
+	// shape), fall back to the best-effort map path which records the
+	// per-subject legacy-shape metric so D-078 can observe drain.
+	//
+	// Corrupt current-shape envelopes (event_version==1 but missing
+	// severity / tenant / etc.) are NOT relayed to clients — they
+	// increment argus_events_invalid_total and are dropped.
+	var env bus.Envelope
+	if err := json.Unmarshal(data, &env); err == nil && env.EventVersion == bus.CurrentEventVersion {
+		if verr := env.Validate(); verr != nil {
+			if h.metrics != nil {
+				h.metrics.IncEventsInvalid(subject, wsValidationReason(verr))
+			}
+			h.logger.Warn().
+				Err(verr).
+				Str("subject", subject).
+				Msg("ws hub: envelope failed Validate; dropping (not relayed)")
+			return
+		}
+		payload := envelopeToPayload(&env, data)
+		tenantID, err := uuid.Parse(env.TenantID)
+		if err != nil || tenantID == uuid.Nil {
+			h.BroadcastAll(eventType, payload)
+			return
+		}
+		h.BroadcastToTenant(tenantID, eventType, payload)
+		return
+	}
+
+	// Legacy-shape fallback.
 	var payload map[string]interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		h.logger.Error().Err(err).Str("subject", subject).Msg("unmarshal NATS event for WS relay")
 		return
 	}
-
+	if h.metrics != nil {
+		h.metrics.IncEventsLegacyShape(subject)
+	}
 	tenantID, ok := extractTenantID(payload)
 	if !ok {
 		h.BroadcastAll(eventType, payload)
 		return
 	}
 	h.BroadcastToTenant(tenantID, eventType, payload)
+}
+
+// envelopeToPayload restores the on-the-wire map shape for clients that
+// still parse events as loose JSON. We re-use the original bytes rather
+// than re-marshaling to preserve field ordering and meta values exactly as
+// the publisher authored them.
+func envelopeToPayload(_ *bus.Envelope, raw []byte) map[string]interface{} {
+	payload := map[string]interface{}{}
+	_ = json.Unmarshal(raw, &payload)
+	return payload
+}
+
+// wsValidationReason maps a bus.Envelope validation error to a short
+// metric label. Mirrors internal/notification.validationReason to keep
+// invalid_total{reason} coherent across subscribers.
+func wsValidationReason(err error) string {
+	switch {
+	case errors.Is(err, bus.ErrLegacyShape):
+		return "legacy_shape"
+	case errors.Is(err, bus.ErrInvalidSeverity):
+		return "severity"
+	case errors.Is(err, bus.ErrInvalidTenant):
+		return "tenant"
+	case errors.Is(err, bus.ErrMissingField):
+		return "missing_field"
+	case errors.Is(err, bus.ErrInvalidEntity):
+		return "entity"
+	case errors.Is(err, bus.ErrDedupKeyTooLong):
+		return "dedup_key"
+	default:
+		return "other"
+	}
 }
 
 func extractTenantID(payload map[string]interface{}) (uuid.UUID, bool) {
@@ -243,16 +329,16 @@ func extractTenantID(payload map[string]interface{}) (uuid.UUID, bool) {
 
 func natsSubjectToWSType(subject string) string {
 	mapping := map[string]string{
-		"argus.events.operator.health":       "operator.health_changed",
-		"argus.events.alert.triggered":       "alert.new",
-		"argus.events.session.started":       "session.started",
-		"argus.events.session.updated":       "session.updated",
-		"argus.events.session.ended":         "session.ended",
-		"argus.events.sim.updated":           "sim.state_changed",
-		"argus.events.notification.dispatch": "notification.new",
-		"argus.jobs.progress":                       "job.progress",
-		"argus.jobs.completed":                      "job.completed",
-		"argus.events.policy.rollout_progress":      "policy.rollout_progress",
+		"argus.events.operator.health":         "operator.health_changed",
+		"argus.events.alert.triggered":         "alert.new",
+		"argus.events.session.started":         "session.started",
+		"argus.events.session.updated":         "session.updated",
+		"argus.events.session.ended":           "session.ended",
+		"argus.events.sim.updated":             "sim.state_changed",
+		"argus.events.notification.dispatch":   "notification.new",
+		"argus.jobs.progress":                  "job.progress",
+		"argus.jobs.completed":                 "job.completed",
+		"argus.events.policy.rollout_progress": "policy.rollout_progress",
 	}
 	if t, ok := mapping[subject]; ok {
 		return t

@@ -20,9 +20,9 @@ type ipPoolStore interface {
 }
 
 const (
-	ProtocolTypeRadius  = "radius"
+	ProtocolTypeRadius   = "radius"
 	ProtocolTypeDiameter = "diameter"
-	ProtocolType5GSBA   = "5g_sba"
+	ProtocolType5GSBA    = "5g_sba"
 )
 
 const (
@@ -39,21 +39,30 @@ const (
 )
 
 type Session struct {
-	ID             string    `json:"id"`
-	SimID          string    `json:"sim_id"`
-	TenantID       string    `json:"tenant_id"`
-	OperatorID     string    `json:"operator_id"`
-	APNID          string    `json:"apn_id,omitempty"`
-	IMSI           string    `json:"imsi"`
-	MSISDN         string    `json:"msisdn"`
-	APN            string    `json:"apn"`
-	NASIP          string    `json:"nas_ip"`
-	AcctSessionID  string    `json:"acct_session_id"`
-	FramedIP       string    `json:"framed_ip"`
-	SessionState   string    `json:"session_state"`
-	AuthMethod     string    `json:"auth_method,omitempty"`
-	SessionTimeout int       `json:"session_timeout"`
-	IdleTimeout    int       `json:"idle_timeout"`
+	ID    string `json:"id"`
+	SimID string `json:"sim_id"`
+	// ICCID is the pre-resolved SIM ICCID embedded at session-create so the
+	// hot-path session publishers (radius/diameter/sba) can set
+	// entity.display_name without a Redis/DB lookup on every Interim / CCR-U.
+	// Populated by Manager.Create from the in-memory SIM struct already
+	// loaded for framed-IP validation. The Redis-cached session blob carries
+	// this field so GetByAcctSessionID restores it. The DB row
+	// (store.RadiusSession) is unchanged — ICCID lives only at the Session
+	// (Redis) layer (FIX-212 AC-6).
+	ICCID          string          `json:"iccid,omitempty"`
+	TenantID       string          `json:"tenant_id"`
+	OperatorID     string          `json:"operator_id"`
+	APNID          string          `json:"apn_id,omitempty"`
+	IMSI           string          `json:"imsi"`
+	MSISDN         string          `json:"msisdn"`
+	APN            string          `json:"apn"`
+	NASIP          string          `json:"nas_ip"`
+	AcctSessionID  string          `json:"acct_session_id"`
+	FramedIP       string          `json:"framed_ip"`
+	SessionState   string          `json:"session_state"`
+	AuthMethod     string          `json:"auth_method,omitempty"`
+	SessionTimeout int             `json:"session_timeout"`
+	IdleTimeout    int             `json:"idle_timeout"`
 	RATType        string          `json:"rat_type,omitempty"`
 	BytesIn        uint64          `json:"bytes_in"`
 	BytesOut       uint64          `json:"bytes_out"`
@@ -214,6 +223,13 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 					Str("sim_id", sess.SimID).
 					Msg("session create: failed to fetch SIM for framed_ip validation; skipping")
 			} else if sim != nil {
+				// FIX-212 AC-6: embed ICCID into the Redis-cached Session blob
+				// so interim/update/end publishers can set entity.display_name
+				// without a hot-path lookup. Only populate when caller hasn't
+				// already pre-set it (test harnesses may pass a fixture).
+				if sess.ICCID == "" {
+					sess.ICCID = sim.ICCID
+				}
 				if ok, reason := m.validateFramedIP(ctx, sim, sess.FramedIP); !ok {
 					m.logger.Warn().
 						Str("sim_id", sess.SimID).

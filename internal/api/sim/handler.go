@@ -32,6 +32,12 @@ var validRATTypes = map[string]bool{
 	"nr_5g":  true,
 }
 
+// EventPublisher is the narrow contract used to publish sim.updated
+// envelopes. FIX-212 AC-3: closes F-119 (policy matcher unblock).
+type EventPublisher interface {
+	Publish(ctx context.Context, subject string, payload interface{}) error
+}
+
 type Handler struct {
 	simStore      *store.SIMStore
 	apnStore      *store.APNStore
@@ -44,6 +50,7 @@ type Handler struct {
 	nameCache     *cache.NameCache
 	undoRegistry  *undopkg.Registry
 	auditSvc      audit.Auditor
+	eventBus      EventPublisher
 	imsiStrict    bool
 	logger        zerolog.Logger
 }
@@ -108,6 +115,38 @@ func WithCDRStore(cs *store.CDRStore) func(*Handler) {
 func WithIMSIStrictValidation(v bool) func(*Handler) {
 	return func(h *Handler) {
 		h.imsiStrict = v
+	}
+}
+
+// WithEventBus wires an EventPublisher so SIM state mutations emit
+// sim.updated envelopes (FIX-212 AC-3; closes F-119).
+func WithEventBus(eb EventPublisher) func(*Handler) {
+	return func(h *Handler) {
+		h.eventBus = eb
+	}
+}
+
+// publishSimUpdated emits a sim.updated envelope when the SIM transitions
+// between lifecycle states OR when policy/APN/operator changes on Patch.
+// Never blocks the HTTP response — publish errors are logged, not returned
+// (availability > durability for the event bus path).
+func (h *Handler) publishSimUpdated(ctx context.Context, sim *store.SIM, oldState, newState string, extraMeta map[string]interface{}) {
+	if h.eventBus == nil || sim == nil {
+		return
+	}
+	display := ""
+	if sim.ICCID != "" {
+		display = "ICCID " + sim.ICCID
+	}
+	env := busNewSimUpdatedEnvelope(sim, oldState, newState, display)
+	for k, v := range extraMeta {
+		env.WithMeta(k, v)
+	}
+	if err := h.eventBus.Publish(ctx, busSubjectSIMUpdated(), env); err != nil {
+		h.logger.Debug().
+			Err(err).
+			Str("sim_id", sim.ID.String()).
+			Msg("publish sim.updated event failed (non-fatal)")
 	}
 }
 
@@ -936,6 +975,10 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.activate", simID.String(), existing, sim, userID)
 
+	// FIX-212 AC-3 / F-119 — publish sim.updated envelope so the policy
+	// matcher and other subscribers can react to the state flip.
+	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
+
 	// Auto-match policy: find active policy whose DSL references this APN and assign its current version
 	if h.policyStore != nil && h.apnStore != nil && sim.APNID != nil && sim.PolicyVersionID == nil {
 		if apn, apnErr := h.apnStore.GetByID(r.Context(), tenantID, *sim.APNID); apnErr == nil {
@@ -1005,6 +1048,7 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.suspend", simID.String(), existing, sim, userID)
+	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
 	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
 	if enrichErr != nil {
 		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after suspend")
@@ -1054,6 +1098,7 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.resume", simID.String(), existing, sim, userID)
+	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
 	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
 	if enrichErr != nil {
 		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after resume")
@@ -1113,6 +1158,7 @@ func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.terminate", simID.String(), existing, sim, userID)
+	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
 
 	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
 	if enrichErr != nil {
@@ -1166,6 +1212,7 @@ func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "sim.report_lost", simID.String(), existing, sim, userID)
+	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
 	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
 	if enrichErr != nil {
 		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after report lost")

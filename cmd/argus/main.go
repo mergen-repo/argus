@@ -45,6 +45,7 @@ import (
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
+	eventsapi "github.com/btopcu/argus/internal/api/events"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -77,6 +78,7 @@ import (
 	"github.com/btopcu/argus/internal/config"
 	diagnosticspkg "github.com/btopcu/argus/internal/diagnostics"
 	esimpkg "github.com/btopcu/argus/internal/esim"
+	"github.com/btopcu/argus/internal/events"
 	"github.com/btopcu/argus/internal/gateway"
 	"github.com/btopcu/argus/internal/geoip"
 	"github.com/btopcu/argus/internal/job"
@@ -583,7 +585,7 @@ func runServe(cfg *config.Config) {
 	nameCache := cache.NewNameCache(rdb.Client)
 	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	cdrStore := store.NewCDRStore(pg.Pool)
-	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation))
+	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation), simapi.WithEventBus(eventBus))
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger,
@@ -659,6 +661,24 @@ func runServe(cfg *config.Config) {
 	// FIX-209 Task 4 — unified alerts table + API + retention job.
 	alertStore := store.NewAlertStore(pg.Pool)
 	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger, cfg.AlertCooldownMinutes)
+	eventsCatalogHandler := eventsapi.NewHandler(log.Logger)
+
+	// FIX-212 AC-6: shared name resolver for non-hot-path publishers that
+	// embed entity.display_name into envelopes. Backed by Redis (10-min TTL)
+	// + singleflight coalescing + negative-cache sentinel. Falls back to
+	// empty display_name gracefully when Redis/DB is unavailable — the
+	// envelope still validates, FE just renders entity.id instead of a name.
+	// Kept as a package-level value so future publishers can opt in via a
+	// WithResolver option without another cmd/argus wiring edit.
+	eventResolver := events.NewRedisResolver(
+		rdb.Client,
+		events.NewSimNameLookup(simStore),
+		events.NewOperatorNameLookup(operatorStore),
+		events.NewAPNNameLookup(apnStore),
+		metricsReg,
+		log.Logger,
+	)
+	_ = eventResolver // reserved for future publisher constructors (FIX-240)
 
 	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
 	batchDetector := anomalysvc.NewBatchDetector(
@@ -938,6 +958,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	wsHub := ws.NewHub(log.Logger)
+	wsHub.SetMetrics(metricsReg)
 	if err := wsHub.SubscribeToNATS(&eventBusWSSubscriber{eventBus}, []string{
 		bus.SubjectSessionStarted,
 		bus.SubjectSessionUpdated,
@@ -1538,6 +1559,7 @@ func runServe(cfg *config.Config) {
 		AnalyticsHandler:     analyticsHandler,
 		AnomalyHandler:       anomalyHandler,
 		AlertHandler:         alertHandler,
+		EventsCatalogHandler: eventsCatalogHandler,
 		NotificationHandler:  notifHandler,
 		MetricsHandler:       metricsHandler,
 		ComplianceHandler:    complianceHandler,

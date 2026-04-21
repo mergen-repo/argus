@@ -2,17 +2,24 @@ package bus
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/severity"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 )
 
 const alertPersistThreshold = 5
+
+// SystemTenantID is the infra-global tenant sentinel used by publishers of
+// infra-scope alerts (NATS consumer lag, storage monitor, anomaly batch
+// supervisor). FIX-212 D5: authored at the publisher, not subscriber
+// fallback. Matches migrations/seed/001_admin_user.sql demo tenant.
+var SystemTenantID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 // jsConsumerLister is a narrow interface over jetstream.Stream. It covers only
 // the ListConsumers call needed for consumer lag polling, enabling
@@ -56,15 +63,9 @@ type EventPublisher interface {
 	Publish(ctx context.Context, subject string, payload interface{}) error
 }
 
-// lagAlert is the payload published to SubjectAlertTriggered when a consumer
-// lag stays above the alert threshold for alertPersistThreshold consecutive
-// polls.
-type lagAlert struct {
-	Severity string `json:"severity"`
-	Source   string `json:"source"`
-	Consumer string `json:"consumer"`
-	Pending  uint64 `json:"pending"`
-}
+// lagAlert was the pre-FIX-212 payload published to SubjectAlertTriggered.
+// Retained in a comment for archaeology; the publisher now emits a
+// bus.Envelope via emitAlert below.
 
 // LagPoller periodically checks the NumPending count for every consumer on
 // the configured JetStream streams and emits Prometheus metrics. When a
@@ -182,21 +183,17 @@ func (p *LagPoller) processConsumer(ctx context.Context, streamName string, info
 }
 
 // emitAlert publishes a lag alert event and increments the alert counter.
+// FIX-212: migrated to bus.Envelope. tenant_id is the systemTenantID
+// sentinel (D5 — infra-global alert, publisher-authored).
 func (p *LagPoller) emitAlert(ctx context.Context, consumer string, pending uint64) {
-	payload := lagAlert{
-		Severity: severity.Medium,
-		Source:   "nats_consumer_lag",
-		Consumer: consumer,
-		Pending:  pending,
-	}
+	env := NewEnvelope("nats_consumer_lag", SystemTenantID.String(), severity.High).
+		WithSource("infra").
+		WithTitle(fmt.Sprintf("NATS consumer lag: %s has %d pending", consumer, pending)).
+		SetEntity("consumer", consumer, consumer).
+		WithMeta("consumer", consumer).
+		WithMeta("pending", pending)
 
-	data, err := json.Marshal(payload)
-	if err != nil {
-		p.logger.Error().Err(err).Str("consumer", consumer).Msg("failed to marshal lag alert")
-		return
-	}
-
-	if err := p.eb.Publish(ctx, SubjectAlertTriggered, json.RawMessage(data)); err != nil {
+	if err := p.eb.Publish(ctx, SubjectAlertTriggered, env); err != nil {
 		p.logger.Error().Err(err).Str("consumer", consumer).Msg("failed to publish lag alert")
 	}
 

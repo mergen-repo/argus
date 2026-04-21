@@ -57,10 +57,10 @@ type Server struct {
 	// preallocated ip_address_id (STORY-092 Wave 1). Backwards compatible:
 	// when nil, the legacy "Framed-IP only if sim.ip_address_id != nil"
 	// behaviour is preserved.
-	simStore      *store.SIMStore
-	eventBus      *bus.EventBus
-	coaSender     *session.CoASender
-	dmSender      *session.DMSender
+	simStore        *store.SIMStore
+	eventBus        *bus.EventBus
+	coaSender       *session.CoASender
+	dmSender        *session.DMSender
 	eapMachine      *eap.StateMachine
 	eapAuthResults  sync.Map
 	metricsRecorder MetricsRecorder
@@ -636,11 +636,11 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		ratTypeStr := extract3GPPRATType(r.Packet)
 		now := time.Now()
 		sessCtx := dsl.SessionContext{
-			SIMID:    sim.ID.String(),
-			TenantID: sim.TenantID.String(),
-			Operator: op.Code,
-			RATType:  ratTypeStr,
-			SimType:  sim.SimType,
+			SIMID:     sim.ID.String(),
+			TenantID:  sim.TenantID.String(),
+			Operator:  op.Code,
+			RATType:   ratTypeStr,
+			SimType:   sim.SimType,
 			TimeOfDay: now.Format("15:04"),
 			DayOfWeek: now.Weekday().String(),
 		}
@@ -798,15 +798,13 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 			_ = s.sessionMgr.Terminate(ctx, oldest.ID, "concurrent_limit")
 
 			if s.eventBus != nil {
-				_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
-					"session_id":      oldest.ID,
-					"sim_id":          oldest.SimID,
-					"tenant_id":       oldest.TenantID,
-					"operator_id":     oldest.OperatorID,
-					"imsi":            oldest.IMSI,
-					"terminate_cause": "concurrent_limit",
-					"ended_at":        time.Now().UTC().Format(time.RFC3339),
-				})
+				env := bus.NewSessionEnvelope("session.ended", oldest.TenantID, oldest.SimID, oldest.ICCID, "Session ended (concurrent_limit)").
+					WithMeta("session_id", oldest.ID).
+					WithMeta("operator_id", oldest.OperatorID).
+					WithMeta("imsi", oldest.IMSI).
+					WithMeta("termination_cause", "concurrent_limit").
+					WithMeta("ended_at", time.Now().UTC().Format(time.RFC3339))
+				_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, env)
 			}
 		}
 	}
@@ -878,18 +876,15 @@ func (s *Server) handleAcctStart(ctx context.Context, r *radius.Request, acctSes
 	}
 
 	if s.eventBus != nil {
-		payload := map[string]interface{}{
-			"session_id":  sess.ID,
-			"sim_id":      sess.SimID,
-			"tenant_id":   sess.TenantID,
-			"operator_id": sess.OperatorID,
-			"imsi":        imsi,
-			"nas_ip":      nasIP,
-			"framed_ip":   framedIP,
-			"rat_type":    sess.RATType,
-			"started_at":  sess.StartedAt.Format(time.RFC3339),
-		}
-		if err := s.eventBus.Publish(ctx, bus.SubjectSessionStarted, payload); err != nil {
+		env := bus.NewSessionEnvelope("session.started", sess.TenantID, sess.SimID, sim.ICCID, "Session started").
+			WithMeta("session_id", sess.ID).
+			WithMeta("operator_id", sess.OperatorID).
+			WithMeta("imsi", imsi).
+			WithMeta("nas_ip", nasIP).
+			WithMeta("framed_ip", framedIP).
+			WithMeta("rat_type", sess.RATType).
+			WithMeta("started_at", sess.StartedAt.Format(time.RFC3339))
+		if err := s.eventBus.Publish(ctx, bus.SubjectSessionStarted, env); err != nil {
 			logger.Warn().Err(err).Msg("failed to publish session.started event")
 		}
 	}
@@ -913,22 +908,19 @@ func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctS
 	}
 
 	if s.eventBus != nil {
-		payload := map[string]interface{}{
-			"session_id":  sess.ID,
-			"sim_id":      sess.SimID,
-			"tenant_id":   sess.TenantID,
-			"operator_id": sess.OperatorID,
-			"apn_id":      sess.APNID,
-			"imsi":        sess.IMSI,
-			"msisdn":      sess.MSISDN,
-			"nas_ip":      sess.NASIP,
-			"framed_ip":   sess.FramedIP,
-			"rat_type":    sess.RATType,
-			"bytes_in":    bytesIn,
-			"bytes_out":   bytesOut,
-			"updated_at":  time.Now().Format(time.RFC3339),
-		}
-		if err := s.eventBus.Publish(ctx, bus.SubjectSessionUpdated, payload); err != nil {
+		env := bus.NewSessionEnvelope("session.updated", sess.TenantID, sess.SimID, sess.ICCID, "Session updated").
+			WithMeta("session_id", sess.ID).
+			WithMeta("operator_id", sess.OperatorID).
+			WithMeta("apn_id", sess.APNID).
+			WithMeta("imsi", sess.IMSI).
+			WithMeta("msisdn", sess.MSISDN).
+			WithMeta("nas_ip", sess.NASIP).
+			WithMeta("framed_ip", sess.FramedIP).
+			WithMeta("rat_type", sess.RATType).
+			WithMeta("bytes_in", bytesIn).
+			WithMeta("bytes_out", bytesOut).
+			WithMeta("updated_at", time.Now().Format(time.RFC3339))
+		if err := s.eventBus.Publish(ctx, bus.SubjectSessionUpdated, env); err != nil {
 			logger.Warn().Err(err).Msg("failed to publish session.updated event")
 		}
 	}
@@ -962,15 +954,13 @@ func (s *Server) handleAcctInterim(ctx context.Context, r *radius.Request, acctS
 					go s.policyEnforcer.RecordViolations(ctx, sim, result, &sessUUID)
 
 					if s.eventBus != nil {
-						_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
-							"session_id":      sess.ID,
-							"sim_id":          sess.SimID,
-							"tenant_id":       sess.TenantID,
-							"operator_id":     sess.OperatorID,
-							"imsi":            sess.IMSI,
-							"terminate_cause": "policy_quota_exceeded",
-							"ended_at":        time.Now().UTC().Format(time.RFC3339),
-						})
+						env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (policy_quota_exceeded)").
+							WithMeta("session_id", sess.ID).
+							WithMeta("operator_id", sess.OperatorID).
+							WithMeta("imsi", sess.IMSI).
+							WithMeta("termination_cause", "policy_quota_exceeded").
+							WithMeta("ended_at", time.Now().UTC().Format(time.RFC3339))
+						_ = s.eventBus.Publish(ctx, bus.SubjectSessionEnded, env)
 					}
 				}
 			}
@@ -1005,18 +995,15 @@ func (s *Server) handleAcctStop(ctx context.Context, r *radius.Request, acctSess
 	}
 
 	if s.eventBus != nil {
-		payload := map[string]interface{}{
-			"session_id":      sess.ID,
-			"sim_id":          sess.SimID,
-			"tenant_id":       sess.TenantID,
-			"operator_id":     sess.OperatorID,
-			"imsi":            sess.IMSI,
-			"terminate_cause": terminateCause,
-			"bytes_in":        bytesIn,
-			"bytes_out":       bytesOut,
-			"ended_at":        time.Now().UTC().Format(time.RFC3339),
-		}
-		if err := s.eventBus.Publish(ctx, bus.SubjectSessionEnded, payload); err != nil {
+		env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended").
+			WithMeta("session_id", sess.ID).
+			WithMeta("operator_id", sess.OperatorID).
+			WithMeta("imsi", sess.IMSI).
+			WithMeta("termination_cause", terminateCause).
+			WithMeta("bytes_in", bytesIn).
+			WithMeta("bytes_out", bytesOut).
+			WithMeta("ended_at", time.Now().UTC().Format(time.RFC3339))
+		if err := s.eventBus.Publish(ctx, bus.SubjectSessionEnded, env); err != nil {
 			logger.Warn().Err(err).Msg("failed to publish session.ended event")
 		}
 	}
@@ -1134,8 +1121,8 @@ func (s *Server) getOperatorSecret(op *store.Operator) []byte {
 }
 
 const (
-	vendorID3GPP         uint32 = 10415
-	vendorType3GPPRATType uint8 = 21
+	vendorID3GPP          uint32 = 10415
+	vendorType3GPPRATType uint8  = 21
 )
 
 func extract3GPPRATType(pkt *radius.Packet) string {

@@ -17,6 +17,7 @@ import (
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
+	eventsapi "github.com/btopcu/argus/internal/api/events"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -75,6 +76,7 @@ type RouterDeps struct {
 	AnalyticsHandler      *analyticsapi.Handler
 	AnomalyHandler        *anomalyapi.Handler
 	AlertHandler          *alertapi.Handler
+	EventsCatalogHandler  *eventsapi.Handler
 	NotificationHandler   *notifapi.Handler
 	SMSWebhookHandler     *notifapi.SMSWebhookHandler
 	DiagnosticsHandler    *diagapi.Handler
@@ -643,6 +645,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/alerts", deps.AlertHandler.List)
 				r.Get("/api/v1/alerts/{id}", deps.AlertHandler.Get)
 				r.Patch("/api/v1/alerts/{id}", deps.AlertHandler.UpdateState)
+			})
+		}
+
+		// FIX-212 AC-5 — event catalog (read-only, tenant-scoped).
+		if deps.EventsCatalogHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+				r.Get("/api/v1/events/catalog", deps.EventsCatalogHandler.List)
 			})
 		}
 

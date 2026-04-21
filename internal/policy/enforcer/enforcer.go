@@ -314,32 +314,40 @@ func (e *Enforcer) RecordViolations(ctx context.Context, sim *store.SIM, result 
 					Str("violation_type", v.ViolationType).
 					Msg("enforcer: alert publish rate-limited (60s min-interval)")
 			} else {
-				_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
-					"id":          violation.ID.String(),
-					"tenant_id":   sim.TenantID.String(),
-					"type":        "policy_violation",
-					"severity":    v.Severity,
-					"state":       "open",
-					"message":     fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID),
-					"sim_id":      sim.ID.String(),
-					"entity_type": "sim",
-					"entity_id":   sim.ID.String(),
-					"detected_at": time.Now().UTC().Format(time.RFC3339),
-				})
+				title := fmt.Sprintf("Policy violation: %s on SIM %s", v.ViolationType, sim.ICCID)
+				simDisplay := ""
+				if sim.ICCID != "" {
+					simDisplay = "ICCID " + sim.ICCID
+				}
+				env := bus.NewEnvelope("policy_violation", sim.TenantID.String(), v.Severity).
+					WithSource("policy").
+					WithTitle(title).
+					WithMessage(fmt.Sprintf("Violation type %s recorded for SIM %s", v.ViolationType, sim.ICCID)).
+					SetEntity("sim", sim.ID.String(), simDisplay).
+					WithMeta("policy_id", result.PolicyID.String()).
+					WithMeta("policy_violation_id", violation.ID.String()).
+					WithMeta("violation_type", v.ViolationType).
+					WithMeta("sim_id", sim.ID.String())
+				if operatorID != nil {
+					env.WithMeta("operator_id", operatorID.String())
+				}
+				_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, env)
 			}
 		}
 
 		if v.ActionTaken == "notify" && e.eventBus != nil {
-			_ = e.eventBus.Publish(ctx, bus.SubjectNotification, map[string]interface{}{
-				"tenant_id":     sim.TenantID.String(),
-				"type":          "policy_violation",
-				"category":      "policy",
-				"title":         fmt.Sprintf("Policy Violation: %s", v.ViolationType),
-				"message":       fmt.Sprintf("SIM %s triggered %s action", sim.ICCID, v.ViolationType),
-				"severity":      v.Severity,
-				"resource_type": "sim",
-				"resource_id":   sim.ID.String(),
-			})
+			simDisplay := ""
+			if sim.ICCID != "" {
+				simDisplay = "ICCID " + sim.ICCID
+			}
+			notifEnv := bus.NewEnvelope("notification.dispatch", sim.TenantID.String(), v.Severity).
+				WithSource("policy").
+				WithTitle(fmt.Sprintf("Policy Violation: %s", v.ViolationType)).
+				WithMessage(fmt.Sprintf("SIM %s triggered %s action", sim.ICCID, v.ViolationType)).
+				SetEntity("sim", sim.ID.String(), simDisplay).
+				WithMeta("event_type", "policy_violation").
+				WithMeta("violation_type", v.ViolationType)
+			_ = e.eventBus.Publish(ctx, bus.SubjectNotification, notifEnv)
 		}
 	}
 }

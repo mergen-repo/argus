@@ -188,7 +188,8 @@ argus/
 │   │   ├── alert.go              # AlertStore (FIX-209/FIX-210): UpsertWithDedup/SuppressAlert/UnsuppressAlert/FindActiveByDedupKey; UpdateState stamps cooldown_until on resolve; 4 new columns scanned (occurrence_count, first/last_seen_at, cooldown_until)
 │   │   └── schemacheck/          # Boot-time schema integrity check (STORY-086): CriticalTables manifest + Verify — FATAL on missing table
 │   ├── cache/                    # Redis cache layer
-│   ├── bus/                      # NATS event bus
+│   ├── bus/                      # NATS event bus — canonical `bus.Envelope` schema (FIX-212): event_version, id, type, tenant_id, severity, source, entity (EntityRef), dedup_key, meta; `Validate()` enforced on every publish; see docs/architecture/WEBSOCKET_EVENTS.md §Event Envelope
+│   ├── events/                   # Event catalog + resolver (FIX-212): `events.TypeForSubject` subject→type map; `events.Resolver` interface + `NewRedisResolver` (TTL-600s entity display_name lookup); `GET /api/v1/events/catalog` handler (API-316)
 │   ├── undo/                     # Undo registry — Redis-backed 15s TTL inverse-operation store (STORY-077)
 │   ├── ota/                      # OTA command orchestration — SM-DP+ dispatch, polling, state machine
 │   ├── geoip/                    # GeoIP lookup — MaxMind wrapper with graceful nil on missing DB (STORY-077)

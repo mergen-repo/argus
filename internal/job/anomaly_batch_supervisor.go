@@ -94,12 +94,14 @@ func (p *CrashSafeProcessor) Process(ctx context.Context, j *store.Job) error {
 		Msg("crash-safe processor: all retries exhausted")
 
 	if p.eventBus != nil {
-		_ = p.eventBus.Publish(context.Background(), bus.SubjectAlertTriggered, map[string]interface{}{
-			"severity": sev.High,
-			"source":   "anomaly_batch_crash",
-			"job_id":   j.ID.String(),
-			"error":    lastErr.Error(),
-		})
+		env := bus.NewEnvelope("anomaly_batch_crash", bus.SystemTenantID.String(), sev.High).
+			WithSource("infra").
+			WithTitle(fmt.Sprintf("Anomaly batch crashed: job %s", j.ID.String())).
+			WithMessage(lastErr.Error()).
+			SetEntity("job", j.ID.String(), j.ID.String()).
+			WithMeta("job_id", j.ID.String()).
+			WithMeta("error", lastErr.Error())
+		_ = p.eventBus.Publish(context.Background(), bus.SubjectAlertTriggered, env)
 	}
 
 	return lastErr

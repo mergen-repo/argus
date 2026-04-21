@@ -195,6 +195,22 @@ func (s *SIMStore) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*SIM, e
 	return sim, nil
 }
 
+// GetICCIDByID returns the ICCID for the given SIM id, cross-tenant.
+// Used by the event-envelope name resolver (FIX-212) which operates at
+// infra scope. Returns "" on not-found (no error — resolver treats
+// missing entities as soft failures and falls back to the UUID).
+func (s *SIMStore) GetICCIDByID(ctx context.Context, id uuid.UUID) (string, error) {
+	var iccid string
+	err := s.db.QueryRow(ctx, `SELECT iccid FROM sims WHERE id = $1`, id).Scan(&iccid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: get sim iccid: %w", err)
+	}
+	return iccid, nil
+}
+
 func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams) ([]SIM, string, error) {
 	limit := p.Limit
 	if limit <= 0 || limit > 100 {

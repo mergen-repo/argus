@@ -189,6 +189,23 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 		// recorded via error_report, not audit.
 		p.emitStateChangeAudit(ctx, j, sim.ID, previousState, payload.TargetState, payload.Reason)
 
+		// FIX-212 AC-3 — emit sim.updated per SIM. Policy matcher consumes
+		// these to re-evaluate rules after bulk state changes (F-119).
+		if p.eventBus != nil {
+			display := ""
+			if sim.ICCID != "" {
+				display = "ICCID " + sim.ICCID
+			}
+			env := bus.NewEnvelope("sim.state_changed", j.TenantID.String(), "info").
+				WithSource("sim").
+				WithTitle(fmt.Sprintf("SIM %s → %s (bulk)", previousState, payload.TargetState)).
+				SetEntity("sim", sim.ID.String(), display).
+				WithMeta("old_state", previousState).
+				WithMeta("new_state", payload.TargetState).
+				WithMeta("bulk_job_id", j.ID.String())
+			_ = p.eventBus.Publish(ctx, bus.SubjectSIMUpdated, env)
+		}
+
 		undoRecords = append(undoRecords, StateUndoRecord{
 			SimID:         sim.ID,
 			PreviousState: previousState,

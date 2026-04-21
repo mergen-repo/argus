@@ -217,17 +217,14 @@ func (s *TimeoutSweeper) publishSessionEnded(ctx context.Context, sess *Session,
 		return
 	}
 
-	payload := map[string]interface{}{
-		"session_id":      sess.ID,
-		"sim_id":          sess.SimID,
-		"tenant_id":       sess.TenantID,
-		"operator_id":     sess.OperatorID,
-		"imsi":            sess.IMSI,
-		"terminate_cause": cause,
-		"ended_at":        time.Now().UTC().Format(time.RFC3339),
-	}
+	env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (sweep)").
+		WithMeta("session_id", sess.ID).
+		WithMeta("operator_id", sess.OperatorID).
+		WithMeta("imsi", sess.IMSI).
+		WithMeta("termination_cause", cause).
+		WithMeta("ended_at", time.Now().UTC().Format(time.RFC3339))
 
-	if err := s.eventBus.Publish(ctx, bus.SubjectSessionEnded, payload); err != nil {
+	if err := s.eventBus.Publish(ctx, bus.SubjectSessionEnded, env); err != nil {
 		s.logger.Warn().Err(err).Str("session_id", sess.ID).Msg("publish session.ended event failed")
 	}
 }

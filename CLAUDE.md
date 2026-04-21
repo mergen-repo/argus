@@ -107,7 +107,7 @@ docs/            → All documentation
 - `docs/architecture/DSL_GRAMMAR.md` — Policy DSL grammar (EBNF)
 - `docs/architecture/PROTOCOLS.md` — RADIUS/Diameter/5G protocol details
 - `docs/architecture/ALGORITHMS.md` — Key algorithms (IP, hash chain, rate limit, anomaly, cost)
-- `docs/architecture/WEBSOCKET_EVENTS.md` — WebSocket event schemas
+- `docs/architecture/WEBSOCKET_EVENTS.md` — WebSocket event schemas + canonical bus.Envelope wire format (FIX-212)
 - `docs/architecture/TESTING.md` — Test strategy & frameworks
 - `docs/architecture/CONFIG.md` — Environment variable reference
 
@@ -116,7 +116,7 @@ docs/            → All documentation
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
 - Story: FIX-212 (Unified Event Envelope + Name Resolution + Missing Publishers)
-- Step: Plan
+- Step: Commit
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
 - ROUTEMAP: `docs/ROUTEMAP.md` "UI Review Remediation [IN PROGRESS]" track (10 waves)

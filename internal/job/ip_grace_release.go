@@ -91,11 +91,14 @@ func (p *IPGraceReleaseProcessor) Process(ctx context.Context, job *store.Job) e
 			} else if ip.AddressV6 != nil {
 				addr = *ip.AddressV6
 			}
-			if pubErr := p.eventBus.Publish(ctx, bus.SubjectIPReleased, map[string]any{
-				"ip_id":     ip.ID,
-				"tenant_id": ip.TenantID,
-				"address":   addr,
-			}); pubErr != nil {
+			env := bus.NewEnvelope("ip.released", ip.TenantID.String(), "info").
+				WithSource("job").
+				WithTitle("IP released").
+				SetEntity("ip", ip.ID.String(), addr).
+				WithMeta("ip_id", ip.ID.String()).
+				WithMeta("address", addr).
+				WithMeta("reason", "grace_expired")
+			if pubErr := p.eventBus.Publish(ctx, bus.SubjectIPReleased, env); pubErr != nil {
 				p.logger.Warn().Err(pubErr).Str("ip_id", ip.ID.String()).Msg("publish ip.released failed")
 			}
 		}

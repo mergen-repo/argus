@@ -5,6 +5,110 @@
 > Transport: gorilla/websocket
 > All events are tenant-scoped — clients only receive events for their own tenant.
 
+## Event Envelope (FIX-212)
+
+Every NATS subject listed in [Event Catalog](#event-catalog) below is emitted as
+a canonical `bus.Envelope` (defined in `internal/bus/envelope.go`). The WebSocket
+hub forwards the envelope body as-is to connected clients.
+
+### Wire format (snake_case JSON, FIX-212 D1)
+
+```json
+{
+  "event_version": 1,
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "type": "session.started",
+  "timestamp": "2026-04-21T14:23:45.123Z",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "severity": "info",
+  "source": "aaa",
+  "title": "Session started",
+  "message": "RADIUS session established on operator turkcell",
+  "entity": {
+    "type": "sim",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "display_name": "ICCID 8990011234567890123"
+  },
+  "dedup_key": null,
+  "meta": {
+    "operator_id": "11111111-...",
+    "apn_id": "...",
+    "framed_ip": "10.20.30.40",
+    "rat_type": "LTE",
+    "nas_ip": "192.0.2.1"
+  }
+}
+```
+
+### Mandatory vs optional fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `event_version` | yes | Must equal `1`. Legacy shapes routed to a 1-release shim and counted via `argus_events_legacy_shape_total{subject}`. |
+| `id` | yes | UUID; unique per event. |
+| `type` | yes | Canonical event type (see [Event Catalog](#event-catalog)). |
+| `timestamp` | yes | RFC3339 UTC. |
+| `tenant_id` | yes | Parseable UUID. Infra-global subjects (`nats_consumer_lag`, `storage.*`, `anomaly_batch_crash`) use the `SystemTenantID` sentinel authored by the publisher (D5 closure). |
+| `severity` | yes | One of `critical`, `high`, `medium`, `low`, `info`. |
+| `source` | yes | Publishing domain (`sim`, `operator`, `infra`, `policy`, `system`, `aaa`, `analytics`, `notification`, `job`). Advisory; not CHECKed at envelope level. |
+| `title` | yes | Short human-readable summary. |
+| `message` | no | Long-form description. |
+| `entity` | no | Primary entity reference. When present, both `type` and `id` must be non-empty; `display_name` is publisher-authored (FE falls back to `id` on absence). |
+| `dedup_key` | no | Publisher may pre-author a dedup key (FIX-212 D4); default compute lives at `notification/service.go::alertParamsFromEnvelope` via `alertstate.DedupKey`. |
+| `meta` | no | Arbitrary per-subject map. See per-subject schema in [Event Catalog](#event-catalog). |
+
+### Name resolution (FIX-212 D2 hybrid)
+
+`entity.display_name` is filled by the publisher so subscribers never need
+synchronous DB/Redis lookups. Two wiring strategies are in play:
+
+- **Session publishers** (`radius/server.go`, `diameter/gx.go`, `diameter/gy.go`,
+  `sba/ausf.go`, `sba/udm.go`, `session/sweep.go`, `api/session/handler.go`,
+  `job/bulk_disconnect.go`): ICCID is embedded from the already-loaded SIM
+  context on the AAA hot path. `operator_name` and `apn_name` are NOT embedded
+  (hot-path SLO defense).
+- **All other publishers** (alert, operator.health_changed, anomaly, SIM
+  lifecycle, policy, IP, SLA, notification.dispatch): use the Redis-backed
+  `internal/events.Resolver` with 10-minute TTL. Cache invalidation piggybacks
+  on FIX-202's `argus.cache.invalidate` channel.
+
+### Backward-compat shim (D-078, 1-release grace)
+
+Consumers strict-parse into `bus.Envelope` first; on failure (unmarshal error
+or `event_version != 1`) they fall back to the legacy parser path and
+increment `argus_events_legacy_shape_total{subject}`. Removal of the shim is
+gated on that metric remaining at 0 for a full release cycle across all 14
+in-scope subjects.
+
+## Event Catalog
+
+The canonical event catalog lives at `internal/api/events/catalog.go` and is
+exposed read-only via `GET /api/v1/events/catalog` (FIX-212 AC-5). Consumers
+should prefer the endpoint over hardcoding types — the catalog is the single
+source of truth for per-subject `default_severity`, `entity_type`, and
+`meta_schema`.
+
+In-scope subjects (FIX-212 scope D6):
+
+- `session.started`, `session.updated`, `session.ended` (sim entity, info)
+- `sim.state_changed` (sim entity, info; NEW publisher closes F-119)
+- `operator_down`, `operator_recovered`, `operator.health_changed` (operator entity)
+- `sla_violation`, `roaming.agreement.renewal_due` (operator / agreement)
+- `anomaly.detected`, `anomaly_sim_cloning`, `anomaly_data_spike`, `anomaly_auth_flood` (sim entity)
+- `policy_violation`, `policy.updated`, `policy.rollout_progress` (sim / policy entity)
+- `nats_consumer_lag`, `storage.threshold_exceeded`, `anomaly_batch_crash` (infra, SystemTenantID)
+- `ip.reclaimed`, `ip.released` (ip / sim entity)
+- `sla.report.generated` (operator entity)
+- `notification.dispatch` (no entity — notification is itself the row anchor)
+- `auth.attempt` (sim entity)
+
+Deferred to D-077 (internal plumbing): `SubjectJob*`, `SubjectCacheInvalidate`,
+`SubjectBackup*`, `SubjectAuditCreate`. These fire through their own
+consumers; they don't reach the WS relay or notification dispatch path and
+are not surfaced in the live event stream.
+
+
+
 ## Connection
 
 ### Authentication
@@ -68,28 +172,6 @@ After authentication, clients can subscribe to specific event types:
 // Server confirms:
 { "type": "subscribe.ok", "data": { "events": ["session.started", "session.ended", "alert.new"] } }
 ```
-
----
-
-## Event Envelope
-
-All events share this structure:
-
-```json
-{
-  "type": "event.name",
-  "id": "evt_unique_id",
-  "timestamp": "2026-03-18T14:02:00.123Z",
-  "data": { ... }
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Event type identifier (dot-separated) |
-| `id` | string | Unique event ID (for deduplication on reconnect) |
-| `timestamp` | string (ISO 8601) | Server-side event creation time |
-| `data` | object | Event-specific payload (see below) |
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -219,59 +220,38 @@ func TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage(t *testing.T)
 		t.Fatalf("detected = %d, want 1", detected)
 	}
 
-	// Locate the alert event (second publish — first is anomaly.detected).
+	// FIX-212: alert payload is now *bus.Envelope. sim_id lives in
+	// envelope.entity (primary) and meta.sim_id (duplicated for the
+	// persist layer lookup). anomaly_id lives in meta.
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
-	var alertPayload map[string]interface{}
+	var alertEnv *bus.Envelope
 	for _, evt := range pub.events {
 		if evt.subject == "argus.events.alert.triggered" {
-			m, ok := evt.payload.(map[string]interface{})
+			e, ok := evt.payload.(*bus.Envelope)
 			if !ok {
-				t.Fatalf("alert payload is not map: %T", evt.payload)
+				t.Fatalf("alert payload is not *bus.Envelope: %T", evt.payload)
 			}
-			alertPayload = m
+			alertEnv = e
 			break
 		}
 	}
-	if alertPayload == nil {
+	if alertEnv == nil {
 		t.Fatal("no alert event captured")
 	}
 
-	// 1. Top-level sim_id.
-	simIDRaw, ok := alertPayload["sim_id"]
-	if !ok {
-		t.Fatal("alert payload missing top-level sim_id")
+	if alertEnv.Entity == nil || alertEnv.Entity.Type != "sim" {
+		t.Fatalf("entity = %+v, want type=sim", alertEnv.Entity)
 	}
-	simIDStr, ok := simIDRaw.(string)
-	if !ok || simIDStr == "" {
-		t.Fatalf("sim_id = %v (type %T), want non-empty string", simIDRaw, simIDRaw)
-	}
+	simIDStr := alertEnv.Entity.ID
 	if _, err := uuid.Parse(simIDStr); err != nil {
-		t.Errorf("sim_id not a valid UUID: %v", err)
+		t.Errorf("entity.id not a valid UUID: %v", err)
 	}
 
-	// 2. metadata.anomaly_id + metadata.sim_id.
-	metaRaw, ok := alertPayload["metadata"]
-	if !ok {
-		t.Fatal("alert payload missing metadata")
-	}
-	meta, ok := metaRaw.(map[string]interface{})
-	if !ok {
-		t.Fatalf("metadata type = %T, want map", metaRaw)
-	}
-
-	anomalyIDRaw, ok := meta["anomaly_id"]
-	if !ok {
-		t.Fatal("metadata missing anomaly_id")
-	}
-	anomalyIDStr, _ := anomalyIDRaw.(string)
+	anomalyIDStr, _ := alertEnv.Meta["anomaly_id"].(string)
 	if anomalyIDStr == "" {
-		t.Errorf("metadata.anomaly_id = %v, want non-empty", anomalyIDRaw)
+		t.Fatal("meta.anomaly_id missing")
 	}
-	if _, err := uuid.Parse(anomalyIDStr); err != nil {
-		t.Errorf("metadata.anomaly_id not a valid UUID: %v", err)
-	}
-	// Match the stored anomaly's ID (first anomaly in the mock store).
 	anomalyStore.mu.Lock()
 	if len(anomalyStore.anomalies) != 1 {
 		t.Fatalf("stored anomalies = %d, want 1", len(anomalyStore.anomalies))
@@ -279,16 +259,12 @@ func TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage(t *testing.T)
 	wantAnomalyID := anomalyStore.anomalies[0].id.String()
 	anomalyStore.mu.Unlock()
 	if anomalyIDStr != wantAnomalyID {
-		t.Errorf("metadata.anomaly_id = %s, want %s", anomalyIDStr, wantAnomalyID)
+		t.Errorf("meta.anomaly_id = %s, want %s", anomalyIDStr, wantAnomalyID)
 	}
 
-	metaSimIDRaw, ok := meta["sim_id"]
-	if !ok {
-		t.Fatal("metadata missing sim_id")
-	}
-	metaSimIDStr, _ := metaSimIDRaw.(string)
+	metaSimIDStr, _ := alertEnv.Meta["sim_id"].(string)
 	if metaSimIDStr != simIDStr {
-		t.Errorf("metadata.sim_id = %s, want %s (match top-level)", metaSimIDStr, simIDStr)
+		t.Errorf("meta.sim_id = %s, want %s (match entity.id)", metaSimIDStr, simIDStr)
 	}
 }
 

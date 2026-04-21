@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -261,16 +262,13 @@ func TestRoamingRenewalSweeper_SeverityCriticalWhenLessThan7Days(t *testing.T) {
 		t.Fatal("no events published")
 	}
 
-	raw, ok := eventBus.payloads[0].(json.RawMessage)
+	// FIX-212: payload is now *bus.Envelope.
+	env, ok := eventBus.payloads[0].(*bus.Envelope)
 	if !ok {
-		t.Fatalf("payload type = %T, want json.RawMessage", eventBus.payloads[0])
+		t.Fatalf("payload type = %T, want *bus.Envelope", eventBus.payloads[0])
 	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
-	if payload["severity"] != "critical" {
-		t.Errorf("severity = %v, want critical", payload["severity"])
+	if env.Severity != "critical" {
+		t.Errorf("severity = %v, want critical", env.Severity)
 	}
 }
 
@@ -303,16 +301,12 @@ func TestRoamingRenewalSweeper_SeverityMediumWhenMoreThan7Days(t *testing.T) {
 		t.Fatal("no events published")
 	}
 
-	raw, ok := eventBus.payloads[0].(json.RawMessage)
+	env, ok := eventBus.payloads[0].(*bus.Envelope)
 	if !ok {
-		t.Fatalf("payload type = %T, want json.RawMessage", eventBus.payloads[0])
+		t.Fatalf("payload type = %T, want *bus.Envelope", eventBus.payloads[0])
 	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
-	if payload["severity"] != "medium" {
-		t.Errorf("severity = %v, want medium", payload["severity"])
+	if env.Severity != "medium" {
+		t.Errorf("severity = %v, want medium", env.Severity)
 	}
 }
 

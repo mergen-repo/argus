@@ -180,15 +180,13 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 			Msg("5G-AKA confirmation failed: RES* mismatch")
 
 		if h.eventBus != nil {
-			h.eventBus.Publish(context.Background(), bus.SubjectSessionEnded, map[string]interface{}{
-				"auth_ctx_id": authCtxID,
-				"supi":        authCtx.SUPI,
-				"tenant_id":   nil,
-				"result":      "failure",
-				"reason":      "res_star_mismatch",
-				"protocol":    "5g_sba",
-				"timestamp":   time.Now().UTC(),
-			})
+			env := bus.NewSessionEnvelope("session.ended", bus.SystemTenantID.String(), "", "", "5G-AKA confirmation failed").
+				WithMeta("auth_ctx_id", authCtxID).
+				WithMeta("supi", authCtx.SUPI).
+				WithMeta("result", "failure").
+				WithMeta("reason", "res_star_mismatch").
+				WithMeta("protocol", "5g_sba")
+			h.eventBus.Publish(context.Background(), bus.SubjectSessionEnded, env)
 		}
 
 		writeProblem(w, http.StatusUnauthorized, "AUTH_REJECTED", "Authentication verification failed")
@@ -224,15 +222,13 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 	}
 
 	if h.eventBus != nil {
-		h.eventBus.Publish(context.Background(), bus.SubjectSessionStarted, map[string]interface{}{
-			"auth_ctx_id": authCtxID,
-			"supi":        authCtx.SUPI,
-			"tenant_id":   nil,
-			"result":      "success",
-			"protocol":    "5g_sba",
-			"auth_type":   string(authCtx.AuthType),
-			"timestamp":   time.Now().UTC(),
-		})
+		env := bus.NewSessionEnvelope("session.started", bus.SystemTenantID.String(), "", "", "Session started (5G-SBA)").
+			WithMeta("auth_ctx_id", authCtxID).
+			WithMeta("supi", authCtx.SUPI).
+			WithMeta("result", "success").
+			WithMeta("protocol", "5g_sba").
+			WithMeta("auth_type", string(authCtx.AuthType))
+		h.eventBus.Publish(context.Background(), bus.SubjectSessionStarted, env)
 	}
 
 	h.logger.Info().

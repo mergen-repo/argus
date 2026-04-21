@@ -45,26 +45,45 @@ func (m *Matcher) Register(eb *bus.EventBus) error {
 }
 
 func (m *Matcher) handleSessionStarted(ctx context.Context, _ string, data []byte) {
-	var payload struct {
-		SIMID    string `json:"sim_id"`
-		TenantID string `json:"tenant_id"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		m.logger.Warn().Err(err).Msg("unmarshal session.started payload")
+	tenantID, simID := extractTenantAndSIM(data)
+	if tenantID == "" || simID == "" {
+		m.logger.Debug().Msg("session.started payload missing tenant_id/sim_id; skip")
 		return
 	}
-	m.evaluate(ctx, payload.TenantID, payload.SIMID)
+	m.evaluate(ctx, tenantID, simID)
 }
 
 func (m *Matcher) handleSIMUpdated(ctx context.Context, _ string, data []byte) {
-	var payload struct {
+	tenantID, simID := extractTenantAndSIM(data)
+	if tenantID == "" || simID == "" {
+		return
+	}
+	m.evaluate(ctx, tenantID, simID)
+}
+
+// extractTenantAndSIM first tries the FIX-212 envelope shape (entity.id + tenant_id
+// fields) then falls back to the legacy sim_id/tenant_id top-level shape for
+// in-flight events during the 1-release grace window (D-078).
+func extractTenantAndSIM(data []byte) (tenantID, simID string) {
+	var env bus.Envelope
+	if err := json.Unmarshal(data, &env); err == nil && env.EventVersion == bus.CurrentEventVersion {
+		tenantID = env.TenantID
+		if env.Entity != nil && env.Entity.Type == "sim" {
+			simID = env.Entity.ID
+		}
+		if simID == "" {
+			if s, ok := env.Meta["sim_id"].(string); ok {
+				simID = s
+			}
+		}
+		return
+	}
+	var legacy struct {
 		SIMID    string `json:"sim_id"`
 		TenantID string `json:"tenant_id"`
 	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return
-	}
-	m.evaluate(ctx, payload.TenantID, payload.SIMID)
+	_ = json.Unmarshal(data, &legacy)
+	return legacy.TenantID, legacy.SIMID
 }
 
 func (m *Matcher) evaluate(ctx context.Context, tenantIDStr, simIDStr string) {

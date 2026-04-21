@@ -1509,12 +1509,12 @@ func TestParseAlertPayload_MissingTenantID_UsesSentinel(t *testing.T) {
 	}
 	data, _ := json.Marshal(raw)
 
-	p, err := parseAlertPayload(data)
+	p, err := parseAlertPayloadLegacy(data)
 	if err != nil {
 		t.Fatalf("parseAlertPayload returned err with missing tenant_id (should fall back): %v", err)
 	}
-	if p.TenantID != systemTenantID {
-		t.Errorf("tenant_id = %s, want system sentinel %s", p.TenantID, systemTenantID)
+	if p.TenantID != SystemTenantID {
+		t.Errorf("tenant_id = %s, want system sentinel %s", p.TenantID, SystemTenantID)
 	}
 	if p.Source != "infra" {
 		t.Errorf("source = %q, want infra (resolved via publisherSourceMap)", p.Source)
@@ -1542,7 +1542,7 @@ func TestParseAlertPayload_DedupKeyAlwaysPopulated(t *testing.T) {
 	}
 	data, _ := json.Marshal(raw)
 
-	p, err := parseAlertPayload(data)
+	p, err := parseAlertPayloadLegacy(data)
 	if err != nil {
 		t.Fatalf("parseAlertPayload: %v", err)
 	}
@@ -1561,7 +1561,7 @@ func TestParseAlertPayload_DedupKeyAlwaysPopulated(t *testing.T) {
 		"pending":  float64(150),
 	}
 	data2, _ := json.Marshal(raw2)
-	p2, err := parseAlertPayload(data2)
+	p2, err := parseAlertPayloadLegacy(data2)
 	if err != nil {
 		t.Fatalf("parseAlertPayload (no tenant): %v", err)
 	}
@@ -1724,4 +1724,168 @@ func TestHandleAlertPersist_CooldownExpired_InsertsFresh(t *testing.T) {
 		t.Errorf("dispatch calls = %d, want 2", len(email.calls))
 	}
 	email.mu.Unlock()
+}
+
+// ---------------------------------------------------------------------------
+// FIX-212 — Strict envelope parse + legacy shim.
+// ---------------------------------------------------------------------------
+
+func TestHandleAlertPersist_StrictEnvelope_PersistsAllFields(t *testing.T) {
+	tenantID := uuid.New()
+	opID := uuid.New()
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	env := map[string]interface{}{
+		"event_version": 1,
+		"id":            uuid.New().String(),
+		"type":          "operator_down",
+		"timestamp":     time.Now().UTC().Format(time.RFC3339Nano),
+		"tenant_id":     tenantID.String(),
+		"severity":      "critical",
+		"source":        "operator",
+		"title":         "Operator turkcell is DOWN",
+		"message":       "Circuit breaker opened",
+		"entity": map[string]interface{}{
+			"type":         "operator",
+			"id":           opID.String(),
+			"display_name": "turkcell",
+		},
+		"meta": map[string]interface{}{
+			"previous_status": "healthy",
+		},
+	}
+	data, _ := json.Marshal(env)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(30 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.TenantID != tenantID {
+		t.Errorf("tenant_id mismatch: got %s", p.TenantID)
+	}
+	if p.Type != "operator_down" {
+		t.Errorf("type = %q", p.Type)
+	}
+	if p.Source != "operator" {
+		t.Errorf("source = %q, want operator", p.Source)
+	}
+	if p.Severity != "critical" {
+		t.Errorf("severity = %q", p.Severity)
+	}
+	if p.OperatorID == nil || *p.OperatorID != opID {
+		t.Errorf("operator_id mismatch")
+	}
+	if p.DedupKey == nil || len(*p.DedupKey) != 64 {
+		t.Errorf("dedup_key must be 64-char hex")
+	}
+}
+
+func TestHandleAlertPersist_LegacyShape_RoutesToShim_IncrementsMetric(t *testing.T) {
+	tenantID := uuid.New()
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub, reg := newPersistSvcWithMetrics(t, email, alertStore)
+	defer svc.Stop()
+
+	// Legacy shape (no event_version, map-based).
+	legacy := map[string]interface{}{
+		"alert_type": "operator_down",
+		"tenant_id":  tenantID.String(),
+		"severity":   "critical",
+		"title":      "legacy payload",
+	}
+	data, _ := json.Marshal(legacy)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(30 * time.Millisecond)
+
+	body := scrapeNotifMetrics(t, reg)
+	if !strings.Contains(body, `argus_events_legacy_shape_total{subject="alert.triggered"} 1`) {
+		t.Errorf("legacy-shape metric missing or != 1: body=%s", body)
+	}
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("persist calls via shim = %d, want 1", len(alertStore.calls))
+	}
+}
+
+func TestHandleAlertPersist_MissingTenantID_FailsValidation(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub, reg := newPersistSvcWithMetrics(t, email, alertStore)
+	defer svc.Stop()
+
+	env := map[string]interface{}{
+		"event_version": 1,
+		"id":            uuid.New().String(),
+		"type":          "operator_down",
+		"timestamp":     time.Now().UTC().Format(time.RFC3339Nano),
+		// tenant_id intentionally missing.
+		"severity": "critical",
+		"source":   "operator",
+		"title":    "x",
+	}
+	data, _ := json.Marshal(env)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(30 * time.Millisecond)
+
+	body := scrapeNotifMetrics(t, reg)
+	if !strings.Contains(body, `argus_events_invalid_total{reason="missing_field",subject="alert.triggered"} 1`) {
+		t.Errorf("invalid-envelope metric for missing tenant_id not emitted: body=%s", body)
+	}
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 0 {
+		t.Errorf("persist calls = %d, want 0 (validation failure must drop)", len(alertStore.calls))
+	}
+}
+
+func TestHandleAlertPersist_DedupKeyFromEnvelope_RespectsPublisherOverride(t *testing.T) {
+	tenantID := uuid.New()
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	pubKey := "custom-dedup-abcdef"
+	env := map[string]interface{}{
+		"event_version": 1,
+		"id":            uuid.New().String(),
+		"type":          "nats_consumer_lag",
+		"timestamp":     time.Now().UTC().Format(time.RFC3339Nano),
+		"tenant_id":     tenantID.String(),
+		"severity":      "high",
+		"source":        "infra",
+		"title":         "lag",
+		"dedup_key":     pubKey,
+	}
+	data, _ := json.Marshal(env)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(30 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("persist calls = %d, want 1", len(alertStore.calls))
+	}
+	if alertStore.calls[0].DedupKey == nil || *alertStore.calls[0].DedupKey != pubKey {
+		got := ""
+		if alertStore.calls[0].DedupKey != nil {
+			got = *alertStore.calls[0].DedupKey
+		}
+		t.Errorf("publisher-authored dedup_key not preserved: got %q want %q", got, pubKey)
+	}
 }
