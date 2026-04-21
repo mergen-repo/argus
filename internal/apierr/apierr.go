@@ -33,6 +33,7 @@ const (
 	CodeInvalidFormat      = "INVALID_FORMAT"
 	CodeValidationError    = "VALIDATION_ERROR"
 	CodeNotFound           = "NOT_FOUND"
+	CodeAlertNotFound      = "ALERT_NOT_FOUND"
 	CodeConflict           = "CONFLICT"
 	CodeAlreadyExists      = "ALREADY_EXISTS"
 	CodeInvalidReference   = "INVALID_REFERENCE"

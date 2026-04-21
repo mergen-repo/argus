@@ -211,9 +211,9 @@ func TestDispatcher_DispatchToConfigs_TwoConfigs(t *testing.T) {
 	for _, cfg := range configs {
 		outcome := SendWebhook(context.Background(), client, cfg, "test.event", payload)
 		ds.Insert(context.Background(), &store.WebhookDelivery{
-			TenantID:   cfg.TenantID,
-			ConfigID:   cfg.ID,
-			EventType:  "test.event",
+			TenantID:  cfg.TenantID,
+			ConfigID:  cfg.ID,
+			EventType: "test.event",
 			FinalState: func() string {
 				if outcome.Success {
 					return "succeeded"

@@ -177,11 +177,14 @@ argus/
 │   ├── observability/            # Cross-cutting OTel + Prometheus infrastructure (STORY-065)
 │   │   ├── otel.go               # OTel tracer provider init (OTLP gRPC, resource attrs, shutdown)
 │   │   └── metrics/              # Prometheus registry, metric descriptors, AAA composite recorder
-│   ├── notification/             # SVC-08: Notification service
+│   ├── notification/             # SVC-08: Notification service — handleAlertPersist subscriber (FIX-209): tolerant parseAlertPayload across 4 payload shapes, publisherSourceMap, SetAlertStore wiring
+│   ├── api/
+│   │   └── alert/                # Alert API handler (FIX-209): GET /alerts, GET /alerts/{id}, PATCH /alerts/{id} state transition
 │   ├── job/                      # SVC-09: Job runner
 │   ├── audit/                    # SVC-10: Audit service
 │   ├── model/                    # Domain models
 │   ├── store/                    # Database access (PG)
+│   │   ├── alert.go              # AlertStore (FIX-209): Create/GetByID/ListByTenant/UpdateState/CountByTenantAndState/DeleteOlderThan; tenant-scoped; rows.Err() checked
 │   │   └── schemacheck/          # Boot-time schema integrity check (STORY-086): CriticalTables manifest + Verify — FATAL on missing table
 │   ├── cache/                    # Redis cache layer
 │   ├── bus/                      # NATS event bus
@@ -446,6 +449,7 @@ Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross
 
 Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC-09 job scheduler:
 
+- **AlertsRetentionJob** (`internal/job/alerts_retention.go`) — daily cron at 03:15 UTC; calls `AlertStore.DeleteOlderThan(now - ALERTS_RETENTION_DAYS)` (default 180 days, min 30) to purge old `alerts` rows. Wired in `cmd/argus/main.go` after `notifSvc.SetAlertStore(alertStore)`. FIX-209.
 - **DataIntegrityDetector** (`internal/job/data_integrity.go`) — daily cron (`17 3 * * *`) that scans recent sessions/CDRs for four invariant violations: negative-duration sessions (`ended_at < started_at`), negative-duration CDRs (`duration_sec < 0`), framed-IP outside the SIM's assigned pool, and malformed IMSI. Violations are quarantined (sessions/CDRs) or logged+metered (IMSI), and exposed via `argus_data_integrity_violations_total{kind}` Prometheus counter. FIX-207 AC-5.
 - **BackupProcessor** (`internal/job/backup.go`) — schedules daily/weekly/monthly `pg_dump` runs, uploads compressed dumps to S3 (`AWS_REGION`, `BACKUP_S3_BUCKET`, `BACKUP_S3_PREFIX`), and records every run in TBL-32 (`backup_runs`). Configurable retention sweep: `BACKUP_DAILY_RETAIN`, `BACKUP_WEEKLY_RETAIN`, `BACKUP_MONTHLY_RETAIN`.
 - **Weekly verification** — a follow-on job restores the latest daily dump to a scratch container and counts rows in `tenants` and `sims`, writing results to TBL-33 (`backup_verifications`). Deviation > 1% triggers an incident log.

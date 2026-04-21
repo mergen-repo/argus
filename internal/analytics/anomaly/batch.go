@@ -52,13 +52,13 @@ type SIMSuspender interface {
 }
 
 type BatchDetector struct {
-	store      AnomalyCreator
-	publisher  AlertPublisher
-	suspender  SIMSuspender
-	thresholds ThresholdConfig
-	logger     zerolog.Logger
-	alertSubject    string
-	anomalySubject  string
+	store          AnomalyCreator
+	publisher      AlertPublisher
+	suspender      SIMSuspender
+	thresholds     ThresholdConfig
+	logger         zerolog.Logger
+	alertSubject   string
+	anomalySubject string
 }
 
 func NewBatchDetector(
@@ -168,6 +168,19 @@ func (d *BatchDetector) publishAlert(ctx context.Context, record *AnomalyRecord,
 	}
 
 	if d.alertSubject != "" {
+		// FIX-209: clone details into metadata and augment with linkage keys
+		// (anomaly_id + sim_id) so the notification subscriber can tie
+		// alerts back to anomalies. Mirrors engine.go:200 for batch-detected
+		// anomalies — must stay in sync.
+		meta := make(map[string]interface{}, len(details)+2)
+		for k, v := range details {
+			meta[k] = v
+		}
+		meta["anomaly_id"] = record.ID.String()
+		if record.SimID != nil {
+			meta["sim_id"] = record.SimID.String()
+		}
+
 		alert := map[string]interface{}{
 			"alert_id":    record.ID.String(),
 			"tenant_id":   record.TenantID.String(),
@@ -177,8 +190,11 @@ func (d *BatchDetector) publishAlert(ctx context.Context, record *AnomalyRecord,
 			"description": anomalyDescription(record.Type, details),
 			"entity_type": "anomaly",
 			"entity_id":   record.ID.String(),
-			"metadata":    details,
+			"metadata":    meta,
 			"timestamp":   record.DetectedAt.Format(time.RFC3339),
+		}
+		if record.SimID != nil {
+			alert["sim_id"] = record.SimID.String()
 		}
 		if err := d.publisher.Publish(ctx, d.alertSubject, alert); err != nil {
 			d.logger.Warn().Err(err).Msg("publish alert event failed")

@@ -9,8 +9,8 @@ import (
 )
 
 type RedisRateLimiter struct {
-	client       *redis.Client
-	limitPerMin  int
+	client      *redis.Client
+	limitPerMin int
 }
 
 func NewRedisRateLimiter(client *redis.Client, limitPerMin int) *RedisRateLimiter {

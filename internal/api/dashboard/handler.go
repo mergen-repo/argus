@@ -22,6 +22,7 @@ type SessionCounter interface {
 }
 
 type Handler struct {
+	alertStore       *store.AlertStore
 	simStore         *store.SIMStore
 	sessionStore     *store.RadiusSessionStore
 	operatorStore    *store.OperatorStore
@@ -75,11 +76,13 @@ func NewHandler(
 	sessionStore *store.RadiusSessionStore,
 	operatorStore *store.OperatorStore,
 	anomalyStore *store.AnomalyStore,
+	alertStore *store.AlertStore,
 	apnStore *store.APNStore,
 	logger zerolog.Logger,
 	opts ...HandlerOption,
 ) *Handler {
 	h := &Handler{
+		alertStore:    alertStore,
 		simStore:      simStore,
 		sessionStore:  sessionStore,
 		operatorStore: operatorStore,
@@ -113,18 +116,23 @@ type operatorHealthDTO struct {
 }
 
 type topAPNDTO struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Count  int64  `json:"session_count"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Count int64  `json:"session_count"`
 }
 
 type alertDTO struct {
-	ID         string `json:"id"`
-	Type       string `json:"type"`
-	Severity   string `json:"severity"`
-	State      string `json:"state"`
-	Message    string `json:"message"`
-	DetectedAt string `json:"detected_at"`
+	ID         string          `json:"id"`
+	Type       string          `json:"type"`
+	Severity   string          `json:"severity"`
+	Source     string          `json:"source"`
+	State      string          `json:"state"`
+	Message    string          `json:"message"`
+	DetectedAt string          `json:"detected_at"`
+	SimID      *string         `json:"sim_id,omitempty"`
+	OperatorID *string         `json:"operator_id,omitempty"`
+	APNID      *string         `json:"apn_id,omitempty"`
+	Meta       json.RawMessage `json:"meta,omitempty"`
 }
 
 type trafficHeatmapCell struct {
@@ -134,21 +142,21 @@ type trafficHeatmapCell struct {
 }
 
 type dashboardDTO struct {
-	TotalSIMs          int                   `json:"total_sims"`
-	ActiveSessions     int64                 `json:"active_sessions"`
-	AuthPerSec         float64               `json:"auth_per_sec"`
-	MonthlyCost        float64               `json:"monthly_cost"`
-	IPPoolUsagePct     float64               `json:"ip_pool_usage_pct"`
-	SessionStartRate   float64               `json:"session_start_rate"`
-	ErrorRate          float64               `json:"error_rate"`
-	SIMVelocityPerHour float64               `json:"sim_velocity_per_hour"`
-	SIMByState         []simByStateDTO       `json:"sim_by_state"`
-	OperatorHealth     []operatorHealthDTO   `json:"operator_health"`
-	TopAPNs            []topAPNDTO           `json:"top_apns"`
-	RecentAlerts       []alertDTO            `json:"recent_alerts"`
-	Sparklines         map[string][]float64  `json:"sparklines"`
-	Deltas             map[string]float64    `json:"deltas"`
-	TrafficHeatmap     []trafficHeatmapCell  `json:"traffic_heatmap"`
+	TotalSIMs          int                  `json:"total_sims"`
+	ActiveSessions     int64                `json:"active_sessions"`
+	AuthPerSec         float64              `json:"auth_per_sec"`
+	MonthlyCost        float64              `json:"monthly_cost"`
+	IPPoolUsagePct     float64              `json:"ip_pool_usage_pct"`
+	SessionStartRate   float64              `json:"session_start_rate"`
+	ErrorRate          float64              `json:"error_rate"`
+	SIMVelocityPerHour float64              `json:"sim_velocity_per_hour"`
+	SIMByState         []simByStateDTO      `json:"sim_by_state"`
+	OperatorHealth     []operatorHealthDTO  `json:"operator_health"`
+	TopAPNs            []topAPNDTO          `json:"top_apns"`
+	RecentAlerts       []alertDTO           `json:"recent_alerts"`
+	Sparklines         map[string][]float64 `json:"sparklines"`
+	Deltas             map[string]float64   `json:"deltas"`
+	TrafficHeatmap     []trafficHeatmapCell `json:"traffic_heatmap"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -288,30 +296,44 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer wg.Done()
-		anomalies, _, err := h.anomalyStore.ListByTenant(ctx, tenantID, store.ListAnomalyParams{
+		if h.alertStore == nil {
+			return
+		}
+		recentAlerts, _, err := h.alertStore.ListByTenant(ctx, tenantID, store.ListAlertsParams{
 			Limit: 10,
 		})
 		if err != nil {
-			h.logger.Error().Err(err).Msg("list recent anomalies")
+			h.logger.Error().Err(err).Msg("list recent alerts")
 			return
 		}
-		alerts := make([]alertDTO, 0, len(anomalies))
-		for _, a := range anomalies {
-			msg := a.Type
-			if a.Source != nil {
-				msg = msg + ": " + *a.Source
-			}
-			alerts = append(alerts, alertDTO{
+		dtos := make([]alertDTO, 0, len(recentAlerts))
+		for _, a := range recentAlerts {
+			dto := alertDTO{
 				ID:         a.ID.String(),
 				Type:       a.Type,
 				Severity:   a.Severity,
+				Source:     a.Source,
 				State:      a.State,
-				Message:    msg,
-				DetectedAt: a.DetectedAt.Format(time.RFC3339),
-			})
+				Message:    a.Title,
+				DetectedAt: a.FiredAt.Format(time.RFC3339),
+				Meta:       a.Meta,
+			}
+			if a.SimID != nil {
+				s := a.SimID.String()
+				dto.SimID = &s
+			}
+			if a.OperatorID != nil {
+				s := a.OperatorID.String()
+				dto.OperatorID = &s
+			}
+			if a.APNID != nil {
+				s := a.APNID.String()
+				dto.APNID = &s
+			}
+			dtos = append(dtos, dto)
 		}
 		mu.Lock()
-		resp.RecentAlerts = alerts
+		resp.RecentAlerts = dtos
 		mu.Unlock()
 	}()
 
@@ -350,9 +372,9 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		resp.MonthlyCost = cost
 		resp.Sparklines = sparklines
 		resp.Deltas = map[string]float64{
-			"total_sims_delta":       totalSimsDelta,
-			"active_sessions_delta":  activeSessionsDelta,
-			"monthly_cost_delta":     monthlyCostDelta,
+			"total_sims_delta":      totalSimsDelta,
+			"active_sessions_delta": activeSessionsDelta,
+			"monthly_cost_delta":    monthlyCostDelta,
 		}
 		mu.Unlock()
 	}()

@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	htmltemplate "html/template"
+	"strings"
 	"sync"
 	texttemplate "text/template"
 	"time"
 
 	"github.com/btopcu/argus/internal/severity"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -25,6 +27,14 @@ const (
 	ChannelWebhook  Channel = "webhook"
 	ChannelSMS      Channel = "sms"
 )
+
+// systemTenantID is the sentinel tenant UUID used by parseAlertPayload when
+// an inbound alert event arrives with no tenant_id (5 of 7 publishers today —
+// see FIX-209 Gate F-A1 + AC-3 + PAT-006). FIX-212 will normalize publishers
+// to carry tenant_id; until then infra/operator-without-context alerts are
+// written under this row so dashboards are not silently blind.
+// Matches migrations/seed/001_admin_user.sql demo tenant.
+var systemTenantID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 type AlertPayload struct {
 	AlertID     string                 `json:"alert_id"`
@@ -88,6 +98,14 @@ type EventPublisher interface {
 type NotifStore interface {
 	Create(ctx context.Context, p NotifCreateParams) (*NotifRow, error)
 	UpdateDelivery(ctx context.Context, id uuid.UUID, sentAt, deliveredAt, failedAt *time.Time, retryCount int, channelsSent []string) error
+}
+
+// AlertStoreWriter is the narrow contract notification.Service needs to persist
+// inbound alert events before dispatching notifications. Kept narrow to avoid
+// tight coupling to *store.AlertStore (mirrors NotifStore pattern).
+// FIX-209: unified alerts table.
+type AlertStoreWriter interface {
+	Create(ctx context.Context, p store.CreateAlertParams) (*store.Alert, error)
 }
 
 type NotifCreateParams struct {
@@ -191,6 +209,8 @@ type Service struct {
 	prefStore     PreferenceStore
 	templateStore TemplateStore
 
+	alertStore AlertStoreWriter
+
 	mu   sync.Mutex
 	subs []Subscription
 }
@@ -270,6 +290,13 @@ func (s *Service) SetTemplateStore(ts TemplateStore) {
 	s.templateStore = ts
 }
 
+// SetAlertStore wires a writer for the unified alerts table (FIX-209).
+// Optional: when nil, alert events are dispatched but NOT persisted — this
+// keeps pre-FIX-209 tests and offline tooling working without the dependency.
+func (s *Service) SetAlertStore(as AlertStoreWriter) {
+	s.alertStore = as
+}
+
 func (s *Service) Start(subscriber Subscriber, healthSubject, alertSubject string) error {
 	sub1, err := subscriber.QueueSubscribe(healthSubject, "notification-svc", func(subject string, data []byte) {
 		s.handleHealthChanged(data)
@@ -279,7 +306,7 @@ func (s *Service) Start(subscriber Subscriber, healthSubject, alertSubject strin
 	}
 
 	sub2, err := subscriber.QueueSubscribe(alertSubject, "notification-svc", func(subject string, data []byte) {
-		s.handleAlert(data)
+		s.handleAlertPersist(data)
 	})
 	if err != nil {
 		sub1.Unsubscribe()
@@ -586,15 +613,269 @@ func (s *Service) handleHealthChanged(data []byte) {
 	s.dispatchOperatorDown(payload)
 }
 
-func (s *Service) handleAlert(data []byte) {
-	var payload AlertPayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		s.logger.Error().Err(err).Msg("unmarshal alert event")
-		return
+// publisherSourceMap is the canonical alert-type → source taxonomy for FIX-209.
+// Used by resolveSource() to normalize source strings from heterogeneous
+// publishers into the 4 canonical alert source enums (operator / sim / infra /
+// policy / system). storage.* prefix handled before the map lookup.
+var publisherSourceMap = map[string]string{
+	// operator-scoped
+	"operator_down":                 "operator",
+	"operator_recovered":            "operator",
+	"sla_violation":                 "operator",
+	"roaming.agreement.renewal_due": "operator",
+	// SIM anomaly prefixes (emitted by anomaly engine + batch detector)
+	"anomaly_sim_cloning": "sim",
+	"anomaly_data_spike":  "sim",
+	"anomaly_auth_flood":  "sim",
+	"anomaly_nas_flood":   "sim",
+	"anomaly_velocity":    "sim",
+	"anomaly_location":    "sim",
+	// infrastructure
+	"nats_consumer_lag":   "infra",
+	"anomaly_batch_crash": "infra",
+	// policy
+	"policy_violation": "policy",
+	// storage.* handled via prefix match, fallback "system" for unknown types
+}
+
+// alertEventFlexible tolerates the 4+ different payload shapes emitted by the
+// publishers of argus.events.alert.triggered (FIX-209 plan §Publisher inventory).
+// FIX-212 will normalize these shapes; until then we accept what comes and
+// synthesize what is missing.
+type alertEventFlexible struct {
+	AlertID     string                 `json:"alert_id,omitempty"`
+	AlertType   string                 `json:"alert_type,omitempty"`
+	Type        string                 `json:"type,omitempty"`
+	TenantID    string                 `json:"tenant_id,omitempty"`
+	Severity    string                 `json:"severity,omitempty"`
+	Title       string                 `json:"title,omitempty"`
+	Message     string                 `json:"message,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Source      string                 `json:"source,omitempty"`
+	EntityType  string                 `json:"entity_type,omitempty"`
+	EntityID    string                 `json:"entity_id,omitempty"`
+	SimID       string                 `json:"sim_id,omitempty"`
+	OperatorID  string                 `json:"operator_id,omitempty"`
+	APNID       string                 `json:"apn_id,omitempty"`
+	Consumer    string                 `json:"consumer,omitempty"`
+	Pending     int64                  `json:"pending,omitempty"`
+	JobID       string                 `json:"job_id,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+	Timestamp   *time.Time             `json:"timestamp,omitempty"`
+	DetectedAt  *time.Time             `json:"detected_at,omitempty"`
+}
+
+// parseAlertPayload normalizes an inbound alert event into store.CreateAlertParams.
+// Tolerant of the publisher heterogeneity documented in FIX-209 §Publisher inventory.
+func parseAlertPayload(data []byte) (store.CreateAlertParams, error) {
+	var flex alertEventFlexible
+	if err := json.Unmarshal(data, &flex); err != nil {
+		return store.CreateAlertParams{}, err
 	}
 
+	alertType := firstNonEmpty(flex.AlertType, flex.Type, flex.Source, "unknown")
+
+	sev := flex.Severity
+	if sev == "" || severity.Validate(sev) != nil {
+		sev = severity.Info
+	}
+
+	title := firstNonEmpty(flex.Title, flex.Message)
+	if title == "" {
+		title = synthesizeTitle(alertType, flex.Consumer, flex.Pending, flex.JobID, flex.Error, flex.Description)
+	}
+
+	description := flex.Description
+	src := resolveSource(alertType)
+
+	simID := firstUUID(
+		flex.SimID,
+		mapGetString(flex.Metadata, "sim_id"),
+		mapGetString(flex.Details, "sim_id"),
+		ifEntityType(flex.EntityType, "sim", flex.EntityID),
+	)
+	operatorID := firstUUID(
+		flex.OperatorID,
+		mapGetString(flex.Metadata, "operator_id"),
+		mapGetString(flex.Details, "operator_id"),
+		ifEntityType(flex.EntityType, "operator", flex.EntityID),
+	)
+	apnID := firstUUID(
+		flex.APNID,
+		mapGetString(flex.Metadata, "apn_id"),
+		mapGetString(flex.Details, "apn_id"),
+	)
+
+	// FIX-209 Gate (F-A1): publishers for operator.AlertEvent, nats_consumer_lag,
+	// anomaly_batch_crash, storage_monitor (explicit nil), and roaming_renewal
+	// do NOT currently emit tenant_id — AC-3 + PAT-006 forbid rewriting
+	// publisher payloads in this story. Full envelope unification lands in
+	// FIX-212. Until then, fall back to the system-tenant sentinel so
+	// operator/infra alerts still persist instead of being silently dropped.
+	// Tracked as ROUTEMAP Tech Debt D-075 (system-tenant sentinel → FIX-212).
+	tenantID, err := uuid.Parse(flex.TenantID)
+	if err != nil {
+		tenantID = systemTenantID
+	}
+
+	meta := mergeMaps(flex.Metadata, flex.Details)
+	metaBytes, _ := json.Marshal(meta)
+
+	firedAt := firstTime(flex.Timestamp, flex.DetectedAt, timePtr(time.Now().UTC()))
+
+	return store.CreateAlertParams{
+		TenantID:    tenantID,
+		Type:        alertType,
+		Severity:    sev,
+		Source:      src,
+		Title:       title,
+		Description: description,
+		Meta:        metaBytes,
+		SimID:       simID,
+		OperatorID:  operatorID,
+		APNID:       apnID,
+		DedupKey:    nil, // FIX-210 populates
+		FiredAt:     *firedAt,
+	}, nil
+}
+
+func synthesizeTitle(alertType, consumer string, pending int64, jobID, errMsg, description string) string {
+	switch {
+	case alertType == "nats_consumer_lag" && consumer != "":
+		return fmt.Sprintf("NATS consumer lag: %s has %d pending", consumer, pending)
+	case alertType == "anomaly_batch_crash":
+		if jobID != "" {
+			return fmt.Sprintf("Anomaly batch crashed: job %s", jobID)
+		}
+		return "Anomaly batch crashed"
+	case description != "":
+		if len(description) > 80 {
+			return description[:80] + "..."
+		}
+		return description
+	default:
+		return fmt.Sprintf("Alert: %s", alertType)
+	}
+}
+
+func resolveSource(alertType string) string {
+	if strings.HasPrefix(alertType, "storage.") {
+		return "infra"
+	}
+	if s, ok := publisherSourceMap[alertType]; ok {
+		return s
+	}
+	return "system"
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstUUID(vals ...string) *uuid.UUID {
+	for _, v := range vals {
+		if v == "" {
+			continue
+		}
+		id, err := uuid.Parse(v)
+		if err != nil {
+			continue
+		}
+		if id == uuid.Nil {
+			continue
+		}
+		return &id
+	}
+	return nil
+}
+
+func firstTime(vals ...*time.Time) *time.Time {
+	for _, v := range vals {
+		if v != nil && !v.IsZero() {
+			return v
+		}
+	}
+	now := time.Now().UTC()
+	return &now
+}
+
+func mapGetString(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
+func mergeMaps(primary, fallback map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(primary)+len(fallback))
+	for k, v := range fallback {
+		out[k] = v
+	}
+	for k, v := range primary {
+		out[k] = v
+	}
+	return out
+}
+
+func ifEntityType(entityType, want, entityID string) string {
+	if entityType == want {
+		return entityID
+	}
+	return ""
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
+// handleAlertPersist is the NATS alert-event subscriber (FIX-209).
+// Ordering: persist BEFORE dispatch — a persisted alert that fails to
+// dispatch is recoverable via retry; a dispatched alert that fails to
+// persist is lost from the UI. Availability > durability for dispatch,
+// so persist errors DO NOT block the dispatch path.
+func (s *Service) handleAlertPersist(data []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 1. Parse into canonical CreateAlertParams (tolerant of publisher heterogeneity).
+	params, parseErr := parseAlertPayload(data)
+	if parseErr != nil {
+		s.logger.Warn().
+			Err(parseErr).
+			Str("raw", string(data)).
+			Msg("alert: parse into unified schema failed; dispatch will continue with legacy AlertPayload")
+	} else if s.alertStore != nil {
+		// 2. Persist (ordered before dispatch). Log-and-continue on error.
+		if _, perr := s.alertStore.Create(ctx, params); perr != nil {
+			s.logger.Error().
+				Err(perr).
+				Str("type", params.Type).
+				Str("tenant_id", params.TenantID.String()).
+				Msg("persist alert failed")
+		}
+	}
+
+	// 3. Dispatch — preserve legacy behavior (never regress notification coverage).
+	var payload AlertPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		s.logger.Error().Err(err).Msg("unmarshal alert event (dispatch path)")
+		return
+	}
 
 	channelsSent := s.dispatchToChannels(ctx, payload.Severity, payload.Title, payload.Description)
 

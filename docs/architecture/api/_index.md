@@ -541,6 +541,16 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
+## Alerts (3 endpoints) — FIX-209
+
+| ID | Method | Path | Description | Auth | Notes |
+|----|--------|------|-------------|------|-------|
+| API-313 | GET | /api/v1/alerts | List alerts with filters (type, severity, source, state, sim/operator/apn, date range, substring, cursor). FIX-209. | JWT (analyst+) | Cursor-paginated; tenant-scoped; 7 filter params. |
+| API-314 | GET | /api/v1/alerts/{id} | Get alert by ID (tenant-scoped). FIX-209. | JWT (analyst+) | 404 `ALERT_NOT_FOUND` on missing or cross-tenant. |
+| API-315 | PATCH | /api/v1/alerts/{id} | Transition alert state (`open`→`acknowledged`, `open`/`ack`→`resolved`). FIX-209. | JWT (sim_manager+) | `suppressed` NOT settable via this endpoint (FIX-210). |
+
+---
+
 **Total: 246 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.

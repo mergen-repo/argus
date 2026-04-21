@@ -228,6 +228,7 @@ Controls server-side password complexity and history enforcement. Applied on reg
 | `ip_grace_release` | `@hourly` | `ip_grace_release` | Returns IPs whose grace window has elapsed back to the pool, publishes `ip.released` event. |
 | `webhook_retry_sweep` | `*/1 * * * *` | `webhook_retry` | Re-sends due `webhook_deliveries` rows; backoff 30s/2m/10m/30m/60m; after 5 attempts marks `dead_letter` and emits `webhook.dead_letter` notification. |
 | `scheduled_report_sweeper` | `*/1 * * * *` | `scheduled_report_sweeper` | Scans `scheduled_reports.next_run_at <= now()` and enqueues a `scheduled_report_run` per due row. |
+| `alerts_retention` | `15 3 * * *` | `alerts_retention` | FIX-209 — purges rows from the unified `alerts` table older than `ALERTS_RETENTION_DAYS` (default 180). |
 
 ### Redis Key Patterns (Job System)
 
@@ -361,6 +362,7 @@ These values are used when creating new tenants. They can be overridden per-tena
 | `DEFAULT_PURGE_RETENTION_DAYS` | int | `90` | No | Days to retain terminated SIM data before auto-purge. KVKK/GDPR compliance. |
 | `DEFAULT_AUDIT_RETENTION_DAYS` | int | `365` | No | Days to retain audit logs before archiving to S3. |
 | `DEFAULT_CDR_RETENTION_DAYS` | int | `180` | No | Days to retain CDR records in TimescaleDB before compression/archiving. |
+| `ALERTS_RETENTION_DAYS` | int | `180` | No | FIX-209 — days to retain rows in the unified `alerts` table. Minimum enforced: `30`. Older rows are purged daily at 03:15 UTC by the `alerts_retention` job. |
 
 ---
 

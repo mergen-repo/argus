@@ -20,7 +20,7 @@ func nopLogger() zerolog.Logger {
 }
 
 func TestGetDashboard_MissingTenant(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, nopLogger())
+	h := NewHandler(nil, nil, nil, nil, nil, nil, nopLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
 	w := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestDashboardInvalidatorDeletesKey(t *testing.T) {
 
 func TestDashboardHandler_UsesCachedSessionCount(t *testing.T) {
 	sc := &stubSessionCounter{count: 42}
-	h := NewHandler(nil, nil, nil, nil, nil, nopLogger(), WithSessionCounter(sc))
+	h := NewHandler(nil, nil, nil, nil, nil, nil, nopLogger(), WithSessionCounter(sc))
 	if h.sessionCounter == nil {
 		t.Fatal("sessionCounter not set")
 	}

@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { SeverityBadge } from '@/components/shared/severity-badge'
 import { SEVERITY_FILTER_OPTIONS, SEVERITY_PILL_CLASSES } from '@/lib/severity'
+import { ALERT_SOURCE_OPTIONS, ALERT_STATE_OPTIONS } from '@/lib/alerts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -21,7 +22,7 @@ import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
 import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
-import type { Anomaly } from '@/types/analytics'
+import type { Alert } from '@/types/analytics'
 import type { ListResponse } from '@/types/sim'
 import { AlertActionButtons } from './_partials/alert-actions'
 import { useExport } from '@/hooks/use-export'
@@ -31,6 +32,7 @@ interface AlertFilters {
   severity: string
   state: string
   type: string
+  source: string
   q: string
 }
 
@@ -101,6 +103,48 @@ const RUNBOOKS: Record<string, string[]> = {
     'Review affected account credentials',
     'Notify affected users and force password reset',
   ],
+  nats_consumer_lag: [
+    'Rebalance consumer group assignments',
+    'Check for stuck or unprocessable messages',
+    'Scale workers to handle backlog',
+    'Inspect dead-letter queue for errors',
+  ],
+  'storage.hypertable_growth': [
+    'Compress older TimescaleDB chunks',
+    'Add or adjust data retention policy',
+    'Check TimescaleDB health and chunk sizes',
+    'Review ingestion rate for unexpected spikes',
+  ],
+  'storage.low_compression_ratio': [
+    'Investigate column cardinality causing poor compression',
+    'Re-compress affected chunks with updated settings',
+    'Verify TimescaleDB compression config',
+    'Review schema for high-cardinality columns',
+  ],
+  'storage.high_connections': [
+    'Tune pgbouncer pool size and mode',
+    'Check for connection leaks in application code',
+    'Investigate slow queries holding connections',
+    'Review connection limit settings',
+  ],
+  anomaly_batch_crash: [
+    'Check anomaly detection worker logs for panic stack',
+    'Verify NATS consumer state and redelivery counts',
+    'Restart the anomaly batch processor',
+    'Review recent schema or config changes that may have caused crash',
+  ],
+  'roaming.agreement.renewal_due': [
+    'Contact partner operator to initiate renewal discussions',
+    'Review current agreement terms and pricing',
+    'Update agreement record before expiry to avoid service disruption',
+    'Escalate to commercial team if negotiation is required',
+  ],
+  sla_violation: [
+    'Check operator performance metrics for the affected period',
+    'Escalate to partner operator NOC',
+    'Review recent topology or routing changes',
+    'Document violation for SLA credit claim if applicable',
+  ],
 }
 
 const ALERT_TYPE_OPTIONS = [
@@ -122,13 +166,6 @@ const severityFilterPills = SEVERITY_FILTER_OPTIONS.map((o) => ({
   value: o.value,
   label: o.value === '' ? 'All' : o.label,
 })) as readonly { value: string; label: string }[]
-
-const STATE_PILLS = [
-  { value: '', label: 'All' },
-  { value: 'open', label: 'Active' },
-  { value: 'acknowledged', label: 'Acknowledged' },
-  { value: 'resolved', label: 'Resolved' },
-] as const
 
 function alertTypeIcon(type: string) {
   switch (type) {
@@ -152,14 +189,13 @@ function stateBadgeVariant(state: string): 'default' | 'success' | 'secondary' |
     case 'open': return 'default'
     case 'acknowledged': return 'secondary'
     case 'resolved': return 'success'
-    case 'false_positive': return 'outline'
+    case 'suppressed': return 'outline'
     default: return 'default'
   }
 }
 
-function alertTitle(anomaly: Anomaly): string {
-  const details = anomaly.details as Record<string, unknown>
-  if (details?.message && typeof details.message === 'string') return details.message
+function alertDisplayTitle(alert: Alert): string {
+  if (alert.title) return alert.title
   const typeLabels: Record<string, string> = {
     operator_down: 'Operator connectivity failure detected',
     auth_spike: 'Abnormal authentication rate spike',
@@ -173,38 +209,16 @@ function alertTitle(anomaly: Anomaly): string {
     location_anomaly: 'Suspicious location change detected',
     credential_stuffing: 'Credential stuffing attack detected',
   }
-  return typeLabels[anomaly.type] || `${anomaly.type.replace(/_/g, ' ')} alert`
+  return typeLabels[alert.type] || `${alert.type.replace(/_/g, ' ')} alert`
 }
 
-function alertSource(anomaly: Anomaly): string {
-  if (anomaly.source) return anomaly.source
-  const sourcesMap: Record<string, string> = {
-    operator_down: 'Health Check Service',
-    auth_spike: 'Rate Limiter',
-    auth_flood: 'Rate Limiter',
-    ip_pool_exhaustion: 'IP Pool Manager',
-    sim_cloning: 'Fraud Detection Engine',
-    data_spike: 'Anomaly Detection',
-    usage_spike: 'Anomaly Detection',
-    policy_violation: 'Policy Engine',
-    velocity_anomaly: 'Fraud Detection Engine',
-    location_anomaly: 'Fraud Detection Engine',
-    credential_stuffing: 'Security Monitor',
+function impactEstimate(alert: Alert): { sims: number; sessions: number } | null {
+  if (alert.severity === 'info' || alert.severity === 'low') return null
+  if (alert.source === 'sim' || alert.source === 'operator') {
+    if (alert.severity === 'critical') return { sims: 45000, sessions: 12000 }
+    if (alert.severity === 'high') return { sims: 2500, sessions: 800 }
+    if (alert.severity === 'medium') return { sims: 800, sessions: 250 }
   }
-  return sourcesMap[anomaly.type] || 'System Monitor'
-}
-
-function impactEstimate(anomaly: Anomaly): { sims: number; sessions: number } | null {
-  const details = anomaly.details as Record<string, unknown>
-  if (details?.affected_sims || details?.affected_sessions) {
-    return {
-      sims: (details.affected_sims as number) || 0,
-      sessions: (details.affected_sessions as number) || 0,
-    }
-  }
-  if (anomaly.severity === 'critical' || anomaly.severity === 'high') return { sims: 45000, sessions: 12000 }
-  if (anomaly.severity === 'medium') return { sims: 2500, sessions: 800 }
-  // low / info: no synthetic estimate — caller gracefully skips the Impact block.
   return null
 }
 
@@ -218,8 +232,9 @@ function useAlerts(filters: AlertFilters) {
       if (filters.severity) params.set('severity', filters.severity)
       if (filters.state) params.set('state', filters.state)
       if (filters.type) params.set('type', filters.type)
+      if (filters.source) params.set('source', filters.source)
       if (filters.q) params.set('q', filters.q)
-      const res = await api.get<ListResponse<Anomaly>>(`/analytics/anomalies?${params.toString()}`)
+      const res = await api.get<ListResponse<Alert>>(`/alerts?${params.toString()}`)
       return res.data
     },
     initialPageParam: '' as string,
@@ -321,11 +336,10 @@ function PillFilter<T extends string>({
   )
 }
 
-function AlertCardExpanded({ anomaly }: { anomaly: Anomaly }) {
+function AlertCardExpanded({ alert }: { alert: Alert }) {
   const navigate = useNavigate()
-  const impact = impactEstimate(anomaly)
-  const runbook = RUNBOOKS[anomaly.type]
-  const details = anomaly.details as Record<string, unknown>
+  const impact = impactEstimate(alert)
+  const runbook = RUNBOOKS[alert.type]
 
   return (
     <div className="animate-slide-up-in border-t border-border bg-bg-primary/50 px-5 py-4 space-y-4">
@@ -333,29 +347,31 @@ function AlertCardExpanded({ anomaly }: { anomaly: Anomaly }) {
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">Type</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-text-secondary">{alertTypeIcon(anomaly.type)}</span>
-            <span className="text-sm text-text-primary font-medium">{anomaly.type.replace(/_/g, ' ')}</span>
+            <span className="text-text-secondary">{alertTypeIcon(alert.type)}</span>
+            <span className="text-sm text-text-primary font-medium">{alert.type.replace(/_/g, ' ')}</span>
           </div>
         </div>
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">Source</span>
-          <span className="text-sm text-text-primary">{alertSource(anomaly)}</span>
+          <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
+            {alert.source}
+          </span>
         </div>
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">Detected</span>
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">Fired</span>
           <span className="text-sm text-text-primary font-mono">
-            {new Date(anomaly.detected_at).toLocaleString()}
+            {new Date(alert.fired_at).toLocaleString()}
           </span>
         </div>
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">
-            {anomaly.state === 'acknowledged' ? 'Acknowledged' : anomaly.state === 'resolved' ? 'Resolved' : 'Status'}
+            {alert.state === 'acknowledged' ? 'Acknowledged' : alert.state === 'resolved' ? 'Resolved' : 'Status'}
           </span>
           <span className="text-sm text-text-primary font-mono">
-            {anomaly.acknowledged_at
-              ? new Date(anomaly.acknowledged_at).toLocaleString()
-              : anomaly.resolved_at
-                ? new Date(anomaly.resolved_at).toLocaleString()
+            {alert.acknowledged_at
+              ? new Date(alert.acknowledged_at).toLocaleString()
+              : alert.resolved_at
+                ? new Date(alert.resolved_at).toLocaleString()
                 : '\u2014'}
           </span>
         </div>
@@ -406,26 +422,26 @@ function AlertCardExpanded({ anomaly }: { anomaly: Anomaly }) {
         </div>
       )}
 
-      {anomaly.sim_id && (
+      {alert.sim_id && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Related Entity</span>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate(`/sims/${anomaly.sim_id}`)}
+            onClick={() => navigate(`/sims/${alert.sim_id}`)}
             className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline h-auto p-0"
           >
             <ExternalLink className="h-3 w-3" />
-            View SIM {anomaly.sim_iccid || anomaly.sim_id.slice(0, 12)}
+            View SIM {alert.sim_id.slice(0, 12)}
           </Button>
         </div>
       )}
 
-      {details && Object.keys(details).length > 0 && (
+      {alert.meta && Object.keys(alert.meta).length > 0 && (
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Raw Details</span>
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Raw Meta</span>
           <pre className="text-xs font-mono text-text-secondary bg-bg-primary rounded-[var(--radius-sm)] p-3 overflow-x-auto max-h-[160px] border border-border">
-            {JSON.stringify(details, null, 2)}
+            {JSON.stringify(alert.meta, null, 2)}
           </pre>
         </div>
       )}
@@ -441,21 +457,21 @@ function statePill(state: string) {
       return <Badge className="bg-warning-dim text-warning border-0 text-[10px] flex-shrink-0">ack</Badge>
     case 'resolved':
       return <Badge className="bg-success-dim text-success border-0 text-[10px] flex-shrink-0">resolved</Badge>
-    case 'false_positive':
-      return <Badge className="bg-bg-elevated text-text-tertiary border border-border text-[10px] flex-shrink-0">false+</Badge>
+    case 'suppressed':
+      return <Badge className="bg-bg-elevated text-text-tertiary border border-border text-[10px] flex-shrink-0">suppressed</Badge>
     default:
       return null
   }
 }
 
 function AlertCard({
-  anomaly,
+  alert,
   isExpanded,
   onToggle,
   onCommentOpen,
   delay,
 }: {
-  anomaly: Anomaly
+  alert: Alert
   isExpanded: boolean
   onToggle: () => void
   onCommentOpen: () => void
@@ -467,9 +483,9 @@ function AlertCard({
     <div
       className={cn(
         'stagger-item card-hover rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden',
-        anomaly.severity === 'critical' && anomaly.state === 'open' && 'border-danger/40',
-        (anomaly.severity === 'high' || anomaly.severity === 'medium') && anomaly.state === 'open' && 'border-warning/30',
-        anomaly.state === 'resolved' && 'opacity-70',
+        alert.severity === 'critical' && alert.state === 'open' && 'border-danger/40',
+        (alert.severity === 'high' || alert.severity === 'medium') && alert.state === 'open' && 'border-warning/30',
+        alert.state === 'resolved' && 'opacity-70',
         isExpanded && 'border-accent/40',
       )}
       style={{ animationDelay: `${delay}ms` }}
@@ -481,42 +497,46 @@ function AlertCard({
         )}
         onClick={onToggle}
       >
-        <SeverityBadge severity={anomaly.severity} iconOnly className="flex-shrink-0" />
-        <SeverityBadge severity={anomaly.severity} className="flex-shrink-0" />
+        <SeverityBadge severity={alert.severity} iconOnly className="flex-shrink-0" />
+        <SeverityBadge severity={alert.severity} className="flex-shrink-0" />
 
-        {statePill(anomaly.state)}
+        {statePill(alert.state)}
+
+        <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary flex-shrink-0">
+          {alert.source}
+        </span>
 
         <div className="flex-1 min-w-0">
           <p className={cn(
             'text-sm font-medium truncate',
-            anomaly.state === 'resolved' ? 'text-text-secondary' : 'text-text-primary',
+            alert.state === 'resolved' ? 'text-text-secondary' : 'text-text-primary',
           )}>
-            {alertTitle(anomaly)}
+            {alertDisplayTitle(alert)}
           </p>
         </div>
 
-        {anomaly.sim_id && (
+        {alert.sim_id && (
           <Button
             variant="ghost"
             size="sm"
             onClick={(e) => {
               e.stopPropagation()
-              navigate(`/sims/${anomaly.sim_id}`)
+              navigate(`/sims/${alert.sim_id}`)
             }}
             className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline flex-shrink-0 h-auto p-0"
           >
             <ExternalLink className="h-3 w-3" />
-            {anomaly.sim_iccid ? anomaly.sim_iccid.slice(-8) : anomaly.sim_id.slice(0, 8)}
+            {alert.sim_id.slice(0, 8)}
           </Button>
         )}
 
         <div className="hidden md:flex items-center gap-1 text-[11px] text-text-tertiary font-mono flex-shrink-0">
           <Clock className="h-3 w-3" />
-          {timeAgo(anomaly.detected_at)}
+          {timeAgo(alert.fired_at)}
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <AlertActionButtons anomaly={anomaly} />
+          <AlertActionButtons anomaly={alert} />
           <Button
             variant="ghost"
             size="sm"
@@ -529,8 +549,8 @@ function AlertCard({
           </Button>
           <RowActionsMenu
             actions={[
-              { label: 'View Details', onClick: () => navigate(`/alerts/${anomaly.id}`) },
-              ...(anomaly.sim_id ? [{ label: 'View SIM', onClick: () => navigate(`/sims/${anomaly.sim_id}`) }] : []),
+              { label: 'View Details', onClick: () => navigate(`/alerts/${alert.id}`) },
+              ...(alert.sim_id ? [{ label: 'View SIM', onClick: () => navigate(`/sims/${alert.sim_id}`) }] : []),
             ]}
           />
         </div>
@@ -542,7 +562,7 @@ function AlertCard({
         </div>
       </div>
 
-      {isExpanded && <AlertCardExpanded anomaly={anomaly} />}
+      {isExpanded && <AlertCardExpanded alert={alert} />}
     </div>
   )
 }
@@ -613,11 +633,12 @@ export default function AlertsPage() {
     severity: '',
     state: '',
     type: '',
+    source: '',
     q: '',
   })
   const [searchInput, setSearchInput] = useState('')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [commentAnomalyId, setCommentAnomalyId] = useState<string | null>(null)
+  const [commentAlert, setCommentAlert] = useState<Alert | null>(null)
   const [muted, setMuted] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -689,7 +710,7 @@ export default function AlertsPage() {
   if (isLoading) return <AlertsSkeleton />
   if (isError) return <ErrorState onRetry={() => refetch()} />
 
-  const hasFilters = !!(filters.severity || filters.state || filters.type || filters.q)
+  const hasFilters = !!(filters.severity || filters.state || filters.type || filters.source || filters.q)
 
   return (
     <div className="space-y-6">
@@ -781,17 +802,24 @@ export default function AlertsPage() {
             colorMap={SEVERITY_PILL_CLASSES}
           />
           <PillFilter
-            options={STATE_PILLS}
+            options={ALERT_STATE_OPTIONS}
             value={filters.state}
             onChange={(v) => setFilters((prev) => ({ ...prev, state: v }))}
             colorMap={{
               open: 'bg-danger-dim text-danger',
               acknowledged: 'bg-info-dim text-info',
               resolved: 'bg-success-dim text-success',
+              suppressed: 'bg-bg-elevated text-text-tertiary',
             }}
           />
         </div>
         <div className="flex items-center gap-3 lg:ml-auto">
+          <Select
+            options={ALERT_SOURCE_OPTIONS}
+            value={filters.source}
+            onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}
+            className="w-40"
+          />
           <Select
             options={ALERT_TYPE_OPTIONS}
             value={filters.type}
@@ -814,13 +842,13 @@ export default function AlertsPage() {
         <EmptyState hasFilters={hasFilters} />
       ) : (
         <div className="space-y-2">
-          {alerts.map((anomaly, idx) => (
-            <div key={anomaly.id} data-row-index={idx} data-href={`/alerts/${anomaly.id}`}>
+          {alerts.map((alert, idx) => (
+            <div key={alert.id} data-row-index={idx} data-href={`/alerts/${alert.id}`}>
               <AlertCard
-                anomaly={anomaly}
-                isExpanded={expandedIds.has(anomaly.id)}
-                onToggle={() => toggleExpanded(anomaly.id)}
-                onCommentOpen={() => setCommentAnomalyId(anomaly.id)}
+                alert={alert}
+                isExpanded={expandedIds.has(alert.id)}
+                onToggle={() => toggleExpanded(alert.id)}
+                onCommentOpen={() => setCommentAlert(alert)}
                 delay={300 + Math.min(idx, 10) * 40}
               />
             </div>
@@ -844,11 +872,11 @@ export default function AlertsPage() {
         </div>
       )}
 
-      {commentAnomalyId && (
+      {commentAlert && (
         <CommentThread
-          anomalyId={commentAnomalyId}
-          open={!!commentAnomalyId}
-          onClose={() => setCommentAnomalyId(null)}
+          alert={commentAlert}
+          open={!!commentAlert}
+          onClose={() => setCommentAlert(null)}
         />
       )}
     </div>

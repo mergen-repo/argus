@@ -197,6 +197,19 @@ func (e *Engine) publishEvents(ctx context.Context, record *store.Anomaly, iccid
 	}
 
 	if e.alertSubject != "" {
+		// FIX-209: clone details into metadata and augment with linkage keys
+		// (anomaly_id + sim_id) so the notification subscriber can tie
+		// alerts back to anomalies without a dedicated FK column.
+		// Clone to avoid mutating the caller's map or the anomaly event payload.
+		meta := make(map[string]interface{}, len(details)+2)
+		for k, v := range details {
+			meta[k] = v
+		}
+		meta["anomaly_id"] = record.ID.String()
+		if record.SimID != nil {
+			meta["sim_id"] = record.SimID.String()
+		}
+
 		alert := map[string]interface{}{
 			"alert_id":    record.ID.String(),
 			"tenant_id":   record.TenantID.String(),
@@ -206,8 +219,11 @@ func (e *Engine) publishEvents(ctx context.Context, record *store.Anomaly, iccid
 			"description": anomalyDescription(record.Type, details),
 			"entity_type": "anomaly",
 			"entity_id":   record.ID.String(),
-			"metadata":    details,
+			"metadata":    meta,
 			"timestamp":   record.DetectedAt.Format(time.RFC3339),
+		}
+		if record.SimID != nil {
+			alert["sim_id"] = record.SimID.String()
 		}
 		if err := e.publisher.Publish(ctx, e.alertSubject, alert); err != nil {
 			e.logger.Warn().Err(err).Msg("publish alert event failed")

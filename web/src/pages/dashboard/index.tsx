@@ -858,10 +858,10 @@ const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardA
                 key={alert.id || idx}
                 className="flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors"
                 onClick={() => {
-                  if (alert.entity_type && alert.entity_id) {
-                    navigate(`/${alert.entity_type}s/${alert.entity_id}`)
+                  if (alert.source === 'sim' && alert.meta?.anomaly_id && alert.sim_id) {
+                    navigate(`/sims/${alert.sim_id}`)
                   } else {
-                    navigate('/analytics/anomalies')
+                    navigate(`/alerts/${alert.id}`)
                   }
                 }}
               >
@@ -870,6 +870,11 @@ const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardA
                   <p className="text-[12px] text-text-primary truncate">{alert.message}</p>
                   <p className="text-[10px] text-text-tertiary mt-0.5">{timeAgo(alert.detected_at)}</p>
                 </div>
+                {alert.source && (
+                  <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary flex-shrink-0">
+                    {alert.source}
+                  </span>
+                )}
                 <SeverityBadge severity={alert.severity} className="flex-shrink-0" />
               </div>
             ))}
@@ -1125,6 +1130,9 @@ export default function DashboardPage() {
         <div className="space-y-4">
           <SIMDistributionDonut data={data.sim_by_state || []} />
           <TopAPNsByTraffic data={data.top_apns || []} />
+          {/* FIX-209 Gate (F-U1): AlertFeed was defined but never mounted — AC-5 requires
+              the dashboard Recent Alerts panel to read from the unified alerts source. */}
+          <AlertFeed alerts={data.recent_alerts || []} />
           <LiveEventStream />
         </div>
       </div>

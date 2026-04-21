@@ -3145,6 +3145,137 @@ p95 latency on cache hit should be in the µs range (gate measured 72µs), well 
 
 ---
 
+## FIX-209: Unified `alerts` Table + Operator/Infra Alert Persistence
+
+Bu story hem backend (unified `alerts` table, AlertStore, 3 API endpoints, retention job, notification subscriber refactor) hem de frontend (alerts list/detail pages, dashboard Recent Alerts panel) kapsamaktadir.
+
+### Senaryo 1 — Alerts list: Source filtresi + geçersiz değer validasyonu (AC-3/AC-6)
+
+`GET /api/v1/alerts?source=` filtresi yalnizca eslesme kaynaktaki satirlari dondurmeli; geçersiz source degeri 400 VALIDATION_ERROR dondurmeli.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# Step 1 — operator source filtresi
+curl -s "http://localhost:8084/api/v1/alerts?source=operator" \
+  -H "Authorization: Bearer $TOKEN" | jq '{count: (.data | length), sources: [.data[].source] | unique}'
+```
+
+Beklenti: `sources` dizisi yalnizca `["operator"]` içermeli (bos dizi de kabul edilir — seed verisinde henüz operator alert olmayabilir).
+
+```bash
+# Step 2 — sim source filtresi
+curl -s "http://localhost:8084/api/v1/alerts?source=sim" \
+  -H "Authorization: Bearer $TOKEN" | jq '{count: (.data | length), sources: [.data[].source] | unique}'
+```
+
+Beklenti: `sources` dizisi yalnizca `["sim"]` içermeli.
+
+```bash
+# Step 3 — geçersiz source degeri 400 VALIDATION_ERROR dondurmeli
+curl -s "http://localhost:8084/api/v1/alerts?source=unknown_source" \
+  -H "Authorization: Bearer $TOKEN" | jq '{status: .status, code: .error.code}'
+```
+
+Beklenti: `{"status": "error", "code": "VALIDATION_ERROR"}` — HTTP 400.
+
+```bash
+# Step 4 — infra source filtresi
+curl -s "http://localhost:8084/api/v1/alerts?source=infra" \
+  -H "Authorization: Bearer $TOKEN" | jq '{count: (.data | length), sources: [.data[].source] | unique}'
+```
+
+Beklenti: `sources` dizisi yalnizca `["infra"]` içermeli (bos dizi de kabul edilir).
+
+### Senaryo 2 — Alert detail: ack/resolve geçişleri + Escalate görünürlüğü (AC-7/AC-8)
+
+PATCH endpoint ile durum geçişleri çalismali; Escalate butonu yalnizca `source=sim` alertlerde görünmeli.
+
+```bash
+# Step 1 — open durumdaki bir alert al
+ALERT_ID=$(curl -s "http://localhost:8084/api/v1/alerts?state=open&limit=1" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+
+echo "Alert ID: $ALERT_ID"
+
+# Step 2 — open → acknowledged geçişi
+curl -s -X PATCH "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"state":"acknowledged"}' | jq '{status: .status, state: .data.state}'
+```
+
+Beklenti: `{"status": "success", "state": "acknowledged"}`.
+
+```bash
+# Step 3 — acknowledged → resolved geçişi
+curl -s -X PATCH "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"state":"resolved"}' | jq '{status: .status, state: .data.state}'
+```
+
+Beklenti: `{"status": "success", "state": "resolved"}`.
+
+```bash
+# Step 4 — resolved → open geçişi geçersiz (409 INVALID_STATE_TRANSITION donmeli)
+curl -s -X PATCH "http://localhost:8084/api/v1/alerts/$ALERT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"state":"open"}' | jq '{status: .status, code: .error.code}'
+```
+
+Beklenti: `{"status": "error", "code": "INVALID_STATE_TRANSITION"}` — HTTP 409.
+
+**UI Dogrulamasi** (tarayici):
+1. http://localhost:8084/alerts sayfasinda bir alert satiri tikla → detail sayfasi açilmali (SCR-172).
+2. `source=sim` ve `meta.anomaly_id` olan alert için Escalate butonu görünmeli; `source=operator` alert için Escalate butonu GIZLI olmali.
+3. Source değeri `operator` olan alertlerde Related Anomaly baglantisi görünmemeli.
+
+### Senaryo 3 — Dashboard Recent Alerts paneli + Source chip (AC-10)
+
+Dashboard ana sayfasinda Recent Alerts paneli görünmeli; her satir severity badge + Source chip içermeli; tiklandiginda alert detail sayfasina yönlendirmeli.
+
+```bash
+# Step 1 — dashboard endpoint'i çagir
+curl -s "http://localhost:8084/api/v1/dashboard" \
+  -H "Authorization: Bearer $TOKEN" | jq '{recent_alerts_count: (.data.recent_alerts | length), first_source: .data.recent_alerts[0].source}'
+```
+
+Beklenti: `recent_alerts` dizisi 0-10 eleman içermeli; her eleman `source` alani içermeli (sim/operator/infra/policy/system).
+
+**UI Dogrulamasi** (tarayici):
+1. http://localhost:8084 dashboard açildiginda Recent Alerts paneli görünmeli (AlertFeed bileşeni).
+2. Her alert satirinda severity badge'inin yaninda Source chip (örn. "operator", "sim") görünmeli.
+3. Bir alert satirina tiklayinca `/alerts/{id}` detay sayfasina yönlendirmeli.
+4. Recent Alerts paneli bos oldugunda "No recent alerts" bos durum mesaji görünmeli.
+
+### Senaryo 4 — Retention job gözlemi (Config: ALERTS_RETENTION_DAYS)
+
+Bu senaryo observation (çalişma zamaninda dogrulanamaz; ayar ve cron kaydini dogrular).
+
+```bash
+# Step 1 — env var dokümantasyonu
+grep 'ALERTS_RETENTION_DAYS' /path/to/argus/.env.example
+```
+
+Beklenti: `.env.example` dosyasinda `ALERTS_RETENTION_DAYS=180` satiri mevcut olmali.
+
+```bash
+# Step 2 — cron job kaydi
+grep -n 'alerts_retention\|03:15\|AlertsRetention' internal/job/ -r
+```
+
+Beklenti: `internal/job/alerts_retention.go` dosyasinda `03:15 UTC` cron pattern ve `DeleteOlderThan` çagrisi mevcut olmali.
+
+```bash
+# Step 3 — CONFIG.md dokümantasyonu
+grep 'ALERTS_RETENTION_DAYS' docs/architecture/CONFIG.md
+```
+
+Beklenti: `ALERTS_RETENTION_DAYS` satiri mevcut, default `180`, min `30` olarak belirtilmeli.
+
+---
+
 ## FIX-211: Severity Taxonomy Unification
 
 Bu story birincil olarak backend + frontend altyapi degisikligidir (5-degerli kanonik taxonomy: info/low/medium/high/critical). Ana UI degisiklikleri: Alerts/Violations/Notifications sayfalarinda 5 severity secenegi + eski "warning"/"error" degerlerini reddeden 400 dogrulama.

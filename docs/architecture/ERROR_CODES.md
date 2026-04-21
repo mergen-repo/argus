@@ -125,6 +125,7 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `NOT_FOUND` | 404 | Requested resource does not exist (or is not visible to the current tenant) | `{"status":"error","error":{"code":"NOT_FOUND","message":"Resource not found"}}` |
 | `ALREADY_EXISTS` | 409 | Attempting to create a resource that already exists (unique constraint) | `{"status":"error","error":{"code":"ALREADY_EXISTS","message":"A resource with this identifier already exists","details":[{"field":"name","value":"iot.fleet"}]}}` |
 | `CONFLICT` | 409 | Optimistic concurrency conflict or state conflict preventing operation | `{"status":"error","error":{"code":"CONFLICT","message":"Resource was modified by another request. Retry with latest version."}}` |
+| `ALERT_NOT_FOUND` | 404 | Alert does not exist in the tenant's scope (or never existed). Same shape for cross-tenant lookups — never reveals existence. | `{"status":"error","error":{"code":"ALERT_NOT_FOUND","message":"alert not found"}}` |
 
 ---
 
@@ -316,6 +317,7 @@ const (
     CodeNotFound      = "NOT_FOUND"
     CodeAlreadyExists = "ALREADY_EXISTS"
     CodeConflict      = "CONFLICT"
+    CodeAlertNotFound = "ALERT_NOT_FOUND"  // FIX-209 (unified alerts table)
 
     // SIM
     CodeSIMNotFound             = "SIM_NOT_FOUND"
@@ -467,6 +469,75 @@ CHECK (severity IN ('critical','high','medium','low','info'))
 ```
 
 Constraint name: `chk_alerts_severity`. Do NOT reintroduce `warning` or `error`.
+
+---
+
+## Alerts Taxonomy
+
+Argus persists every `argus.events.alert.triggered` NATS event into a single `alerts` table. The table is the canonical source of truth for operator, infrastructure, policy, and SIM-level alert history. SIM-level alerts also retain their anomaly row (see `anomalies` table) linked via `alerts.meta.anomaly_id`. Established in FIX-209.
+
+**Source:** `internal/store/alert.go` · `internal/api/alert/handler.go` · `internal/notification/service.go` (`handleAlertPersist` + `parseAlertPayload`).
+
+### Severity
+
+Uses the canonical 5-value enum from FIX-211 (see [§Severity Taxonomy](#severity-taxonomy)). Constraint: `chk_alerts_severity CHECK (severity IN ('critical','high','medium','low','info'))`.
+
+### State
+
+| State | Meaning | Transitions |
+|---|---|---|
+| `open` | New, unacknowledged | → `acknowledged`, `resolved` (`suppressed` reserved for FIX-210 dedup state machine — not exposed via `PATCH /alerts/{id}`) |
+| `acknowledged` | Operator has seen / owns it | → `resolved` |
+| `resolved` | Fixed or no longer actionable | terminal |
+| `suppressed` | FIX-210 dedup/cooldown suppression. NOT transitionable via `PATCH /alerts/{id}` — managed automatically by the dedup state machine. | terminal via this endpoint |
+
+Constraint: `chk_alerts_state CHECK (state IN ('open','acknowledged','resolved','suppressed'))`.
+
+**Reserved for FIX-298**: `delivery_failed` — NOT yet in the CHECK. A future story will add it when notification delivery-failure persistence lands.
+
+### Source
+
+| Source | Meaning |
+|---|---|
+| `sim` | SIM-level detection (anomalies engine + batch). Links back to `anomalies.id` via `alerts.meta.anomaly_id`. |
+| `operator` | Mobile operator health, SLA, roaming — from operator/health.go + job/roaming_renewal.go. |
+| `infra` | Infrastructure: NATS consumer lag, storage monitor, anomaly-batch crash. |
+| `policy` | Policy engine violations. |
+| `system` | Fallback for unknown `alert_type` values (log-warn on persist). |
+
+Constraint: `chk_alerts_source CHECK (source IN ('sim','operator','infra','policy','system'))`.
+
+### Publisher → Source map
+
+The notification subscriber `parseAlertPayload` resolves `source` from `alert_type` via this table. Rows are added here when a new publisher ships.
+
+| Alert type | Source | Publisher file |
+|---|---|---|
+| `anomaly_sim_cloning` / `anomaly_data_spike` / `anomaly_auth_flood` / `anomaly_nas_flood` / `anomaly_velocity` / `anomaly_location` | `sim` | `internal/analytics/anomaly/engine.go`, `batch.go` |
+| `operator_down`, `operator_recovered`, `sla_violation` | `operator` | `internal/operator/health.go` |
+| `roaming.agreement.renewal_due` | `operator` | `internal/job/roaming_renewal.go` |
+| `nats_consumer_lag` | `infra` | `internal/bus/consumer_lag.go` |
+| `storage.*` (prefix match) | `infra` | `internal/job/storage_monitor.go` |
+| `anomaly_batch_crash` | `infra` | `internal/job/anomaly_batch_supervisor.go` |
+| `policy_violation` | `policy` | `internal/policy/enforcer/enforcer.go` |
+| (any other) | `system` | — |
+
+### Publisher payload tolerance
+
+FIX-209 persists alerts tolerantly: publisher payload shapes differ across the 7 sites. Until FIX-212 normalizes the envelope, the subscriber accepts a flexible struct with both `alert_type`/`type`, `title`/`message`, `timestamp`/`detected_at`, `metadata`/`details` field aliases, and synthesizes missing titles/descriptions. Publishers with NO `tenant_id` in their payload today (e.g. `nats_consumer_lag`, `anomaly_batch_crash`, `storage_monitor` explicit-nil, `operator.AlertEvent`, `notification.AlertPayload`) currently skip persist but STILL dispatch notifications — FIX-212 closes that gap.
+
+### Retention
+
+Controlled by `ALERTS_RETENTION_DAYS` (default 180, min 30) — see [CONFIG.md](CONFIG.md). Daily cron job `alerts_retention` at 03:15 UTC calls `AlertStore.DeleteOlderThan(now - retention_days)`.
+
+### Cross-reference for FIX-210
+
+FIX-210 introduces alert deduplication + state-machine transitions involving `suppressed`. FIX-209 reserves:
+- `dedup_key VARCHAR(255)` column (always NULL in FIX-209).
+- `idx_alerts_dedup` partial index on `(tenant_id, dedup_key) WHERE dedup_key IS NOT NULL AND state IN ('open','suppressed')`.
+- `suppressed` value in `chk_alerts_state`.
+
+FIX-210 MUST populate `dedup_key` at publish or persist time and manage transitions `open ↔ suppressed` via a separate store method (not `UpdateState`, which rejects `suppressed`).
 
 ---
 

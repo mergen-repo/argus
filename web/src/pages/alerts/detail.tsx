@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft,
   AlertCircle,
@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Clock,
   Shield,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,18 +39,19 @@ import { EntityLink, RelatedAuditTab, FavoriteToggle } from '@/components/shared
 import { useAlert, useSimilarAlerts, useUpdateAlertState } from '@/hooks/use-alert-detail'
 import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
-import type { Anomaly } from '@/types/analytics'
+import type { Alert } from '@/types/analytics'
 import { useUIStore } from '@/stores/ui'
 
 function stateVariant(s: string): 'success' | 'secondary' | 'warning' | 'default' {
   if (s === 'resolved') return 'success'
   if (s === 'acknowledged') return 'warning'
-  if (s === 'false_positive') return 'secondary'
+  if (s === 'suppressed') return 'secondary'
   return 'default'
 }
 
-function alertTitle(anomaly: Anomaly): string {
-  return (anomaly.type ?? 'unknown').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+function alertTitle(alert: Alert): string {
+  if (alert.title) return alert.title
+  return (alert.type ?? 'unknown').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 type ActionType = 'acknowledge' | 'resolve' | 'escalate' | null
@@ -68,7 +70,7 @@ export default function AlertDetailPage() {
 
   React.useEffect(() => {
     if (alert && id) {
-      addRecentItem({ type: 'alert', id, label: alert.type || id.slice(0, 8), path: `/alerts/${id}` })
+      addRecentItem({ type: 'alert', id, label: alertTitle(alert), path: `/alerts/${id}` })
     }
   }, [alert, id, addRecentItem])
 
@@ -116,6 +118,10 @@ export default function AlertDetailPage() {
 
   const similarOthers = similar.filter((a) => a.id !== alert.id).slice(0, 5)
 
+  const anomalyId = alert.source === 'sim' && typeof alert.meta?.anomaly_id === 'string'
+    ? alert.meta.anomaly_id
+    : null
+
   return (
     <div className="p-6 space-y-6">
       <Breadcrumb
@@ -140,9 +146,12 @@ export default function AlertDetailPage() {
               <Badge variant={stateVariant(alert.state)} className="text-[11px]">
                 {alert.state}
               </Badge>
+              <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
+                {alert.source}
+              </span>
               <span className="text-[11px] text-text-tertiary flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                {timeAgo(alert.detected_at)}
+                {timeAgo(alert.fired_at)}
               </span>
             </div>
           </div>
@@ -165,15 +174,18 @@ export default function AlertDetailPage() {
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Acknowledge
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setActionOpen('escalate')}
-              >
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                Escalate
-              </Button>
+              {/* FIX-209 Gate (F-A2): Escalate only for SIM-linked alerts (meta.anomaly_id). */}
+              {anomalyId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setActionOpen('escalate')}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                  Escalate
+                </Button>
+              )}
             </>
           )}
           {alert.state !== 'resolved' && (
@@ -214,14 +226,30 @@ export default function AlertDetailPage() {
               </CardHeader>
               <CardContent className="p-4 space-y-2">
                 <InfoRow label="Type" value={<span className="text-[12px] font-mono text-text-primary">{alert.type}</span>} />
+                <InfoRow label="Source" value={
+                  <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
+                    {alert.source}
+                  </span>
+                } />
                 <InfoRow label="Severity" value={<SeverityBadge severity={alert.severity} />} />
                 <InfoRow label="State" value={<Badge variant={stateVariant(alert.state)} className="text-[11px]">{alert.state}</Badge>} />
-                <InfoRow label="Detected" value={<span className="text-[12px] text-text-secondary" title={alert.detected_at}>{timeAgo(alert.detected_at)}</span>} />
+                <InfoRow label="Fired" value={<span className="text-[12px] text-text-secondary" title={alert.fired_at}>{timeAgo(alert.fired_at)}</span>} />
                 {alert.acknowledged_at && (
                   <InfoRow label="Acknowledged" value={<span className="text-[12px] text-text-secondary">{timeAgo(alert.acknowledged_at)}</span>} />
                 )}
                 {alert.resolved_at && (
                   <InfoRow label="Resolved" value={<span className="text-[12px] text-text-secondary">{timeAgo(alert.resolved_at)}</span>} />
+                )}
+                {anomalyId && (
+                  <InfoRow label="Anomaly" value={
+                    <Link
+                      to={`/dashboard/analytics?anomaly=${anomalyId}`}
+                      className="inline-flex items-center gap-1 text-[12px] text-accent hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      View anomaly detail
+                    </Link>
+                  } />
                 )}
               </CardContent>
             </Card>
@@ -232,18 +260,24 @@ export default function AlertDetailPage() {
               </CardHeader>
               <CardContent className="p-4 space-y-2">
                 {alert.sim_id && (
-                  <InfoRow label="SIM" value={<EntityLink entityType="sim" entityId={alert.sim_id} label={alert.sim_iccid ?? alert.sim_id} />} />
+                  <InfoRow label="SIM" value={<EntityLink entityType="sim" entityId={alert.sim_id} label={alert.sim_id} />} />
                 )}
-                {!alert.sim_id && (
+                {alert.operator_id && (
+                  <InfoRow label="Operator" value={<EntityLink entityType="operator" entityId={alert.operator_id} label={alert.operator_id} />} />
+                )}
+                {alert.apn_id && (
+                  <InfoRow label="APN" value={<EntityLink entityType="apn" entityId={alert.apn_id} label={alert.apn_id} />} />
+                )}
+                {!alert.sim_id && !alert.operator_id && !alert.apn_id && (
                   <div className="py-4 text-center">
                     <p className="text-[12px] text-text-tertiary">No specific resource linked</p>
                   </div>
                 )}
-                {alert.details && Object.keys(alert.details).length > 0 && (
+                {alert.meta && Object.keys(alert.meta).length > 0 && (
                   <div className="mt-3">
-                    <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-2">Details</p>
+                    <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-2">Meta</p>
                     <pre className="text-[11px] font-mono bg-bg-primary p-2.5 rounded-[var(--radius-sm)] border border-border overflow-x-auto max-h-32 text-text-secondary whitespace-pre-wrap break-all">
-                      {JSON.stringify(alert.details, null, 2)}
+                      {JSON.stringify(alert.meta, null, 2)}
                     </pre>
                   </div>
                 )}
@@ -265,7 +299,7 @@ export default function AlertDetailPage() {
                   <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Type</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Severity</TableHead>
                   <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
-                  <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Detected</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Fired</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -285,7 +319,7 @@ export default function AlertDetailPage() {
                       <Badge variant={stateVariant(a.state)} className="text-[10px]">{a.state}</Badge>
                     </TableCell>
                     <TableCell className="py-2.5">
-                      <span className="text-[11px] text-text-tertiary">{timeAgo(a.detected_at)}</span>
+                      <span className="text-[11px] text-text-tertiary">{timeAgo(a.fired_at)}</span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -295,7 +329,12 @@ export default function AlertDetailPage() {
         </TabsContent>
 
         <TabsContent value="audit" className="mt-4">
-          {id && <RelatedAuditTab entityId={id} entityType="anomaly" />}
+          {id && (
+            <RelatedAuditTab
+              entityId={anomalyId ?? id}
+              entityType={anomalyId ? 'anomaly' : 'alert'}
+            />
+          )}
         </TabsContent>
       </Tabs>
 

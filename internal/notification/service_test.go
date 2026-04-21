@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -938,4 +940,533 @@ func TestService_Notify_NoPrefStore_UsesLegacyChannels(t *testing.T) {
 		t.Errorf("email calls = %d, want 1 (legacy channels)", len(email.calls))
 	}
 	email.mu.Unlock()
+}
+
+// -- FIX-209: handleAlertPersist — unified alerts persist + dispatch tests --
+
+// mockAlertStore is a fake AlertStoreWriter for FIX-209 tests.
+type mockAlertStore struct {
+	mu      sync.Mutex
+	calls   []store.CreateAlertParams
+	failErr error
+}
+
+func (m *mockAlertStore) Create(_ context.Context, p store.CreateAlertParams) (*store.Alert, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failErr != nil {
+		return nil, m.failErr
+	}
+	m.calls = append(m.calls, p)
+	return &store.Alert{
+		ID:       uuid.New(),
+		TenantID: p.TenantID,
+		Type:     p.Type,
+		Severity: p.Severity,
+		Source:   p.Source,
+		Title:    p.Title,
+		FiredAt:  p.FiredAt,
+	}, nil
+}
+
+func newPersistSvc(t *testing.T, email *mockEmailSender, alertStore *mockAlertStore) (*Service, *mockSubscriber) {
+	t.Helper()
+	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+	if alertStore != nil {
+		svc.SetAlertStore(alertStore)
+	}
+	sub := newMockSubscriber()
+	if err := svc.Start(sub, "argus.events.operator.health", "argus.events.alert.triggered"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	return svc, sub
+}
+
+// TestHandleAlertPersist_FullAlertEvent_PersistsAllFields — shape A (operator.AlertEvent JSON).
+func TestHandleAlertPersist_FullAlertEvent_PersistsAllFields(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	opID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_id":    "alert-op-001",
+		"alert_type":  "operator_down",
+		"tenant_id":   tenantID.String(),
+		"severity":    "critical",
+		"title":       "Operator turkcell is DOWN",
+		"description": "Circuit breaker opened",
+		"entity_type": "operator",
+		"entity_id":   opID.String(),
+		"metadata":    map[string]interface{}{"operator_name": "turkcell"},
+		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.TenantID != tenantID {
+		t.Errorf("tenant_id = %s, want %s", p.TenantID, tenantID)
+	}
+	if p.Type != "operator_down" {
+		t.Errorf("type = %q, want operator_down", p.Type)
+	}
+	if p.Severity != "critical" {
+		t.Errorf("severity = %q, want critical", p.Severity)
+	}
+	if p.Source != "operator" {
+		t.Errorf("source = %q, want operator", p.Source)
+	}
+	if p.OperatorID == nil || *p.OperatorID != opID {
+		t.Errorf("operator_id = %v, want %s (derived from entity_type=operator)", p.OperatorID, opID)
+	}
+}
+
+// TestHandleAlertPersist_AnomalyMapPayload_LinksAnomalyID — shape C (anomaly engine map).
+func TestHandleAlertPersist_AnomalyMapPayload_LinksAnomalyID(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	simID := uuid.New()
+	anomalyID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_id":    anomalyID.String(),
+		"tenant_id":   tenantID.String(),
+		"alert_type":  "anomaly_data_spike",
+		"severity":    "high",
+		"title":       "Data Usage Spike — 89012345",
+		"description": "SIM data spike",
+		"entity_type": "anomaly",
+		"entity_id":   anomalyID.String(),
+		"sim_id":      simID.String(),
+		"metadata": map[string]interface{}{
+			"anomaly_id":  anomalyID.String(),
+			"sim_id":      simID.String(),
+			"today_bytes": float64(1000000),
+		},
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.SimID == nil || *p.SimID != simID {
+		t.Errorf("sim_id = %v, want %s", p.SimID, simID)
+	}
+	if p.Source != "sim" {
+		t.Errorf("source = %q, want sim", p.Source)
+	}
+	var meta map[string]interface{}
+	if err := json.Unmarshal(p.Meta, &meta); err != nil {
+		t.Fatalf("meta unmarshal: %v", err)
+	}
+	if meta["anomaly_id"] != anomalyID.String() {
+		t.Errorf("meta.anomaly_id = %v, want %s", meta["anomaly_id"], anomalyID)
+	}
+	if meta["sim_id"] != simID.String() {
+		t.Errorf("meta.sim_id = %v, want %s", meta["sim_id"], simID)
+	}
+}
+
+// TestHandleAlertPersist_LagAlert_SynthesizesTitle — shape D (consumer_lag).
+// NOTE: real publisher omits tenant_id; FIX-212 will add. Test injects tenant_id
+// to exercise the shape-D title synthesis path.
+func TestHandleAlertPersist_LagAlert_SynthesizesTitle(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := map[string]interface{}{
+		"tenant_id": tenantID.String(),
+		"severity":  "medium",
+		"source":    "nats_consumer_lag",
+		"consumer":  "cdr-worker",
+		"pending":   520,
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.Type != "nats_consumer_lag" {
+		t.Errorf("type = %q, want nats_consumer_lag (resolved from source field)", p.Type)
+	}
+	if p.Source != "infra" {
+		t.Errorf("source = %q, want infra", p.Source)
+	}
+	wantTitle := "NATS consumer lag: cdr-worker has 520 pending"
+	if p.Title != wantTitle {
+		t.Errorf("title = %q, want %q", p.Title, wantTitle)
+	}
+}
+
+// TestHandleAlertPersist_StorageMonitor_MapsToInfra — shape B (storage monitor).
+// NOTE: real publisher emits tenant_id: nil; FIX-212 will add a real tenant.
+// Test injects tenant_id to exercise the storage.* prefix mapping.
+func TestHandleAlertPersist_StorageMonitor_MapsToInfra(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_type":  "storage.hypertable_growth",
+		"tenant_id":   tenantID.String(),
+		"severity":    "high",
+		"title":       "Storage Alert: hypertable_growth",
+		"description": "CDR hypertable grew by 80% in 24h",
+		"entity_type": "system",
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.Source != "infra" {
+		t.Errorf("source = %q, want infra (storage.* prefix)", p.Source)
+	}
+	if p.Type != "storage.hypertable_growth" {
+		t.Errorf("type = %q, want storage.hypertable_growth", p.Type)
+	}
+}
+
+// TestHandleAlertPersist_PolicyViolation_MessageBecomesTitle — shape C (enforcer).
+func TestHandleAlertPersist_PolicyViolation_MessageBecomesTitle(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	simID := uuid.New()
+	payload := map[string]interface{}{
+		"id":          uuid.New().String(),
+		"tenant_id":   tenantID.String(),
+		"type":        "policy_violation",
+		"severity":    "high",
+		"state":       "open",
+		"message":     "Policy violation: usage_cap on SIM 8901234567890123",
+		"sim_id":      simID.String(),
+		"entity_type": "sim",
+		"entity_id":   simID.String(),
+		"detected_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.Type != "policy_violation" {
+		t.Errorf("type = %q, want policy_violation (resolved from 'type' field)", p.Type)
+	}
+	if p.Source != "policy" {
+		t.Errorf("source = %q, want policy", p.Source)
+	}
+	if p.Title != "Policy violation: usage_cap on SIM 8901234567890123" {
+		t.Errorf("title = %q, want message-derived", p.Title)
+	}
+	if p.SimID == nil || *p.SimID != simID {
+		t.Errorf("sim_id = %v, want %s", p.SimID, simID)
+	}
+}
+
+// TestHandleAlertPersist_AnomalyBatchCrash_NoTitleSynthesizes — shape D (supervisor).
+// NOTE: real publisher omits tenant_id; test injects to exercise synthesis path.
+func TestHandleAlertPersist_AnomalyBatchCrash_NoTitleSynthesizes(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	jobID := uuid.New()
+	payload := map[string]interface{}{
+		"tenant_id": tenantID.String(),
+		"severity":  "high",
+		"source":    "anomaly_batch_crash",
+		"job_id":    jobID.String(),
+		"error":     "context deadline exceeded",
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.Source != "infra" {
+		t.Errorf("source = %q, want infra", p.Source)
+	}
+	wantTitle := "Anomaly batch crashed: job " + jobID.String()
+	if p.Title != wantTitle {
+		t.Errorf("title = %q, want %q", p.Title, wantTitle)
+	}
+}
+
+// TestHandleAlertPersist_RoamingRenewal_FullEnvelope — shape A (AlertPayload JSON).
+// NOTE: roaming_renewal publisher emits notification.AlertPayload which has no
+// TenantID field; test injects to exercise the source='operator' path.
+func TestHandleAlertPersist_RoamingRenewal_FullEnvelope(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	agreementID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_id":    "roaming-renewal-xyz",
+		"alert_type":  "roaming.agreement.renewal_due",
+		"tenant_id":   tenantID.String(),
+		"severity":    "medium",
+		"title":       "Roaming agreement expiring in 30 days",
+		"description": "Agreement with VodafoneDE expires on 2026-05-21",
+		"entity_type": "roaming_agreement",
+		"entity_id":   agreementID.String(),
+		"metadata": map[string]interface{}{
+			"partner_operator_name": "VodafoneDE",
+			"days_to_expiry":        float64(30),
+		},
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
+	}
+	p := alertStore.calls[0]
+	if p.Source != "operator" {
+		t.Errorf("source = %q, want operator", p.Source)
+	}
+	if p.Type != "roaming.agreement.renewal_due" {
+		t.Errorf("type = %q, want roaming.agreement.renewal_due", p.Type)
+	}
+}
+
+// TestHandleAlertPersist_InvalidSeverity_CoercesToInfo — severity drift must not drop the event.
+func TestHandleAlertPersist_InvalidSeverity_CoercesToInfo(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := map[string]interface{}{
+		"alert_type": "sla_violation",
+		"tenant_id":  tenantID.String(),
+		"severity":   "warning", // not a canonical severity
+		"title":      "stale publisher emitted 'warning'",
+	}
+	data, _ := json.Marshal(payload)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Fatalf("alert persist calls = %d, want 1 (event must NOT be dropped on invalid severity)", len(alertStore.calls))
+	}
+	if alertStore.calls[0].Severity != "info" {
+		t.Errorf("severity = %q, want info (coerced)", alertStore.calls[0].Severity)
+	}
+}
+
+// TestHandleAlertPersist_PersistFails_DispatchStillRuns — persist error must
+// not block the dispatch path (availability > durability for notifications).
+func TestHandleAlertPersist_PersistFails_DispatchStillRuns(t *testing.T) {
+	email := &mockEmailSender{}
+	alertStore := &mockAlertStore{failErr: errors.New("db is down")}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	payload := AlertPayload{
+		AlertID:     "x",
+		AlertType:   "sla_violation",
+		Severity:    "high",
+		Title:       "SLA violation",
+		Description: "uptime below target",
+		EntityType:  "operator",
+		EntityID:    uuid.New(),
+		Metadata:    map[string]interface{}{"tenant_id": tenantID.String()}, // inject tenant_id so parse succeeds
+		Timestamp:   time.Now(),
+	}
+	// Build raw JSON with tenant_id at top-level so parse succeeds AND persist hits the failErr.
+	raw := map[string]interface{}{
+		"alert_id":    payload.AlertID,
+		"alert_type":  payload.AlertType,
+		"tenant_id":   tenantID.String(),
+		"severity":    payload.Severity,
+		"title":       payload.Title,
+		"description": payload.Description,
+		"entity_type": payload.EntityType,
+		"entity_id":   payload.EntityID.String(),
+		"timestamp":   payload.Timestamp.Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(raw)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Persist was attempted (and returned an error via failErr).
+	alertStore.mu.Lock()
+	if len(alertStore.calls) != 0 {
+		t.Errorf("alert persist calls = %d, want 0 (failErr set — no row appended)", len(alertStore.calls))
+	}
+	alertStore.mu.Unlock()
+
+	// Dispatch must still have happened (email sent).
+	email.mu.Lock()
+	defer email.mu.Unlock()
+	if len(email.calls) != 1 {
+		t.Errorf("email calls = %d, want 1 (dispatch must not be blocked by persist failure)", len(email.calls))
+	}
+}
+
+// TestHandleAlertPersist_DispatchFails_PersistStillCommitted — persist happens
+// BEFORE dispatch, so even if dispatch errors the persist call is committed.
+func TestHandleAlertPersist_DispatchFails_PersistStillCommitted(t *testing.T) {
+	email := &mockEmailSender{failErr: errors.New("smtp unreachable")}
+	alertStore := &mockAlertStore{}
+	svc, sub := newPersistSvc(t, email, alertStore)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	raw := map[string]interface{}{
+		"alert_id":    "x",
+		"alert_type":  "sla_violation",
+		"tenant_id":   tenantID.String(),
+		"severity":    "high",
+		"title":       "SLA violation",
+		"description": "uptime below target",
+		"entity_type": "operator",
+		"entity_id":   uuid.New().String(),
+		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(raw)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Persist must be committed despite dispatch error.
+	alertStore.mu.Lock()
+	defer alertStore.mu.Unlock()
+	if len(alertStore.calls) != 1 {
+		t.Errorf("alert persist calls = %d, want 1 (persist runs BEFORE dispatch)", len(alertStore.calls))
+	}
+}
+
+// TestHandleAlertPersist_NilAlertStore_DispatchStillRuns — FIX-209 Gate F-A10.
+// When alertStore is never wired (SetAlertStore unused), handleAlertPersist must
+// still dispatch without panicking.
+func TestHandleAlertPersist_NilAlertStore_DispatchStillRuns(t *testing.T) {
+	email := &mockEmailSender{}
+	// nil alertStore explicitly — do NOT call SetAlertStore.
+	svc, sub := newPersistSvc(t, email, nil)
+	defer svc.Stop()
+
+	tenantID := uuid.New()
+	raw := map[string]interface{}{
+		"alert_id":    "x",
+		"alert_type":  "operator_down",
+		"tenant_id":   tenantID.String(),
+		"severity":    "critical",
+		"title":       "Operator is DOWN",
+		"description": "cb opened",
+		"entity_type": "operator",
+		"entity_id":   uuid.New().String(),
+		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(raw)
+	sub.Publish("argus.events.alert.triggered", data)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Dispatch must have happened despite no alertStore wired.
+	email.mu.Lock()
+	defer email.mu.Unlock()
+	if len(email.calls) != 1 {
+		t.Errorf("email calls = %d, want 1 (nil alertStore must not block dispatch)", len(email.calls))
+	}
+}
+
+// TestParseAlertPayload_MissingTenantID_UsesSentinel — FIX-209 Gate F-A1.
+// Five of seven publishers (operator.AlertEvent, nats_consumer_lag,
+// anomaly_batch_crash, storage_monitor explicit-nil, roaming_renewal
+// notification.AlertPayload) do NOT emit tenant_id — plan AC-3 + PAT-006
+// forbid rewriting publishers in this story. parseAlertPayload must fall
+// back to the system-tenant sentinel so these alerts still persist.
+func TestParseAlertPayload_MissingTenantID_UsesSentinel(t *testing.T) {
+	// Shape D — consumer_lag (no tenant_id, no title, no description).
+	raw := map[string]interface{}{
+		"severity": "medium",
+		"source":   "nats_consumer_lag",
+		"consumer": "argus-anomaly-events",
+		"pending":  float64(150),
+	}
+	data, _ := json.Marshal(raw)
+
+	p, err := parseAlertPayload(data)
+	if err != nil {
+		t.Fatalf("parseAlertPayload returned err with missing tenant_id (should fall back): %v", err)
+	}
+	if p.TenantID != systemTenantID {
+		t.Errorf("tenant_id = %s, want system sentinel %s", p.TenantID, systemTenantID)
+	}
+	if p.Source != "infra" {
+		t.Errorf("source = %q, want infra (resolved via publisherSourceMap)", p.Source)
+	}
+	if p.Title == "" {
+		t.Errorf("title must be synthesized for payloads without explicit title")
+	}
 }

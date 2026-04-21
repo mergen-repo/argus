@@ -45,4 +45,3 @@ func RegisterDashboardInvalidator(eb *bus.EventBus, rc *redis.Client, logger zer
 
 	return nil
 }
-

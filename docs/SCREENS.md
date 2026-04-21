@@ -13,7 +13,7 @@
 | SCR-015 | 2FA Setup & Backup Codes | Auth/Security | /settings/security#2fa | JWT (any) | STORY-068 AC-4 |
 | SCR-018 | Force Password Change | Auth | /auth/change-password | Partial (force-change) | STORY-068 AC-3 |
 | SCR-019 | User Settings — Security Tab | Settings | /settings/security | JWT (any) | STORY-068 AC-3/4 |
-| SCR-010 | [Main Dashboard](screens/SCR-010-dashboard.md) | Dashboard | / | JWT (any) | |
+| SCR-010 | [Main Dashboard](screens/SCR-010-dashboard.md) | Dashboard | / | JWT (any) | FIX-209: Recent Alerts panel (AlertFeed component) added; source chip next to severity badge; dashboard handler now reads from alertStore (was anomalyStore). |
 | SCR-011 | [Analytics — Usage](screens/SCR-011-analytics-usage.md) | Analytics | /analytics | JWT (analyst+) | |
 | SCR-012 | [Analytics — Cost](screens/SCR-012-analytics-cost.md) | Analytics | /analytics/cost | JWT (analyst+) | |
 | SCR-013 | [Analytics — Anomalies](screens/SCR-013-analytics-anomalies.md) | Analytics | /analytics/anomalies | JWT (analyst+) | |
@@ -80,7 +80,7 @@
 | SCR-180 | SIM Compare | SIM | /sims/compare | JWT (sim_manager+) | STORY-078/077: two-SIM side-by-side diff; `?sim_id_a=&sim_id_b=` pre-populate (F-4 = D-016 OPEN against STORY-079) |
 | SCR-181 | Operator Compare | Operator | /operators/compare | JWT (operator_manager+) | STORY-077: two-operator side-by-side comparison |
 | SCR-182 | Policy Compare | Policy | /policies/compare | JWT (policy_editor+) | STORY-077: two-policy version diff (DSL + metadata) |
-| SCR-183 | Alerts List | Alerts | /alerts | JWT (sim_manager+) | STORY-075/077: alert feed with severity filters; drill-down to SCR-172 |
+| SCR-183 | Alerts List | Alerts | /alerts | JWT (sim_manager+) | STORY-075/077: alert feed with severity filters; drill-down to SCR-172. FIX-209: unified multi-source feed (sim/operator/infra/policy/system), Source chip per row, source filter param (valid enum required), backed by TBL-53 alerts table (was anomalies only). |
 | SCR-184 | Violations List | Violations | /violations | JWT (sim_manager+) | STORY-070/075: policy violations list with acknowledge/remediate actions; drill-down to SCR-173 |
 | SCR-185 | SLA Dashboard | Analytics/SLA | /sla | JWT (tenant_admin+) | STORY-072/063: operator SLA reports, uptime trend, violation events |
 | SCR-186 | Topology | System | /topology | JWT (super_admin) | STORY-072: live topology — tenants ↔ operators ↔ APNs ↔ pools with health tinting |

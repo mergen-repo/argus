@@ -32,6 +32,7 @@ const (
 	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
 	JobTypeRoamingRenewal            = "roaming_renewal_sweep"
 	JobTypeDataIntegrityScan         = "data_integrity_scan"
+	JobTypeAlertsRetention           = "alerts_retention"
 )
 
 var AllJobTypes = []string{
@@ -66,4 +67,5 @@ var AllJobTypes = []string{
 	JobTypeScheduledReportSweeper,
 	JobTypeRoamingRenewal,
 	JobTypeDataIntegrityScan,
+	JobTypeAlertsRetention,
 }

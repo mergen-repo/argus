@@ -7,10 +7,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useEscalateAnomaly } from '@/hooks/use-ops'
-import type { Anomaly } from '@/types/analytics'
+import type { Alert } from '@/types/analytics'
 
 interface AlertActionsProps {
-  anomaly: Anomaly
+  anomaly: Alert
   onClose?: () => void
 }
 
@@ -18,7 +18,7 @@ function useAckAnomaly(id: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (note: string) => {
-      await api.patch(`/analytics/anomalies/${id}`, { state: 'acknowledged', note })
+      await api.patch(`/alerts/${id}`, { state: 'acknowledged', note })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['alerts'] })
@@ -30,7 +30,7 @@ function useResolveAnomaly(id: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (note: string) => {
-      await api.patch(`/analytics/anomalies/${id}`, { state: 'resolved', note })
+      await api.patch(`/alerts/${id}`, { state: 'resolved', note })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['alerts'] })
@@ -50,7 +50,7 @@ function useAdminUsers() {
 }
 
 interface AckDialogProps {
-  anomaly: Anomaly
+  anomaly: Alert
   open: boolean
   onClose: () => void
 }
@@ -99,7 +99,7 @@ export function AckDialog({ anomaly, open, onClose }: AckDialogProps) {
 }
 
 interface ResolveDialogProps {
-  anomaly: Anomaly
+  anomaly: Alert
   open: boolean
   onClose: () => void
 }
@@ -150,7 +150,7 @@ export function ResolveDialog({ anomaly, open, onClose }: ResolveDialogProps) {
 }
 
 interface EscalateDialogProps {
-  anomaly: Anomaly
+  anomaly: Alert
   open: boolean
   onClose: () => void
 }
@@ -158,7 +158,12 @@ interface EscalateDialogProps {
 export function EscalateDialog({ anomaly, open, onClose }: EscalateDialogProps) {
   const [note, setNote] = useState('')
   const [onCallUserId, setOnCallUserId] = useState<string | undefined>()
-  const escalate = useEscalateAnomaly(anomaly.id)
+  // FIX-209 Gate (F-A2): Escalate backend lives under /analytics/anomalies/{anomaly_id}/escalate.
+  // For SIM-source alerts, the linked anomaly PK is in meta.anomaly_id; posting alert.id yields 404.
+  // Non-SIM alerts do not have an anomaly to escalate to — the caller must gate the button
+  // via AlertActionButtons.canEscalate below, so this dialog should only mount with a valid id.
+  const anomalyId = typeof anomaly.meta?.anomaly_id === 'string' ? anomaly.meta.anomaly_id : anomaly.id
+  const escalate = useEscalateAnomaly(anomalyId)
   const { data: adminUsers } = useAdminUsers()
 
   const handleSubmit = async () => {
@@ -221,7 +226,11 @@ export function AlertActionButtons({ anomaly }: AlertActionsProps) {
 
   const canAck = anomaly.state === 'open'
   const canResolve = anomaly.state === 'open' || anomaly.state === 'acknowledged'
-  const canEscalate = anomaly.state === 'open' || anomaly.state === 'acknowledged'
+  // FIX-209 Gate (F-A2): Escalate is only meaningful for SIM-source alerts that link back
+  // to an anomaly row (meta.anomaly_id). Operator/infra/policy/system alerts have no anomaly
+  // PK and posting to /analytics/anomalies/{alert.id}/escalate returns 404. Gate accordingly.
+  const hasAnomalyLink = anomaly.source === 'sim' && typeof anomaly.meta?.anomaly_id === 'string'
+  const canEscalate = hasAnomalyLink && (anomaly.state === 'open' || anomaly.state === 'acknowledged')
 
   return (
     <>

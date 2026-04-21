@@ -6,9 +6,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { useAnomalyComments, useAddAnomalyComment } from '@/hooks/use-ops'
 import { cn } from '@/lib/utils'
+import type { Alert } from '@/types/analytics'
 
 interface CommentThreadProps {
-  anomalyId: string
+  alert: Alert
   open: boolean
   onClose: () => void
 }
@@ -23,14 +24,19 @@ function timeLabel(ts: string): string {
   return d.toLocaleDateString()
 }
 
-export function CommentThread({ anomalyId, open, onClose }: CommentThreadProps) {
+export function CommentThread({ alert, open, onClose }: CommentThreadProps) {
   const [draft, setDraft] = useState('')
-  const { data: comments, isLoading } = useAnomalyComments(anomalyId)
-  const addComment = useAddAnomalyComment(anomalyId)
+
+  const anomalyId = alert.source === 'sim' && typeof alert.meta?.anomaly_id === 'string'
+    ? alert.meta.anomaly_id
+    : null
+
+  const { data: comments, isLoading } = useAnomalyComments(anomalyId ?? '')
+  const addComment = useAddAnomalyComment(anomalyId ?? '')
 
   const handleSend = async () => {
     const body = draft.trim()
-    if (!body) return
+    if (!body || !anomalyId) return
     await addComment.mutateAsync(body)
     setDraft('')
   }
@@ -68,57 +74,69 @@ export function CommentThread({ anomalyId, open, onClose }: CommentThreadProps) 
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-16" />
-            <Skeleton className="h-12" />
-            <Skeleton className="h-20" />
-          </>
-        ) : !comments || comments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 py-12 text-center">
-            <MessageSquare className="h-8 w-8 text-text-tertiary" />
-            <p className="text-[13px] text-text-secondary">No comments yet</p>
-            <p className="text-[11px] text-text-tertiary">Add investigation notes below</p>
-          </div>
-        ) : (
-          comments.map((c) => (
-            <div
-              key={c.id}
-              className="rounded-[10px] bg-bg-elevated border border-border px-3 py-2.5 space-y-1"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-accent">{c.user_email}</span>
-                <span className="text-[10px] text-text-tertiary font-mono">{timeLabel(c.created_at)}</span>
-              </div>
-              <p className="text-[13px] text-text-primary whitespace-pre-wrap break-words">{c.body}</p>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="px-4 py-3 border-t border-border space-y-2">
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value.slice(0, 2000))}
-          onKeyDown={handleKeyDown}
-          placeholder="Add a note… (⌘Enter to send)"
-          className="bg-bg-elevated border-border text-text-primary placeholder:text-text-tertiary resize-none text-[13px]"
-          rows={3}
-        />
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] text-text-tertiary">{draft.length}/2000</span>
-          <Button
-            size="sm"
-            onClick={handleSend}
-            disabled={!draft.trim() || addComment.isPending}
-            className="bg-accent text-bg-primary hover:bg-accent/90 h-7 px-3 gap-1.5 text-[12px]"
-          >
-            {addComment.isPending ? <Spinner className="h-3 w-3" /> : <Send className="h-3 w-3" />}
-            Send
-          </Button>
+      {!anomalyId ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <MessageSquare className="h-8 w-8 text-text-tertiary opacity-40" />
+          <p className="text-[13px] text-text-secondary font-medium">Comments not available</p>
+          <p className="text-[11px] text-text-tertiary">
+            Discussion threads are per-anomaly only — this is not a SIM-level event
+          </p>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-16" />
+                <Skeleton className="h-12" />
+                <Skeleton className="h-20" />
+              </>
+            ) : !comments || comments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-2 py-12 text-center">
+                <MessageSquare className="h-8 w-8 text-text-tertiary" />
+                <p className="text-[13px] text-text-secondary">No comments yet</p>
+                <p className="text-[11px] text-text-tertiary">Add investigation notes below</p>
+              </div>
+            ) : (
+              comments.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded-[10px] bg-bg-elevated border border-border px-3 py-2.5 space-y-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-accent">{c.user_email}</span>
+                    <span className="text-[10px] text-text-tertiary font-mono">{timeLabel(c.created_at)}</span>
+                  </div>
+                  <p className="text-[13px] text-text-primary whitespace-pre-wrap break-words">{c.body}</p>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="px-4 py-3 border-t border-border space-y-2">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.slice(0, 2000))}
+              onKeyDown={handleKeyDown}
+              placeholder="Add a note… (⌘Enter to send)"
+              className="bg-bg-elevated border-border text-text-primary placeholder:text-text-tertiary resize-none text-[13px]"
+              rows={3}
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-text-tertiary">{draft.length}/2000</span>
+              <Button
+                size="sm"
+                onClick={handleSend}
+                disabled={!draft.trim() || addComment.isPending}
+                className="bg-accent text-bg-primary hover:bg-accent/90 h-7 px-3 gap-1.5 text-[12px]"
+              >
+                {addComment.isPending ? <Spinner className="h-3 w-3" /> : <Send className="h-3 w-3" />}
+                Send
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -32,6 +32,7 @@ import (
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
+	alertapi "github.com/btopcu/argus/internal/api/alert"
 	analyticsapi "github.com/btopcu/argus/internal/api/analytics"
 	announcementapi "github.com/btopcu/argus/internal/api/announcement"
 	anomalyapi "github.com/btopcu/argus/internal/api/anomaly"
@@ -655,6 +656,10 @@ func runServe(cfg *config.Config) {
 		anomalyapi.WithUserStore(userStore),
 	)
 
+	// FIX-209 Task 4 — unified alerts table + API + retention job.
+	alertStore := store.NewAlertStore(pg.Pool)
+	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger)
+
 	anomalyStoreAdapter := anomalysvc.NewAnomalyStoreAdapter(anomalyStore)
 	batchDetector := anomalysvc.NewBatchDetector(
 		anomalyStoreAdapter,
@@ -721,6 +726,10 @@ func runServe(cfg *config.Config) {
 
 	storageMonitorProc := job.NewStorageMonitorProcessor(jobStore, storageMonitorStore, eventBus, cfg.StorageAlertPct, log.Logger)
 	jobRunner.Register(storageMonitorProc)
+
+	// FIX-209 Task 4 — purge alerts older than ALERTS_RETENTION_DAYS (default 180).
+	alertsRetentionProc := job.NewAlertsRetentionProcessor(jobStore, alertStore, eventBus, cfg.AlertsRetentionDays, log.Logger)
+	jobRunner.Register(alertsRetentionProc)
 
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
@@ -840,6 +849,13 @@ func runServe(cfg *config.Config) {
 			Schedule: cfg.CronStorageMonitor,
 			JobType:  job.JobTypeStorageMonitor,
 		})
+		// FIX-209 — retention: purge alerts older than ALERTS_RETENTION_DAYS (default 180).
+		// 03:15 UTC offset avoids collision with storage_monitor (@hourly on :00).
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "alerts_retention",
+			Schedule: "15 3 * * *",
+			JobType:  job.JobTypeAlertsRetention,
+		})
 		cronScheduler.AddEntry(job.CronEntry{
 			Name:     "data_retention",
 			Schedule: cfg.CronDataRetention,
@@ -907,6 +923,7 @@ func runServe(cfg *config.Config) {
 	notifSvc := notification.NewService(emailSender, telegramSender, &inAppStoreAdapter{s: notifStore}, notifChannels, log.Logger)
 	notifSvc.SetNotifStore(&notifStoreAdapter{notifStore})
 	notifSvc.SetEventPublisher(eventBus, bus.SubjectNotification)
+	notifSvc.SetAlertStore(alertStore)
 
 	notifRedisRL := notification.NewRedisRateLimiter(rdb.Client, cfg.NotificationRateLimitPerMin)
 	notifDelivery := notification.NewDeliveryTracker(notifRedisRL, log.Logger)
@@ -1195,7 +1212,7 @@ func runServe(cfg *config.Config) {
 	}
 	sessionCounter.Start(appCtx)
 
-	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, apnStore, log.Logger,
+	dashboardHandler := dashboardapi.NewHandler(simStore, dashboardSessionStore, operatorStore, anomalyStore, alertStore, apnStore, log.Logger,
 		dashboardapi.WithRedisClient(rdb.Client),
 		dashboardapi.WithCDRStore(cdrStore),
 		dashboardapi.WithSessionCounter(sessionCounter),
@@ -1514,6 +1531,7 @@ func runServe(cfg *config.Config) {
 		CDRHandler:           cdrHandler,
 		AnalyticsHandler:     analyticsHandler,
 		AnomalyHandler:       anomalyHandler,
+		AlertHandler:         alertHandler,
 		NotificationHandler:  notifHandler,
 		MetricsHandler:       metricsHandler,
 		ComplianceHandler:    complianceHandler,

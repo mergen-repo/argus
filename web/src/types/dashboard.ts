@@ -25,15 +25,20 @@ export interface TopAPN {
   bytes_total: number
 }
 
+export type AlertSource = 'sim' | 'operator' | 'infra' | 'policy' | 'system'
+
 export interface DashboardAlert {
   id: string
   type: string
   severity: 'critical' | 'warning' | 'info'
+  source: AlertSource
   state: string
   message: string
-  entity_type?: string
-  entity_id?: string
   detected_at: string
+  sim_id?: string
+  operator_id?: string
+  apn_id?: string
+  meta?: Record<string, unknown>
 }
 
 export interface DashboardMetrics {

@@ -114,6 +114,7 @@ export interface CostResponse {
 }
 
 import { type Severity } from '@/lib/severity'
+import type { AlertSource, AlertState } from '@/lib/alerts'
 
 export interface Anomaly {
   id: string
@@ -128,6 +129,26 @@ export interface Anomaly {
   detected_at: string
   acknowledged_at?: string
   resolved_at?: string
+}
+
+export interface Alert {
+  id: string
+  tenant_id: string
+  type: string
+  severity: Severity
+  source: AlertSource
+  state: AlertState
+  title: string
+  description: string
+  meta: Record<string, unknown>
+  sim_id: string | null
+  operator_id: string | null
+  apn_id: string | null
+  dedup_key: string | null
+  fired_at: string
+  acknowledged_at: string | null
+  acknowledged_by: string | null
+  resolved_at: string | null
 }
 
 export type UsagePeriod = '1h' | '24h' | '7d' | '30d' | 'custom'

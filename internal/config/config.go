@@ -22,27 +22,27 @@ type Config struct {
 	DatabaseConnMaxLife    time.Duration `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"30m"`
 	DatabaseReadReplicaURL string        `envconfig:"DATABASE_READ_REPLICA_URL"`
 
-	RedisURL          string `envconfig:"REDIS_URL" required:"true"`
-	RedisMaxConns     int    `envconfig:"REDIS_MAX_CONNS" default:"100"`
+	RedisURL          string        `envconfig:"REDIS_URL" required:"true"`
+	RedisMaxConns     int           `envconfig:"REDIS_MAX_CONNS" default:"100"`
 	RedisReadTimeout  time.Duration `envconfig:"REDIS_READ_TIMEOUT" default:"3s"`
 	RedisWriteTimeout time.Duration `envconfig:"REDIS_WRITE_TIMEOUT" default:"3s"`
 
-	NATSURL          string        `envconfig:"NATS_URL" required:"true"`
-	NATSClusterID    string        `envconfig:"NATS_CLUSTER_ID" default:"argus-cluster"`
-	NATSMaxReconnect int           `envconfig:"NATS_MAX_RECONNECT" default:"60"`
+	NATSURL           string        `envconfig:"NATS_URL" required:"true"`
+	NATSClusterID     string        `envconfig:"NATS_CLUSTER_ID" default:"argus-cluster"`
+	NATSMaxReconnect  int           `envconfig:"NATS_MAX_RECONNECT" default:"60"`
 	NATSReconnectWait time.Duration `envconfig:"NATS_RECONNECT_WAIT" default:"2s"`
 
-	JWTSecret              string        `envconfig:"JWT_SECRET" required:"true"`
-	JWTExpiry              time.Duration `envconfig:"JWT_EXPIRY" default:"15m"`
-	JWTRefreshExpiry       time.Duration `envconfig:"JWT_REFRESH_EXPIRY" default:"168h"`
-	JWTRememberMeExpiry    time.Duration `envconfig:"AUTH_JWT_REMEMBER_ME_TTL" default:"168h"`
-	JWTIssuer              string        `envconfig:"JWT_ISSUER" default:"argus"`
-	BcryptCost       int           `envconfig:"BCRYPT_COST" default:"12"`
-	LoginMaxAttempts int           `envconfig:"LOGIN_MAX_ATTEMPTS" default:"5"`
-	LoginLockoutDur  time.Duration `envconfig:"LOGIN_LOCKOUT_DURATION" default:"15m"`
+	JWTSecret           string        `envconfig:"JWT_SECRET" required:"true"`
+	JWTExpiry           time.Duration `envconfig:"JWT_EXPIRY" default:"15m"`
+	JWTRefreshExpiry    time.Duration `envconfig:"JWT_REFRESH_EXPIRY" default:"168h"`
+	JWTRememberMeExpiry time.Duration `envconfig:"AUTH_JWT_REMEMBER_ME_TTL" default:"168h"`
+	JWTIssuer           string        `envconfig:"JWT_ISSUER" default:"argus"`
+	BcryptCost          int           `envconfig:"BCRYPT_COST" default:"12"`
+	LoginMaxAttempts    int           `envconfig:"LOGIN_MAX_ATTEMPTS" default:"5"`
+	LoginLockoutDur     time.Duration `envconfig:"LOGIN_LOCKOUT_DURATION" default:"15m"`
 
 	// Password policy (STORY-068)
-	PasswordMinLength     int `envconfig:"PASSWORD_MIN_LENGTH"      default:"12"`
+	PasswordMinLength     int  `envconfig:"PASSWORD_MIN_LENGTH"      default:"12"`
 	PasswordRequireUpper  bool `envconfig:"PASSWORD_REQUIRE_UPPER"   default:"true"`
 	PasswordRequireLower  bool `envconfig:"PASSWORD_REQUIRE_LOWER"   default:"true"`
 	PasswordRequireDigit  bool `envconfig:"PASSWORD_REQUIRE_DIGIT"   default:"true"`
@@ -79,8 +79,8 @@ type Config struct {
 	SMTPFrom     string `envconfig:"SMTP_FROM" default:"noreply@argus.io"`
 	SMTPTLS      bool   `envconfig:"SMTP_TLS" default:"true"`
 
-	TelegramBotToken     string `envconfig:"TELEGRAM_BOT_TOKEN"`
-	TelegramDefaultChat  string `envconfig:"TELEGRAM_DEFAULT_CHAT_ID"`
+	TelegramBotToken    string `envconfig:"TELEGRAM_BOT_TOKEN"`
+	TelegramDefaultChat string `envconfig:"TELEGRAM_DEFAULT_CHAT_ID"`
 
 	S3Endpoint  string `envconfig:"S3_ENDPOINT"`
 	S3AccessKey string `envconfig:"S3_ACCESS_KEY"`
@@ -89,7 +89,7 @@ type Config struct {
 	S3Region    string `envconfig:"S3_REGION" default:"eu-west-1"`
 	S3PathStyle bool   `envconfig:"S3_PATH_STYLE" default:"false"`
 
-	EncryptionKey  string `envconfig:"ENCRYPTION_KEY"`
+	EncryptionKey string `envconfig:"ENCRYPTION_KEY"`
 
 	TLSCertPath    string `envconfig:"TLS_CERT_PATH"`
 	TLSKeyPath     string `envconfig:"TLS_KEY_PATH"`
@@ -97,13 +97,13 @@ type Config struct {
 	RadSecKeyPath  string `envconfig:"RADSEC_KEY_PATH"`
 	RadSecCAPath   string `envconfig:"RADSEC_CA_PATH"`
 
-	DefaultMaxSIMs             int `envconfig:"DEFAULT_MAX_SIMS" default:"1000000"`
-	DefaultMaxAPNs             int `envconfig:"DEFAULT_MAX_APNS" default:"100"`
-	DefaultMaxUsers            int `envconfig:"DEFAULT_MAX_USERS" default:"50"`
-	DefaultMaxAPIKeys          int `envconfig:"DEFAULT_MAX_API_KEYS" default:"20"`
-	DefaultPurgeRetentionDays  int `envconfig:"DEFAULT_PURGE_RETENTION_DAYS" default:"90"`
-	DefaultAuditRetentionDays  int `envconfig:"DEFAULT_AUDIT_RETENTION_DAYS" default:"365"`
-	DefaultCDRRetentionDays    int `envconfig:"DEFAULT_CDR_RETENTION_DAYS" default:"180"`
+	DefaultMaxSIMs            int `envconfig:"DEFAULT_MAX_SIMS" default:"1000000"`
+	DefaultMaxAPNs            int `envconfig:"DEFAULT_MAX_APNS" default:"100"`
+	DefaultMaxUsers           int `envconfig:"DEFAULT_MAX_USERS" default:"50"`
+	DefaultMaxAPIKeys         int `envconfig:"DEFAULT_MAX_API_KEYS" default:"20"`
+	DefaultPurgeRetentionDays int `envconfig:"DEFAULT_PURGE_RETENTION_DAYS" default:"90"`
+	DefaultAuditRetentionDays int `envconfig:"DEFAULT_AUDIT_RETENTION_DAYS" default:"365"`
+	DefaultCDRRetentionDays   int `envconfig:"DEFAULT_CDR_RETENTION_DAYS" default:"180"`
 
 	JobMaxConcurrentPerTenant int           `envconfig:"JOB_MAX_CONCURRENT_PER_TENANT" default:"5"`
 	JobTimeoutMinutes         int           `envconfig:"JOB_TIMEOUT_MINUTES" default:"30"`
@@ -122,7 +122,12 @@ type Config struct {
 
 	GeoIPDBPath string `envconfig:"GEOIP_DB_PATH" default:""`
 
-	StorageAlertPct           float64       `envconfig:"STORAGE_ALERT_PCT" default:"80"`
+	StorageAlertPct float64 `envconfig:"STORAGE_ALERT_PCT" default:"80"`
+
+	// AlertsRetentionDays — FIX-209 Task 4. Days to keep rows in the unified
+	// `alerts` table. Older rows are purged daily by the `alerts_retention`
+	// job. Min floor is 30 (enforced both here and in the processor).
+	AlertsRetentionDays int `envconfig:"ALERTS_RETENTION_DAYS" default:"180"`
 
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
@@ -145,7 +150,7 @@ type Config struct {
 	BruteForceMaxAttempts   int `envconfig:"BRUTE_FORCE_MAX_ATTEMPTS" default:"10"`
 	BruteForceWindowSeconds int `envconfig:"BRUTE_FORCE_WINDOW_SECONDS" default:"900"`
 
-	DevCORSAllowAll  bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`
+	DevCORSAllowAll bool `envconfig:"DEV_CORS_ALLOW_ALL" default:"true"`
 
 	ESIMProvider       string `envconfig:"ESIM_SMDP_PROVIDER"       default:"mock"`
 	ESIMSMDPBaseURL    string `envconfig:"ESIM_SMDP_BASE_URL"`
@@ -163,15 +168,15 @@ type Config struct {
 	SBANFInstanceID    string `envconfig:"SBA_NF_INSTANCE_ID"       default:"argus-sba-01"`
 	SBANRFHeartbeatSec int    `envconfig:"SBA_NRF_HEARTBEAT_SEC"    default:"30"`
 
-	OTELExporterOTLPEndpoint   string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"    default:""`
-	OTELSamplerRatio           float64 `envconfig:"OTEL_SAMPLER_RATIO"             default:"1.0"`
-	OTELServiceName            string  `envconfig:"OTEL_SERVICE_NAME"              default:"argus"`
-	OTELServiceVersion         string  `envconfig:"OTEL_SERVICE_VERSION"           default:"dev"`
-	OTELDeploymentEnvironment  string  `envconfig:"OTEL_DEPLOYMENT_ENVIRONMENT"    default:"development"`
-	MetricsTenantLabelEnabled  bool    `envconfig:"METRICS_TENANT_LABEL_ENABLED"   default:"true"`
-	MetricsEnabled             bool    `envconfig:"METRICS_ENABLED"                default:"true"`
-	MetricsNamespace           string  `envconfig:"METRICS_NAMESPACE"              default:"argus"`
-	OTELBSPExportTimeoutSec    int     `envconfig:"OTEL_BSP_EXPORT_TIMEOUT_SEC"    default:"5"`
+	OTELExporterOTLPEndpoint  string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"    default:""`
+	OTELSamplerRatio          float64 `envconfig:"OTEL_SAMPLER_RATIO"             default:"1.0"`
+	OTELServiceName           string  `envconfig:"OTEL_SERVICE_NAME"              default:"argus"`
+	OTELServiceVersion        string  `envconfig:"OTEL_SERVICE_VERSION"           default:"dev"`
+	OTELDeploymentEnvironment string  `envconfig:"OTEL_DEPLOYMENT_ENVIRONMENT"    default:"development"`
+	MetricsTenantLabelEnabled bool    `envconfig:"METRICS_TENANT_LABEL_ENABLED"   default:"true"`
+	MetricsEnabled            bool    `envconfig:"METRICS_ENABLED"                default:"true"`
+	MetricsNamespace          string  `envconfig:"METRICS_NAMESPACE"              default:"argus"`
+	OTELBSPExportTimeoutSec   int     `envconfig:"OTEL_BSP_EXPORT_TIMEOUT_SEC"    default:"5"`
 
 	ShutdownTimeoutSec  int `envconfig:"SHUTDOWN_TIMEOUT_SECONDS"  default:"30"`
 	ShutdownHTTPSec     int `envconfig:"SHUTDOWN_HTTP_SECONDS"     default:"20"`
@@ -188,8 +193,8 @@ type Config struct {
 
 	JWTSecretPrevious string `envconfig:"JWT_SECRET_PREVIOUS"`
 
-	TLSEnabled            bool `envconfig:"TLS_ENABLED"             default:"false"`
-	TrustForwardedProto   bool `envconfig:"TRUST_FORWARDED_PROTO"   default:"true"`
+	TLSEnabled          bool `envconfig:"TLS_ENABLED"             default:"false"`
+	TrustForwardedProto bool `envconfig:"TRUST_FORWARDED_PROTO"   default:"true"`
 
 	PprofToken string `envconfig:"PPROF_TOKEN"`
 
@@ -197,9 +202,9 @@ type Config struct {
 	RequestBodyAuthMB int `envconfig:"REQUEST_BODY_AUTH_MB" default:"1"`
 	RequestBodyBulkMB int `envconfig:"REQUEST_BODY_BULK_MB" default:"50"`
 
-	DiskProbeMount  string `envconfig:"DISK_PROBE_MOUNTS"    default:"/var/lib/postgresql/data,/app/logs,/data"`
-	DiskDegradedPct int    `envconfig:"DISK_DEGRADED_PCT"    default:"85"`
-	DiskUnhealthyPct int   `envconfig:"DISK_UNHEALTHY_PCT"   default:"95"`
+	DiskProbeMount   string `envconfig:"DISK_PROBE_MOUNTS"    default:"/var/lib/postgresql/data,/app/logs,/data"`
+	DiskDegradedPct  int    `envconfig:"DISK_DEGRADED_PCT"    default:"85"`
+	DiskUnhealthyPct int    `envconfig:"DISK_UNHEALTHY_PCT"   default:"95"`
 
 	BackupEnabled          bool   `envconfig:"BACKUP_ENABLED"           default:"false"`
 	BackupDailyCron        string `envconfig:"BACKUP_DAILY_CRON"        default:"0 2 * * *"`
@@ -285,6 +290,13 @@ func (c *Config) Validate() error {
 
 	if c.ShutdownJobSec > c.ShutdownTimeoutSec {
 		return fmt.Errorf("SHUTDOWN_JOB_SECONDS (%d) must not exceed SHUTDOWN_TIMEOUT_SECONDS (%d)", c.ShutdownJobSec, c.ShutdownTimeoutSec)
+	}
+
+	// FIX-209 — floor ALERTS_RETENTION_DAYS at 30 days regardless of user input.
+	// The retention processor also enforces the floor defensively; duplicating
+	// here ensures bad configs fail fast instead of silently purging too much.
+	if c.AlertsRetentionDays < 30 {
+		c.AlertsRetentionDays = 30
 	}
 
 	if c.PprofEnabled && !c.IsDev() && len(c.PprofToken) < 32 {

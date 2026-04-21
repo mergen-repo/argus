@@ -189,6 +189,109 @@ func TestDefaultThresholds(t *testing.T) {
 	}
 }
 
+// TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage verifies that
+// the alert payload published to SubjectAlertTriggered carries:
+//   - top-level sim_id (populates alerts.sim_id via notification subscriber)
+//   - metadata.anomaly_id (links back to anomaly rows without a dedicated FK)
+//   - metadata.sim_id (defensive — meta is the durable JSONB snapshot)
+//
+// FIX-209: unified alerts ↔ anomalies linkage.
+func TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage(t *testing.T) {
+	pub := &mockPublisher{}
+	susp := &mockSuspender{}
+	anomalyStore := &mockAnomalyStore{}
+
+	bd := NewBatchDetector(
+		anomalyStore,
+		pub,
+		susp,
+		DefaultThresholds(),
+		"argus.events.alert.triggered",
+		"argus.events.anomaly.detected",
+		zerolog.Nop(),
+	)
+
+	detected, err := bd.RunDataSpikeDetection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detected != 1 {
+		t.Fatalf("detected = %d, want 1", detected)
+	}
+
+	// Locate the alert event (second publish — first is anomaly.detected).
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	var alertPayload map[string]interface{}
+	for _, evt := range pub.events {
+		if evt.subject == "argus.events.alert.triggered" {
+			m, ok := evt.payload.(map[string]interface{})
+			if !ok {
+				t.Fatalf("alert payload is not map: %T", evt.payload)
+			}
+			alertPayload = m
+			break
+		}
+	}
+	if alertPayload == nil {
+		t.Fatal("no alert event captured")
+	}
+
+	// 1. Top-level sim_id.
+	simIDRaw, ok := alertPayload["sim_id"]
+	if !ok {
+		t.Fatal("alert payload missing top-level sim_id")
+	}
+	simIDStr, ok := simIDRaw.(string)
+	if !ok || simIDStr == "" {
+		t.Fatalf("sim_id = %v (type %T), want non-empty string", simIDRaw, simIDRaw)
+	}
+	if _, err := uuid.Parse(simIDStr); err != nil {
+		t.Errorf("sim_id not a valid UUID: %v", err)
+	}
+
+	// 2. metadata.anomaly_id + metadata.sim_id.
+	metaRaw, ok := alertPayload["metadata"]
+	if !ok {
+		t.Fatal("alert payload missing metadata")
+	}
+	meta, ok := metaRaw.(map[string]interface{})
+	if !ok {
+		t.Fatalf("metadata type = %T, want map", metaRaw)
+	}
+
+	anomalyIDRaw, ok := meta["anomaly_id"]
+	if !ok {
+		t.Fatal("metadata missing anomaly_id")
+	}
+	anomalyIDStr, _ := anomalyIDRaw.(string)
+	if anomalyIDStr == "" {
+		t.Errorf("metadata.anomaly_id = %v, want non-empty", anomalyIDRaw)
+	}
+	if _, err := uuid.Parse(anomalyIDStr); err != nil {
+		t.Errorf("metadata.anomaly_id not a valid UUID: %v", err)
+	}
+	// Match the stored anomaly's ID (first anomaly in the mock store).
+	anomalyStore.mu.Lock()
+	if len(anomalyStore.anomalies) != 1 {
+		t.Fatalf("stored anomalies = %d, want 1", len(anomalyStore.anomalies))
+	}
+	wantAnomalyID := anomalyStore.anomalies[0].id.String()
+	anomalyStore.mu.Unlock()
+	if anomalyIDStr != wantAnomalyID {
+		t.Errorf("metadata.anomaly_id = %s, want %s", anomalyIDStr, wantAnomalyID)
+	}
+
+	metaSimIDRaw, ok := meta["sim_id"]
+	if !ok {
+		t.Fatal("metadata missing sim_id")
+	}
+	metaSimIDStr, _ := metaSimIDRaw.(string)
+	if metaSimIDStr != simIDStr {
+		t.Errorf("metadata.sim_id = %s, want %s (match top-level)", metaSimIDStr, simIDStr)
+	}
+}
+
 func TestAuthEventJSON(t *testing.T) {
 	evt := AuthEvent{
 		IMSI:      "001010000000001",
