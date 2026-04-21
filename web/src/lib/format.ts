@@ -37,3 +37,25 @@ export function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+// Second-precision relative time (Turkish UI). Returns '' for invalid ISO.
+// Used by the Live Event Stream drawer where sub-minute resolution matters
+// (just-in events should not all read "şimdi" for 59s).
+// Units — sn: saniye, dk: dakika, sa: saat, g: gün.
+export function formatRelativeTime(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return ''
+  const diff = Date.now() - t
+  if (diff < 0) return 'şimdi'
+  const secs = Math.floor(diff / 1000)
+  if (secs < 10) return 'şimdi'
+  if (secs < 60) return `${secs}sn önce`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}dk önce`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}sa önce`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}g önce`
+  const d = new Date(t)
+  return d.toLocaleDateString('tr-TR')
+}

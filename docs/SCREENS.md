@@ -13,7 +13,7 @@
 | SCR-015 | 2FA Setup & Backup Codes | Auth/Security | /settings/security#2fa | JWT (any) | STORY-068 AC-4 |
 | SCR-018 | Force Password Change | Auth | /auth/change-password | Partial (force-change) | STORY-068 AC-3 |
 | SCR-019 | User Settings — Security Tab | Settings | /settings/security | JWT (any) | STORY-068 AC-3/4 |
-| SCR-010 | [Main Dashboard](screens/SCR-010-dashboard.md) | Dashboard | / | JWT (any) | FIX-209: Recent Alerts panel (AlertFeed component) added; source chip next to severity badge; dashboard handler now reads from alertStore (was anomalyStore). |
+| SCR-010 | [Main Dashboard](screens/SCR-010-dashboard.md) | Dashboard | / | JWT (any) | FIX-209: Recent Alerts panel (AlertFeed component) added; source chip next to severity badge; dashboard handler now reads from alertStore (was anomalyStore). FIX-213: Live Event Stream Drawer (right-side Sheet) refreshed — envelope-aware rows (title/message from bus.Envelope), sticky filter bar with catalog-driven chips (type/severity/entity/source/date), Severity Pill inline toggles, pause/resume + queue badge (N yeni olay), virtual scrolling >100 events, clickable entity nav (display_name → route), bytes chips for session.* types, Details link gated on meta.alert_id, Turkish UI chrome. |
 | SCR-011 | [Analytics — Usage](screens/SCR-011-analytics-usage.md) | Analytics | /analytics | JWT (analyst+) | |
 | SCR-012 | [Analytics — Cost](screens/SCR-012-analytics-cost.md) | Analytics | /analytics/cost | JWT (analyst+) | |
 | SCR-013 | [Analytics — Anomalies](screens/SCR-013-analytics-anomalies.md) | Analytics | /analytics/anomalies | JWT (analyst+) | |

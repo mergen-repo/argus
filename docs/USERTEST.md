@@ -3496,3 +3496,87 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 # 4. Infra-global publisher tenant_id (SystemTenantID) — trigger NATS consumer lag alert:
 #    Observe alert in /alerts with tenant_id = 00000000-0000-0000-0000-000000000001 (SystemTenantID)
 ```
+
+## FIX-213: Live Event Stream UX — Filter Chips, Usage Display, Alert Body
+
+### 1. Filter Chips — Type
+
+1. Paneli ac (dashboard topbar "Activity" butonu).
+2. Filtre barinda `Tür` chipine tikla — popover acilar.
+3. 2 event tipi sec (orn. `session.started`, `alert.triggered`).
+4. Chip label `Tür (2)` olur; event listesi yalnizca bu tipleri gosterir.
+5. Popover `Temizle` → chip label `Tür` olur, liste dolar.
+
+### 2. Filter Chips — Severity Pill (inline)
+
+1. Severity rowunda `HIGH` ve `CRITICAL` pillere tikla (toggle on).
+2. Liste yalnizca high/critical severity eventleri gosterir.
+3. Pillleri tekrar tikla → deselect, liste genisler.
+4. Mobil viewport (<768px): her pill 1 harf (`C/H/M/L/I`); md+ viewportta 3 harf (`CRI/HIG/MED/LOW/INF`).
+
+### 3. Filter Chips — Entity Type ve Source
+
+1. `Varlık` chipine tikla — `sim`, `operator`, `apn`, `policy` gibi entity type setenekleri gorunur.
+2. `Kaynak` chipine tikla — `aaa`, `operator`, `policy`, `system` gibi source setenekleri gorunur.
+3. Her filter secimi sonrasinda event listesinin dogru sekilde filtrelendigini dogrula.
+
+### 4. Filter Chips — Date Range
+
+1. `Zaman` chipine tikla — `Bu oturum`, `Son 1 saat`, `Son 24 saat` secenekleri gorunur.
+2. `Son 1 saat` sec — yalnizca son 60 dakikaya ait eventler gozukur.
+3. Filtreyi `Bu oturum` olarak resetle.
+
+### 5. Filter Kaliciligi (localStorage)
+
+1. Filtre sec (orn. Tür = `alert.triggered`).
+2. Paneli kapat, tekrar ac.
+3. Secilen filtre hala aktif olmali (localStorage `argus.events.filters.v1` kaliciligi).
+4. `Temizle` butonuna bas — eventler + filtreler + localStorage silinir; chip labellari reset olur.
+
+### 6. Pause / Resume + Queue Badge
+
+1. `Duraklat` butonuna tikla.
+2. Simulator araciligi ile 3-5 event tetikle (orn. SIM durum degisikligi).
+3. Event listesi donuk kalir; header/button ust kisimda `"N yeni olay"` badge gozukur.
+4. `Devam Et` butonuna tikla — queued eventler listeye flush edilir (ters kronolojik siraya gore), badge kaybolur.
+
+### 7. Event Card — Title / Message (F-09 fix)
+
+1. Bir alert eventi tetikle (orn. operator SLA ihlali).
+2. Event satirinda:
+   - `"alert new"` yerine envelope `title` gorunur (orn. `"SLA violation for operator Turkcell"`).
+   - Ikinci satir envelope `message` gorunur (farkli ise).
+   - Severity badge (`HIGH` / kirmizi) gozukur.
+   - Source chip (`source=operator`) gozukur.
+
+### 8. Event Card — Clickable Entity (F-19 fix)
+
+1. Herhangi bir event satirinda entity adina tikla (orn. `Turkcell`).
+2. Pane kapanir; `/operators/:id` sayfasina navigate edilir.
+3. SIM entityli event icin `→ /sims/:id` navigasyonu calisir.
+4. Bilinmeyen entity tipi (`entity.type` route tablosunda yok) → span olarak gozukur, tiklanabilir degil, 404 yok.
+
+### 9. Event Card — Bytes Chip (F-12 fix)
+
+1. `session.updated` eventi tetikle (simulator araciligi ile bytes_in/bytes_out verisi ile).
+2. Event satirinda `↓2.1 MB ↑48 KB` formatinda bytes chip gozukur.
+3. Session tipi olmayan bir event (orn. `alert.triggered`) bytes chip gostermez.
+
+### 10. Event Card — Details Link (Alert Row, AC-4)
+
+1. `meta.alert_id` bulunan bir alert eventi tetikle.
+2. Event satirinda `Details →` (ChevronRight ikonu) linki gozukur.
+3. Linke tikla — `/alerts/:alert_id` sayfasina navigate edilir.
+4. `meta.alert_id` olmayan bir event (orn. `session.updated`) — Details linki gozukmez.
+
+### 11. Virtual Scrolling (AC-9)
+
+1. Simulator ile 200+ event tetikle.
+2. Pane acik iken browser DevTools Elements panelinden event listesi DOM'unu kontrol et — yalnizca ~15 satir render edilmis olmali (virtualization).
+3. Scroll yap — satirlar dinamik olarak render/unrender edilir.
+
+### 12. 500 Event Buffer Cap (AC-8)
+
+1. Simulator ile 600 event tetikle.
+2. `stores/events.ts` event sayisi 500'de sinirlenir; eski eventler dusar.
+3. Pane header `"Son 500 olay"` gosterir.

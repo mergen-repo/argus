@@ -22,6 +22,25 @@ function useGlobalEventListener() {
   useEffect(() => {
     const pickString = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
     const pickNumber = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+    const pickObject = (v: unknown): Record<string, unknown> | undefined =>
+      v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
+    const pickEntity = (v: unknown): { type: string; id: string; display_name?: string } | undefined => {
+      const obj = pickObject(v)
+      if (!obj) return undefined
+      const type = pickString(obj.type)
+      const id = pickString(obj.id)
+      if (!type || !id) return undefined
+      return { type, id, display_name: pickString(obj.display_name) }
+    }
+    const normalizeSeverity = (v: unknown): LiveEvent['severity'] => {
+      const s = pickString(v)
+      if (s === 'critical' || s === 'high' || s === 'medium' || s === 'low' || s === 'info') return s
+      if (import.meta.env.DEV && s) {
+        // eslint-disable-next-line no-console
+        console.debug('[events] unknown severity coerced to info', s)
+      }
+      return 'info'
+    }
 
     const unsub = wsClient.on('*', (rawMsg: unknown) => {
       const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
@@ -34,28 +53,74 @@ function useGlobalEventListener() {
       if (msg.type === 'metrics.realtime') return
       const d = msg.data || {}
       const envelope = rawMsg as { id?: string; type?: string; data?: Record<string, unknown> }
+
+      // FIX-213 T3 — envelope-aware normalizer. Read FIX-212 envelope
+      // fields first; fall back to legacy flat shape. Envelope wins on
+      // overlap because that's the canonical future shape.
+      const title = pickString(d.title) || pickString(d.message) || msg.type.replace(/\./g, ' ')
+      const messageBody = pickString(d.message)
+      const source = pickString(d.source)
+      const entity = pickEntity(d.entity)
+      const meta = pickObject(d.meta) || {}
+      const dedup_key = pickString(d.dedup_key)
+      const event_version = pickNumber(d.event_version)
+
+      if (import.meta.env.DEV && event_version === undefined) {
+        // Surface publisher-migration gaps during development.
+        // eslint-disable-next-line no-console
+        console.debug('[events] legacy shape', msg.type)
+      }
+
+      // Flat-field merge — envelope wins, legacy second. Always check
+      // both sources so per-operator histograms (stores/events.ts)
+      // still fire for envelope-shaped session events where operator_id
+      // lives in meta.*.
+      const operator_id = pickString(meta.operator_id) || pickString(d.operator_id)
+      const apn_id = pickString(meta.apn_id) || pickString(d.apn_id)
+      const sim_id =
+        (entity?.type === 'sim' ? entity.id : undefined) ||
+        pickString(meta.sim_id) ||
+        pickString(d.sim_id)
+      const imsi =
+        (entity?.type === 'sim' ? entity.display_name : undefined) ||
+        pickString(meta.imsi) ||
+        pickString(d.imsi)
+      const msisdn = pickString(meta.msisdn) || pickString(d.msisdn)
+      const framed_ip = pickString(meta.framed_ip) || pickString(d.framed_ip)
+      const nas_ip = pickString(meta.nas_ip) || pickString(d.nas_ip)
+      const policy_id = pickString(meta.policy_id) || pickString(d.policy_id)
+      const job_id = pickString(meta.job_id) || pickString(d.job_id)
+      const progress_pct = pickNumber(meta.progress_pct) ?? pickNumber(d.progress_pct)
+      const bytes_in = pickNumber(meta.bytes_in) ?? pickNumber(d.bytes_in)
+      const bytes_out = pickNumber(meta.bytes_out) ?? pickNumber(d.bytes_out)
+
       const evt: LiveEvent = {
         id: envelope.id || `fallback-${Date.now()}`,
         type: msg.type,
-        message: pickString(d.message) || msg.type.replace(/\./g, ' '),
-        severity: (pickString(d.severity) as LiveEvent['severity']) || 'info',
-        timestamp: new Date().toISOString(),
-        entity_type: pickString(d.entity_type),
-        entity_id: pickString(d.entity_id),
-        // Source context — copy every known field from the payload so the
-        // drawer can render IMSI / IP / operator chips without round-tripping
-        // to the API.
-        imsi: pickString(d.imsi),
-        msisdn: pickString(d.msisdn),
-        framed_ip: pickString(d.framed_ip),
-        nas_ip: pickString(d.nas_ip),
-        operator_id: pickString(d.operator_id),
-        apn_id: pickString(d.apn_id),
-        policy_id: pickString(d.policy_id),
-        job_id: pickString(d.job_id),
-        sim_id: pickString(d.sim_id),
+        title,
+        message: messageBody || title,
+        severity: normalizeSeverity(d.severity),
+        timestamp: pickString(d.timestamp) || new Date().toISOString(),
+        source,
+        entity,
+        meta,
+        dedup_key,
+        event_version,
+        entity_type: entity?.type || pickString(d.entity_type),
+        entity_id: entity?.id || pickString(d.entity_id),
+        imsi,
+        msisdn,
+        framed_ip,
+        nas_ip,
+        operator_id,
+        apn_id,
+        policy_id,
+        job_id,
+        sim_id,
         tenant_id: pickString(d.tenant_id),
-        progress_pct: pickNumber(d.progress_pct),
+        progress_pct,
+        bytes_in,
+        bytes_out,
       }
       addEvent(evt)
     })

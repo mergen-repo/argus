@@ -98,6 +98,7 @@ Base unit: `4px`
 | `--radius-lg` | `14px` — Modals, large cards |
 | `--radius-xl` | `18px` — Full-page overlays |
 | `--shadow-glow` | `0 0 20px rgba(0,212,255,0.08)` — Accent card hover |
+| `--shadow-glow-success` | `0 0 6px rgba(0,255,136,0.4)` — Success/LIVE pulse glow (dark); `0 0 4px rgba(0,200,100,0.35)` (light). Added FIX-213. Used on LIVE indicator in Event Stream Drawer. |
 | `--shadow-card` | `0 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(255,255,255,0.05)` — Card elevation |
 | `--transition` | `0.2s cubic-bezier(0.4, 0, 0.2, 1)` — All transitions |
 
@@ -151,6 +152,16 @@ Base unit: `4px`
 - **Default:** Dark (Neon Dark theme)
 - **Light mode:** Available via toggle (sidebar bottom)
 - Light overrides: swap bg/text tokens, reduce glow effects, mute neon accents
+
+## shadcn/ui Button Size Variants
+
+| Size | Classes | Usage |
+|------|---------|-------|
+| `default` | `h-9 px-4 py-2` | Primary CTAs |
+| `sm` | `h-8 px-3 text-xs` | Secondary actions |
+| `lg` | `h-10 px-8` | Hero / form submit |
+| `icon` | `h-9 w-9` | Icon-only buttons |
+| `xs` | `h-6 px-2 text-[10px]` | Compact toolbar actions (added FIX-213; used in Event Stream Drawer: Duraklat/Devam Et/Temizle) |
 
 ## Reusable Shared Components
 
