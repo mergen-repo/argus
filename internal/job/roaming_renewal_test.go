@@ -274,7 +274,7 @@ func TestRoamingRenewalSweeper_SeverityCriticalWhenLessThan7Days(t *testing.T) {
 	}
 }
 
-func TestRoamingRenewalSweeper_SeverityWarningWhenMoreThan7Days(t *testing.T) {
+func TestRoamingRenewalSweeper_SeverityMediumWhenMoreThan7Days(t *testing.T) {
 	rc := newRedisForRoamingTest(t)
 	defer rc.FlushDB(context.Background())
 	defer rc.Close()
@@ -311,8 +311,8 @@ func TestRoamingRenewalSweeper_SeverityWarningWhenMoreThan7Days(t *testing.T) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payload["severity"] != "warning" {
-		t.Errorf("severity = %v, want warning", payload["severity"])
+	if payload["severity"] != "medium" {
+		t.Errorf("severity = %v, want medium", payload["severity"])
 	}
 }
 

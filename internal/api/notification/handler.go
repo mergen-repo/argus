@@ -10,6 +10,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -494,10 +495,6 @@ var validPrefChannels = map[string]bool{
 	"email": true, "in_app": true, "webhook": true, "sms": true, "telegram": true,
 }
 
-var validSeverities = map[string]bool{
-	"info": true, "warning": true, "error": true, "critical": true,
-}
-
 func (h *Handler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -524,9 +521,9 @@ func (h *Handler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if !validSeverities[p.SeverityThreshold] {
-			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
-				"invalid severity_threshold: "+p.SeverityThreshold+"; must be one of info,warning,error,critical")
+		if err := severity.Validate(p.SeverityThreshold); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidSeverity,
+				"severity must be one of: critical, high, medium, low, info; got '"+p.SeverityThreshold+"'")
 			return
 		}
 	}

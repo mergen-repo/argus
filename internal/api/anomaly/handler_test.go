@@ -102,6 +102,37 @@ func TestHandler_List_InvalidSimID(t *testing.T) {
 	}
 }
 
+// TestListAnomalies_RejectsInvalidSeverity verifies the handler returns
+// HTTP 400 with INVALID_SEVERITY when an out-of-taxonomy severity filter
+// is supplied (FIX-211).
+func TestListAnomalies_RejectsInvalidSeverity(t *testing.T) {
+	h := NewHandler(nil, nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies?severity=warning", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.List(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	var resp apierr.ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Error.Code != apierr.CodeInvalidSeverity {
+		t.Errorf("error code = %q, want %q", resp.Error.Code, apierr.CodeInvalidSeverity)
+	}
+	if !strings.Contains(resp.Error.Message, "warning") {
+		t.Errorf("error message should cite offending value, got %q", resp.Error.Message)
+	}
+}
+
 func TestHandler_List_InvalidFrom(t *testing.T) {
 	h := NewHandler(nil, nil, zerolog.Nop())
 

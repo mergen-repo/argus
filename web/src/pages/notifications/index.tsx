@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { severityIconClass } from '@/lib/severity'
 import { useNotificationList, useMarkAsRead, useMarkAllAsRead, useRealtimeNotifications } from '@/hooks/use-notifications'
 import type { Notification } from '@/types/notification'
 import { NotificationPreferencesPanel } from './preferences-panel'
@@ -31,13 +32,6 @@ const categoryIcons: Record<string, React.ElementType> = {
   session: Radio,
   system: Server,
   job: ListTodo,
-}
-
-const severityColors: Record<string, string> = {
-  info: 'text-accent',
-  warning: 'text-warning',
-  error: 'text-danger',
-  critical: 'text-danger',
 }
 
 function getNavigationPath(notification: Notification): string | null {
@@ -139,7 +133,6 @@ export default function NotificationsPage() {
             <div className="mt-3 space-y-1">
               {filtered.map((n, idx) => {
                 const Icon = categoryIcons[n.category] || AlertTriangle
-                const severityColor = severityColors[n.severity] || 'text-text-secondary'
                 const navPath = getNavigationPath(n)
 
                 return (
@@ -157,7 +150,7 @@ export default function NotificationsPage() {
                       if (navPath) navigate(navPath)
                     }}
                   >
-                    <div className={cn('mt-0.5 shrink-0', severityColor)}>
+                    <div className={cn('mt-0.5 shrink-0', severityIconClass(n.severity))}>
                       <Icon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">

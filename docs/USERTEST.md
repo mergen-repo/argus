@@ -3142,3 +3142,77 @@ Expected: Three metric families visible after Step 1 warm-up (may be absent befo
 - `argus_aggregates_cache_hits_total{method="SIMCountByTenant"}` increments on the second call within TTL window (Step 4).
 - `argus_aggregates_call_duration_seconds{method="SIMCountByTenant",cache="miss"}` and `{cache="hit"}` histogram buckets present.
 p95 latency on cache hit should be in the µs range (gate measured 72µs), well under the 50ms AC-6 target.
+
+---
+
+## FIX-211: Severity Taxonomy Unification
+
+Bu story birincil olarak backend + frontend altyapi degisikligidir (5-degerli kanonik taxonomy: info/low/medium/high/critical). Ana UI degisiklikleri: Alerts/Violations/Notifications sayfalarinda 5 severity secenegi + eski "warning"/"error" degerlerini reddeden 400 dogrulama.
+
+### Senaryo 1 — Alerts sayfasi severity filtresi (AC-4 + AC-5)
+
+Alerts sayfasinda severity filter dropdown'inin 5 deger gosterdigi ve "medium" filtresinin dogru satirlari dondurdugu dogrulanir.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@argus.io","password":"admin"}' | jq -r '.data.token')
+
+# Step 1 — medium severity filtresiyle anomali listesi (alerts page kaynagi)
+curl -s "http://localhost:8084/api/v1/anomalies?severity=medium" \
+  -H "Authorization: Bearer $TOKEN" | jq '{count: .meta.total, first_severity: .data[0].severity}'
+```
+
+Beklenti: `severity: "medium"` olan satirlar donmeli. `.meta.total` sifirdan buyuk olmali (seed verisi medium-severity anomaliler iceriyor). Hicbir satirda `severity: "warning"` gozukmemeli.
+
+```bash
+# Step 2 — eski "warning" degeri 400 INVALID_SEVERITY dondurmeli
+curl -s "http://localhost:8084/api/v1/anomalies?severity=warning" \
+  -H "Authorization: Bearer $TOKEN" | jq '{status: .status, code: .error.code}'
+```
+
+Beklenti: `{"status": "error", "code": "INVALID_SEVERITY"}` — HTTP 400.
+
+```bash
+# Step 3 — violations endpoint ayni dogrulamayi yapmali
+curl -s "http://localhost:8084/api/v1/policy-violations?severity=error" \
+  -H "Authorization: Bearer $TOKEN" | jq '{status: .status, code: .error.code}'
+```
+
+Beklenti: `{"status": "error", "code": "INVALID_SEVERITY"}` — HTTP 400.
+
+### Senaryo 2 — Notification Preferences severity threshold (AC-8)
+
+Notification preferences panelinde severity threshold dropdown'inin 5 deger gosterdigi ve "medium" ayarinin info+low eventleri bastirdigini dogrulanir.
+
+```bash
+# Step 1 — mevcut preferences'i al
+curl -s "http://localhost:8084/api/v1/notifications/preferences" \
+  -H "Authorization: Bearer $TOKEN" | jq '.data.severity_threshold'
+```
+
+Beklenti: Kayitli deger canonical (info/low/medium/high/critical) olmali.
+
+```bash
+# Step 2 — severity_threshold'u "medium" olarak ayarla
+curl -s -X PUT "http://localhost:8084/api/v1/notifications/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"severity_threshold":"medium","email_enabled":true}' | jq '{status: .status, threshold: .data.severity_threshold}'
+```
+
+Beklenti: `{"status": "ok", "threshold": "medium"}`.
+
+```bash
+# Step 3 — eski "warning" degeri 400 dondurmeli
+curl -s -X PUT "http://localhost:8084/api/v1/notifications/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"severity_threshold":"warning"}' | jq '{status: .status, code: .error.code}'
+```
+
+Beklenti: `{"status": "error", "code": "INVALID_SEVERITY"}` — HTTP 400 (onceden 422 VALIDATION_ERROR idi, FIX-211 ile 400'e degistirildi).
+
+**UI Dogrulamasi** (tarayici):
+1. http://localhost:8084/alerts sayfasini ac — severity filter dropdown'inda 5 deger (Critical, High, Medium, Low, Info) gorulmeli.
+2. "Medium" seciminde sayfa medium satirlari filtrelemeli; badge renkleri token-tabanli olmali (sari/warning-dim).
+3. http://localhost:8084/notifications/preferences — severity threshold select'inde 5 deger gorulmeli, default "Info".
+4. http://localhost:8084/violations — severity sutunu "medium"/"high" badge'leri gostermeli; "warning"/"error" badge'i gozukmemeli.

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, AlertTriangle, Info, ArrowRight, Radio } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Radio } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import {
   Table,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { EmptyState } from './empty-state'
@@ -25,18 +26,6 @@ import { toast } from 'sonner'
 interface RelatedAlertsPanelProps {
   entityId: string
   entityType: 'sim' | 'operator' | 'apn' | string
-}
-
-function severityIcon(severity: string) {
-  if (severity === 'critical') return <AlertCircle className="h-3.5 w-3.5 text-danger flex-shrink-0" />
-  if (severity === 'warning') return <AlertTriangle className="h-3.5 w-3.5 text-warning flex-shrink-0" />
-  return <Info className="h-3.5 w-3.5 text-accent flex-shrink-0" />
-}
-
-function severityVariant(s: string): 'danger' | 'warning' | 'default' | 'secondary' {
-  if (s === 'critical') return 'danger'
-  if (s === 'warning') return 'warning'
-  return 'default'
 }
 
 function alertTitle(anomaly: Anomaly): string {
@@ -95,12 +84,7 @@ function AlertsTable({ alerts }: { alerts: Anomaly[] }) {
         {alerts.map((anomaly) => (
           <TableRow key={anomaly.id} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
             <TableCell className="py-2">
-              <span className="flex items-center gap-1.5">
-                {severityIcon(anomaly.severity)}
-                <Badge variant={severityVariant(anomaly.severity)} className="text-[10px]">
-                  {anomaly.severity}
-                </Badge>
-              </span>
+              <SeverityBadge severity={anomaly.severity} />
             </TableCell>
             <TableCell className="py-2">
               <Link

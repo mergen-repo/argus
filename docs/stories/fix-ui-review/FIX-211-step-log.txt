@@ -1,0 +1,5 @@
+2026-04-20T20:04:39Z STEP_1 PLAN: EXECUTED | items=7 tasks 4 waves | hard-validation-no-toggle | anomalies-not-hypertable | 12+BE-sites-enum-validator | 16FE-files-adopt-SeverityBadge | PAT-006-gate-grep | result=PASS
+2026-04-21T06:48:05Z STEP_2 DEV: EXECUTED | items=7 tasks in 3 waves | evidence=inter-wave-builds PASS, go test 94 packages ok, tsc clean, make db-seed clean | result=PASS
+2026-04-21T06:49:21Z STEP_2.5 LINT: EXECUTED | items=3 renames (severityIconClass→iconClassForSeverity x2, SEVERITY_PILLS→severityFilterPills) | evidence=regrep empty, tsc clean | result=PASS
+2026-04-21T07:08:40Z STEP_3 GATE: EXECUTED | items=6 passes (3 scouts + lead) fixes=11 deferred=1 | evidence=docs/stories/fix-ui-review/FIX-211-gate.md | result=PASS
+2026-04-21T07:15:55Z STEP_4 REVIEW: EXECUTED | items=4 findings (fixed=3 deferred=0 escalated=0) | evidence=docs/stories/fix-ui-review/FIX-211-review.md | result=PASS

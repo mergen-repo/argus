@@ -170,8 +170,8 @@ func TestLagPoller_AlertAfterFiveConsecutivePolls(t *testing.T) {
 	if err := json.Unmarshal(raw, &alert); err != nil {
 		t.Fatalf("unmarshal alert: %v", err)
 	}
-	if alert.Severity != "warning" {
-		t.Errorf("expected severity=warning, got %s", alert.Severity)
+	if alert.Severity != "medium" {
+		t.Errorf("expected severity=medium, got %s", alert.Severity)
 	}
 	if alert.Source != "nats_consumer_lag" {
 		t.Errorf("expected source=nats_consumer_lag, got %s", alert.Source)

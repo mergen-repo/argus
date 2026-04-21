@@ -9,6 +9,7 @@ import (
 	"github.com/btopcu/argus/internal/bus"
 	policycache "github.com/btopcu/argus/internal/policy/cache"
 	"github.com/btopcu/argus/internal/policy/dsl"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -163,7 +164,7 @@ func (e *Enforcer) Evaluate(ctx context.Context, sim *store.SIM, sessionCtx dsl.
 			result.Violations = append(result.Violations, ViolationRecord{
 				ViolationType: "throttle",
 				ActionTaken:   "throttle",
-				Severity:      "warning",
+				Severity:      severity.Medium,
 				RuleIndex:     i,
 				Details:       action.Params,
 			})
@@ -236,7 +237,7 @@ func (e *Enforcer) RecordViolations(ctx context.Context, sim *store.SIM, result 
 			continue
 		}
 
-		if e.eventBus != nil && (v.Severity == "critical" || v.Severity == "warning") {
+		if e.eventBus != nil && (v.Severity == severity.Critical || v.Severity == severity.High || v.Severity == severity.Medium) {
 			_ = e.eventBus.Publish(ctx, bus.SubjectAlertTriggered, map[string]interface{}{
 				"id":          violation.ID.String(),
 				"tenant_id":   sim.TenantID.String(),

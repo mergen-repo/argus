@@ -8,6 +8,7 @@ import (
 
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/notification"
+	sev "github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -89,9 +90,9 @@ func (p *RoamingRenewalSweeper) Process(ctx context.Context, j *store.Job) error
 			daysToExpiry = 0
 		}
 
-		severity := "warning"
+		severity := sev.Medium
 		if daysToExpiry <= 7 {
-			severity = "critical"
+			severity = sev.Critical
 		}
 
 		alertPayload := notification.AlertPayload{

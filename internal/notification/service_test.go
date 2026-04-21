@@ -146,8 +146,8 @@ func (m *mockNotifStore) UpdateDelivery(_ context.Context, _ uuid.UUID, _, _, _ 
 }
 
 type mockEventPublisher struct {
-	mu       sync.Mutex
-	events   []publishedEvent
+	mu     sync.Mutex
+	events []publishedEvent
 }
 
 type publishedEvent struct {
@@ -302,7 +302,7 @@ func TestService_AlertEvent_Dispatches(t *testing.T) {
 	alert := AlertPayload{
 		AlertID:     "alert-sla-001",
 		AlertType:   "sla_violation",
-		Severity:    "warning",
+		Severity:    "medium",
 		Title:       "SLA violation for turkcell",
 		Description: "Uptime 98.5% below target 99.9%",
 		EntityType:  "operator",
@@ -748,7 +748,7 @@ func TestService_Notify_PreferenceChannelFilter_SkipsWebhook(t *testing.T) {
 		ScopeType: ScopeSystem,
 		Title:     "Anomaly",
 		Body:      "Anomaly detected",
-		Severity:  "warning",
+		Severity:  "medium",
 	})
 	if err != nil {
 		t.Fatalf("notify: %v", err)
@@ -803,11 +803,11 @@ func TestService_Notify_SeverityThreshold_Skip(t *testing.T) {
 	email := &mockEmailSender{}
 	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
 
-	// Threshold=warning, event severity=info → skip
+	// Threshold=medium, event severity=info → skip
 	svc.SetPrefStore(&mockPrefStore{
 		pref: &Preference{
 			Channels:          []string{"email"},
-			SeverityThreshold: "warning",
+			SeverityThreshold: "medium",
 			Enabled:           true,
 		},
 	})
@@ -836,11 +836,11 @@ func TestService_Notify_SeverityThreshold_Allow(t *testing.T) {
 	email := &mockEmailSender{}
 	svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
 
-	// Threshold=warning, event severity=error → allow
+	// Threshold=medium, event severity=high → allow
 	svc.SetPrefStore(&mockPrefStore{
 		pref: &Preference{
 			Channels:          []string{"email"},
-			SeverityThreshold: "warning",
+			SeverityThreshold: "medium",
 			Enabled:           true,
 		},
 	})
@@ -850,9 +850,9 @@ func TestService_Notify_SeverityThreshold_Allow(t *testing.T) {
 		TenantID:  uuid.New(),
 		EventType: "anomaly.detected",
 		ScopeType: ScopeSystem,
-		Title:     "Error event",
+		Title:     "High event",
 		Body:      "above threshold",
-		Severity:  "error",
+		Severity:  "high",
 	})
 	if err != nil {
 		t.Fatalf("notify: %v", err)
@@ -863,6 +863,57 @@ func TestService_Notify_SeverityThreshold_Allow(t *testing.T) {
 		t.Errorf("email calls = %d, want 1 (severity above threshold)", len(email.calls))
 	}
 	email.mu.Unlock()
+}
+
+// TestNotifySeverityThreshold_5Level verifies the canonical 5-level severity
+// ordinal comparison (FIX-211). Event severity must be >= threshold to dispatch.
+// Ordinal: info=1 < low=2 < medium=3 < high=4 < critical=5.
+func TestNotifySeverityThreshold_5Level(t *testing.T) {
+	cases := []struct {
+		name      string
+		threshold string
+		eventSev  string
+		wantCalls int
+	}{
+		{"high_threshold_suppresses_medium", "high", "medium", 0},
+		{"medium_threshold_allows_high", "medium", "high", 1},
+		{"info_threshold_allows_info", "info", "info", 1},
+		{"critical_threshold_allows_critical", "critical", "critical", 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			email := &mockEmailSender{}
+			svc := NewService(email, nil, nil, []Channel{ChannelEmail}, zerolog.Nop())
+
+			svc.SetPrefStore(&mockPrefStore{
+				pref: &Preference{
+					Channels:          []string{"email"},
+					SeverityThreshold: tc.threshold,
+					Enabled:           true,
+				},
+			})
+
+			err := svc.Notify(context.Background(), NotifyRequest{
+				TenantID:  uuid.New(),
+				EventType: "anomaly.detected",
+				ScopeType: ScopeSystem,
+				Title:     "5-level severity test",
+				Body:      "canonical taxonomy",
+				Severity:  tc.eventSev,
+			})
+			if err != nil {
+				t.Fatalf("notify: %v", err)
+			}
+
+			email.mu.Lock()
+			defer email.mu.Unlock()
+			if len(email.calls) != tc.wantCalls {
+				t.Errorf("email calls = %d, want %d (threshold=%s, event=%s)",
+					len(email.calls), tc.wantCalls, tc.threshold, tc.eventSev)
+			}
+		})
+	}
 }
 
 func TestService_Notify_NoPrefStore_UsesLegacyChannels(t *testing.T) {

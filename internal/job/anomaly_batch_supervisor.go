@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/bus"
+	sev "github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
@@ -27,7 +28,7 @@ type CrashSafeProcessor struct {
 	baseBackoff time.Duration
 	eventBus    EventPublisher
 	logger      zerolog.Logger
-	sleepFunc func(ctx context.Context, d time.Duration)
+	sleepFunc   func(ctx context.Context, d time.Duration)
 }
 
 func NewCrashSafeProcessor(inner Processor, eb EventPublisher, logger zerolog.Logger) *CrashSafeProcessor {
@@ -94,7 +95,7 @@ func (p *CrashSafeProcessor) Process(ctx context.Context, j *store.Job) error {
 
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(context.Background(), bus.SubjectAlertTriggered, map[string]interface{}{
-			"severity": "error",
+			"severity": sev.High,
 			"source":   "anomaly_batch_crash",
 			"job_id":   j.ID.String(),
 			"error":    lastErr.Error(),

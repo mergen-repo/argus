@@ -235,7 +235,7 @@ Super Admin → Create Tenant (company name, domain, contact)
 - Static IP: reserved per-SIM, never returned to pool while SIM exists
 - Dynamic IP: returned to pool on session end
 - On SIM termination: IP held for configurable grace period, then reclaimed
-- Pool at 80%: warning alert. 90%: critical alert. 100%: new allocations rejected + alert
+- Pool at 80%: medium-severity alert. 90%: critical alert. 100%: new allocations rejected + alert
 
 ### BR-4: Policy Enforcement
 - Policy changes propagated via CoA to active sessions

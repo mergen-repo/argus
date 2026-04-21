@@ -50,16 +50,16 @@ type HealthChecker struct {
 	alertSubject  string
 	metricsReg    *obsmetrics.Registry
 
-	mu            sync.Mutex
-	breakers      map[healthKey]*CircuitBreaker
+	mu       sync.Mutex
+	breakers map[healthKey]*CircuitBreaker
 	// stopChs is keyed by operator ID — STORY-090 Gate (F-A5): a
 	// single ticker per operator iterates enabled protocols
 	// sequentially per tick, replacing the Wave-2 per-protocol
 	// goroutine fan-out. Scaling implication: 100 ops × 5 protocols
 	// = 1 goroutine (not 5) per op, keeping the probe pool bounded
 	// to N_operators instead of N_operators × N_protocols.
-	stopChs       map[uuid.UUID]chan struct{}
-	lastStatus    map[healthKey]string
+	stopChs    map[uuid.UUID]chan struct{}
+	lastStatus map[healthKey]string
 	// lastLatency tracks the most recent LatencyMs probe result per
 	// (operator, protocol) tuple. FIX-203 AC-3: health worker must
 	// publish argus.events.operator.health.changed when status flips
@@ -519,7 +519,7 @@ func (hc *HealthChecker) checkSLAViolation(ctx context.Context, opID uuid.UUID, 
 	metrics := hc.slaTracker.ComputeMetrics(ctx, opID, int64(total), int64(failures), op.SLAUptimeTarget)
 
 	if metrics.SLAViolation {
-		hc.publishAlert(ctx, opID, opName, AlertTypeSLAViolation, SeverityWarning,
+		hc.publishAlert(ctx, opID, opName, AlertTypeSLAViolation, SeverityHigh,
 			fmt.Sprintf("SLA violation for operator %s", opName),
 			fmt.Sprintf("Operator %s uptime %.2f%% is below SLA target %.2f%%. P95 latency: %dms",
 				opName, metrics.Uptime24h, metrics.SLATarget, metrics.LatencyP95Ms),

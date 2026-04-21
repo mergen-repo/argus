@@ -22,6 +22,7 @@ import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState,
 import { OperatorChip } from '@/components/shared/operator-chip'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -769,14 +770,6 @@ function LiveEventStream() {
     }
   }, [navigate])
 
-  const severityVariant = (s: string): 'danger' | 'warning' | 'default' => {
-    switch (s) {
-      case 'critical': return 'danger'
-      case 'warning': return 'warning'
-      default: return 'default'
-    }
-  }
-
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '450ms' }}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -821,9 +814,7 @@ function LiveEventStream() {
                     </div>
                     <EventSourceChips event={event} />
                   </div>
-                  <Badge variant={severityVariant(event.severity)} className="text-[9px] flex-shrink-0 py-0">
-                    {event.severity}
-                  </Badge>
+                  <SeverityBadge severity={event.severity} className="flex-shrink-0" />
                 </div>
               )
             })
@@ -839,24 +830,6 @@ function LiveEventStream() {
 const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardAlert[] }) {
   const navigate = useNavigate()
 
-  const severityIcon = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return <AlertCircle className="h-3.5 w-3.5 text-danger flex-shrink-0" />
-      case 'warning':
-        return <AlertTriangle className="h-3.5 w-3.5 text-warning flex-shrink-0" />
-      default:
-        return <Info className="h-3.5 w-3.5 text-info flex-shrink-0" />
-    }
-  }
-
-  const severityVariant = (severity: string): 'danger' | 'warning' | 'default' => {
-    switch (severity) {
-      case 'critical': return 'danger'
-      case 'warning': return 'warning'
-      default: return 'default'
-    }
-  }
 
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '450ms' }}>
@@ -892,14 +865,12 @@ const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardA
                   }
                 }}
               >
-                {severityIcon(alert.severity)}
+                <SeverityBadge severity={alert.severity} iconOnly className="flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] text-text-primary truncate">{alert.message}</p>
                   <p className="text-[10px] text-text-tertiary mt-0.5">{timeAgo(alert.detected_at)}</p>
                 </div>
-                <Badge variant={severityVariant(alert.severity)} className="text-[9px] flex-shrink-0 py-0">
-                  {alert.severity}
-                </Badge>
+                <SeverityBadge severity={alert.severity} className="flex-shrink-0" />
               </div>
             ))}
           </div>

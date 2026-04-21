@@ -576,14 +576,14 @@ func (s *stubPolicyReader) ListReferencingAPN(_ context.Context, _ uuid.UUID, _ 
 }
 
 type stubSIMWriter struct {
-	mu              sync.Mutex
-	created         []store.CreateSIMParams
-	transitioned    []uuid.UUID
+	mu               sync.Mutex
+	created          []store.CreateSIMParams
+	transitioned     []uuid.UUID
 	setIPPolicyCalls []setIPPolicyCall
-	createErr       error
-	transitionErr   error
-	setPolicyErr    error
-	returnPVID      *uuid.UUID
+	createErr        error
+	transitionErr    error
+	setPolicyErr     error
+	returnPVID       *uuid.UUID
 }
 
 type setIPPolicyCall struct {
@@ -656,9 +656,9 @@ func (s *stubSIMWriter) getSetIPPolicyCalls() []setIPPolicyCall {
 }
 
 type stubJobStore struct {
-	mu           sync.Mutex
-	completed    bool
-	progressCalls int
+	mu              sync.Mutex
+	completed       bool
+	progressCalls   int
 	completedResult json.RawMessage
 }
 
@@ -997,8 +997,8 @@ func TestProcess_AllInvalidRows_ZeroSIMsAndNotification(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("notification calls = %d, want 1 even for all-invalid", len(calls))
 	}
-	if calls[0].Severity != "error" {
-		t.Errorf("notification severity = %q, want %q for all-invalid", calls[0].Severity, "error")
+	if calls[0].Severity != "high" {
+		t.Errorf("notification severity = %q, want %q for all-invalid", calls[0].Severity, "high")
 	}
 
 	entries := aud.getEntries()
@@ -1065,8 +1065,8 @@ func TestProcess_MixedValidInvalid_CorrectCounts(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("notification calls = %d, want 1", len(calls))
 	}
-	if calls[0].Severity != "warning" {
-		t.Errorf("notification severity = %q, want %q for mixed valid/invalid", calls[0].Severity, "warning")
+	if calls[0].Severity != "medium" {
+		t.Errorf("notification severity = %q, want %q for mixed valid/invalid", calls[0].Severity, "medium")
 	}
 
 	entries := aud.getEntries()

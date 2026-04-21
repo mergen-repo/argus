@@ -8,6 +8,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -204,10 +205,10 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 		response["sim"] = sim
 
 		audit.Emit(r, h.logger, h.auditSvc, "violation.remediated", "policy_violation", id.String(), nil, map[string]interface{}{
-			"action":          req.Action,
-			"reason":          req.Reason,
-			"remediated_by":   userID.String(),
-			"sim_id":          v.SimID.String(),
+			"action":        req.Action,
+			"reason":        req.Reason,
+			"remediated_by": userID.String(),
+			"sim_id":        v.SimID.String(),
 		})
 
 		if _, ackErr := h.violationStore.Acknowledge(r.Context(), id, tenantID, userID, req.Reason); ackErr != nil && !errors.Is(ackErr, store.ErrAlreadyAcknowledged) {
@@ -216,9 +217,9 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 
 	case "escalate":
 		audit.Emit(r, h.logger, h.auditSvc, "violation.escalated", "policy_violation", id.String(), nil, map[string]interface{}{
-			"action":        req.Action,
-			"reason":        req.Reason,
-			"escalated_by":  userID.String(),
+			"action":       req.Action,
+			"reason":       req.Reason,
+			"escalated_by": userID.String(),
 		})
 
 	case "dismiss":
@@ -281,11 +282,20 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		ackFilter = &b
 	}
 
+	sevFilter := q.Get("severity")
+	if sevFilter != "" {
+		if err := severity.Validate(sevFilter); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidSeverity,
+				"severity must be one of: critical, high, medium, low, info; got '"+sevFilter+"'")
+			return
+		}
+	}
+
 	params := store.ListViolationsParams{
 		Cursor:        q.Get("cursor"),
 		Limit:         limit,
 		ViolationType: q.Get("violation_type"),
-		Severity:      q.Get("severity"),
+		Severity:      sevFilter,
 		SimID:         simID,
 		PolicyID:      policyID,
 		Acknowledged:  ackFilter,
@@ -373,9 +383,9 @@ func (h *Handler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 	})
 
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
-		"id":               v.ID,
-		"acknowledged_at":  v.AcknowledgedAt,
-		"acknowledged_by":  v.AcknowledgedBy,
-		"note":             v.AcknowledgmentNote,
+		"id":              v.ID,
+		"acknowledged_at": v.AcknowledgedAt,
+		"acknowledged_by": v.AcknowledgedBy,
+		"note":            v.AcknowledgmentNote,
 	})
 }

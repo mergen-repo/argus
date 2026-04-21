@@ -14,15 +14,16 @@ import (
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/notification"
+	sev "github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
 const (
-	progressInterval  = 100
-	minCSVColumns     = 5
-	maxCSVColumns     = 6
+	progressInterval = 100
+	minCSVColumns    = 5
+	maxCSVColumns    = 6
 )
 
 var requiredHeaders = []string{"iccid", "imsi", "msisdn", "operator_code", "apn_name"}
@@ -41,9 +42,9 @@ type ImportRowError struct {
 }
 
 type ImportResult struct {
-	TotalRows     int `json:"total_rows"`
-	SuccessCount  int `json:"success_count"`
-	FailureCount  int `json:"failure_count"`
+	TotalRows     int      `json:"total_rows"`
+	SuccessCount  int      `json:"success_count"`
+	FailureCount  int      `json:"failure_count"`
 	CreatedSIMIDs []string `json:"created_sim_ids,omitempty"`
 }
 
@@ -318,13 +319,13 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 	p.emitNotification(ctx, job, payload.FileName, totalRows, processed, failed)
 
 	_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
-		"job_id":         job.ID.String(),
-		"tenant_id":      job.TenantID.String(),
-		"type":           JobTypeBulkImport,
-		"state":          "completed",
-		"total_rows":     totalRows,
-		"success_count":  processed,
-		"failure_count":  failed,
+		"job_id":        job.ID.String(),
+		"tenant_id":     job.TenantID.String(),
+		"type":          JobTypeBulkImport,
+		"state":         "completed",
+		"total_rows":    totalRows,
+		"success_count": processed,
+		"failure_count": failed,
 	})
 
 	return nil
@@ -447,10 +448,10 @@ func (p *BulkImportProcessor) emitSummaryAudit(ctx context.Context, job *store.J
 	}
 
 	summary := map[string]interface{}{
-		"total":      totalRows,
-		"success":    processed,
-		"failure":    failed,
-		"file_name":  fileName,
+		"total":     totalRows,
+		"success":   processed,
+		"failure":   failed,
+		"file_name": fileName,
 	}
 	afterData, _ := json.Marshal(summary)
 
@@ -473,11 +474,11 @@ func (p *BulkImportProcessor) emitNotification(ctx context.Context, job *store.J
 		return
 	}
 
-	severity := "info"
+	severity := sev.Info
 	if failed > 0 && processed > 0 {
-		severity = "warning"
+		severity = sev.Medium
 	} else if failed > 0 && processed == 0 {
-		severity = "error"
+		severity = sev.High
 	}
 
 	_ = p.notifier.Notify(ctx, notification.NotifyRequest{

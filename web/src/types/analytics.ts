@@ -113,13 +113,15 @@ export interface CostResponse {
   suggestions: CostSuggestion[]
 }
 
+import { type Severity } from '@/lib/severity'
+
 export interface Anomaly {
   id: string
   tenant_id: string
   sim_id?: string
   sim_iccid?: string
   type: string
-  severity: 'critical' | 'warning' | 'info'
+  severity: Severity
   state: 'open' | 'acknowledged' | 'resolved' | 'false_positive'
   details: Record<string, unknown>
   source?: string
@@ -132,4 +134,4 @@ export type UsagePeriod = '1h' | '24h' | '7d' | '30d' | 'custom'
 export type UsageGroupBy = '' | 'operator' | 'apn' | 'rat_type'
 export type UsageMetric = 'total_bytes' | 'sessions' | 'auths'
 export type AnomalyState = '' | 'open' | 'acknowledged' | 'resolved' | 'false_positive'
-export type AnomalySeverity = '' | 'critical' | 'warning' | 'info'
+export type AnomalySeverity = '' | Severity

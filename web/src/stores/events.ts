@@ -1,10 +1,11 @@
 import { create } from 'zustand'
+import { type Severity } from '@/lib/severity'
 
 export interface LiveEvent {
   id: string
   type: string
   message: string
-  severity: 'critical' | 'warning' | 'info'
+  severity: Severity
   timestamp: string
   entity_type?: string
   entity_id?: string

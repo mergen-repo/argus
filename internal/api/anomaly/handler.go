@@ -13,6 +13,7 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,12 +25,12 @@ type NotificationSender interface {
 }
 
 type Handler struct {
-	anomalyStore   *store.AnomalyStore
-	commentStore   *store.AnomalyCommentStore
-	userStore      *store.UserStore
-	notifier       NotificationSender
-	auditSvc       audit.Auditor
-	logger         zerolog.Logger
+	anomalyStore *store.AnomalyStore
+	commentStore *store.AnomalyCommentStore
+	userStore    *store.UserStore
+	notifier     NotificationSender
+	auditSvc     audit.Auditor
+	logger       zerolog.Logger
 }
 
 type HandlerOption func(*Handler)
@@ -116,11 +117,20 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sevFilter := q.Get("severity")
+	if sevFilter != "" {
+		if err := severity.Validate(sevFilter); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidSeverity,
+				"severity must be one of: critical, high, medium, low, info; got '"+sevFilter+"'")
+			return
+		}
+	}
+
 	params := store.ListAnomalyParams{
 		Cursor:   q.Get("cursor"),
 		Limit:    limit,
 		Type:     q.Get("type"),
-		Severity: q.Get("severity"),
+		Severity: sevFilter,
 		State:    q.Get("state"),
 	}
 
@@ -438,7 +448,7 @@ func (h *Handler) Escalate(w http.ResponseWriter, r *http.Request) {
 			}
 			notifReq.ExtraFields = map[string]string{
 				"entity_type":  "sim",
-				"entity_id":   a.SimID.String(),
+				"entity_id":    a.SimID.String(),
 				"display_name": simLabel,
 			}
 		}

@@ -78,6 +78,7 @@ For `ACCOUNT_LOCKED`, the `details` array includes retry information:
 | `INVALID_FORMAT` | 400 | Request body is malformed (not valid JSON, wrong content-type, etc.) | `{"status":"error","error":{"code":"INVALID_FORMAT","message":"Request body is not valid JSON"}}` |
 | `INVALID_REFERENCE` | 400 | A foreign-key reference in the request body points at a non-existent record. Defensive duplicate of handler-layer NOT_FOUND checks — emitted only when the FK would otherwise violate at DB (SQLSTATE 23503). `details[0].field` names the offending column (`operator_id`, `apn_id`, `ip_address_id`); `details[0].constraint` names the DB constraint. Added FIX-206. | `{"status":"error","error":{"code":"INVALID_REFERENCE","message":"operator_id does not reference an existing operator","details":[{"field":"operator_id","constraint":"fk_sims_operator"}]}}` |
 | `INVALID_IMSI_FORMAT` | 400 | IMSI does not conform to PLMN format (`^\d{14,15}$`). Emitted when `IMSI_STRICT_VALIDATION=true` (default) and the IMSI fails the regex at API or AAA ingestion boundary. Added FIX-207. | See below |
+| `INVALID_SEVERITY` | 400 | Severity value is not in the canonical taxonomy (`critical`, `high`, `medium`, `low`, `info`). Sent by every endpoint that accepts a severity filter or severity payload field. Added FIX-211. | `{"status":"error","error":{"code":"INVALID_SEVERITY","message":"severity must be one of: critical, high, medium, low, info; got 'warning'"}}` |
 
 ### INVALID_IMSI_FORMAT Details
 
@@ -309,6 +310,7 @@ const (
     CodeInvalidFormat    = "INVALID_FORMAT"
     CodeInvalidReference  = "INVALID_REFERENCE"  // FIX-206 (FK violation translation)
     CodeInvalidIMSIFormat = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
+    CodeInvalidSeverity   = "INVALID_SEVERITY"    // FIX-211 (non-canonical severity value)
 
     // Resource
     CodeNotFound      = "NOT_FOUND"
@@ -385,6 +387,88 @@ const (
     CodeServiceDegraded     = "SERVICE_DEGRADED"
 )
 ```
+
+---
+
+## Severity Taxonomy
+
+Argus uses a single canonical 5-value severity enum across alerts, anomalies, policy violations, notifications, and notification preferences. Defined in Go as `internal/severity/severity.go` and mirrored in the frontend as `web/src/lib/severity.ts` (exports `SEVERITY_VALUES`, `SEVERITY_OPTIONS`, `SEVERITY_FILTER_OPTIONS`, `severityOrdinal`). Established in FIX-211.
+
+### Values
+
+Strictly ordered from lowest urgency to highest: `info < low < medium < high < critical`.
+
+| Severity | Ordinal | Meaning |
+|----------|---------|---------|
+| `info` | 1 | Operational information; no action needed |
+| `low` | 2 | Cosmetic / minor; batched review |
+| `medium` | 3 | Attention needed within 24h (replaces legacy `warning`) |
+| `high` | 4 | Active issue, respond within 1h (replaces legacy `error`) |
+| `critical` | 5 | Page on-call immediately |
+
+### Legacy value migration
+
+Historical rows used a 4-tier `info/warning/error/critical` taxonomy. The FIX-211 migration (`20260421000003_severity_taxonomy_unification`) remaps:
+
+| Old value | New value |
+|-----------|-----------|
+| `critical` | `critical` (unchanged) |
+| `error` | `high` |
+| `warning` | `medium` |
+| `info` | `info` (unchanged) |
+
+### Colour coding (frontend)
+
+The `<SeverityBadge>` component in `web/src/components/shared/severity-badge.tsx` renders each severity with these tokens (defined in `docs/FRONTEND.md`):
+
+| Severity | Background | Foreground |
+|----------|------------|------------|
+| `critical` | `bg-danger-dim` | `text-danger` (pulse) |
+| `high` | `bg-danger-dim` | `text-danger` (static) |
+| `medium` | `bg-warning-dim` | `text-warning` |
+| `low` | `bg-info/10` | `text-info` |
+| `info` | `bg-bg-elevated` | `text-text-secondary` |
+
+No hardcoded hex; all colour derives from design tokens.
+
+### Consumers
+
+**DB tables (all carry CHECK constraint enforcing the 5 values):**
+- `anomalies.severity`
+- `policy_violations.severity`
+- `notifications.severity`
+- `notification_preferences.severity_threshold`
+- `alerts.severity` — reserved for FIX-209 when the unified `alerts` table is introduced. FIX-209 MUST adopt the same 5-value CHECK constraint.
+
+**API surfaces that accept severity (validated with HTTP 400 `INVALID_SEVERITY` on non-canonical input):**
+- `GET /alerts?severity=...`
+- `GET /anomalies?severity=...`
+- `GET /violations?severity=...`
+- `GET /ops/incidents?severity=...`
+- `PATCH /notifications/preferences { severity_threshold }`
+
+**Backend event publishers (emit only canonical values):**
+- Policy enforcer (`internal/policy/enforcer/`)
+- Operator health checker (`internal/operator/health.go`) — SLA breaches emit `high`; operator-down emits `critical`; operator-up emits `info`
+- Bus consumer-lag alerts (`internal/bus/consumer_lag.go`)
+- System revoke-sessions notifications (`internal/api/system/revoke_sessions_handler.go`)
+- Import job notifications (`internal/job/import.go`)
+
+### Validation policy
+
+**Strict (no toggle).** Every severity-accepting endpoint rejects non-canonical values with HTTP 400 `INVALID_SEVERITY`. There is no `SEVERITY_STRICT_VALIDATION` flag; Argus is single-tenant and all consumers are in-repo. Seed data in `migrations/seed/003_comprehensive_seed.sql` uses canonical values exclusively — `make db-seed` on a fresh volume is guaranteed clean.
+
+### Cross-reference for FIX-209
+
+FIX-209 introduces the unified `alerts` table. Its `severity` column MUST carry:
+
+```sql
+CHECK (severity IN ('critical','high','medium','low','info'))
+```
+
+Constraint name: `chk_alerts_severity`. Do NOT reintroduce `warning` or `error`.
+
+---
 
 ## Client Error Handling Guidelines
 

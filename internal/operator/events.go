@@ -3,6 +3,7 @@ package operator
 import (
 	"time"
 
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/google/uuid"
 )
 
@@ -18,23 +19,29 @@ type OperatorHealthEvent struct {
 }
 
 type AlertEvent struct {
-	AlertID     string    `json:"alert_id"`
-	AlertType   string    `json:"alert_type"`
-	Severity    string    `json:"severity"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	EntityType  string    `json:"entity_type"`
-	EntityID    uuid.UUID `json:"entity_id"`
+	AlertID     string                 `json:"alert_id"`
+	AlertType   string                 `json:"alert_type"`
+	Severity    string                 `json:"severity"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	EntityType  string                 `json:"entity_type"`
+	EntityID    uuid.UUID              `json:"entity_id"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp   time.Time `json:"timestamp"`
+	Timestamp   time.Time              `json:"timestamp"`
 }
 
 const (
-	AlertTypeOperatorDown  = "operator_down"
-	AlertTypeOperatorUp    = "operator_recovered"
-	AlertTypeSLAViolation  = "sla_violation"
+	AlertTypeOperatorDown = "operator_down"
+	AlertTypeOperatorUp   = "operator_recovered"
+	AlertTypeSLAViolation = "sla_violation"
+)
 
-	SeverityCritical = "critical"
-	SeverityWarning  = "warning"
-	SeverityInfo     = "info"
+// Severity constants mirror the canonical taxonomy (internal/severity).
+// FIX-211: 5 levels — critical > high > medium > low > info.
+var (
+	SeverityCritical = severity.Critical
+	SeverityHigh     = severity.High
+	SeverityMedium   = severity.Medium
+	SeverityLow      = severity.Low
+	SeverityInfo     = severity.Info
 )

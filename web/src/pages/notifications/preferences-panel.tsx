@@ -18,6 +18,7 @@ import {
   useUpsertNotificationPreferences,
   type NotificationPreference,
 } from '@/hooks/use-notification-preferences'
+import { SEVERITY_OPTIONS as CANONICAL_SEVERITY_OPTIONS } from '@/lib/severity'
 
 const EVENT_TYPES = [
   'sim.activated',
@@ -37,12 +38,7 @@ const EVENT_TYPES = [
 
 const CHANNELS = ['email', 'in_app', 'webhook', 'telegram', 'sms'] as const
 
-const SEVERITY_OPTIONS = [
-  { value: 'info', label: 'Info' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'error', label: 'Error' },
-  { value: 'critical', label: 'Critical' },
-]
+const SEVERITY_OPTIONS = [...CANONICAL_SEVERITY_OPTIONS].reverse()
 
 function emptyPref(eventType: string): NotificationPreference {
   return { event_type: eventType, channels: [], severity_threshold: 'info', enabled: true }

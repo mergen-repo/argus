@@ -39,7 +39,7 @@ func TestPolicyViolationStore_Acknowledge_Happy(t *testing.T) {
 		RuleIndex:     0,
 		ViolationType: "rate_limit",
 		ActionTaken:   "block",
-		Severity:      "warning",
+		Severity:      "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create violation: %v", err)
@@ -76,7 +76,7 @@ func TestPolicyViolationStore_Acknowledge_AlreadyAcknowledged(t *testing.T) {
 		RuleIndex:     0,
 		ViolationType: "rate_limit",
 		ActionTaken:   "block",
-		Severity:      "warning",
+		Severity:      "medium",
 	})
 	if err != nil {
 		t.Fatalf("Create violation: %v", err)

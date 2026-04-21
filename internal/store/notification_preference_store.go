@@ -6,23 +6,15 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
-	ErrPreferenceNotFound    = errors.New("store: notification preference not found")
-	ErrInvalidSeverityThreshold = errors.New("store: invalid severity_threshold; must be info|warning|error|critical")
+	ErrPreferenceNotFound = errors.New("store: notification preference not found")
 )
-
-// validSeverityThresholds is the canonical set — validated at store level per AC decision.
-var validSeverityThresholds = map[string]struct{}{
-	"info":     {},
-	"warning":  {},
-	"error":    {},
-	"critical": {},
-}
 
 type NotificationPreference struct {
 	ID                uuid.UUID
@@ -76,8 +68,8 @@ func (s *NotificationPreferenceStore) GetMatrix(ctx context.Context, tenantID uu
 // Empty prefs slice is valid — clears all preferences.
 func (s *NotificationPreferenceStore) Upsert(ctx context.Context, tenantID uuid.UUID, prefs []NotificationPreference) error {
 	for i, p := range prefs {
-		if _, ok := validSeverityThresholds[p.SeverityThreshold]; !ok {
-			return fmt.Errorf("%w (row %d, value %q)", ErrInvalidSeverityThreshold, i, p.SeverityThreshold)
+		if !severity.IsValid(p.SeverityThreshold) {
+			return fmt.Errorf("%w (row %d, value %q)", severity.ErrInvalidSeverity, i, p.SeverityThreshold)
 		}
 	}
 

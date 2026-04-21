@@ -12,20 +12,20 @@ const (
 	// TenantIDKey holds the EFFECTIVE tenant for the current request. For a
 	// super_admin with an active tenant-context switch, this is the selected
 	// tenant; for all other users it equals the user's home tenant.
-	TenantIDKey      contextKey = "tenant_id"
+	TenantIDKey contextKey = "tenant_id"
 	// HomeTenantIDKey holds the user's original/home tenant from the JWT.
 	// Audit consumers that need the admin's real tenant (not the active
 	// scope) should read this key.
-	HomeTenantIDKey  contextKey = "home_tenant_id"
+	HomeTenantIDKey contextKey = "home_tenant_id"
 	// ActiveTenantIDKey is set only when a super_admin has switched into a
 	// tenant context. Absent otherwise. Presence of this key is the
 	// authoritative signal that "viewing-as-tenant" is active.
 	ActiveTenantIDKey contextKey = "active_tenant_id"
-	UserIDKey        contextKey = "user_id"
-	RoleKey          contextKey = "role"
-	AuthTypeKey      contextKey = "auth_type"
-	ScopesKey        contextKey = "scopes"
-	APIKeyIDKey      contextKey = "api_key_id"
+	UserIDKey         contextKey = "user_id"
+	RoleKey           contextKey = "role"
+	AuthTypeKey       contextKey = "auth_type"
+	ScopesKey         contextKey = "scopes"
+	APIKeyIDKey       contextKey = "api_key_id"
 )
 
 const (
@@ -37,6 +37,7 @@ const (
 	CodeAlreadyExists      = "ALREADY_EXISTS"
 	CodeInvalidReference   = "INVALID_REFERENCE"
 	CodeInvalidIMSIFormat  = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
+	CodeInvalidSeverity    = "INVALID_SEVERITY"
 	CodeMSISDNNotFound     = "MSISDN_NOT_FOUND"
 	CodeMSISDNNotAvailable = "MSISDN_NOT_AVAILABLE"
 
@@ -49,11 +50,11 @@ const (
 	CodeTokenExpired        = "TOKEN_EXPIRED"
 	CodeInvalidRefreshToken = "INVALID_REFRESH_TOKEN"
 
-	CodeForbidden              = "FORBIDDEN"
-	CodeInsufficientRole       = "INSUFFICIENT_ROLE"
-	CodeScopeDenied            = "SCOPE_DENIED"
-	CodeForbiddenCrossTenant   = "FORBIDDEN_CROSS_TENANT"
-	CodeAPIKeyIPNotAllowed     = "API_KEY_IP_NOT_ALLOWED"
+	CodeForbidden            = "FORBIDDEN"
+	CodeInsufficientRole     = "INSUFFICIENT_ROLE"
+	CodeScopeDenied          = "SCOPE_DENIED"
+	CodeForbiddenCrossTenant = "FORBIDDEN_CROSS_TENANT"
+	CodeAPIKeyIPNotAllowed   = "API_KEY_IP_NOT_ALLOWED"
 
 	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
 	CodeTenantLimitExceeded   = "TENANT_LIMIT_EXCEEDED"
@@ -82,21 +83,21 @@ const (
 	CodeProfileNotAvailable     = "PROFILE_NOT_AVAILABLE"
 	CodeIPReleaseFailed         = "IP_RELEASE_FAILED"
 
-	CodeOperatorUnavailable     = "OPERATOR_UNAVAILABLE"
-	CodeProtocolNotConfigured   = "PROTOCOL_NOT_CONFIGURED"
-	CodeAdapterConfigInvalid    = "ADAPTER_CONFIG_INVALID"
+	CodeOperatorUnavailable   = "OPERATOR_UNAVAILABLE"
+	CodeProtocolNotConfigured = "PROTOCOL_NOT_CONFIGURED"
+	CodeAdapterConfigInvalid  = "ADAPTER_CONFIG_INVALID"
 
-	CodePasswordTooShort         = "PASSWORD_TOO_SHORT"
-	CodePasswordMissingClass     = "PASSWORD_MISSING_CLASS"
-	CodePasswordRepeatingChars   = "PASSWORD_REPEATING_CHARS"
-	CodePasswordReused           = "PASSWORD_REUSED"
-	CodePasswordChangeRequired   = "PASSWORD_CHANGE_REQUIRED"
+	CodePasswordTooShort       = "PASSWORD_TOO_SHORT"
+	CodePasswordMissingClass   = "PASSWORD_MISSING_CLASS"
+	CodePasswordRepeatingChars = "PASSWORD_REPEATING_CHARS"
+	CodePasswordReused         = "PASSWORD_REUSED"
+	CodePasswordChangeRequired = "PASSWORD_CHANGE_REQUIRED"
 
 	CodeInvalidCIDR = "INVALID_CIDR"
 
-	CodeRoamingAgreementNotFound          = "ROAMING_AGREEMENT_NOT_FOUND"
-	CodeRoamingAgreementOverlap           = "ROAMING_AGREEMENT_OVERLAP"
-	CodeRoamingAgreementInvalidDates      = "ROAMING_AGREEMENT_INVALID_DATES"
+	CodeRoamingAgreementNotFound           = "ROAMING_AGREEMENT_NOT_FOUND"
+	CodeRoamingAgreementOverlap            = "ROAMING_AGREEMENT_OVERLAP"
+	CodeRoamingAgreementInvalidDates       = "ROAMING_AGREEMENT_INVALID_DATES"
 	CodeRoamingAgreementOperatorNotGranted = "ROAMING_AGREEMENT_OPERATOR_NOT_GRANTED"
 
 	CodeInvalidDateRange = "INVALID_DATE_RANGE"
@@ -109,7 +110,7 @@ type SuccessResponse struct {
 }
 
 type ErrorResponse struct {
-	Status string     `json:"status"`
+	Status string      `json:"status"`
 	Error  ErrorDetail `json:"error"`
 }
 
@@ -120,10 +121,10 @@ type ErrorDetail struct {
 }
 
 type ListMeta struct {
-	Total      int64  `json:"total,omitempty"`
-	Cursor     string `json:"cursor,omitempty"`
-	HasMore    bool   `json:"has_more"`
-	Limit      int    `json:"limit,omitempty"`
+	Total   int64  `json:"total,omitempty"`
+	Cursor  string `json:"cursor,omitempty"`
+	HasMore bool   `json:"has_more"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 type ListResponse struct {

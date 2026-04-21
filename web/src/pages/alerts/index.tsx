@@ -2,12 +2,14 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircle, AlertTriangle, Info, CheckCircle, Clock, Shield,
+  AlertCircle, AlertTriangle, CheckCircle, Clock, Shield,
   ChevronDown, ChevronUp, Search, BellOff, ExternalLink, BookOpen,
   RefreshCw, Eye, Radio, Zap, Wifi, WifiOff, Database, Lock,
   Activity, TrendingUp, MessageSquare, Download, Loader2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { SeverityBadge } from '@/components/shared/severity-badge'
+import { SEVERITY_FILTER_OPTIONS, SEVERITY_PILL_CLASSES } from '@/lib/severity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -116,12 +118,10 @@ const ALERT_TYPE_OPTIONS = [
   { value: 'credential_stuffing', label: 'Credential Stuffing' },
 ]
 
-const SEVERITY_PILLS = [
-  { value: '', label: 'All' },
-  { value: 'critical', label: 'Critical' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'info', label: 'Info' },
-] as const
+const severityFilterPills = SEVERITY_FILTER_OPTIONS.map((o) => ({
+  value: o.value,
+  label: o.value === '' ? 'All' : o.label,
+})) as readonly { value: string; label: string }[]
 
 const STATE_PILLS = [
   { value: '', label: 'All' },
@@ -144,22 +144,6 @@ function alertTypeIcon(type: string) {
     case 'location_anomaly': return <Radio className="h-4 w-4" />
     case 'credential_stuffing': return <Lock className="h-4 w-4" />
     default: return <Wifi className="h-4 w-4" />
-  }
-}
-
-function severityIcon(severity: string) {
-  switch (severity) {
-    case 'critical': return <AlertCircle className="h-4 w-4 text-danger" />
-    case 'warning': return <AlertTriangle className="h-4 w-4 text-warning" />
-    default: return <Info className="h-4 w-4 text-info" />
-  }
-}
-
-function severityBadgeVariant(severity: string): 'danger' | 'warning' | 'default' {
-  switch (severity) {
-    case 'critical': return 'danger'
-    case 'warning': return 'warning'
-    default: return 'default'
   }
 }
 
@@ -218,8 +202,9 @@ function impactEstimate(anomaly: Anomaly): { sims: number; sessions: number } | 
       sessions: (details.affected_sessions as number) || 0,
     }
   }
-  if (anomaly.severity === 'critical') return { sims: 45000, sessions: 12000 }
-  if (anomaly.severity === 'warning') return { sims: 2500, sessions: 800 }
+  if (anomaly.severity === 'critical' || anomaly.severity === 'high') return { sims: 45000, sessions: 12000 }
+  if (anomaly.severity === 'medium') return { sims: 2500, sessions: 800 }
+  // low / info: no synthetic estimate — caller gracefully skips the Impact block.
   return null
 }
 
@@ -483,7 +468,7 @@ function AlertCard({
       className={cn(
         'stagger-item card-hover rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden',
         anomaly.severity === 'critical' && anomaly.state === 'open' && 'border-danger/40',
-        anomaly.severity === 'warning' && anomaly.state === 'open' && 'border-warning/30',
+        (anomaly.severity === 'high' || anomaly.severity === 'medium') && anomaly.state === 'open' && 'border-warning/30',
         anomaly.state === 'resolved' && 'opacity-70',
         isExpanded && 'border-accent/40',
       )}
@@ -496,13 +481,8 @@ function AlertCard({
         )}
         onClick={onToggle}
       >
-        <div className="flex-shrink-0">
-          {severityIcon(anomaly.severity)}
-        </div>
-
-        <Badge variant={severityBadgeVariant(anomaly.severity)} className="text-[10px] flex-shrink-0">
-          {anomaly.severity}
-        </Badge>
+        <SeverityBadge severity={anomaly.severity} iconOnly className="flex-shrink-0" />
+        <SeverityBadge severity={anomaly.severity} className="flex-shrink-0" />
 
         {statePill(anomaly.state)}
 
@@ -655,12 +635,15 @@ export default function AlertsPage() {
   )
 
   const counts = useMemo(() => {
-    const all = alerts
+    const open = alerts.filter((a) => a.state === 'open')
     return {
-      critical: all.filter((a) => a.severity === 'critical' && a.state === 'open').length,
-      warning: all.filter((a) => a.severity === 'warning' && a.state === 'open').length,
-      acknowledged: all.filter((a) => a.state === 'acknowledged').length,
-      resolved: all.filter((a) => a.state === 'resolved').length,
+      critical: open.filter((a) => a.severity === 'critical').length,
+      high: open.filter((a) => a.severity === 'high').length,
+      medium: open.filter((a) => a.severity === 'medium').length,
+      low: open.filter((a) => a.severity === 'low').length,
+      info: open.filter((a) => a.severity === 'info').length,
+      acknowledged: alerts.filter((a) => a.state === 'acknowledged').length,
+      resolved: alerts.filter((a) => a.state === 'resolved').length,
     }
   }, [alerts])
 
@@ -761,8 +744,8 @@ export default function AlertsPage() {
           delay={50}
         />
         <StatCard
-          label="Warning"
-          count={counts.warning}
+          label="High / Medium"
+          count={counts.high + counts.medium}
           icon={<AlertTriangle className="h-6 w-6" />}
           colorClass="text-warning"
           bgClass="border-warning/30 bg-warning-dim"
@@ -792,14 +775,10 @@ export default function AlertsPage() {
       >
         <div className="flex flex-wrap items-center gap-3">
           <PillFilter
-            options={SEVERITY_PILLS}
+            options={severityFilterPills}
             value={filters.severity}
             onChange={(v) => setFilters((prev) => ({ ...prev, severity: v }))}
-            colorMap={{
-              critical: 'bg-danger-dim text-danger',
-              warning: 'bg-warning-dim text-warning',
-              info: 'bg-accent-dim text-accent',
-            }}
+            colorMap={SEVERITY_PILL_CLASSES}
           />
           <PillFilter
             options={STATE_PILLS}

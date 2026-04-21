@@ -8,6 +8,7 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -107,7 +108,7 @@ func (h *RevokeSessionsHandler) RevokeAll(w http.ResponseWriter, r *http.Request
 				ScopeType: notification.ScopeSystem,
 				Title:     "Security Alert: All Sessions Revoked",
 				Body:      "All active sessions for your account have been revoked by an administrator. Please log in again.",
-				Severity:  "warning",
+				Severity:  severity.Medium,
 			}
 			if notifErr := h.notifSvc.Notify(context.Background(), notifReq); notifErr != nil {
 				h.logger.Warn().Err(notifErr).Str("tenant_id", targetTenantID.String()).Msg("send revoke-all-sessions notification")

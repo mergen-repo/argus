@@ -363,7 +363,7 @@ Architectural decisions (documented, not blocking UAT):
 | FIX-208 | Cross-Tab Data Aggregation Unify (SIM usage/cost/sessions + Operator/APN counts) | P0 | L | [x] DONE (2026-04-20) | FIX-206 |
 | FIX-209 | Unified `alerts` Table + Operator/Infra Alert Persistence | P0 | XL | [ ] PENDING | FIX-211 |
 | FIX-210 | Alert Deduplication + State Machine (edge-triggered, cooldown) | P0 | M | [ ] PENDING | — |
-| FIX-211 | Severity Taxonomy Unification (critical/high/medium/low/info) | P0 | M | [ ] PENDING | — |
+| FIX-211 | Severity Taxonomy Unification (critical/high/medium/low/info) | P0 | M | [x] DONE (2026-04-21) | — |
 
 ### Wave 3 — P1 Event System + Dashboard Metrics
 

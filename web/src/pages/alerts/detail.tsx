@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   AlertCircle,
   AlertTriangle,
-  Info,
   CheckCircle2,
   XCircle,
   ArrowUpRight,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -40,18 +40,6 @@ import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
 import type { Anomaly } from '@/types/analytics'
 import { useUIStore } from '@/stores/ui'
-
-function severityIcon(severity: string) {
-  if (severity === 'critical') return <AlertCircle className="h-5 w-5 text-danger" />
-  if (severity === 'warning') return <AlertTriangle className="h-5 w-5 text-warning" />
-  return <Info className="h-5 w-5 text-accent" />
-}
-
-function severityVariant(s: string): 'danger' | 'warning' | 'default' | 'secondary' {
-  if (s === 'critical') return 'danger'
-  if (s === 'warning') return 'warning'
-  return 'default'
-}
 
 function stateVariant(s: string): 'success' | 'secondary' | 'warning' | 'default' {
   if (s === 'resolved') return 'success'
@@ -144,13 +132,11 @@ export default function AlertDetailPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              {severityIcon(alert.severity)}
+              <SeverityBadge severity={alert.severity} iconOnly />
               <h1 className="text-[15px] font-semibold text-text-primary">{alertTitle(alert)}</h1>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={severityVariant(alert.severity)} className="text-[11px]">
-                {alert.severity}
-              </Badge>
+              <SeverityBadge severity={alert.severity} />
               <Badge variant={stateVariant(alert.state)} className="text-[11px]">
                 {alert.state}
               </Badge>
@@ -228,7 +214,7 @@ export default function AlertDetailPage() {
               </CardHeader>
               <CardContent className="p-4 space-y-2">
                 <InfoRow label="Type" value={<span className="text-[12px] font-mono text-text-primary">{alert.type}</span>} />
-                <InfoRow label="Severity" value={<Badge variant={severityVariant(alert.severity)} className="text-[11px]">{alert.severity}</Badge>} />
+                <InfoRow label="Severity" value={<SeverityBadge severity={alert.severity} />} />
                 <InfoRow label="State" value={<Badge variant={stateVariant(alert.state)} className="text-[11px]">{alert.state}</Badge>} />
                 <InfoRow label="Detected" value={<span className="text-[12px] text-text-secondary" title={alert.detected_at}>{timeAgo(alert.detected_at)}</span>} />
                 {alert.acknowledged_at && (
@@ -293,7 +279,7 @@ export default function AlertDetailPage() {
                       <EntityLink entityType="alert" entityId={a.id} label={alertTitle(a)} />
                     </TableCell>
                     <TableCell className="py-2.5">
-                      <Badge variant={severityVariant(a.severity)} className="text-[10px]">{a.severity}</Badge>
+                      <SeverityBadge severity={a.severity} />
                     </TableCell>
                     <TableCell className="py-2.5">
                       <Badge variant={stateVariant(a.state)} className="text-[10px]">{a.state}</Badge>

@@ -11,6 +11,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -153,18 +154,9 @@ type TemplatePayload struct {
 var ErrTemplateNotFound = errors.New("notification: template not found")
 
 // severityOrdinal maps severity string to a comparable integer (AC-8 filtering).
+// FIX-211: delegates to the canonical 5-level taxonomy (info=1 .. critical=5).
 func severityOrdinal(s string) int {
-	switch s {
-	case "info":
-		return 1
-	case "warning":
-		return 2
-	case "error":
-		return 3
-	case "critical":
-		return 4
-	}
-	return 0
+	return severity.Ordinal(s)
 }
 
 type Config struct {
@@ -179,14 +171,14 @@ type killSwitchChecker interface {
 }
 
 type Service struct {
-	email    EmailSender
-	telegram TelegramSender
-	inApp    InAppStore
-	webhook  WebhookDispatcher
-	sms      SMSDispatcher
-	channels []Channel
+	email      EmailSender
+	telegram   TelegramSender
+	inApp      InAppStore
+	webhook    WebhookDispatcher
+	sms        SMSDispatcher
+	channels   []Channel
 	killSwitch killSwitchChecker
-	logger   zerolog.Logger
+	logger     zerolog.Logger
 
 	webhookURL    string
 	webhookSecret string

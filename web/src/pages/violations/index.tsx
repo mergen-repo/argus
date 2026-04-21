@@ -33,6 +33,8 @@ import { OperatorChip } from '@/components/shared/operator-chip'
 import { useExport } from '@/hooks/use-export'
 import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
+import { SeverityBadge } from '@/components/shared/severity-badge'
+import { SEVERITY_FILTER_OPTIONS } from '@/lib/severity'
 import type { OperatorCode } from '@/lib/operator-chip'
 import type { ListResponse } from '@/types/sim'
 
@@ -96,12 +98,7 @@ const TYPE_OPTIONS = [
   { value: 'policy_tag', label: 'Tag' },
 ]
 
-const SEVERITY_OPTIONS = [
-  { value: '', label: 'All Severities' },
-  { value: 'critical', label: 'Critical' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'info', label: 'Info' },
-]
+const SEVERITY_OPTIONS = SEVERITY_FILTER_OPTIONS
 
 const TYPE_COLORS: Record<string, string> = {
   block: 'var(--color-danger)', disconnect: 'var(--color-danger)', suspend: 'var(--color-danger)',
@@ -109,8 +106,12 @@ const TYPE_COLORS: Record<string, string> = {
   policy_tag: 'var(--color-purple)',
 }
 
-const SEV_COLORS: Record<string, string> = {
-  critical: 'var(--color-danger)', warning: 'var(--color-warning)', info: 'var(--color-accent)',
+const SEVERITY_CHART_FILLS: Record<string, string> = {
+  critical: 'var(--color-danger)',
+  high: 'var(--color-danger)',
+  medium: 'var(--color-warning)',
+  low: 'var(--color-info)',
+  info: 'var(--color-accent)',
 }
 
 function typeIcon(type: string) {
@@ -124,9 +125,6 @@ function typeIcon(type: string) {
   }
 }
 
-function severityVariant(s: string): 'danger' | 'warning' | 'default' {
-  switch (s) { case 'critical': return 'danger'; case 'warning': return 'warning'; default: return 'default' }
-}
 
 function useViolations(filters: Filters) {
   return useInfiniteQuery({
@@ -250,7 +248,7 @@ export default function ViolationsPage() {
     const agg: Record<string, number> = {}
     violations.forEach((v) => { agg[v.severity] = (agg[v.severity] || 0) + 1 })
     return Object.entries(agg).map(([sev, count]) => ({
-      name: sev, value: count, fill: SEV_COLORS[sev] || 'var(--color-text-tertiary)',
+      name: sev, value: count, fill: SEVERITY_CHART_FILLS[sev] || 'var(--color-text-tertiary)',
     }))
   }, [violations])
 
@@ -430,11 +428,11 @@ export default function ViolationsPage() {
               <div key={v.id} data-row-index={idx} data-href={`/violations/${v.id}`} className={cn(
                 'rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden transition-colors',
                 v.severity === 'critical' && 'border-danger/30',
-                v.severity === 'warning' && 'border-warning/20',
+                (v.severity === 'high' || v.severity === 'medium') && 'border-warning/20',
               )}>
                 <div className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-bg-hover/50 transition-colors" onClick={() => toggleExpanded(v.id)}>
-                  <span className={v.severity === 'critical' ? 'text-danger' : v.severity === 'warning' ? 'text-warning' : 'text-text-tertiary'}>{typeIcon(v.violation_type)}</span>
-                  <Badge variant={severityVariant(v.severity)} className="text-[9px] shrink-0">{v.severity}</Badge>
+                  <span className={v.severity === 'critical' || v.severity === 'high' ? 'text-danger' : v.severity === 'medium' ? 'text-warning' : 'text-text-tertiary'}>{typeIcon(v.violation_type)}</span>
+                  <SeverityBadge severity={v.severity} className="shrink-0" />
                   <span className="text-xs font-medium text-text-primary">{v.violation_type.replace(/_/g, ' ')}</span>
                   <span className="text-[10px] text-text-tertiary">→ {v.action_taken}</span>
                   <Link to={`/sims/${v.sim_id}`} onClick={(e) => e.stopPropagation()} className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline shrink-0">

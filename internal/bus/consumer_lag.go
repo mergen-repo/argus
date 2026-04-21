@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 )
@@ -183,7 +184,7 @@ func (p *LagPoller) processConsumer(ctx context.Context, streamName string, info
 // emitAlert publishes a lag alert event and increments the alert counter.
 func (p *LagPoller) emitAlert(ctx context.Context, consumer string, pending uint64) {
 	payload := lagAlert{
-		Severity: "warning",
+		Severity: severity.Medium,
 		Source:   "nats_consumer_lag",
 		Consumer: consumer,
 		Pending:  pending,

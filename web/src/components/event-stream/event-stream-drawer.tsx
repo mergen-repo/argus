@@ -4,9 +4,10 @@ import {
   Radio, Zap, Wifi, WifiOff, Shield, Activity, TrendingUp, Lock, Database, AlertTriangle, Server, Smartphone,
 } from 'lucide-react'
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useEventStore, type LiveEvent } from '@/stores/events'
+import { SeverityBadge } from '@/components/shared/severity-badge'
+import { severityIconClass } from '@/lib/severity'
 
 function eventIcon(type: string) {
   if (type.includes('session')) return <Radio className="h-3.5 w-3.5" />
@@ -18,22 +19,6 @@ function eventIcon(type: string) {
   if (type.includes('ip') || type.includes('pool')) return <Database className="h-3.5 w-3.5" />
   if (type.includes('job')) return <Zap className="h-3.5 w-3.5" />
   return <Wifi className="h-3.5 w-3.5" />
-}
-
-function severityColor(s: string): string {
-  switch (s) {
-    case 'critical': return 'text-danger'
-    case 'warning': return 'text-warning'
-    default: return 'text-text-tertiary'
-  }
-}
-
-function severityVariant(s: string): 'danger' | 'warning' | 'default' {
-  switch (s) {
-    case 'critical': return 'danger'
-    case 'warning': return 'warning'
-    default: return 'default'
-  }
 }
 
 function formatTime(iso: string): string {
@@ -96,7 +81,7 @@ export function EventStreamDrawer() {
                 )}
                 onClick={() => handleClick(event)}
               >
-                <span className={cn('mt-0.5 shrink-0', severityColor(event.severity))}>
+                <span className={cn('mt-0.5 shrink-0', severityIconClass(event.severity))}>
                   {eventIcon(event.type)}
                 </span>
                 <div className="flex-1 min-w-0">
@@ -109,7 +94,7 @@ export function EventStreamDrawer() {
                     <SourceChips event={event} />
                   </div>
                 </div>
-                <Badge variant={severityVariant(event.severity)} className="text-[9px] shrink-0 mt-0.5">{event.severity}</Badge>
+                <SeverityBadge severity={event.severity} className="shrink-0 mt-0.5" />
               </div>
             )
           })

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,13 +60,6 @@ export interface PolicyViolation {
 interface RelatedViolationsTabProps {
   entityId: string
   scope: 'sim' | 'policy'
-}
-
-function severityVariant(s: string): 'danger' | 'warning' | 'default' | 'secondary' {
-  if (s === 'critical') return 'danger'
-  if (s === 'high') return 'danger'
-  if (s === 'warning' || s === 'medium') return 'warning'
-  return 'secondary'
 }
 
 function useRelatedViolations(entityId: string, scope: 'sim' | 'policy') {
@@ -207,9 +201,7 @@ export function RelatedViolationsTab({ entityId, scope }: RelatedViolationsTabPr
                 <span className="ml-1.5 text-[11px] text-text-tertiary">rule #{v.rule_index}</span>
               </TableCell>
               <TableCell className="py-2.5">
-                <Badge variant={severityVariant(v.severity)} className="text-[10px]">
-                  {v.severity}
-                </Badge>
+                <SeverityBadge severity={v.severity} />
               </TableCell>
               {scope === 'policy' && (
                 <TableCell className="py-2.5" onClick={(e) => e.stopPropagation()}>

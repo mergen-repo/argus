@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/google/uuid"
 )
 
@@ -23,7 +24,7 @@ func TestNotificationPreference_StructFields(t *testing.T) {
 		TenantID:          tenantID,
 		EventType:         "operator.down",
 		Channels:          []string{"email", "in_app"},
-		SeverityThreshold: "warning",
+		SeverityThreshold: "medium",
 		Enabled:           true,
 	}
 
@@ -39,8 +40,8 @@ func TestNotificationPreference_StructFields(t *testing.T) {
 	if len(p.Channels) != 2 {
 		t.Errorf("Channels len = %d, want 2", len(p.Channels))
 	}
-	if p.SeverityThreshold != "warning" {
-		t.Errorf("SeverityThreshold = %q, want warning", p.SeverityThreshold)
+	if p.SeverityThreshold != "medium" {
+		t.Errorf("SeverityThreshold = %q, want medium", p.SeverityThreshold)
 	}
 	if !p.Enabled {
 		t.Error("Enabled should be true")
@@ -69,13 +70,13 @@ func TestNotificationPreference_NilChannelsZeroValue(t *testing.T) {
 	}
 }
 
-// TestValidSeverityThreshold tests the store-level severity_threshold validation.
-// Validation lives at the store level per AC decision.
+// TestValidSeverityThreshold tests the store-level severity_threshold validation
+// (FIX-211: delegates to canonical severity.Validate helper).
 func TestValidSeverityThreshold_Valid(t *testing.T) {
-	valid := []string{"info", "warning", "error", "critical"}
+	valid := []string{"info", "low", "medium", "high", "critical"}
 	for _, v := range valid {
 		t.Run(v, func(t *testing.T) {
-			if _, ok := validSeverityThresholds[v]; !ok {
+			if !severity.IsValid(v) {
 				t.Errorf("%q should be valid severity threshold", v)
 			}
 		})
@@ -83,10 +84,10 @@ func TestValidSeverityThreshold_Valid(t *testing.T) {
 }
 
 func TestValidSeverityThreshold_Invalid(t *testing.T) {
-	invalid := []string{"debug", "CRITICAL", "warn", "err", "", "unknown"}
+	invalid := []string{"debug", "CRITICAL", "warn", "err", "warning", "error", "", "unknown"}
 	for _, v := range invalid {
 		t.Run(v, func(t *testing.T) {
-			if _, ok := validSeverityThresholds[v]; ok {
+			if severity.IsValid(v) {
 				t.Errorf("%q should not be a valid severity threshold", v)
 			}
 		})
@@ -99,9 +100,9 @@ func TestErrPreferenceNotFound_Sentinel(t *testing.T) {
 	}
 }
 
-func TestErrInvalidSeverityThreshold_Sentinel(t *testing.T) {
-	if ErrInvalidSeverityThreshold.Error() != "store: invalid severity_threshold; must be info|warning|error|critical" {
-		t.Errorf("ErrInvalidSeverityThreshold = %q", ErrInvalidSeverityThreshold.Error())
+func TestErrInvalidSeverity_Sentinel(t *testing.T) {
+	if severity.ErrInvalidSeverity.Error() != "invalid severity value" {
+		t.Errorf("severity.ErrInvalidSeverity = %q", severity.ErrInvalidSeverity.Error())
 	}
 }
 
@@ -123,13 +124,13 @@ func TestNotificationPreferenceStore_Upsert_BadSeverity(t *testing.T) {
 		t.Fatal("expected error for invalid severity_threshold, got nil")
 	}
 
-	if !isErrInvalidSeverityThreshold(err) {
-		t.Errorf("expected ErrInvalidSeverityThreshold wrapped in error, got: %v", err)
+	if !errors.Is(err, severity.ErrInvalidSeverity) {
+		t.Errorf("expected severity.ErrInvalidSeverity wrapped in error, got: %v", err)
 	}
 }
 
 func TestNotificationPreferenceStore_Upsert_ValidSeverities(t *testing.T) {
-	valid := []string{"info", "warning", "error", "critical"}
+	valid := []string{"info", "low", "medium", "high", "critical"}
 	for _, sev := range valid {
 		t.Run(sev, func(t *testing.T) {
 			prefs := []NotificationPreference{
@@ -141,7 +142,7 @@ func TestNotificationPreferenceStore_Upsert_ValidSeverities(t *testing.T) {
 				},
 			}
 			for _, p := range prefs {
-				if _, ok := validSeverityThresholds[p.SeverityThreshold]; !ok {
+				if !severity.IsValid(p.SeverityThreshold) {
 					t.Errorf("severity %q should pass validation", p.SeverityThreshold)
 				}
 			}
@@ -177,19 +178,4 @@ func TestNotificationPreference_TenantIsolation(t *testing.T) {
 	if p1.EventType != p2.EventType {
 		t.Error("same event type across tenants")
 	}
-}
-
-// isErrInvalidSeverityThreshold unwraps to check for ErrInvalidSeverityThreshold.
-func isErrInvalidSeverityThreshold(err error) bool {
-	for err != nil {
-		if err == ErrInvalidSeverityThreshold {
-			return true
-		}
-		unwrapped := errors.Unwrap(err)
-		if unwrapped == nil {
-			break
-		}
-		err = unwrapped
-	}
-	return false
 }

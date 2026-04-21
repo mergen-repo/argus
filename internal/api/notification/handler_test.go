@@ -312,7 +312,7 @@ func TestHandler_UpdatePreferences_Upserts(t *testing.T) {
 	h := newHandlerWithPrefStore(ps)
 
 	ctx := ctxWithTenant(uuid.New())
-	body := `[{"event_type":"operator.down","channels":["email","in_app"],"severity_threshold":"warning","enabled":true}]`
+	body := `[{"event_type":"operator.down","channels":["email","in_app"],"severity_threshold":"medium","enabled":true}]`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/notification-preferences", strings.NewReader(body)).WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -354,8 +354,12 @@ func TestHandler_UpdatePreferences_InvalidSeverity(t *testing.T) {
 
 	h.UpdatePreferences(w, req)
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
+	// FIX-211: invalid severity returns 400 INVALID_SEVERITY (not 422).
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(w.Body.String(), "INVALID_SEVERITY") {
+		t.Errorf("body should contain INVALID_SEVERITY code, got: %s", w.Body.String())
 	}
 }
 

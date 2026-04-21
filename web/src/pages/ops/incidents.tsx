@@ -7,6 +7,8 @@ import { useIncidents } from '@/hooks/use-ops'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Incident } from '@/types/ops'
+import { SeverityBadge } from '@/components/shared/severity-badge'
+import { SEVERITY_FILTER_OPTIONS } from '@/lib/severity'
 
 function ActionIcon({ action }: { action: string }) {
   switch (action) {
@@ -18,25 +20,15 @@ function ActionIcon({ action }: { action: string }) {
   }
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
-  switch (severity) {
-    case 'critical': return <Badge className="bg-danger-dim text-danger border-0 text-[10px]">{severity}</Badge>
-    case 'high': return <Badge className="bg-danger-dim text-danger border-0 text-[10px]">{severity}</Badge>
-    case 'medium': return <Badge className="bg-warning-dim text-warning border-0 text-[10px]">{severity}</Badge>
-    case 'low': return <Badge className="bg-info/10 text-info border-0 text-[10px]">{severity}</Badge>
-    default: return severity ? <Badge className="bg-bg-elevated text-text-secondary border-0 text-[10px]">{severity}</Badge> : null
-  }
-}
-
 export default function IncidentTimeline() {
   const [searchParams] = useSearchParams()
-  const [severity, setSeverity] = useState(searchParams.get('severity') ?? 'all')
-  const [state, setState] = useState(searchParams.get('state') ?? 'all')
+  const [severity, setSeverity] = useState(searchParams.get('severity') ?? '')
+  const [state, setState] = useState(searchParams.get('state') ?? '')
   const entityId = searchParams.get('entity_id') ?? undefined
 
   const { data, isLoading } = useIncidents({
-    severity: severity === 'all' ? undefined : severity,
-    state: state === 'all' ? undefined : state,
+    severity: severity || undefined,
+    state: state || undefined,
     entity_id: entityId,
     limit: 100,
   })
@@ -64,20 +56,14 @@ export default function IncidentTimeline() {
         <Select
           value={severity}
           onChange={(e) => setSeverity(e.target.value)}
-          options={[
-            { value: 'all', label: 'All severities' },
-            { value: 'critical', label: 'Critical' },
-            { value: 'high', label: 'High' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'low', label: 'Low' },
-          ]}
+          options={SEVERITY_FILTER_OPTIONS}
           className="w-36 bg-bg-surface border-border text-text-primary text-[13px]"
         />
         <Select
           value={state}
           onChange={(e) => setState(e.target.value)}
           options={[
-            { value: 'all', label: 'All states' },
+            { value: '', label: 'All states' },
             { value: 'open', label: 'Open' },
             { value: 'acknowledged', label: 'Acknowledged' },
             { value: 'resolved', label: 'Resolved' },

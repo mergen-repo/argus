@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 )
@@ -85,6 +86,13 @@ func (h *Handler) Incidents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, err.Error())
 		return
+	}
+	if filters.severity != "" {
+		if sevErr := severity.Validate(filters.severity); sevErr != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidSeverity,
+				"severity must be one of: critical, high, medium, low, info; got '"+filters.severity+"'")
+			return
+		}
 	}
 
 	events := h.buildIncidentTimeline(r, tenantID, filters)

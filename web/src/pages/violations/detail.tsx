@@ -28,18 +28,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
 import { EntityLink, RelatedAuditTab, FavoriteToggle } from '@/components/shared'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 import { useViolation, useRemediate } from '@/hooks/use-violation-detail'
 import { timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
 import { useUIStore } from '@/stores/ui'
 
 type RemediateAction = 'suspend_sim' | 'escalate' | 'dismiss' | null
-
-function severityVariant(s: string): 'danger' | 'warning' | 'default' | 'secondary' {
-  if (s === 'critical' || s === 'high') return 'danger'
-  if (s === 'medium' || s === 'warning') return 'warning'
-  return 'default'
-}
 
 const ACTION_LABELS: Record<string, string> = {
   suspend_sim: 'Suspend SIM',
@@ -129,9 +124,7 @@ export default function ViolationDetailPage() {
               </h1>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={severityVariant(violation.severity)} className="text-[11px]">
-                {violation.severity}
-              </Badge>
+              <SeverityBadge severity={violation.severity} />
               <Badge variant={isOpen ? 'warning' : 'secondary'} className="text-[11px]">
                 {isOpen ? 'open' : 'acknowledged'}
               </Badge>
@@ -212,7 +205,7 @@ export default function ViolationDetailPage() {
               </CardHeader>
               <CardContent className="p-4 space-y-2">
                 <InfoRow label="Type" value={<span className="text-[12px] font-mono text-text-primary">{violation.violation_type}</span>} />
-                <InfoRow label="Severity" value={<Badge variant={severityVariant(violation.severity)} className="text-[11px]">{violation.severity}</Badge>} />
+                <InfoRow label="Severity" value={<SeverityBadge severity={violation.severity} />} />
                 <InfoRow label="Action Taken" value={<span className="text-[12px] text-text-secondary">{violation.action_taken}</span>} />
                 <InfoRow label="Rule Index" value={<span className="text-[12px] font-mono text-text-secondary">Rule #{violation.rule_index}</span>} />
                 <InfoRow label="Occurred" value={<span className="text-[12px] text-text-secondary" title={violation.created_at}>{timeAgo(violation.created_at)}</span>} />

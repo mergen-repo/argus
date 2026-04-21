@@ -466,8 +466,8 @@ SELECT
     'eap_sim',
     'radius',
     'HIST-' || LPAD(i::text, 3, '0') || '-' || LPAD((row_number() OVER())::text, 4, '0'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') + (random() * INTERVAL '4 hours'),
+    ts.started_at,
+    ts.started_at + (random() * INTERVAL '4 hours'),
     (ARRAY['User-Request','Lost-Carrier','Idle-Timeout','Session-Timeout','Admin-Reset'])[1 + (random()*4)::int],
     (random() * 200000000)::bigint,
     (random() * 100000000)::bigint,
@@ -475,6 +475,7 @@ SELECT
     (random() * 100000)::bigint
 FROM sims s
 CROSS JOIN generate_series(1, 7) AS gs(i)
+CROSS JOIN LATERAL (SELECT NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') AS started_at) ts
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
@@ -644,28 +645,28 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at) VALUES
 -- Nar Teknoloji notifications
 ('B0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Camera IPv4 Pool', 'Camera IPv4 Pool havuzu %91 kapasiteye ulasti. Acil genisleme gerekli.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
-('B0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Meter IPv4 Pool', 'Meter IPv4 Pool havuzu %85 kapasiteye ulasti.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '4 hours'),
+('B0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Meter IPv4 Pool', 'Meter IPv4 Pool havuzu %85 kapasiteye ulasti.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '4 hours'),
 ('B0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_state_change', 'sim', 'SIM Durumu Degisti', 'SIM 89900100000000000301 ACTIVE''den SUSPENDED''a gecti.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 hours', NOW() - INTERVAL '10 hours'),
 ('B0000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_stolen_lost', 'sim', 'SIM Calinti/Kayip Bildirimi', 'SIM 89900100000000000601 calinti/kayip olarak isaretlendi. Oturum sonlandirildi.', 'critical', ARRAY['in_app','email','webhook'], 'read', NOW() - INTERVAL '28 hours', NOW() - INTERVAL '30 hours'),
 ('B0000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_started', 'policy', 'Politika Yayilimi Basladi', 'Fleet Standart QoS v2 canary yayilimi basladi. Asamal: %1 → %10 → %100', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '2 days', NOW() - INTERVAL '3 days'),
 ('B0000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_stage', 'policy', 'Politika Yayilim Asamasi 2', 'Fleet Standart QoS v2 %10 asamasina gecti. 5 SIM guncellendi.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '1 day'),
 ('B0000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'job_completed', 'system', 'Toplu SIM Aktarimi Tamamlandi', 'fleet_sims_batch1.csv: 48/50 basarili, 2 hata.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '18 days', NOW() - INTERVAL '20 days'),
-('B0000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'job_failed', 'system', 'Toplu Aktarim Hatasi', 'bad_data.csv: Gecersiz CSV formati. Hic kayit islenmedi.', 'error', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '7 days', NOW() - INTERVAL '8 days'),
-('B0000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'operator', 'Operator Durumu: Turk Telekom DEGRADED', 'Turk Telekom operatoru saglik kontrolunde basarisiz oldu. Circuit breaker devrede.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '6 hours'),
-('B0000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'sla_violation', 'operator', 'SLA Ihlali: Turk Telekom', 'Turk Telekom son 24 saatte %98.5 uptime gosteriyor. Hedef: %99.9', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
+('B0000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'job_failed', 'system', 'Toplu Aktarim Hatasi', 'bad_data.csv: Gecersiz CSV formati. Hic kayit islenmedi.', 'high', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '7 days', NOW() - INTERVAL '8 days'),
+('B0000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'operator', 'Operator Durumu: Turk Telekom DEGRADED', 'Turk Telekom operatoru saglik kontrolunde basarisiz oldu. Circuit breaker devrede.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '6 hours'),
+('B0000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'sla_violation', 'operator', 'SLA Ihlali: Turk Telekom', 'Turk Telekom son 24 saatte %98.5 uptime gosteriyor. Hedef: %99.9', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
 ('B0000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', 'anomaly_detected', 'sim', 'Anomali Tespit Edildi: Veri Spiki', 'SIM 89900100000000000103 son 1 saatte normalin 50x veri kullandi.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 hour'),
 ('B0000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', 'compliance_report', 'system', 'KVKK Raporu Hazir', '2026 Q1 KVKK uyumluluk raporu olusturuldu. Indirmek icin tiklayin.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '1 day', NOW() - INTERVAL '2 days'),
 ('B0000000-0000-0000-0000-000000000013', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'user_login', 'system', 'Yeni Giris Bildirimi', 'elif.kaya@nar.com.tr 192.168.1.100 adresinden giris yapti.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '35 minutes'),
-('B0000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'api_key_expiring', 'system', 'API Anahtari Süresi Doluyor', 'Filo API anahtarinin suresi 7 gun icinde dolacak.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
-('B0000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'ota_command_failed', 'sim', 'OTA Komut Hatasi', 'SIM 89900100000000000201''e gonderilen UPDATE_FILE komutu basarisiz oldu.', 'error', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
+('B0000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'api_key_expiring', 'system', 'API Anahtari Süresi Doluyor', 'Filo API anahtarinin suresi 7 gun icinde dolacak.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
+('B0000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'ota_command_failed', 'sim', 'OTA Komut Hatasi', 'SIM 89900100000000000201''e gonderilen UPDATE_FILE komutu basarisiz oldu.', 'high', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
 -- Bosphorus IoT notifications
 ('B0000000-0000-0000-0000-000000000021', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'job_completed', 'system', 'Sensor Aktarimi Tamamlandi', 'city_sensors.csv: 25/25 basarili.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '17 days', NOW() - INTERVAL '18 days'),
-('B0000000-0000-0000-0000-000000000022', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Energy Pool', 'Energy Pool havuzu %89 kapasiteye ulasti.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
+('B0000000-0000-0000-0000-000000000022', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Energy Pool', 'Energy Pool havuzu %89 kapasiteye ulasti.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
 ('B0000000-0000-0000-0000-000000000023', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000012', 'esim_switch_completed', 'sim', 'eSIM Profil Degisikligi', '3 SIM basariyla Turkcell''den Vodafone''a aktarildi.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 days', NOW() - INTERVAL '9 days'),
 ('B0000000-0000-0000-0000-000000000024', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000013', 'policy_activated', 'policy', 'Politika Aktif', 'Akilli Sehir QoS v1 basariyla aktive edildi.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '16 days', NOW() - INTERVAL '18 days'),
 ('B0000000-0000-0000-0000-000000000025', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'sim_stolen_lost', 'sim', 'SIM Calinti Bildirimi', 'SIM 89900100000000001018 calinti olarak isaretlendi.', 'critical', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '19 days', NOW() - INTERVAL '20 days'),
 ('B0000000-0000-0000-0000-000000000026', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000014', 'anomaly_detected', 'sim', 'Anomali: Auth Flood', 'SIM 89900200000000001002 icin 5 dakikada 500+ auth denemesi tespit edildi.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
-('B0000000-0000-0000-0000-000000000027', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'operator_degraded', 'operator', 'Turk Telekom Degraded', 'Turk Telekom operatoru degraded durumda. Etkilenen SIM''ler icin failover aktif.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
+('B0000000-0000-0000-0000-000000000027', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'operator_degraded', 'operator', 'Turk Telekom Degraded', 'Turk Telekom operatoru degraded durumda. Etkilenen SIM''ler icin failover aktif.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 
 -- Generate more notifications to reach 50+ (guarded: skip if already seeded)
@@ -677,7 +678,7 @@ SELECT
     (ARRAY['sim','apn','operator','system'])[1 + (random()*3)::int],
     'Sistem Bildirimi #' || i,
     'Otomatik sistem bildirimi. Detaylar icin tiklayin.',
-    (ARRAY['info','warning','info','info'])[1 + (random()*3)::int],
+    (ARRAY['info','medium','info','info'])[1 + (random()*3)::int],
     ARRAY['in_app'],
     CASE WHEN random() > 0.3 THEN 'read' ELSE 'unread' END,
     CASE WHEN random() > 0.3 THEN NOW() - (i * INTERVAL '2 hours') ELSE NULL END,
@@ -1241,8 +1242,8 @@ SELECT
     'eap_sim',
     'radius',
     'HIST-DEM-' || LPAD(i::text, 3, '0') || '-' || LPAD((row_number() OVER())::text, 4, '0'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') + (random() * INTERVAL '4 hours'),
+    ts.started_at,
+    ts.started_at + (random() * INTERVAL '4 hours'),
     (ARRAY['User-Request','Lost-Carrier','Idle-Timeout','Session-Timeout','Admin-Reset'])[1 + (random()*4)::int],
     (random() * 150000000)::bigint,
     (random() * 75000000)::bigint,
@@ -1250,6 +1251,7 @@ SELECT
     (random() * 75000)::bigint
 FROM sims s
 CROSS JOIN generate_series(1, 7) AS gs(i)
+CROSS JOIN LATERAL (SELECT NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') AS started_at) ts
 WHERE s.tenant_id = '00000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
@@ -1317,14 +1319,14 @@ ON CONFLICT DO NOTHING;
 -- Notifications for Demo tenant
 INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at) VALUES
 ('BB000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo Sensor Pool', 'Demo Sensor Pool is at 91% capacity. Expansion needed.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
-('BB000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo M2M Pool', 'Demo M2M Pool is at 78% capacity.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
+('BB000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo M2M Pool', 'Demo M2M Pool is at 78% capacity.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
 ('BB000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'job_completed', 'system', 'Bulk Import Completed', 'demo_iot_batch1.csv: 35/35 successful.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '24 hours', NOW() - INTERVAL '25 days'),
-('BB000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'operator_degraded', 'operator', 'Operator Status: Turk Telekom DEGRADED', 'Turk Telekom health check failed. Circuit breaker engaged.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '7 hours'),
+('BB000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'operator_degraded', 'operator', 'Operator Status: Turk Telekom DEGRADED', 'Turk Telekom health check failed. Circuit breaker engaged.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '7 hours'),
 ('BB000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'anomaly_detected', 'sim', 'Anomaly Detected: Data Spike', 'SIM 89900100000000002003 used 30x normal data in 1 hour.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
 ('BB000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'policy_activated', 'policy', 'Policy Activated', 'Demo Standard QoS v1 successfully activated.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '27 days', NOW() - INTERVAL '28 days'),
 ('BB000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'sim_state_change', 'sim', 'SIM Status Changed', '3 SIMs moved to SUSPENDED state.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '11 days', NOW() - INTERVAL '12 days'),
 ('BB000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_stolen_lost', 'sim', 'SIM Stolen/Lost Report', 'SIM 89900100000000002601 marked as stolen. Session terminated.', 'critical', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '24 days', NOW() - INTERVAL '25 days'),
-('BB000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'api_key_expiring', 'system', 'API Key Expiring Soon', 'Demo Analytics API key expires in 7 days.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
+('BB000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'api_key_expiring', 'system', 'API Key Expiring Soon', 'Demo Analytics API key expires in 7 days.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
 ('BB000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'job_completed', 'system', 'CDR Export Ready', 'CDR export for March 2026 is ready for download.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 

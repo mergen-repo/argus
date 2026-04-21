@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from './empty-state'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { ListResponse } from '@/types/sim'
@@ -22,14 +23,6 @@ import { timeAgo } from '@/lib/format'
 interface RelatedNotificationsPanelProps {
   entityId: string
   limit?: number
-}
-
-function severityVariant(s: string): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
-  if (s === 'critical') return 'danger'
-  if (s === 'error') return 'danger'
-  if (s === 'warning') return 'warning'
-  if (s === 'info') return 'default'
-  return 'secondary'
 }
 
 function channelIcon(type: string) {
@@ -119,9 +112,7 @@ export function RelatedNotificationsPanel({
                     <span className="text-[12px] text-text-primary truncate max-w-[200px] block">{notif.title}</span>
                   </TableCell>
                   <TableCell className="py-2">
-                    <Badge variant={severityVariant(notif.severity)} className="text-[10px]">
-                      {notif.severity}
-                    </Badge>
+                    <SeverityBadge severity={notif.severity} />
                   </TableCell>
                   <TableCell className="py-2">
                     <span className="text-[11px] text-text-tertiary">{timeAgo(notif.created_at)}</span>

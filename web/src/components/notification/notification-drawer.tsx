@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useNotificationStore } from '@/stores/notification'
+import { severityIconClass } from '@/lib/severity'
 import { useNotificationList, useMarkAsRead, useMarkAllAsRead, useUnreadCount, useRealtimeNotifications } from '@/hooks/use-notifications'
 import type { Notification } from '@/types/notification'
 
@@ -27,13 +28,6 @@ const categoryIcons: Record<string, React.ElementType> = {
   session: Radio,
   system: Server,
   job: ListTodo,
-}
-
-const severityColors: Record<string, string> = {
-  info: 'text-accent',
-  warning: 'text-warning',
-  error: 'text-danger',
-  critical: 'text-danger',
 }
 
 function getNavigationPath(notification: Notification): string | null {
@@ -78,7 +72,6 @@ function NotificationItem({
   onNavigate: (path: string) => void
 }) {
   const Icon = categoryIcons[notification.category] || AlertTriangle
-  const severityColor = severityColors[notification.severity] || 'text-text-secondary'
   const navPath = getNavigationPath(notification)
 
   return (
@@ -93,7 +86,7 @@ function NotificationItem({
         if (navPath) onNavigate(navPath)
       }}
     >
-      <div className={cn('mt-0.5 shrink-0', severityColor)}>
+      <div className={cn('mt-0.5 shrink-0', severityIconClass(notification.severity))}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
@@ -102,16 +95,18 @@ function NotificationItem({
             {notification.title}
           </p>
           {!notification.read && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={(e) => {
                 e.stopPropagation()
                 onRead(notification.id)
               }}
-              className="shrink-0 rounded p-0.5 text-text-tertiary opacity-0 hover:text-accent group-hover:opacity-100 transition-opacity"
+              className="shrink-0 h-6 w-6 text-text-tertiary opacity-0 hover:text-accent group-hover:opacity-100 transition-opacity"
               title="Mark as read"
             >
               <Check className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
         <p className="mt-0.5 text-xs text-text-tertiary line-clamp-2">{notification.message}</p>
