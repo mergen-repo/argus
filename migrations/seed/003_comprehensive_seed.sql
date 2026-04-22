@@ -799,38 +799,113 @@ FROM generate_series(10001, 10060) AS s(i)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
--- OPERATOR HEALTH LOGS (recent entries)
+-- OPERATOR HEALTH LOGS (60-day dense time series — FIX-215)
 -- ============================================================
--- Operator health logs (guarded: skip if already seeded)
-INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
-SELECT
-    op_id::uuid,
-    NOW() - (i * INTERVAL '30 seconds'),
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'degraded'
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'unhealthy'
-        ELSE 'healthy'
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' THEN (50 + random() * 500)::int
-        ELSE (5 + random() * 30)::int
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'Connection timeout after 3000ms'
-        ELSE NULL
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'half_open'
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'open'
-        ELSE 'closed'
-    END
-FROM (VALUES
-    ('20000000-0000-0000-0000-000000000001'),
-    ('20000000-0000-0000-0000-000000000002'),
-    ('20000000-0000-0000-0000-000000000003')
-) AS ops(op_id)
-CROSS JOIN generate_series(1, 20) AS gs(i)
-WHERE NOT EXISTS (SELECT 1 FROM operator_health_logs LIMIT 1);
+-- Seed contract: 60 days × 1440 min/day × 2 operators ≈ 173k rows.
+-- Retention: 24 months (configurable via TimescaleDB policy).
+-- Idempotency: entire block is skipped if any row with checked_at
+--   within the last 70 days already exists (covers re-run and partial seeds).
+--
+-- Status distribution per minute-bucket:
+--   ~95%  up + normal latency  (70–220 ms)
+--   ~3%   up + latency breach  (500–800 ms)
+--   ~2%   down + NULL latency
+--
+-- Deterministic 6-minute down block (AC-6):
+--   operator_id = 20000000-0000-0000-0000-000000000001
+--   window: NOW() - 15d 14h  →  NOW() - 15d 13h 54min  (6 consecutive minutes)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM operator_health_logs
+        WHERE checked_at > NOW() - INTERVAL '70 days'
+        LIMIT 1
+    ) THEN
+        RETURN;
+    END IF;
+
+    -- Dense 60-day series for operators 1 and 2 (modulo-based status split)
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        op_id::uuid,
+        ts,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'down'
+            ELSE 'up'
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN NULL
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 5  THEN (500 + (EXTRACT(EPOCH FROM ts)::bigint % 300))::int
+            ELSE (70 + (EXTRACT(EPOCH FROM ts)::bigint % 150))::int
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'Connection timeout'
+            ELSE NULL
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'open'
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 5  THEN 'half_open'
+            ELSE 'closed'
+        END
+    FROM (VALUES
+        ('20000000-0000-0000-0000-000000000001'),
+        ('20000000-0000-0000-0000-000000000002')
+    ) AS ops(op_id)
+    CROSS JOIN generate_series(
+        NOW() - INTERVAL '60 days',
+        NOW(),
+        INTERVAL '1 minute'
+    ) AS gs(ts);
+
+    -- Deterministic 6-minute down block for AC-6 breach detection tests
+    -- (overrides the modulo-based rows inserted above for this window)
+    DELETE FROM operator_health_logs
+    WHERE operator_id = '20000000-0000-0000-0000-000000000001'
+      AND checked_at >= NOW() - INTERVAL '15 days 14 hours'
+      AND checked_at <= NOW() - INTERVAL '15 days 13 hours 54 minutes';
+
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        '20000000-0000-0000-0000-000000000001'::uuid,
+        ts,
+        'down',
+        NULL,
+        'Deterministic down block (AC-6 seed)',
+        'open'
+    FROM generate_series(
+        NOW() - INTERVAL '15 days 14 hours',
+        NOW() - INTERVAL '15 days 13 hours 54 minutes',
+        INTERVAL '1 minute'
+    ) AS gs(ts);
+
+    -- Legacy short-window entries for operator 3 (degraded/circuit patterns)
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        op_id::uuid,
+        NOW() - (i * INTERVAL '30 seconds'),
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'degraded'
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'unhealthy'
+            ELSE 'healthy'
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' THEN (50 + (i * 23 % 500))::int
+            ELSE (5 + (i * 7 % 30))::int
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'Connection timeout after 3000ms'
+            ELSE NULL
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'half_open'
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'open'
+            ELSE 'closed'
+        END
+    FROM (VALUES
+        ('20000000-0000-0000-0000-000000000003')
+    ) AS ops(op_id)
+    CROSS JOIN generate_series(1, 20) AS gs(i);
+END $$;
 
 -- ============================================================
 -- ANOMALIES (variety of types and states)
@@ -1375,5 +1450,100 @@ INSERT INTO notification_configs (id, tenant_id, user_id, event_type, scope_type
 ('CD000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true),
 ('CD000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_state_change', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- SLA REPORTS (12-month history per tenant × operator — FIX-215)
+-- ============================================================
+-- Seed contract: 12 full calendar months per (tenant_id, operator_id) pair.
+--   All windows are full calendar months: window_start = 1st of month 00:00 UTC,
+--   window_end = 1st of next month 00:00 UTC (including current month).
+--   This ensures stable window boundaries for ON CONFLICT idempotency.
+-- Retention: 24 months (matches platform SLA data retention policy).
+-- Idempotency: ON CONFLICT ON CONSTRAINT sla_reports_month_key DO NOTHING.
+-- Distinct pairs seeded: 3 tenants × 3 operators = 9 pairs → 108 rows.
+DO $$
+DECLARE
+    mo INT;
+    wstart TIMESTAMPTZ;
+    wend TIMESTAMPTZ;
+    inc_cnt INT;
+    breach_min INT;
+    mttr INT;
+    lat_p95 INT;
+    sess_total BIGINT;
+    breach_started TIMESTAMPTZ;
+    breach_ended TIMESTAMPTZ;
+    breach_dur INT;
+    causes TEXT[] := ARRAY['down', 'latency', 'mixed'];
+    cause TEXT;
+    details_json JSONB;
+    breaches_json JSONB;
+BEGIN
+    FOR mo IN 0..11 LOOP
+        -- window_start = first of the month (0 = current month, 1..11 = prior months)
+        -- All windows are full calendar months: stable boundaries for ON CONFLICT idempotency.
+        wstart := date_trunc('month', NOW()) - (mo * INTERVAL '1 month');
+        wend   := wstart + INTERVAL '1 month';
+
+        inc_cnt    := floor(random() * 5)::int;
+        breach_min := inc_cnt * (5 + floor(random() * 25)::int);
+        mttr       := 60 + floor(random() * 1740)::int;
+        lat_p95    := 70 + floor(random() * 250)::int;
+        sess_total := 1000 + floor(random() * 9000)::bigint;
+
+        IF inc_cnt > 0 THEN
+            breach_started := wstart + ((random() * 20)::int * INTERVAL '1 day') + INTERVAL '8 hours';
+            breach_dur     := greatest(60, (breach_min * 60) / inc_cnt);
+            breach_ended   := breach_started + (breach_dur * INTERVAL '1 second');
+            cause          := causes[1 + floor(random() * 3)::int];
+            breaches_json  := jsonb_build_array(
+                jsonb_build_object(
+                    'started_at',    to_char(breach_started AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'ended_at',      to_char(breach_ended   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'duration_sec',  breach_dur,
+                    'cause',         cause,
+                    'samples_count', greatest(1, breach_dur / 60)
+                )
+            );
+        ELSE
+            breaches_json := '[]'::jsonb;
+        END IF;
+
+        details_json := jsonb_build_object(
+            'breach_minutes',       breach_min,
+            'breaches',             breaches_json,
+            'latency_threshold_ms', 500,
+            'uptime_target',        99.9
+        );
+
+        INSERT INTO sla_reports (
+            tenant_id, operator_id,
+            window_start, window_end,
+            uptime_pct, latency_p95_ms, incident_count,
+            mttr_sec, sessions_total, error_count, details
+        )
+        SELECT
+            og.tenant_id,
+            og.operator_id,
+            wstart,
+            wend,
+            (99.00 + random() * 0.99)::numeric(5,2),
+            lat_p95,
+            inc_cnt,
+            mttr,
+            sess_total,
+            inc_cnt,
+            details_json
+        FROM operator_grants og
+        WHERE og.enabled = true
+          AND NOT EXISTS (
+              SELECT 1 FROM sla_reports sr
+              WHERE sr.tenant_id  = og.tenant_id
+                AND sr.operator_id = og.operator_id
+                AND sr.window_start = wstart
+          );
+
+    END LOOP;
+END $$;
 
 COMMIT;

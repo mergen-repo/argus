@@ -80,9 +80,9 @@ func TestToOperatorResponse(t *testing.T) {
 
 func TestToOperatorResponseNilRATTypes(t *testing.T) {
 	o := &store.Operator{
-		ID:            uuid.New(),
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	resp := toOperatorResponse(o, nil)
@@ -177,8 +177,8 @@ func TestValidOperatorStates(t *testing.T) {
 
 func TestCreateValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		body    string
+		name     string
+		body     string
 		wantCode int
 	}{
 		{
@@ -297,6 +297,154 @@ func TestUpdateValidation(t *testing.T) {
 
 			if w.Code != tt.wantCode {
 				t.Errorf("Update(%s) status = %d, want %d, body: %s", tt.name, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateSLAValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantHTTP    int
+		wantErrCode string
+	}{
+		{
+			name:        "sla_uptime_target too low",
+			body:        `{"sla_uptime_target":40.0}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_sla_target",
+		},
+		{
+			name:        "sla_uptime_target too high",
+			body:        `{"sla_uptime_target":150.0}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_sla_target",
+		},
+		{
+			name:        "sla_latency_threshold_ms too low",
+			body:        `{"sla_latency_threshold_ms":10}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_latency_threshold",
+		},
+		{
+			name:        "sla_latency_threshold_ms too high",
+			body:        `{"sla_latency_threshold_ms":70000}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_latency_threshold",
+		},
+	}
+
+	operatorID := uuid.New().String()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Handler{logger: zerolog.Nop()}
+
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, "operator_manager")
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code != tt.wantHTTP {
+				t.Errorf("Update(%s) status = %d, want %d, body: %s", tt.name, w.Code, tt.wantHTTP, w.Body.String())
+			}
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("response not JSON: %s", w.Body.String())
+			}
+			errBlock, _ := resp["error"].(map[string]interface{})
+			if errBlock == nil {
+				t.Fatalf("no error block in response: %s", w.Body.String())
+			}
+			if got, _ := errBlock["code"].(string); got != tt.wantErrCode {
+				t.Errorf("error.code = %q, want %q", got, tt.wantErrCode)
+			}
+		})
+	}
+}
+
+func TestUpdateSLAForbiddenRole(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	operatorID := uuid.New().String()
+
+	for _, role := range []string{"api_user", "analyst", "policy_editor", "sim_manager", ""} {
+		t.Run("role="+role, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+				strings.NewReader(`{"sla_uptime_target":99.5}`))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, role)
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("role %q: status = %d, want 403, body: %s", role, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateNoSLAFieldsRegressionValidation(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	operatorID := uuid.New().String()
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+		strings.NewReader(`{"failover_policy":"bad"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", operatorID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.Update(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("regression: Update(invalid failover_policy) status = %d, want 422, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateSLABoundaryValid(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"uptime boundary 50.0", `{"sla_uptime_target":50.0}`},
+		{"uptime boundary 100.0", `{"sla_uptime_target":100.0}`},
+		{"latency boundary 50", `{"sla_latency_threshold_ms":50}`},
+		{"latency boundary 60000", `{"sla_latency_threshold_ms":60000}`},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() { recover() }()
+
+			operatorID := uuid.New().String()
+			h := &Handler{logger: zerolog.Nop()}
+
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+				strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, "operator_manager")
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code == http.StatusBadRequest {
+				t.Errorf("boundary %s: got 400 (validation rejected valid value), body: %s", tt.name, w.Body.String())
 			}
 		})
 	}

@@ -63,6 +63,7 @@ export interface Operator {
   circuit_breaker_threshold: number
   circuit_breaker_recovery_sec: number
   sla_uptime_target?: number
+  sla_latency_threshold_ms?: number
   state: string
   created_at: string
   updated_at: string

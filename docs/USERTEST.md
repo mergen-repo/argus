@@ -3640,3 +3640,46 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 1. Hicbir CDR donmeyecek sartlarda filtre uygula (orn. gelecek tarih aralik).
 2. `Bu filtre için CDR bulunamadı.` baslikli EmptyState gozukur.
 3. `Filtreleri Temizle` CTA butonu tiklayinca filtreler sifirlanir; liste yenilenir.
+
+## FIX-215: SLA Historical Reports + PDF Export + Drill-down
+
+### 1. Gecmis SLA Listesi (Rolling Window)
+
+1. `/sla` sayfasina git. 12 adet ay karti (rolling 12-month default) yuklenir.
+2. Ust kismda `6M / 12M / 24M` segmented toggle gorunur; `6M`a tikla — liste 6 ay gosterir.
+3. `24M`a tikla — liste 24 ay gosterir; kartlar altinda uptime / breach / incident ozeti olur.
+4. Kart uzerindeki uptime renk kodu: yesil = target ustu, sari = 99.5–target arasi, kirmizi = < 99.5 (BR-3 classifyUptime).
+5. `/sla/history` HTTP call network panelde 200 dondurmeli, body `{status, data:{months:[...]}, meta:{months_requested, months_returned, breach_source}}` olmalidir.
+
+### 2. Ay Detay Drawer
+
+1. `/sla` sayfasinda herhangi bir ay kartina tikla — sag taraftan SlidePanel (aria-modal=true, focus-trap) acilir.
+2. Drawer icinde: ay genel uptime ozeti, operator bazinda satirlar (operator adi + uptime + breach sayisi + toplam dakika).
+3. Operator satirina tikla — nested SlidePanel acilir (Operator Breach drawer).
+4. `Esc` tusuna bas — panel kapanir ve focus geri acilis butonuna doner.
+5. Backend rollup olmayan bir ay (orn. gelecek) icin 404 `sla_month_not_available` donmelidir; UI `Bu ay icin rapor olusmadi` EmptyState gosterir.
+
+### 3. Operator Breach Drawer
+
+1. Ay Detay Drawer'dan bir operatore tikla — Operator Breach drawer acilir.
+2. Ust kisimda totals: `N breach · Xm Ys · ~Z affected sessions`.
+3. Breach satirlari: baslangic/bitis zamani, sure, tetikleyici (down/latency), `~<N> session etkilendi`.
+4. Breach `operator_health_logs` 90-gun retention disi ise breach_source=`sla_reports.details` (meta alaninda gorunur).
+5. Veri yoksa `Bu ayda breach tespit edilmedi` EmptyState gozukur.
+
+### 4. PDF Indirme (Month + Operator-Month)
+
+1. `/sla` bir ay kartinda `Download PDF` butonuna bas (useSLAPDFDownload Bearer token ile blob fetch).
+2. Buton loading state gosterir; bitince dosya browser indirir: `sla-YYYY-MM-all.pdf` (ay-wide).
+3. Ay Detay drawer icinde operator satirindaki PDF butonuna bas — `sla-YYYY-MM-<operator_code>.pdf` iner.
+4. Expired/invalid token ile cagri yap (orn. logout sonrasi) — sonner toast `PDF indirilemedi` hatasi gosterir.
+5. Cross-tenant operator id ile cagri (devtools) 403 `forbidden` donmelidir (BR-6 tenant scope).
+
+### 5. SLA Hedef Duzenleme (Operator Detail)
+
+1. `/operators/:id` sayfasinda `Protocols` sekmesine git — `SLA Targets` bolumu gorunur.
+2. `Uptime target %` (default 99.90) ve `Latency breach threshold (ms)` (default 500) alanlarini duzenle.
+3. Gecersiz deger gir: uptime=45 → validation hatasi `50.00 ile 100.00 arasinda olmali`; latency=10 → `50 ile 60000 arasinda olmali`.
+4. Valid degerler girip `Kaydet`e bas — sonner toast `SLA hedefleri guncellendi` gosterir.
+5. Audit sekmesinden `operator.updated` action kaydini dogrula (before/after degerleri JSON icinde).
+6. Sayfayi yenile — yeni degerler persist olmalidir.

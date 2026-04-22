@@ -142,6 +142,47 @@ All three continuous aggregates have `materialized_only = false` (real-time aggr
 
 ---
 
+## TBL-27: sla_reports
+
+Monthly SLA rollup records per operator per tenant.
+
+Retention: 24 months minimum (no cleanup cron). Per FIX-215 compliance requirement (AC-7). With one row per operator per month, storage is effectively unlimited by default (~240 rows/tenant for 10 operators × 24 months).
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Row identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant (FK → tenants.id) |
+| operator_id | UUID | NULL | — | Operator (FK → operators.id, nullable for tenant-wide rows) |
+| report_type | TEXT | NOT NULL | — | Report type (e.g., `monthly`) |
+| window_start | TIMESTAMPTZ | NOT NULL | — | Start of the reporting window |
+| window_end | TIMESTAMPTZ | NOT NULL | — | End of the reporting window |
+| uptime_pct | DECIMAL(5,2) | NULL | — | Computed uptime percentage for the window |
+| mttr_seconds | INTEGER | NULL | — | Mean time to recover (seconds) |
+| incident_count | INTEGER | NOT NULL | 0 | Number of incidents in the window |
+| details | JSONB | NOT NULL | `{}` | Structured SLA payload (breach_minutes, latency_p95, etc.) |
+| generated_at | TIMESTAMPTZ | NOT NULL | now() | When the report was generated |
+| created_at | TIMESTAMPTZ | NOT NULL | now() | Record creation time |
+
+### Indexes
+
+- `idx_sla_reports_tenant_operator_window` on (tenant_id, operator_id, window_start DESC)
+- `idx_sla_reports_tenant_window` on (tenant_id, window_start DESC)
+
+### Partitioning
+
+None (plain table — row count is small: ~N_operators × 24 months per tenant).
+
+### Related
+
+- TBL-01 tenants (tenant_id FK)
+- TBL-05 operators (operator_id FK, nullable)
+- SVC-07 analytics — `SLAReportProcessor` job writes monthly rollup rows
+- `internal/store/sla_report.go` — store layer
+
+---
+
 ## TBL-28: anomalies
 
 Anomaly detection records for fraud, usage spikes, and connectivity issues flagged by the analytics engine.

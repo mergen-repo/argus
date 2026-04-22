@@ -125,8 +125,32 @@ func (p *StoreProvider) BTK(ctx context.Context, tenantID uuid.UUID, filters map
 }
 
 func (p *StoreProvider) SLAMonthly(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*SLAData, error) {
-	from, to := reportWindow(filters, 30)
-	rows, _, err := p.sla.ListByTenant(ctx, tenantID, from, to, nil, "", 200)
+	var from, to time.Time
+	var operatorID *uuid.UUID
+
+	yearVal, hasYear := filters["year"]
+	monthVal, hasMonth := filters["month"]
+
+	if hasYear && hasMonth {
+		year, okY := toInt(yearVal)
+		month, okM := toInt(monthVal)
+		if okY && okM {
+			from = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+			to = from.AddDate(0, 1, 0)
+		} else {
+			from, to = reportWindow(filters, 30)
+		}
+	} else {
+		from, to = reportWindow(filters, 30)
+	}
+
+	if rawID, ok := filters["operator_id"].(string); ok && rawID != "" {
+		if id, parseErr := uuid.Parse(rawID); parseErr == nil {
+			operatorID = &id
+		}
+	}
+
+	rows, _, err := p.sla.ListByTenant(ctx, tenantID, from, to, operatorID, "", 200)
 	if err != nil {
 		return nil, err
 	}
@@ -318,4 +342,17 @@ func stringPtrUUID(v *uuid.UUID) string {
 		return ""
 	}
 	return v.String()
+}
+
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
 }

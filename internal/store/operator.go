@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,31 +25,32 @@ var (
 )
 
 type Operator struct {
-	ID                       uuid.UUID       `json:"id"`
-	Name                     string          `json:"name"`
-	Code                     string          `json:"code"`
-	MCC                      string          `json:"mcc"`
-	MNC                      string          `json:"mnc"`
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	Code string    `json:"code"`
+	MCC  string    `json:"mcc"`
+	MNC  string    `json:"mnc"`
 	// AdapterType was removed in STORY-090 Wave 2 D2-B. The per-
 	// protocol enablement flags now live in AdapterConfig (nested
 	// JSONB shape). Callers that need a single-protocol label use
 	// adapterschema.DerivePrimaryProtocol(parsed) on the decrypted
 	// config. Historical audit rows retain the old field as a JSONB
 	// attribute — not backfilled.
-	AdapterConfig            json.RawMessage `json:"adapter_config"`
-	SMDPPlusURL              *string         `json:"sm_dp_plus_url"`
-	SMDPPlusConfig           json.RawMessage `json:"sm_dp_plus_config"`
-	SupportedRATTypes        []string        `json:"supported_rat_types"`
-	HealthStatus             string          `json:"health_status"`
-	HealthCheckIntervalSec   int             `json:"health_check_interval_sec"`
-	FailoverPolicy           string          `json:"failover_policy"`
-	FailoverTimeoutMs        int             `json:"failover_timeout_ms"`
-	CircuitBreakerThreshold  int             `json:"circuit_breaker_threshold"`
-	CircuitBreakerRecoverySec int            `json:"circuit_breaker_recovery_sec"`
-	SLAUptimeTarget          *float64        `json:"sla_uptime_target"`
-	State                    string          `json:"state"`
-	CreatedAt                time.Time       `json:"created_at"`
-	UpdatedAt                time.Time       `json:"updated_at"`
+	AdapterConfig             json.RawMessage `json:"adapter_config"`
+	SMDPPlusURL               *string         `json:"sm_dp_plus_url"`
+	SMDPPlusConfig            json.RawMessage `json:"sm_dp_plus_config"`
+	SupportedRATTypes         []string        `json:"supported_rat_types"`
+	HealthStatus              string          `json:"health_status"`
+	HealthCheckIntervalSec    int             `json:"health_check_interval_sec"`
+	FailoverPolicy            string          `json:"failover_policy"`
+	FailoverTimeoutMs         int             `json:"failover_timeout_ms"`
+	CircuitBreakerThreshold   int             `json:"circuit_breaker_threshold"`
+	CircuitBreakerRecoverySec int             `json:"circuit_breaker_recovery_sec"`
+	SLAUptimeTarget           *float64        `json:"sla_uptime_target"`
+	SLALatencyThresholdMs     int             `json:"sla_latency_threshold_ms"`
+	State                     string          `json:"state"`
+	CreatedAt                 time.Time       `json:"created_at"`
+	UpdatedAt                 time.Time       `json:"updated_at"`
 }
 
 type OperatorGrant struct {
@@ -104,10 +106,10 @@ type OperatorHealthSnapshot struct {
 }
 
 type CreateOperatorParams struct {
-	Name                      string
-	Code                      string
-	MCC                       string
-	MNC                       string
+	Name string
+	Code string
+	MCC  string
+	MNC  string
 	// AdapterType removed in STORY-090 Wave 2 D2-B — the nested
 	// AdapterConfig carries per-protocol enablement flags.
 	AdapterConfig             json.RawMessage
@@ -138,17 +140,23 @@ type UpdateOperatorParams struct {
 }
 
 type OperatorStore struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	auditStore *AuditStore
 }
 
 func NewOperatorStore(db *pgxpool.Pool) *OperatorStore {
 	return &OperatorStore{db: db}
 }
 
+func (s *OperatorStore) WithAuditStore(a *AuditStore) *OperatorStore {
+	s.auditStore = a
+	return s
+}
+
 var operatorColumns = `id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url,
 	sm_dp_plus_config, supported_rat_types, health_status, health_check_interval_sec,
 	failover_policy, failover_timeout_ms, circuit_breaker_threshold, circuit_breaker_recovery_sec,
-	sla_uptime_target, state, created_at, updated_at`
+	sla_uptime_target, sla_latency_threshold_ms, state, created_at, updated_at`
 
 func scanOperator(row pgx.Row) (*Operator, error) {
 	var o Operator
@@ -159,7 +167,7 @@ func scanOperator(row pgx.Row) (*Operator, error) {
 		&o.HealthStatus, &o.HealthCheckIntervalSec,
 		&o.FailoverPolicy, &o.FailoverTimeoutMs,
 		&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
-		&o.SLAUptimeTarget, &o.State, &o.CreatedAt, &o.UpdatedAt,
+		&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,
 	)
 	return &o, err
 }
@@ -505,6 +513,21 @@ func (s *OperatorStore) GetGrantByID(ctx context.Context, id uuid.UUID) (*Operat
 	return &g, nil
 }
 
+func (s *OperatorStore) GetGrantByTenantOperator(ctx context.Context, tenantID, operatorID uuid.UUID) (*OperatorGrant, error) {
+	var g OperatorGrant
+	err := s.db.QueryRow(ctx, `
+		SELECT id, tenant_id, operator_id, enabled, sor_priority, cost_per_mb, region, supported_rat_types, granted_at, granted_by
+		FROM operator_grants WHERE tenant_id = $1 AND operator_id = $2
+	`, tenantID, operatorID).Scan(&g.ID, &g.TenantID, &g.OperatorID, &g.Enabled, &g.SoRPriority, &g.CostPerMB, &g.Region, &g.SupportedRATTypes, &g.GrantedAt, &g.GrantedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrGrantNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get grant by tenant+operator: %w", err)
+	}
+	return &g, nil
+}
+
 func (s *OperatorStore) DeleteGrant(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.db.Exec(ctx, `DELETE FROM operator_grants WHERE id = $1`, id)
 	if err != nil {
@@ -730,8 +753,8 @@ func (s *OperatorStore) GetLatencyTrend(ctx context.Context, operatorID uuid.UUI
 	defer rows.Close()
 
 	type bucketRow struct {
-		bin     time.Time
-		avgMs   float64
+		bin   time.Time
+		avgMs float64
 	}
 	var populated []bucketRow
 	for rows.Next() {
@@ -870,4 +893,149 @@ func (s *OperatorStore) UpdateGrant(ctx context.Context, id uuid.UUID, p UpdateG
 		return nil, fmt.Errorf("store: update operator grant: %w", err)
 	}
 	return &g, nil
+}
+
+type Breach struct {
+	StartedAt           time.Time `json:"started_at"`
+	EndedAt             time.Time `json:"ended_at"`
+	DurationSec         int       `json:"duration_sec"`
+	Cause               string    `json:"cause"`
+	SamplesCount        int       `json:"samples_count"`
+	AffectedSessionsEst int64     `json:"affected_sessions_est"`
+}
+
+func (s *OperatorStore) BreachesForOperatorMonth(ctx context.Context, operatorID uuid.UUID, year, month int, latencyThresholdMs int) ([]Breach, error) {
+	from := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 1, 0)
+
+	rows, err := s.db.Query(ctx, `
+		WITH breach_samples AS (
+			SELECT checked_at, status, latency_ms,
+				LAG(checked_at) OVER (ORDER BY checked_at) AS prev_at
+			FROM operator_health_logs
+			WHERE operator_id = $1
+			  AND checked_at >= $2
+			  AND checked_at <  $3
+			  AND (status = 'down' OR latency_ms > $4)
+		),
+		runs AS (
+			SELECT checked_at, status, latency_ms,
+				SUM(CASE WHEN prev_at IS NULL OR checked_at - prev_at > interval '120 seconds'
+				         THEN 1 ELSE 0 END) OVER (ORDER BY checked_at) AS run_id
+			FROM breach_samples
+		),
+		rollups AS (
+			SELECT run_id,
+				MIN(checked_at)                                              AS started_at,
+				MAX(checked_at)                                              AS ended_at,
+				EXTRACT(EPOCH FROM (MAX(checked_at) - MIN(checked_at)))::int AS duration_sec,
+				COUNT(*)                                                     AS samples_count,
+				BOOL_AND(status = 'down')                                    AS all_down,
+				BOOL_AND(status = 'up' AND latency_ms > $4)                  AS all_latency
+			FROM runs
+			GROUP BY run_id
+		)
+		SELECT started_at, ended_at, duration_sec,
+			CASE WHEN all_down    THEN 'down'
+			     WHEN all_latency THEN 'latency'
+			     ELSE 'mixed' END AS cause,
+			samples_count
+		FROM rollups
+		WHERE duration_sec >= 300
+		ORDER BY started_at ASC
+	`, operatorID, from, to, latencyThresholdMs)
+	if err != nil {
+		return nil, fmt.Errorf("store: breach query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []Breach
+	for rows.Next() {
+		var b Breach
+		if err := rows.Scan(&b.StartedAt, &b.EndedAt, &b.DurationSec, &b.Cause, &b.SamplesCount); err != nil {
+			return nil, fmt.Errorf("store: scan breach: %w", err)
+		}
+		results = append(results, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: breach rows: %w", err)
+	}
+	return results, nil
+}
+
+func (s *OperatorStore) UpdateSLATargets(ctx context.Context, operatorID uuid.UUID, uptimeTarget float64, latencyThresholdMs int, actorUserID uuid.UUID) error {
+	var before struct {
+		UptimeTarget       *float64
+		LatencyThresholdMs int
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin sla targets tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx,
+		`SELECT sla_uptime_target, sla_latency_threshold_ms FROM operators WHERE id = $1`,
+		operatorID,
+	).Scan(&before.UptimeTarget, &before.LatencyThresholdMs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrOperatorNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: read operator for sla update: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE operators SET sla_uptime_target = $2, sla_latency_threshold_ms = $3, updated_at = NOW() WHERE id = $1`,
+		operatorID, uptimeTarget, latencyThresholdMs,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update sla targets: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrOperatorNotFound
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit sla targets: %w", err)
+	}
+
+	if s.auditStore == nil {
+		return nil
+	}
+
+	var tenantID uuid.UUID
+	err = s.db.QueryRow(ctx,
+		`SELECT tenant_id FROM users WHERE id = $1`, actorUserID,
+	).Scan(&tenantID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("store: resolve tenant for audit: %w", err)
+	}
+
+	beforeJSON, _ := json.Marshal(before)
+	afterData := struct {
+		UptimeTarget       float64 `json:"sla_uptime_target"`
+		LatencyThresholdMs int     `json:"sla_latency_threshold_ms"`
+	}{UptimeTarget: uptimeTarget, LatencyThresholdMs: latencyThresholdMs}
+	afterJSON, _ := json.Marshal(afterData)
+
+	entry := &audit.Entry{
+		TenantID:   tenantID,
+		UserID:     &actorUserID,
+		Action:     "operator.updated",
+		EntityType: "operator",
+		EntityID:   operatorID.String(),
+		BeforeData: beforeJSON,
+		AfterData:  afterJSON,
+		CreatedAt:  time.Now().UTC(),
+	}
+	if _, err := s.auditStore.CreateWithChain(ctx, entry); err != nil {
+		return fmt.Errorf("store: audit sla targets update: %w", err)
+	}
+
+	return nil
 }

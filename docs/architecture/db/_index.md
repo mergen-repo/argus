@@ -12,7 +12,7 @@
 | TBL-02 | users | Platform | → TBL-01 (tenant_id) | No |
 | TBL-03 | user_sessions | Platform | → TBL-02 (user_id) | No |
 | TBL-04 | api_keys | Platform | → TBL-01 (tenant_id) | No |
-| TBL-05 | operators | Operator | System-level (no tenant_id) | No |
+| TBL-05 | operators | Operator | System-level (no tenant_id). FIX-215 added `sla_latency_threshold_ms INTEGER NOT NULL DEFAULT 500 CHECK (BETWEEN 50 AND 60000)` — per-operator latency breach threshold (ms). | No |
 | TBL-06 | operator_grants | Operator | → TBL-01, → TBL-05 | No |
 | TBL-07 | apns | SIM/APN | → TBL-01, → TBL-05 | No |
 | TBL-08 | ip_pools | IPAM | → TBL-01, → TBL-07 | No |
@@ -34,7 +34,7 @@
 | TBL-24 | msisdn_pool | SIM/APN | → TBL-01, → TBL-05 | No |
 | TBL-25 | sim_segments | SIM/APN | → TBL-01, → TBL-02 | No |
 | TBL-26 | ota_commands | OTA | → TBL-01, → TBL-10, → TBL-20, → TBL-02 | No |
-| TBL-27 | sla_reports | Analytics/SLA | → TBL-01 (tenant_id), → TBL-05 (operator_id nullable) | No |
+| TBL-27 | sla_reports | Analytics/SLA | → TBL-01 (tenant_id), → TBL-05 (operator_id nullable). Retention: 24 months minimum (no cleanup cron). Per FIX-215 compliance requirement (AC-7). | No |
 | TBL-28 | anomalies | Analytics/Anomalies | → TBL-01 (tenant_id), → TBL-10 (sim_id nullable) | No |
 | TBL-29 | policy_violations | Policy Engine | → TBL-01, → TBL-10, → TBL-13, → TBL-14 | No |
 | TBL-30 | s3_archival_log | Platform Services | → TBL-01 (tenant_id) | No |

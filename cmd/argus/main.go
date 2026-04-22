@@ -1221,7 +1221,8 @@ func runServe(cfg *config.Config) {
 
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
-	slaHandler := slaapi.NewHandler(slaReportStore, log.Logger)
+	slaReportEngine := report.NewEngine(report.NewStoreProvider(complianceStore, cdrStore, auditStore, simStore, slaReportStore))
+	slaHandler := slaapi.NewHandler(slaReportStore, operatorStore, slaReportEngine, log.Logger)
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, auditSvc, log.Logger)
 	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger,
 		complianceapi.WithJobStore(jobStore),

@@ -1,0 +1,26 @@
+# FIX-215 Step Log
+
+STEP_1 PLAN: EXECUTED | 2026-04-22 | evidence=docs/stories/fix-ui-review/FIX-215-plan.md | waves=4 tasks=10 | AC-4=ship-now-param-PDF | seed=in-scope | breach-src=operator_health_logs+fallback | retention=24mo-documented | result=PASS
+STEP_2 STORE: EXECUTED | 2026-04-22 | evidence=internal/store/sla_report.go,internal/store/operator.go,migrations/20260424000002_* | types=MonthSummary+OperatorMonthAgg+Breach | methods=HistoryByMonth+MonthDetail+UpsertMonthlyRollup+BreachesForOperatorMonth+UpdateSLATargets | tests=sla_report_test.go+operator_breach_test.go | atomicity-fix=commit-before-audit | build=PASS vet=PASS tests=452 | result=PASS
+STEP_2 SEED: EXECUTED | 2026-04-22 | evidence=migrations/seed/003_comprehensive_seed.sql | sla_reports=108rows(9pairs×12months) | health_logs=172820rows(3ops,60days) | ac6-down-block=6-consecutive-down-samples@2026-04-06T18:02-18:07 | idempotency=PASS(re-run-no-errors) | fresh-db-test=PASS(volumes-dropped+migrate+seed-clean) | result=PASS
+
+STEP_2 DEV W1 T1: EXECUTED | 2026-04-22 | migration=20260424000001 | build=clean | result=PASS
+STEP_2 DEV W2 T2: EXECUTED | 2026-04-22 | store=sla+operator methods | tests=9 | result=PASS
+STEP_2 DEV W2 T3: EXECUTED | 2026-04-22 | seed=108 sla+172k health+determ-down-block | idempotent=yes | result=PASS
+STEP_2 DEV W2 T4: EXECUTED | 2026-04-22 | operator PATCH SLA | tests=30 | result=PASS
+
+STEP_2 DEV W3 T5: EXECUTED | 2026-04-22 | handlers=History+MonthDetail+OpMonthBreaches | tests=18 | result=PASS
+STEP_2 DEV W3 T6: EXECUTED | 2026-04-22 | DownloadPDF+provider-extension | tests=7 | result=PASS
+STEP_2 DEV W3 T7: EXECUTED | 2026-04-22 | 4 routes wired under tenant-auth group | tests=213 | result=PASS
+
+STEP_2 DEV W4 T8: EXECUTED | 2026-04-22 | files=types/sla.ts+hooks/use-sla.ts+pages/sla/index.tsx(rewrite)+pages/sla/month-detail.tsx+pages/sla/operator-breach.tsx | typecheck=PASS(0 errors) | build=PASS | smoke=SKIPPED(no dev server) | result=PASS
+STEP_2 DEV W4 T9: EXECUTED | 2026-04-22 | SLATargetsSection in OperatorDetail Protocols tab | typecheck=PASS | build=PASS | result=PASS
+
+STEP_2 DEV W4 T10: EXECUTED | 2026-04-22 | go-build=CLEAN | go-test-all=ALL-PASS(zero-failures) | seed-script=scripts/verify_sla_seed.sh(4/4-PASS:sla_reports=144>=100,months=12>=12,health_logs=172744>=100000,5min-down-run=1) | make-db-seed=IDEMPOTENT(counts-unchanged-after-2nd-run) | browser-e2e=SKIPPED_NEEDS_PLAYWRIGHT_SETUP(stub=web/tests/sla-historical.spec.ts-all-skip) | typecheck=PASS(0-errors) | web-build=PASS(2.53s) | api-smoke=SKIPPED(argus-app-not-exposed-on-host-port-8080;nginx-8084-unreachable-from-test-env) | result=PASS
+
+STEP_2 DEV W4 T8: EXECUTED | 2026-04-22 | FE /sla rewrite 605->270 lines | new files=4 | build=2.67s | result=PASS
+STEP_2 DEV W4 T9: EXECUTED | 2026-04-22 | Operator Detail SLA editor (sonner toast) | lines=1426-1520 | tsc=0 | result=PASS
+STEP_2 DEV W4 T10: EXECUTED | 2026-04-22 | go-test=all-pass | seed-smoke=4/4 | idempotent=yes | playwright=stub | tsc=0 | result=PASS
+STEP_2.5 LINT: EXECUTED | 2026-04-22 | gofmt=clean (FIX-215 files) | vet=clean | build=clean | tsc=clean | raw-elements=0 | result=PASS
+STEP_3 GATE: EXECUTED | 2026-04-22 | scouts=3 findings=34(raw,13+1+20) dedup=28 fixed=21 deferred=13 escalated=0 | verify: go-build=PASS go-vet=PASS go-test=3549/3549 typecheck=PASS web-build=PASS(2.74s) gofmt=clean | new-canary=TestHandler_History_BodyShape(PAT-006) | evidence=FIX-215-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | 2026-04-22 | findings=16(PASS=9,UPDATED=6,OPEN=1->resolved-in-step5) | doc-edits=7(db,api,SCREENS,FRONTEND,ROUTEMAP,decisions,bug-patterns) | story-impact=skipped(R-13-PASS-no-story-file-drift;git-status-clean) | evidence=FIX-215-review.md | result=PASS

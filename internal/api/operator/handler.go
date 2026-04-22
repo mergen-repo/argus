@@ -96,18 +96,18 @@ func NewHandler(
 }
 
 type operatorResponse struct {
-	ID                        string   `json:"id"`
-	Name                      string   `json:"name"`
-	Code                      string   `json:"code"`
-	MCC                       string   `json:"mcc"`
-	MNC                       string   `json:"mnc"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Code string `json:"code"`
+	MCC  string `json:"mcc"`
+	MNC  string `json:"mnc"`
 	// EnabledProtocols is derived from the nested adapter_config and
 	// replaces the legacy `adapter_type` string. Callers that only
 	// need the canonical primary protocol should pick the first
 	// element (canonical order is diameter, radius, sba, http, mock).
 	// An empty list signals "operator has no enabled protocols" —
 	// visible in UI but non-routable.
-	EnabledProtocols          []string        `json:"enabled_protocols"`
+	EnabledProtocols []string `json:"enabled_protocols"`
 	// AdapterConfig carries the decrypted, nested, secrets-MASKED
 	// adapter_config. STORY-090 Gate (F-A2): previously omitted from
 	// the response; added so the Protocols tab can reflect stored
@@ -123,6 +123,7 @@ type operatorResponse struct {
 	CircuitBreakerThreshold   int             `json:"circuit_breaker_threshold"`
 	CircuitBreakerRecoverySec int             `json:"circuit_breaker_recovery_sec"`
 	SLAUptimeTarget           *float64        `json:"sla_uptime_target"`
+	SLALatencyThresholdMs     int             `json:"sla_latency_threshold_ms"`
 	State                     string          `json:"state"`
 	CreatedAt                 string          `json:"created_at"`
 	UpdatedAt                 string          `json:"updated_at"`
@@ -157,10 +158,10 @@ type testResponse struct {
 }
 
 type createOperatorRequest struct {
-	Name                      string          `json:"name"`
-	Code                      string          `json:"code"`
-	MCC                       string          `json:"mcc"`
-	MNC                       string          `json:"mnc"`
+	Name string `json:"name"`
+	Code string `json:"code"`
+	MCC  string `json:"mcc"`
+	MNC  string `json:"mnc"`
 	// AdapterType removed in STORY-090 Wave 2 D2-B — callers must
 	// supply a nested adapter_config (or a heuristic-classifiable
 	// flat body). The adapter_type hint is no longer accepted.
@@ -185,7 +186,8 @@ type updateOperatorRequest struct {
 	CircuitBreakerThreshold   *int            `json:"circuit_breaker_threshold"`
 	CircuitBreakerRecoverySec *int            `json:"circuit_breaker_recovery_sec"`
 	HealthCheckIntervalSec    *int            `json:"health_check_interval_sec"`
-	SLAUptimeTarget           *float64        `json:"sla_uptime_target"`
+	SLAUptimeTarget           *float64        `json:"sla_uptime_target,omitempty"`
+	SLALatencyThresholdMs     *int            `json:"sla_latency_threshold_ms,omitempty"`
 	SMDPPlusURL               *string         `json:"sm_dp_plus_url"`
 	SMDPPlusConfig            json.RawMessage `json:"sm_dp_plus_config"`
 	State                     *string         `json:"state"`
@@ -319,6 +321,7 @@ func toOperatorResponse(o *store.Operator, enabledProtocols []string) operatorRe
 		CircuitBreakerThreshold:   o.CircuitBreakerThreshold,
 		CircuitBreakerRecoverySec: o.CircuitBreakerRecoverySec,
 		SLAUptimeTarget:           o.SLAUptimeTarget,
+		SLALatencyThresholdMs:     o.SLALatencyThresholdMs,
 		State:                     o.State,
 		CreatedAt:                 o.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:                 o.UpdatedAt.Format(time.RFC3339Nano),
@@ -801,12 +804,31 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	role, _ := r.Context().Value(apierr.RoleKey).(string)
+	if req.SLAUptimeTarget != nil || req.SLALatencyThresholdMs != nil {
+		if !apierr.HasRole(role, "operator_manager") {
+			apierr.WriteError(w, http.StatusForbidden, apierr.CodeInsufficientRole,
+				"This action requires operator_manager role or higher")
+			return
+		}
+	}
+
 	var validationErrors []map[string]string
 	if req.FailoverPolicy != nil && !validFailoverPolicies[*req.FailoverPolicy] {
 		validationErrors = append(validationErrors, map[string]string{"field": "failover_policy", "message": "Invalid failover policy", "code": "invalid_enum"})
 	}
 	if req.State != nil && !validOperatorStates[*req.State] {
 		validationErrors = append(validationErrors, map[string]string{"field": "state", "message": "Invalid state. Allowed: active, disabled", "code": "invalid_enum"})
+	}
+	if req.SLAUptimeTarget != nil && (*req.SLAUptimeTarget < 50.0 || *req.SLAUptimeTarget > 100.0) {
+		apierr.WriteError(w, http.StatusBadRequest, "invalid_sla_target",
+			"sla_uptime_target must be between 50.0 and 100.0 inclusive")
+		return
+	}
+	if req.SLALatencyThresholdMs != nil && (*req.SLALatencyThresholdMs < 50 || *req.SLALatencyThresholdMs > 60000) {
+		apierr.WriteError(w, http.StatusBadRequest, "invalid_latency_threshold",
+			"sla_latency_threshold_ms must be between 50 and 60000 inclusive")
+		return
 	}
 	if len(validationErrors) > 0 {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
@@ -901,6 +923,39 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		smDPConfig = encrypted
 	}
 
+	if req.SLAUptimeTarget != nil || req.SLALatencyThresholdMs != nil {
+		actorID := userIDFromContext(r)
+		var actorUUID uuid.UUID
+		if actorID != nil {
+			actorUUID = *actorID
+		}
+		slaUptime := existing.SLAUptimeTarget
+		var slaUptimeVal float64
+		if slaUptime != nil {
+			slaUptimeVal = *slaUptime
+		} else {
+			slaUptimeVal = 99.9
+		}
+		if req.SLAUptimeTarget != nil {
+			slaUptimeVal = *req.SLAUptimeTarget
+		}
+		slaLatency := existing.SLALatencyThresholdMs
+		if req.SLALatencyThresholdMs != nil {
+			slaLatency = *req.SLALatencyThresholdMs
+		}
+		if slaErr := h.operatorStore.UpdateSLATargets(r.Context(), id, slaUptimeVal, slaLatency, actorUUID); slaErr != nil {
+			if errors.Is(slaErr, store.ErrOperatorNotFound) {
+				apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Operator not found")
+				return
+			}
+			h.logger.Error().Err(slaErr).Str("operator_id", idStr).Msg("update sla targets")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+	}
+
+	// SLA fields are always routed through UpdateSLATargets (called above) when
+	// either is present — pass nil here to avoid a double-write on sla_uptime_target.
 	updated, err := h.operatorStore.Update(r.Context(), id, store.UpdateOperatorParams{
 		Name:                      req.Name,
 		AdapterConfig:             adapterConfig,
@@ -912,7 +967,6 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		CircuitBreakerThreshold:   req.CircuitBreakerThreshold,
 		CircuitBreakerRecoverySec: req.CircuitBreakerRecoverySec,
 		HealthCheckIntervalSec:    req.HealthCheckIntervalSec,
-		SLAUptimeTarget:           req.SLAUptimeTarget,
 		State:                     req.State,
 	})
 	if err != nil {
@@ -1449,16 +1503,16 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	for i := range sessions {
 		s := &sessions[i]
 		dto := operatorSessionDTO{
-			ID:            s.ID.String(),
-			SimID:         s.SimID.String(),
-			OperatorID:    s.OperatorID.String(),
-			NASIP:         stripCIDRSuffix(deref(s.NASIP)),
-			FramedIP:      stripCIDRSuffix(deref(s.FramedIP)),
-			SessionState:  s.SessionState,
-			StartedAt:     s.StartedAt.Format(time.RFC3339),
-			BytesIn:       s.BytesIn,
-			BytesOut:      s.BytesOut,
-			DurationSec:   int64(now.Sub(s.StartedAt).Seconds()),
+			ID:           s.ID.String(),
+			SimID:        s.SimID.String(),
+			OperatorID:   s.OperatorID.String(),
+			NASIP:        stripCIDRSuffix(deref(s.NASIP)),
+			FramedIP:     stripCIDRSuffix(deref(s.FramedIP)),
+			SessionState: s.SessionState,
+			StartedAt:    s.StartedAt.Format(time.RFC3339),
+			BytesIn:      s.BytesIn,
+			BytesOut:     s.BytesOut,
+			DurationSec:  int64(now.Sub(s.StartedAt).Seconds()),
 		}
 		if s.APNID != nil {
 			apnID := s.APNID.String()

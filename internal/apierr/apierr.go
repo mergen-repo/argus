@@ -102,6 +102,12 @@ const (
 	CodeRoamingAgreementOperatorNotGranted = "ROAMING_AGREEMENT_OPERATOR_NOT_GRANTED"
 
 	CodeInvalidDateRange = "INVALID_DATE_RANGE"
+
+	CodeInvalidYear          = "INVALID_YEAR"
+	CodeInvalidMonth         = "INVALID_MONTH"
+	CodeInvalidMonthsRange   = "INVALID_MONTHS_RANGE"
+	CodeInvalidOperatorID    = "INVALID_OPERATOR_ID"
+	CodeSLAMonthNotAvailable = "SLA_MONTH_NOT_AVAILABLE"
 )
 
 type SuccessResponse struct {

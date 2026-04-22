@@ -767,6 +767,10 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(RequireRole("analyst"))
 				r.Get("/api/v1/sla-reports", deps.SLAHandler.List)
 				r.Get("/api/v1/sla-reports/{id}", deps.SLAHandler.Get)
+				r.Get("/api/v1/sla/history", deps.SLAHandler.History)
+				r.Get("/api/v1/sla/months/{year}/{month}", deps.SLAHandler.MonthDetail)
+				r.Get("/api/v1/sla/operators/{operatorId}/months/{year}/{month}/breaches", deps.SLAHandler.OperatorMonthBreaches)
+				r.Get("/api/v1/sla/pdf", deps.SLAHandler.DownloadPDF)
 			})
 		}
 

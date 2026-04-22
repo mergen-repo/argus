@@ -80,6 +80,8 @@ import { useSIMList } from '@/hooks/use-sims'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { ProtocolsPanel } from '@/components/operators/ProtocolsPanel'
+import { toast } from 'sonner'
+import { useUpdateOperatorSLA } from '@/hooks/use-sla'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
@@ -1355,6 +1357,7 @@ export default function OperatorDetailPage() {
         </TabsContent>
         <TabsContent value="protocols">
           <ProtocolsPanel operator={operator} />
+          <SLATargetsSection operator={operator} />
         </TabsContent>
         <TabsContent value="health">
           <HealthTimelineTab operatorId={operator.id} />
@@ -1417,6 +1420,101 @@ export default function OperatorDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function SLATargetsSection({ operator }: { operator: NonNullable<ReturnType<typeof useOperator>['data']> }) {
+  const [uptime, setUptime] = useState(String(operator.sla_uptime_target ?? 99.9))
+  const [latency, setLatency] = useState(String(operator.sla_latency_threshold_ms ?? 500))
+  const [errors, setErrors] = useState<{ uptime?: string; latency?: string }>({})
+  const mutation = useUpdateOperatorSLA()
+
+  const uptimeNum = Number(uptime)
+  const latencyNum = Number(latency)
+
+  const validateUptime = () => {
+    if (Number.isNaN(uptimeNum) || uptimeNum < 50 || uptimeNum > 100) {
+      setErrors(e => ({ ...e, uptime: 'Must be between 50 and 100' }))
+    } else {
+      setErrors(e => ({ ...e, uptime: undefined }))
+    }
+  }
+  const validateLatency = () => {
+    if (!Number.isInteger(latencyNum) || latencyNum < 50 || latencyNum > 60000) {
+      setErrors(e => ({ ...e, latency: 'Must be integer 50–60000' }))
+    } else {
+      setErrors(e => ({ ...e, latency: undefined }))
+    }
+  }
+
+  const isDirty = uptimeNum !== operator.sla_uptime_target || latencyNum !== (operator.sla_latency_threshold_ms ?? 500)
+  const hasErrors = !!errors.uptime || !!errors.latency
+
+  const handleSave = async () => {
+    validateUptime()
+    validateLatency()
+    if (hasErrors) return
+    try {
+      await mutation.mutateAsync({
+        id: operator.id,
+        sla_uptime_target: uptimeNum,
+        sla_latency_threshold_ms: latencyNum,
+      })
+      toast.success('SLA targets saved', { description: 'Applied to operator.' })
+    } catch (err) {
+      toast.error('Save failed', { description: String(err) })
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-[var(--radius-md)] border border-border bg-bg-surface p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-text-primary">SLA Targets</h3>
+        {isDirty && <span className="text-accent animate-pulse" aria-label="unsaved changes">●</span>}
+      </div>
+      <p className="text-xs text-text-secondary mb-4">Set uptime and latency SLOs for this operator.</p>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="sla-uptime" className="text-xs text-text-secondary">Uptime Target (%)</label>
+          <Input
+            id="sla-uptime"
+            type="number"
+            step="0.01"
+            min={50}
+            max={100}
+            value={uptime}
+            onChange={e => setUptime(e.target.value)}
+            onBlur={validateUptime}
+            aria-invalid={!!errors.uptime}
+            className="h-8 text-sm font-mono mt-1"
+          />
+          <p className="text-[11px] text-text-tertiary mt-0.5">50 – 100%</p>
+          {errors.uptime && <p role="alert" className="text-xs text-danger mt-1">{errors.uptime}</p>}
+        </div>
+        <div>
+          <label htmlFor="sla-latency" className="text-xs text-text-secondary">Latency Threshold (ms)</label>
+          <Input
+            id="sla-latency"
+            type="number"
+            step={1}
+            min={50}
+            max={60000}
+            value={latency}
+            onChange={e => setLatency(e.target.value)}
+            onBlur={validateLatency}
+            aria-invalid={!!errors.latency}
+            className="h-8 text-sm font-mono mt-1"
+          />
+          <p className="text-[11px] text-text-tertiary mt-0.5">50 – 60,000 ms</p>
+          {errors.latency && <p role="alert" className="text-xs text-danger mt-1">{errors.latency}</p>}
+        </div>
+      </div>
+      <div className="flex justify-end mt-4">
+        <Button size="sm" onClick={handleSave} disabled={!isDirty || mutation.isPending || hasErrors}>
+          {mutation.isPending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
     </div>
   )
 }

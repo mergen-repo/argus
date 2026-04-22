@@ -100,6 +100,9 @@ Base unit: `4px`
 | `--shadow-glow` | `0 0 20px rgba(0,212,255,0.08)` — Accent card hover |
 | `--shadow-glow-success` | `0 0 6px rgba(0,255,136,0.4)` — Success/LIVE pulse glow (dark); `0 0 4px rgba(0,200,100,0.35)` (light). Added FIX-213. Used on LIVE indicator in Event Stream Drawer. |
 | `--shadow-card` | `0 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(255,255,255,0.05)` — Card elevation |
+| `--shadow-card-success` | `0 0 0 1px rgba(0,255,136,0.3), 0 2px 8px rgba(0,0,0,0.3)` — Compliant SLA card hover glow (dark); `0 0 0 1px rgba(0,180,90,0.25), 0 2px 8px rgba(0,0,0,0.1)` (light). Added FIX-215. Used in `lib/sla.ts:uptimeStatusColor`. |
+| `--shadow-card-warning` | `0 0 0 1px rgba(251,191,36,0.3), 0 2px 8px rgba(0,0,0,0.3)` — At-risk SLA card hover glow (dark); `0 0 0 1px rgba(200,150,0,0.25), 0 2px 8px rgba(0,0,0,0.1)` (light). Added FIX-215. |
+| `--shadow-card-danger` | `0 0 0 1px rgba(239,68,68,0.3), 0 2px 8px rgba(0,0,0,0.3)` — Breached SLA card hover glow (dark); `0 0 0 1px rgba(200,50,50,0.25), 0 2px 8px rgba(0,0,0,0.1)` (light). Added FIX-215. |
 | `--transition` | `0.2s cubic-bezier(0.4, 0, 0.2, 1)` — All transitions |
 
 ## Key Visual Patterns
