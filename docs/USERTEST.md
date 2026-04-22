@@ -3683,3 +3683,50 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 4. Valid degerler girip `Kaydet`e bas — sonner toast `SLA hedefleri guncellendi` gosterir.
 5. Audit sekmesinden `operator.updated` action kaydini dogrula (before/after degerleri JSON icinde).
 6. Sayfayi yenile — yeni degerler persist olmalidir.
+
+## FIX-216: Modal Pattern Standardization — Dialog vs SlidePanel
+
+### 1. SIM Bulk State-Change Dialog (Suspend/Resume/Terminate)
+
+1. `/sims` sayfasina git; tabloda 2+ SIM sec (checkbox).
+2. Bulk action bar goruntur; `Suspend` (veya `Resume`) tikla — merkezde `Dialog` acilir.
+3. Dialog icinde aksiyon baslik + optional reason input + primary/cancel butonlar gorunur.
+4. `Terminate` tikla — Dialog primary button `destructive` variant (kirmizi ton) olur.
+5. `Esc` tusu Dialog'u kapatir; secim korunur.
+
+### 2. SIM Assign Policy SlidePanel
+
+1. `/sims` sayfasinda 1+ SIM sec; bulk action bar `Assign Policy` tikla.
+2. Sag taraftan `SlidePanel` acilir (width=md); title + description header'da gorunur.
+3. Icerik: policy picker (search), version dropdown, optional comment textarea.
+4. Footer `SlidePanelFooter` icinde primary + cancel butonlari.
+5. Focus-trap calisir — Tab sadece panel icinde dolasir; Esc kapatir.
+
+### 3. IP Pool Reserve SlidePanel
+
+1. `/settings/ip-pools/:id` detay sayfasina git; `Reserve IP` butonuna bas.
+2. SlidePanel acilir (title + description props kullanildigi icin ayri bir header component yok).
+3. Form icerik (CIDR/range input + SIM picker) + SlidePanelFooter tutarli.
+4. Save → toast gosterir; panel kapanir; pool table refresh olur.
+
+### 4. Violations Row Detail SlidePanel
+
+1. `/violations` sayfasina git; herhangi bir violation satirina TIKLA (veya Enter/Space ile focus verip ac).
+2. Sag taraftan SlidePanel acilir; title=`policy_name ?? violation_type`, description=`created_at`.
+3. Body: metadata grid (SIM, tenant, severity) + details grid (DSL, kosul, evidence).
+4. Footer: Close butonu (variant=outline).
+5. Eski inline row-expand kalkmis; artik row kendisi button olarak davranir.
+
+### 5. Keyboard A11y (Violations Row)
+
+1. `/violations` sayfasinda Tab ile satir'a focus ver — dashed outline gorunur.
+2. Enter'a bas — SlidePanel acilir.
+3. Panel acikken Esc'e bas — kapanir; focus tetikleyici satira doner.
+4. Satir focus'tayken Space'e bas — panel acilir; sayfa scroll OLMAZ (preventDefault calistiginin dogrulamasi).
+
+### 6. Dark Mode Tum Modallar
+
+1. Sidebar'dan theme toggle ile dark mode'a gec.
+2. Yukaridaki 4 senaryoyu tekrarla — her modal/drawer dark theme tokenlariyla render olur.
+3. Beyaz arka plan (`bg-white`), gri Tailwind palette veya hardcoded hex/rgba gorunmemeli.
+4. Shadow tokenlari (`--shadow-card`, `--shadow-card-success/warning/danger`) dogru uygulanir.

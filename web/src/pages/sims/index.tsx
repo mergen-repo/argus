@@ -34,7 +34,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table'
-import { SlidePanel } from '@/components/ui/slide-panel'
+import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -56,6 +56,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/select'
@@ -791,7 +792,7 @@ export default function SimListPage() {
         {(selectedIds.size > 0 || selectAllSegment) && (
           <div
             className={cn(
-              'fixed bottom-0 right-0 z-30 bg-accent-dim border-t border-accent/20 shadow-[0_-4px_12px_rgba(0,0,0,0.35)] animate-in slide-in-from-bottom-2 duration-200 flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-2 transition-[left]',
+              'fixed bottom-0 right-0 z-30 bg-accent-dim border-t border-accent/20 shadow-[var(--shadow-card)] animate-in slide-in-from-bottom-2 duration-200 flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-2 transition-[left]',
               sidebarCollapsed ? 'left-16' : 'left-60',
             )}
           >
@@ -932,39 +933,39 @@ export default function SimListPage() {
         </div>
       )}
 
-      {/* Bulk Action SlidePanel */}
-      <SlidePanel
-        open={!!bulkDialog}
-        onOpenChange={() => setBulkDialog(null)}
-        title={`${bulkDialog?.label} ${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}?`}
-        description={`This action will ${bulkDialog?.label.toLowerCase()} the selected SIMs. This may take a moment for large selections.`}
-        width="md"
-      >
-        <div>
-          <label className="text-xs font-medium text-text-secondary block mb-1.5">
-            Reason (optional)
-          </label>
-          <Input
-            value={bulkReason}
-            onChange={(e) => setBulkReason(e.target.value)}
-            placeholder="Enter reason..."
-          />
-        </div>
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
-          <Button variant="outline" onClick={() => setBulkDialog(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant={bulkDialog?.action === 'terminated' ? 'destructive' : 'default'}
-            onClick={handleBulkAction}
-            disabled={bulkMutation.isPending}
-            className="gap-2"
-          >
-            {bulkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {bulkDialog?.label}
-          </Button>
-        </div>
-      </SlidePanel>
+      {/* Bulk Action Dialog */}
+      <Dialog open={!!bulkDialog} onOpenChange={(o) => !o && setBulkDialog(null)}>
+        <DialogContent onClose={() => setBulkDialog(null)}>
+          <DialogHeader>
+            <DialogTitle>{`${bulkDialog?.label} ${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}?`}</DialogTitle>
+            <DialogDescription>{`This action will ${bulkDialog?.label?.toLowerCase()} the selected SIMs. This may take a moment for large selections.`}</DialogDescription>
+          </DialogHeader>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">
+              Reason (optional)
+            </label>
+            <Input
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+              placeholder="Enter reason..."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={bulkDialog?.action === 'terminated' ? 'destructive' : 'default'}
+              onClick={handleBulkAction}
+              disabled={bulkMutation.isPending}
+              className="gap-2"
+            >
+              {bulkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {bulkDialog?.label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Import SIMs SlidePanel */}
       <SlidePanel open={importOpen} onOpenChange={setImportOpen} title="Import SIMs" description="Paste CSV data or upload a file. A background job will process the import." width="lg">
@@ -1108,92 +1109,87 @@ export default function SimListPage() {
         </div>
       </SlidePanel>
 
-      {/* Bulk Assign Policy Dialog */}
-      <Dialog open={policyDialogOpen} onOpenChange={setPolicyDialogOpen}>
-        <DialogContent onClose={() => setPolicyDialogOpen(false)}>
-          <DialogHeader>
-            <DialogTitle>
-              Assign Policy to{' '}
-              {selectAllSegment
-                ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
-                : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-medium text-text-secondary block mb-1.5">
-                Select Policy
-              </label>
-              <Select
-                value={selectedPolicyVersionId}
-                onChange={(e) => setSelectedPolicyVersionId(e.target.value)}
-                placeholder="Choose a policy..."
-                options={activePolicies.map((p) => ({
-                  value: p.current_version_id!,
-                  label: `${p.name} v${p.active_version}`,
-                }))}
-              />
-            </div>
-
-            {selectedPolicyVersionId && (
-              <div className="rounded-[var(--radius-sm)] border border-border bg-bg-primary p-3 space-y-1">
-                <p className="text-xs text-text-tertiary">Preview</p>
-                <p className="text-sm text-text-primary font-medium">
-                  {activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.name ?? 'Policy'}{' '}
-                  <span className="text-text-secondary font-normal">
-                    v{activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.active_version}
-                  </span>
-                </p>
-                <p className="text-xs text-text-secondary">
-                  Will be assigned to{' '}
-                  <span className="font-semibold text-text-primary">
-                    {selectAllSegment
-                      ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
-                      : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
-                  </span>
-                </p>
-              </div>
-            )}
+      {/* Bulk Assign Policy SlidePanel */}
+      <SlidePanel
+        open={policyDialogOpen}
+        onOpenChange={setPolicyDialogOpen}
+        title={`Assign Policy to ${selectAllSegment ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)` : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}`}
+        description="Select an active policy version. Will be assigned to all selected SIMs."
+        width="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">
+              Select Policy
+            </label>
+            <Select
+              value={selectedPolicyVersionId}
+              onChange={(e) => setSelectedPolicyVersionId(e.target.value)}
+              placeholder="Choose a policy..."
+              options={activePolicies.map((p) => ({
+                value: p.current_version_id!,
+                label: `${p.name} v${p.active_version}`,
+              }))}
+            />
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setPolicyDialogOpen(false); setSelectedPolicyVersionId('') }}>
-              Cancel
-            </Button>
-            <Button
-              disabled={!selectedPolicyVersionId || bulkPolicyAssignMutation.isPending}
-              className="gap-2"
-              onClick={async () => {
-                const ids = selectAllSegment ? [] : Array.from(selectedIds)
-                if (!selectAllSegment) setProcessingIds(new Set(ids))
-                try {
-                  const result = await bulkPolicyAssignMutation.mutateAsync({
-                    ...(selectAllSegment
-                      ? { segmentId: selectedSegmentId }
-                      : { simIds: ids }),
-                    policyVersionId: selectedPolicyVersionId,
-                  })
-                  if (result?.job_id) {
-                    setActiveBulkJobId(result.job_id)
-                  } else {
-                    setProcessingIds(new Set())
-                  }
-                  setSelectedIds(new Set())
-                  setSelectAllSegment(false)
-                  setPolicyDialogOpen(false)
-                  setSelectedPolicyVersionId('')
-                } catch {
+          {selectedPolicyVersionId && (
+            <div className="rounded-[var(--radius-sm)] border border-border bg-bg-primary p-3 space-y-1">
+              <p className="text-xs text-text-tertiary">Preview</p>
+              <p className="text-sm text-text-primary font-medium">
+                {activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.name ?? 'Policy'}{' '}
+                <span className="text-text-secondary font-normal">
+                  v{activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.active_version}
+                </span>
+              </p>
+              <p className="text-xs text-text-secondary">
+                Will be assigned to{' '}
+                <span className="font-semibold text-text-primary">
+                  {selectAllSegment
+                    ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
+                    : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        <SlidePanelFooter>
+          <Button variant="outline" onClick={() => { setPolicyDialogOpen(false); setSelectedPolicyVersionId('') }}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!selectedPolicyVersionId || bulkPolicyAssignMutation.isPending}
+            className="gap-2"
+            onClick={async () => {
+              const ids = selectAllSegment ? [] : Array.from(selectedIds)
+              if (!selectAllSegment) setProcessingIds(new Set(ids))
+              try {
+                const result = await bulkPolicyAssignMutation.mutateAsync({
+                  ...(selectAllSegment
+                    ? { segmentId: selectedSegmentId }
+                    : { simIds: ids }),
+                  policyVersionId: selectedPolicyVersionId,
+                })
+                if (result?.job_id) {
+                  setActiveBulkJobId(result.job_id)
+                } else {
                   setProcessingIds(new Set())
                 }
-              }}
-            >
-              {bulkPolicyAssignMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                setSelectedIds(new Set())
+                setSelectAllSegment(false)
+                setPolicyDialogOpen(false)
+                setSelectedPolicyVersionId('')
+              } catch {
+                setProcessingIds(new Set())
+              }
+            }}
+          >
+            {bulkPolicyAssignMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Confirm
+          </Button>
+        </SlidePanelFooter>
+      </SlidePanel>
     </div>
   )
 }

@@ -23,7 +23,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table'
-import { SlidePanel } from '@/components/ui/slide-panel'
+import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
 import { SimSearch } from '@/components/ui/sim-search'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Spinner } from '@/components/ui/spinner'
@@ -444,13 +444,13 @@ export default function IpPoolDetailPage() {
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <SlidePanelFooter>
           <Button variant="outline" onClick={() => setShowReservePanel(false)}>Cancel</Button>
           <Button onClick={handleReserveAll} disabled={reserveQueue.length === 0 || reserving} className="gap-2">
             {reserving && <Loader2 className="h-4 w-4 animate-spin" />}
             Reserve {reserveQueue.length > 0 ? `${reserveQueue.length} IP${reserveQueue.length !== 1 ? 's' : ''}` : 'IPs'}
           </Button>
-        </div>
+        </SlidePanelFooter>
       </SlidePanel>
     </div>
   )

@@ -6,8 +6,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
 import {
-  Shield, AlertCircle, AlertTriangle, Search, RefreshCw,
-  ExternalLink, Clock, ChevronDown, ChevronUp,
+  Shield, AlertCircle, Search, RefreshCw,
+  ExternalLink, Clock,
   Activity, Ban, Tag, Bell, FileText, MoreHorizontal, CheckCircle2, BookOpen, ArrowUpRight,
   Download, Loader2,
 } from 'lucide-react'
@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils'
 import { timeAgo, formatNumber } from '@/lib/format'
 import { SeverityBadge } from '@/components/shared/severity-badge'
 import { SEVERITY_FILTER_OPTIONS } from '@/lib/severity'
+import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
 import type { OperatorCode } from '@/lib/operator-chip'
 import type { ListResponse } from '@/types/sim'
 
@@ -200,7 +201,7 @@ export default function ViolationsPage() {
     }, { replace: false })
   }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [selectedViolation, setSelectedViolation] = useState<PolicyViolation | null>(null)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -261,8 +262,8 @@ export default function ViolationsPage() {
     return Object.values(agg).sort((a, b) => b.count - a.count).slice(0, 5)
   }, [violations])
 
-  const toggleExpanded = useCallback((id: string) => {
-    setExpandedIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const handleRowClick = useCallback((v: PolicyViolation) => {
+    setSelectedViolation(v)
   }, [])
 
   useEffect(() => {
@@ -422,135 +423,166 @@ export default function ViolationsPage() {
         />
       ) : (
         <div className="space-y-1.5">
-          {filtered.filter((v) => !dismissedIds.has(v.id) && !v.acknowledged_at).map((v, idx) => {
-            const expanded = expandedIds.has(v.id)
-            return (
-              <div key={v.id} data-row-index={idx} data-href={`/violations/${v.id}`} className={cn(
-                'rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden transition-colors',
-                v.severity === 'critical' && 'border-danger/30',
-                (v.severity === 'high' || v.severity === 'medium') && 'border-warning/20',
-              )}>
-                <div className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-bg-hover/50 transition-colors" onClick={() => toggleExpanded(v.id)}>
-                  <span className={v.severity === 'critical' || v.severity === 'high' ? 'text-danger' : v.severity === 'medium' ? 'text-warning' : 'text-text-tertiary'}>{typeIcon(v.violation_type)}</span>
-                  <SeverityBadge severity={v.severity} className="shrink-0" />
-                  <span className="text-xs font-medium text-text-primary">{v.violation_type.replace(/_/g, ' ')}</span>
-                  <span className="text-[10px] text-text-tertiary">→ {v.action_taken}</span>
-                  <Link to={`/sims/${v.sim_id}`} onClick={(e) => e.stopPropagation()} className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline shrink-0">
-                    <ExternalLink className="h-3 w-3" />{v.iccid || v.sim_iccid || 'SIM'}
-                  </Link>
-                  {(v.operator_name || v.operator_id) && (
-                    <span className="hidden lg:block" onClick={(e) => e.stopPropagation()}>
-                      <OperatorChip
-                        name={v.operator_name ?? undefined}
-                        code={v.operator_code as OperatorCode | undefined}
-                        rawId={v.operator_id}
-                        clickable
-                        onClick={() => navigate(`/operators/${v.operator_id}`)}
-                      />
-                    </span>
-                  )}
-                  <span className="hidden md:flex items-center gap-1 text-[10px] text-text-tertiary font-mono shrink-0 ml-auto"><Clock className="h-3 w-3" />{timeAgo(v.created_at)}</span>
-                  <div className="shrink-0 text-text-tertiary">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      className="h-6 w-6 p-0 shrink-0 text-text-tertiary hover:text-text-primary inline-flex items-center justify-center rounded transition-colors hover:bg-bg-hover"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <MoreHorizontal className="h-3.5 w-3.5" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem
-                        className="text-xs gap-2"
-                        onSelect={() => navigate(`/sims/${v.sim_id}?action=suspend`)}
-                      >
-                        <Ban className="h-3.5 w-3.5 text-danger" />
-                        Suspend SIM
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-xs gap-2"
-                        onSelect={() => navigate(`/policies/${v.policy_id}?rule=${v.rule_index}`)}
-                      >
-                        <BookOpen className="h-3.5 w-3.5 text-accent" />
-                        Review Policy
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-xs gap-2"
-                        onSelect={() => handleDismiss(v)}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                        Dismiss
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-xs gap-2"
-                        onSelect={() => navigate('/notifications')}
-                      >
-                        <ArrowUpRight className="h-3.5 w-3.5 text-warning" />
-                        Escalate
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {expanded && (
-                  <div className="border-t border-border bg-bg-primary/50 px-4 py-3 space-y-3 animate-slide-up-in">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">SIM</span>
-                        <Link to={`/sims/${v.sim_id}`} className="text-xs text-accent hover:underline font-mono">{v.iccid || v.sim_iccid || v.sim_id.slice(0, 12)}</Link>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Policy</span>
-                        <Link to={`/policies/${v.policy_id}`} className="text-xs text-accent hover:underline">
-                          {v.policy_name ?? 'View Policy'}{v.policy_version_number != null ? ` (v${v.policy_version_number})` : ''}
-                        </Link>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Operator</span>
-                        {(v.operator_name || v.operator_id)
-                          ? <OperatorChip
-                              name={v.operator_name ?? undefined}
-                              code={v.operator_code as OperatorCode | undefined}
-                              rawId={v.operator_id}
-                              clickable
-                              onClick={() => navigate(`/operators/${v.operator_id}`)}
-                            />
-                          : <span className="text-xs text-text-tertiary">—</span>
-                        }
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">APN</span>
-                        <span className="text-xs text-text-primary">{v.apn_name ?? '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">ICCID</span>
-                        <span className="text-xs text-text-primary font-mono">{v.iccid ?? v.sim_iccid ?? '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Time</span>
-                        <span className="text-xs text-text-primary font-mono">{new Date(v.created_at).toLocaleString()}</span>
-                      </div>
-                    </div>
-                    {v.details && Object.keys(v.details).length > 0 && (
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Details</span>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {Object.entries(v.details).map(([key, val]) => (
-                            <div key={key} className="rounded-[var(--radius-sm)] border border-border-subtle bg-bg-primary px-3 py-2">
-                              <div className="text-[10px] text-text-tertiary capitalize">{detailLabel(key)}</div>
-                              <div className="text-xs text-text-primary font-mono mt-0.5">{formatDetailValue(key, val)}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+          {filtered.filter((v) => !dismissedIds.has(v.id) && !v.acknowledged_at).map((v, idx) => (
+            <div key={v.id} data-row-index={idx} data-href={`/violations/${v.id}`} className={cn(
+              'rounded-[var(--radius-md)] border bg-bg-surface overflow-hidden transition-colors',
+              v.severity === 'critical' && 'border-danger/30',
+              (v.severity === 'high' || v.severity === 'medium') && 'border-warning/20',
+            )}>
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Open details for ${v.violation_type} violation on ${v.iccid ?? v.sim_iccid ?? v.sim_id}`}
+                className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-bg-hover/50 transition-colors"
+                onClick={() => handleRowClick(v)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleRowClick(v)
+                  }
+                }}
+              >
+                <span className={v.severity === 'critical' || v.severity === 'high' ? 'text-danger' : v.severity === 'medium' ? 'text-warning' : 'text-text-tertiary'}>{typeIcon(v.violation_type)}</span>
+                <SeverityBadge severity={v.severity} className="shrink-0" />
+                <span className="text-xs font-medium text-text-primary">{v.violation_type.replace(/_/g, ' ')}</span>
+                <span className="text-[10px] text-text-tertiary">→ {v.action_taken}</span>
+                <Link to={`/sims/${v.sim_id}`} onClick={(e) => e.stopPropagation()} className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline shrink-0">
+                  <ExternalLink className="h-3 w-3" />{v.iccid || v.sim_iccid || 'SIM'}
+                </Link>
+                {(v.operator_name || v.operator_id) && (
+                  <span className="hidden lg:block" onClick={(e) => e.stopPropagation()}>
+                    <OperatorChip
+                      name={v.operator_name ?? undefined}
+                      code={v.operator_code as OperatorCode | undefined}
+                      rawId={v.operator_id}
+                      clickable
+                      onClick={() => navigate(`/operators/${v.operator_id}`)}
+                    />
+                  </span>
                 )}
+                <span className="hidden md:flex items-center gap-1 text-[10px] text-text-tertiary font-mono shrink-0 ml-auto"><Clock className="h-3 w-3" />{timeAgo(v.created_at)}</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className="h-6 w-6 p-0 shrink-0 text-text-tertiary hover:text-text-primary inline-flex items-center justify-center rounded transition-colors hover:bg-bg-hover"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      className="text-xs gap-2"
+                      onSelect={() => navigate(`/sims/${v.sim_id}?action=suspend`)}
+                    >
+                      <Ban className="h-3.5 w-3.5 text-danger" />
+                      Suspend SIM
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-xs gap-2"
+                      onSelect={() => navigate(`/policies/${v.policy_id}?rule=${v.rule_index}`)}
+                    >
+                      <BookOpen className="h-3.5 w-3.5 text-accent" />
+                      Review Policy
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-xs gap-2"
+                      onSelect={() => handleDismiss(v)}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                      Dismiss
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-xs gap-2"
+                      onSelect={() => navigate('/notifications')}
+                    >
+                      <ArrowUpRight className="h-3.5 w-3.5 text-warning" />
+                      Escalate
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
+
+      <SlidePanel
+        open={!!selectedViolation}
+        onOpenChange={(o) => !o && setSelectedViolation(null)}
+        title={selectedViolation ? `Violation · ${selectedViolation.policy_name ?? selectedViolation.violation_type}` : ''}
+        description={selectedViolation?.created_at ? new Date(selectedViolation.created_at).toLocaleString() : undefined}
+        width="lg"
+      >
+        {selectedViolation && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">SIM</span>
+                <Link to={`/sims/${selectedViolation.sim_id}`} className="text-xs text-accent hover:underline font-mono">{selectedViolation.iccid || selectedViolation.sim_iccid || selectedViolation.sim_id.slice(0, 12)}</Link>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Policy</span>
+                <Link to={`/policies/${selectedViolation.policy_id}`} className="text-xs text-accent hover:underline">
+                  {selectedViolation.policy_name ?? 'View Policy'}{selectedViolation.policy_version_number != null ? ` (v${selectedViolation.policy_version_number})` : ''}
+                </Link>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Operator</span>
+                {(selectedViolation.operator_name || selectedViolation.operator_id)
+                  ? <OperatorChip
+                      name={selectedViolation.operator_name ?? undefined}
+                      code={selectedViolation.operator_code as OperatorCode | undefined}
+                      rawId={selectedViolation.operator_id}
+                      clickable
+                      onClick={() => navigate(`/operators/${selectedViolation.operator_id}`)}
+                    />
+                  : <span className="text-xs text-text-tertiary">—</span>
+                }
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">APN</span>
+                <span className="text-xs text-text-primary">{selectedViolation.apn_name ?? '—'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">ICCID</span>
+                <span className="text-xs text-text-primary font-mono">{selectedViolation.iccid ?? selectedViolation.sim_iccid ?? '—'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Severity</span>
+                <SeverityBadge severity={selectedViolation.severity} />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Type</span>
+                <span className="text-xs text-text-primary capitalize">{selectedViolation.violation_type.replace(/_/g, ' ')}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Action</span>
+                <span className="text-xs text-text-primary capitalize">{selectedViolation.action_taken}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-0.5">Time</span>
+                <span className="text-xs text-text-primary font-mono">{new Date(selectedViolation.created_at).toLocaleString()}</span>
+              </div>
+            </div>
+            {selectedViolation.details && Object.keys(selectedViolation.details).length > 0 && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Details</span>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {Object.entries(selectedViolation.details).map(([key, val]) => (
+                    <div key={key} className="rounded-[var(--radius-sm)] border border-border-subtle bg-bg-primary px-3 py-2">
+                      <div className="text-[10px] text-text-tertiary capitalize">{detailLabel(key)}</div>
+                      <div className="text-xs text-text-primary font-mono mt-0.5">{formatDetailValue(key, val)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <SlidePanelFooter>
+          <Button variant="outline" size="sm" onClick={() => setSelectedViolation(null)}>Close</Button>
+        </SlidePanelFooter>
+      </SlidePanel>
 
       <div ref={loadMoreRef} className="h-1" />
       {isFetchingNextPage && <div className="flex justify-center py-4"><Spinner className="h-5 w-5 text-accent" /></div>}

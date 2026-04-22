@@ -24,3 +24,5 @@ STEP_2 DEV W4 T10: EXECUTED | 2026-04-22 | go-test=all-pass | seed-smoke=4/4 | i
 STEP_2.5 LINT: EXECUTED | 2026-04-22 | gofmt=clean (FIX-215 files) | vet=clean | build=clean | tsc=clean | raw-elements=0 | result=PASS
 STEP_3 GATE: EXECUTED | 2026-04-22 | scouts=3 findings=34(raw,13+1+20) dedup=28 fixed=21 deferred=13 escalated=0 | verify: go-build=PASS go-vet=PASS go-test=3549/3549 typecheck=PASS web-build=PASS(2.74s) gofmt=clean | new-canary=TestHandler_History_BodyShape(PAT-006) | evidence=FIX-215-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | 2026-04-22 | findings=16(PASS=9,UPDATED=6,OPEN=1->resolved-in-step5) | doc-edits=7(db,api,SCREENS,FRONTEND,ROUTEMAP,decisions,bug-patterns) | story-impact=skipped(R-13-PASS-no-story-file-drift;git-status-clean) | evidence=FIX-215-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | 2026-04-22 | items=1 files=47 commit=4df024e insertions=5726 deletions=649 | hook-block-fix=raw-button-to-Button(3 files) | result=PASS
+STEP_6 POSTPROC: EXECUTED | 2026-04-22 | artifacts=plan+gate+review+step-log+USERTEST | step-log=PLAN+DEV+LINT+GATE+REVIEW+COMMIT | unresolved=0 | result=PASS

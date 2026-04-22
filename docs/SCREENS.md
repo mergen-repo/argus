@@ -17,7 +17,7 @@
 | SCR-011 | [Analytics — Usage](screens/SCR-011-analytics-usage.md) | Analytics | /analytics | JWT (analyst+) | |
 | SCR-012 | [Analytics — Cost](screens/SCR-012-analytics-cost.md) | Analytics | /analytics/cost | JWT (analyst+) | |
 | SCR-013 | [Analytics — Anomalies](screens/SCR-013-analytics-anomalies.md) | Analytics | /analytics/anomalies | JWT (analyst+) | |
-| SCR-020 | [SIM List](screens/SCR-020-sim-list.md) | SIM | /sims | JWT (sim_manager+) | |
+| SCR-020 | [SIM List](screens/SCR-020-sim-list.md) | SIM | /sims | JWT (sim_manager+) | FIX-216: bulk state-change (Suspend/Resume/Terminate) → Dialog; Assign Policy → SlidePanel (width="md") per Option C rule |
 | SCR-021 | [SIM Detail — Overview](screens/SCR-021-sim-detail.md) | SIM | /sims/:id | JWT (sim_manager+) | |
 | SCR-021b | [SIM Detail — Sessions](screens/SCR-021b-sim-sessions.md) | SIM | /sims/:id#sessions | JWT (sim_manager+) | |
 | SCR-021c | [SIM Detail — Usage](screens/SCR-021c-sim-usage.md) | SIM | /sims/:id#usage | JWT (sim_manager+) | |
@@ -37,7 +37,7 @@
 | SCR-110 | [Users & Roles](screens/SCR-110-settings-users.md) | Settings | /settings/users | JWT (tenant_admin+) | |
 | SCR-111 | [API Keys](screens/SCR-111-settings-apikeys.md) | Settings | /settings/api-keys | JWT (tenant_admin+) | IP whitelist per key (STORY-068 AC-5) |
 | SCR-115 | Active Sessions | Settings | /settings/sessions | JWT (any) | STORY-068 AC-6 |
-| SCR-112 | [IP Pools](screens/SCR-112-settings-ippools.md) | Settings | /settings/ip-pools | JWT (op_manager+) | |
+| SCR-112 | [IP Pools](screens/SCR-112-settings-ippools.md) | Settings | /settings/ip-pools | JWT (op_manager+) | FIX-216: Reserve IP SlidePanel already compliant; hand-rolled footer div → SlidePanelFooter conformance fix |
 | SCR-113 | [Notification Config](screens/SCR-113-settings-notifications.md) | Settings | /settings/notifications | JWT (any) | STORY-069: extended with Preferences matrix tab + Templates editor tab |
 | SCR-120 | [System Health](screens/SCR-120-system-health.md) | System | /system/health | JWT (super_admin) | |
 | SCR-121 | [Tenant Management](screens/SCR-121-tenant-management.md) | System | /system/tenants | JWT (super_admin) | |
@@ -81,7 +81,7 @@
 | SCR-181 | Operator Compare | Operator | /operators/compare | JWT (operator_manager+) | STORY-077: two-operator side-by-side comparison |
 | SCR-182 | Policy Compare | Policy | /policies/compare | JWT (policy_editor+) | STORY-077: two-policy version diff (DSL + metadata) |
 | SCR-183 | Alerts List | Alerts | /alerts | JWT (sim_manager+) | STORY-075/077: alert feed with severity filters; drill-down to SCR-172. FIX-209: unified multi-source feed (sim/operator/infra/policy/system), Source chip per row, source filter param (valid enum required), backed by TBL-53 alerts table (was anomalies only). |
-| SCR-184 | Violations List | Violations | /violations | JWT (sim_manager+) | STORY-070/075: policy violations list with acknowledge/remediate actions; drill-down to SCR-173 |
+| SCR-184 | Violations List | Violations | /violations | JWT (sim_manager+) | STORY-070/075: policy violations list with acknowledge/remediate actions; drill-down to SCR-173. FIX-216: inline row-expand → SlidePanel (width="lg"); row a11y (role=button, tabIndex, aria-label, keyboard Enter/Space) |
 | SCR-185 | SLA Dashboard | Analytics/SLA | /sla | JWT (tenant_admin+) | STORY-072/063: operator SLA reports, uptime trend, violation events. FIX-215: rewritten as historical view — rolling-window segmented selector (3/6/12/24m), per-month summary cards (uptime%, breach minutes, incident count, sessions), PDF export button (`useSLAPDFDownload`), MonthDetail drawer (SCR-185a) with per-operator table, OperatorBreach drawer (SCR-185b) with per-breach rows + `affected_sessions_est`. SLANotAvailableError empty state. Dark-first. |
 | SCR-185a | SLA Month Detail (drawer) | Analytics/SLA | /sla (drawer state) | JWT (tenant_admin+) | FIX-215: SlidePanel drawer showing all operators for a given calendar month — uptime%, breach_minutes, incident_count, SLA target, status pill. Opens from SCR-185 month card. |
 | SCR-185b | SLA Operator Breach (drawer) | Analytics/SLA | /sla (drawer state) | JWT (tenant_admin+) | FIX-215: SlidePanel drawer showing individual breach events for one operator-month — start/end time, duration, type (down/latency), affected_sessions_est, totals row. Opens from SCR-185a operator row. |

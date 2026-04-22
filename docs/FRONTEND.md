@@ -105,6 +105,76 @@ Base unit: `4px`
 | `--shadow-card-danger` | `0 0 0 1px rgba(239,68,68,0.3), 0 2px 8px rgba(0,0,0,0.3)` — Breached SLA card hover glow (dark); `0 0 0 1px rgba(200,50,50,0.25), 0 2px 8px rgba(0,0,0,0.1)` (light). Added FIX-215. |
 | `--transition` | `0.2s cubic-bezier(0.4, 0, 0.2, 1)` — All transitions |
 
+## Modal Pattern
+
+Argus uses a **semantic split** between two modal primitives. Pick the right one; do not debate per-decision.
+
+### Dialog (`web/src/components/ui/dialog.tsx`)
+
+**When to use**
+- Quick confirmation (Evet/Hayır, Approve/Reject)
+- Destructive action warnings ("Terminate 5 SIMs?")
+- Simple forms with **≤2 fields** (e.g., reason textarea + confirm)
+- Any flow where the user's attention must stay focused and the context behind the modal is irrelevant
+
+**Structure (canonical)**
+- `<Dialog open onOpenChange>` wraps `<DialogContent onClose>`
+- Inside: `<DialogHeader>` → `<DialogTitle>` + optional `<DialogDescription>`; body; `<DialogFooter>` with `Button variant="outline"` (Cancel) + `Button variant="default"` (primary) OR `variant="destructive"`
+- Max width: 36rem (enforced by `DialogContent` default)
+
+### SlidePanel (`web/src/components/ui/slide-panel.tsx`)
+
+**When to use**
+- Rich forms with **3+ fields** or multi-step flows
+- Detail inspection panes (read-heavy, long content)
+- List pickers with search (e.g., assign SIMs to a pool)
+- Row-expand details where the user wants the table context visible
+
+**Structure (canonical)**
+- `<SlidePanel open onOpenChange title="..." description="..." width="lg">` — **always pass `title` and `description` props; do not hand-roll a header.** The built-in header IS the standard (there is no separate `SlidePanelHeader` component).
+- Body: content
+- Footer: use exported `<SlidePanelFooter>` with `Button variant="outline"` (Cancel) + primary action `Button`
+- Width ladder: `sm` (simple form), `md` (form + preview), `lg` default, `xl` (data-heavy detail)
+- Focus trap, ESC close, restore-focus, and `aria-modal` are built in (FIX-215 hardening)
+
+### Quick decision tree
+
+1. User is confirming or rejecting a single action with ≤2 inputs → **Dialog**
+2. User is filling a form with 3+ fields, searching a list, or reading details → **SlidePanel**
+3. When in doubt → **SlidePanel** (more room, better a11y baseline)
+
+### Visual contract (AC-5)
+
+- Dialog buttons: `variant="default"` primary + `variant="outline"` cancel (+ `variant="destructive"` when applicable)
+- SlidePanel headers: use built-in `title`/`description` props only
+- Both: semantic tokens only — no hex, no `bg-white`, no `text-gray-*`
+
+### Dark mode (AC-6)
+
+Both primitives consume `bg-bg-surface`, `bg-bg-elevated`, `text-text-primary`, `border-border`. No theme-specific code required when the rule above is followed.
+
+### Accessibility notes
+
+- **Dialog**: focus-trap NOT built-in — Dialog scope is compact confirm (≤2 focusable elements: primary + cancel buttons); native tab cycling suffices. If you need rich form fields → convert to SlidePanel instead.
+- **SlidePanel**: `aria-modal="true"`, focus-trap, ESC closes, focus restoration to opener (delivered by FIX-215 hardening).
+
+### Current usage map
+
+| Screen | Component | Pattern | Notes |
+|--------|-----------|---------|-------|
+| SIMs — Bulk state-change | `sims/index.tsx` | Dialog | Suspend/Resume/Terminate confirm (≤1 field) |
+| SIMs — Assign Policy | `sims/index.tsx` | SlidePanel | Policy picker with preview |
+| IP Pool Reserve IP | `settings/ip-pool-detail.tsx` | SlidePanel | Already compliant; title+description props present |
+| APNs — Connected SIMs | `settings/apns/detail.tsx` | SlidePanel | List picker with search |
+| Violations — Row detail | `violations/index.tsx` | SlidePanel | Row-click → detail pane (F-171) |
+| SLA — Month detail | `sla/month-detail.tsx` | SlidePanel | Read-heavy operator stats |
+| SLA — Operator breach | `sla/operator-breach.tsx` | SlidePanel | Breach timeline detail |
+| Alerts row preview | _(future)_ | SlidePanel | Not yet implemented — use SlidePanel when added |
+
+### ESLint rule note
+
+Deferred (ROUTEMAP Tech Debt D-090): static lint rule flagging `Dialog` usage with >3 form fields. PR review + this doc enforce the rule in the interim.
+
 ## Key Visual Patterns
 
 ### Card Hover Effect

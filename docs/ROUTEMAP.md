@@ -383,7 +383,7 @@ Architectural decisions (documented, not blocking UAT):
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-216 | Modal Pattern Standardization — Dialog (confirm) vs SlidePanel (rich form) | P2 | M | [ ] PENDING | — |
+| FIX-216 | Modal Pattern Standardization — Dialog (confirm) vs SlidePanel (rich form) | P2 | M | [~] IN PROGRESS (Review) | — |
 | FIX-217 | Timeframe Selector Pill Toggle Unification | P2 | S | [ ] PENDING | — |
 | FIX-218 | Views Button Global Removal + Operators Checkbox Cleanup | P2 | S | [ ] PENDING | — |
 | FIX-219 | Name Resolution + Clickable Cells Everywhere (global audit) | P2 | M | [ ] PENDING | FIX-212 |
@@ -680,6 +680,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-087 | FIX-215 Gate D-7 | URL deep-link for month-detail and operator-breach drawer state (F-U13). Plan mockups use drawers; URL sync (`useSearchParams ?month=YYYY-MM&operator=UUID`) is a polish improvement not required by any AC. | FIX-248 | OPEN |
 | D-088 | FIX-215 Gate D-8+D-9+D-10+D-11+D-12 | Minor UX polish: full-row click target in operator table (F-U14), reset-defaults button + last-changed line (F-U15), `aria-describedby` on SLA input help text (F-U16), `isDirty` flash on invalid numeric input (F-U19), `SLAOverallAgg` type split for unused `operator_id` field (F-U20). All minor — batch into FIX-248 a11y/polish pass. | FIX-248 | OPEN |
 | D-089 | FIX-215 Gate D-6 | English-only UI labels throughout SLA pages (F-U12): month cards, breach drawer headers, SLA targets section use hardcoded EN strings. Plan deliberately defers i18n as a separate wave (consistent with FIX-214 EN-first precedent). No AC requires TR/EN toggle for SLA feature. | Separate i18n wave | OPEN |
+| D-090 | FIX-216 AC-4 | ESLint rule to flag `Dialog` usage with >3 form fields (nudge toward SlidePanel per Option C). ROI vs PR review + FRONTEND.md Modal Pattern doc judged LOW; documented rule + human review sufficient. Revisit if Modal-Pattern violations recur in ≥3 stories. | future lint-infra wave | OPEN |
 
 ---
 
