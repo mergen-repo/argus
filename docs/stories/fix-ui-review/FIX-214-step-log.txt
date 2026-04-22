@@ -1,0 +1,22 @@
+# FIX-214 Step Log
+
+STEP_1 PLAN: EXECUTED | 2026-04-21 | evidence=docs/stories/fix-ui-review/FIX-214-plan.md | tasks=12 | result=PASS
+
+W1 Task 1 — DB Perf Audit findings (2026-04-21, dev DB, 133,377 rows in cdrs):
+  Query: SELECT cdr_cols FROM cdrs WHERE tenant_id=$1 AND timestamp>=NOW()-'7 days' ORDER BY timestamp DESC, id DESC LIMIT 51
+  Existing indexes (\d cdrs + auto-chunk children):
+    idx_cdrs_tenant_time          (tenant_id, timestamp DESC)
+    idx_cdrs_tenant_operator_time (tenant_id, operator_id, timestamp DESC)
+    idx_cdrs_sim_time             (sim_id, timestamp DESC)
+    idx_cdrs_session              (session_id, timestamp)
+    idx_cdrs_dedup UNIQUE         (session_id, timestamp, record_type)
+  EXPLAIN ANALYZE results:
+    tenant+7d:           Index Scan on idx_cdrs_tenant_time          — 0.124 ms
+    tenant+operator+7d:  Index Scan on idx_cdrs_tenant_operator_time — 0.167 ms
+    tenant+sim+7d:       Index Scan on idx_cdrs_sim_timestamp        — 0.241 ms
+  Decision: NO NEW MIGRATION SHIPPED. All filter paths use Index Scan; p95 << 2s target (D9 gate). Proposed idx_cdrs_tenant_ts_op / idx_cdrs_tenant_ts_sim would duplicate existing composite indexes.
+
+STEP_2 DEV: EXECUTED | 2026-04-21 | tasks=1..12 | files_changed=18 | migration=no | result=PASS
+STEP_2.5 LINT: EXECUTED | 2026-04-21 | gofmt=7 files fixed | vet=clean | build=clean | tsc=clean | raw_elements=0 | result=PASS
+STEP_3 GATE: EXECUTED | 2026-04-22 | findings=45 | fixed=26 | deferred=1 | result=PASS
+STEP_4 REVIEW: EXECUTED | 2026-04-22 | checks=14 | docs_updated=6 | unresolved=0 | result=PASS

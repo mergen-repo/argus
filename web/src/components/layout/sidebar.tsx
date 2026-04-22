@@ -91,6 +91,7 @@ const navGroups: NavGroup[] = [
       { label: 'Operators', icon: Building2, path: '/operators' },
       { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools', minRole: 'operator_manager' },
       { label: 'Sessions', icon: Radio, path: '/sessions', minRole: 'sim_manager' },
+      { label: 'CDRs', icon: FileBarChart, path: '/cdrs', minRole: 'analyst' },
       { label: 'Policies', icon: Shield, path: '/policies', minRole: 'policy_editor' },
       { label: 'Violations', icon: AlertTriangle, path: '/violations', minRole: 'sim_manager' },
       { label: 'eSIM', icon: Smartphone, path: '/esim', minRole: 'sim_manager' },

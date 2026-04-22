@@ -1,12 +1,14 @@
 package cdr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
@@ -15,22 +17,52 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// maxCDRQueryRange — D6: regular users cannot query more than 30 days.
+// super_admin may override via `?override_range=true`.
+const maxCDRQueryRange = 30 * 24 * time.Hour
+
+// allowedRecordTypes / allowedRATTypes — whitelist per plan D2 + CDR taxonomy.
+// Consumer emits start/interim/stop; anomaly analytics also reads auth/auth_fail/reject.
+var allowedRecordTypes = map[string]struct{}{
+	"start": {}, "interim": {}, "stop": {},
+	"auth": {}, "auth_fail": {}, "reject": {},
+}
+
+var allowedRATTypes = map[string]struct{}{
+	"nb_iot": {}, "lte_m": {}, "lte": {}, "nr_5g": {},
+	"eutra": {}, "nr": {}, "wlan": {}, "utran": {}, "geran": {},
+}
+
+type cdrAggregates interface {
+	CDRStatsInWindow(ctx context.Context, tenantID uuid.UUID, f aggregates.CDRFilter) (*store.CDRStats, error)
+}
+
 type Handler struct {
 	cdrStore *store.CDRStore
 	jobStore *store.JobStore
 	eventBus *bus.EventBus
 	auditSvc audit.Auditor
+	aggSvc   cdrAggregates
 	logger   zerolog.Logger
 }
 
-func NewHandler(cdrStore *store.CDRStore, jobStore *store.JobStore, eventBus *bus.EventBus, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
-	return &Handler{
+func NewHandler(cdrStore *store.CDRStore, jobStore *store.JobStore, eventBus *bus.EventBus, auditSvc audit.Auditor, logger zerolog.Logger, opts ...func(*Handler)) *Handler {
+	h := &Handler{
 		cdrStore: cdrStore,
 		jobStore: jobStore,
 		eventBus: eventBus,
 		auditSvc: auditSvc,
 		logger:   logger.With().Str("component", "cdr_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+// WithAggregates wires the cross-surface aggregates facade (FIX-214 / FIX-208).
+func WithAggregates(a cdrAggregates) func(*Handler) {
+	return func(h *Handler) { h.aggSvc = a }
 }
 
 type cdrDTO struct {
@@ -88,6 +120,114 @@ func toCDRDTO(c store.CDR) cdrDTO {
 	return dto
 }
 
+// parseFilters extracts the CDR filter set from a URL query and enforces the
+// 30-day range cap (bypassable for super_admin with override_range=true).
+// Returns a populated ListCDRParams or writes the error envelope and returns
+// ok=false. Date range is required when requireRange=true (AC-2 list endpoint).
+func (h *Handler) parseFilters(w http.ResponseWriter, r *http.Request, requireRange bool) (store.ListCDRParams, bool) {
+	q := r.URL.Query()
+	var params store.ListCDRParams
+
+	if v := q.Get("sim_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'sim_id' format")
+			return params, false
+		}
+		params.SimID = &id
+	}
+	if v := q.Get("operator_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'operator_id' format")
+			return params, false
+		}
+		params.OperatorID = &id
+	}
+	if v := q.Get("apn_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'apn_id' format")
+			return params, false
+		}
+		params.APNID = &id
+	}
+	if v := q.Get("session_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'session_id' format")
+			return params, false
+		}
+		params.SessionID = &id
+	}
+	if v := q.Get("record_type"); v != "" {
+		if _, ok := allowedRecordTypes[v]; !ok {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'record_type' value")
+			return params, false
+		}
+		params.RecordType = v
+	}
+	if v := q.Get("rat_type"); v != "" {
+		if _, ok := allowedRATTypes[v]; !ok {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'rat_type' value")
+			return params, false
+		}
+		params.RATType = v
+	}
+
+	if v := q.Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'from' date format, expected RFC3339")
+			return params, false
+		}
+		params.From = &t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'to' date format, expected RFC3339")
+			return params, false
+		}
+		params.To = &t
+	}
+	if v := q.Get("min_cost"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'min_cost' format, expected float")
+			return params, false
+		}
+		params.MinCost = &f
+	}
+
+	if requireRange && (params.From == nil || params.To == nil) {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed",
+			[]map[string]interface{}{{"field": "from,to", "message": "Both 'from' and 'to' are required", "code": "required"}})
+		return params, false
+	}
+	if params.From != nil && params.To != nil {
+		if params.From.After(*params.To) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed",
+				[]map[string]interface{}{{"field": "from", "message": "'from' must be before 'to'", "code": "invalid"}})
+			return params, false
+		}
+		override := q.Get("override_range") == "true"
+		if override {
+			role, _ := r.Context().Value(apierr.RoleKey).(string)
+			if role != "super_admin" {
+				apierr.WriteError(w, http.StatusForbidden, apierr.CodeInsufficientRole, "override_range requires super_admin")
+				return params, false
+			}
+		}
+		if !override && params.To.Sub(*params.From) > maxCDRQueryRange {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed",
+				[]map[string]interface{}{{"field": "from,to", "message": "Date range exceeds 30 days — narrow the range or use override_range=true (super_admin only)", "code": "invalid"}})
+			return params, false
+		}
+	}
+	return params, true
+}
+
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -96,7 +236,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	cursor := q.Get("cursor")
 
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -105,42 +244,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	params := store.ListCDRParams{
-		Cursor: cursor,
-		Limit:  limit,
+	params, ok := h.parseFilters(w, r, true)
+	if !ok {
+		return
 	}
-
-	if v := q.Get("sim_id"); v != "" {
-		if id, err := uuid.Parse(v); err == nil {
-			params.SimID = &id
-		}
-	}
-	if v := q.Get("operator_id"); v != "" {
-		if id, err := uuid.Parse(v); err == nil {
-			params.OperatorID = &id
-		}
-	}
-	if v := q.Get("from"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			params.From = &t
-		} else {
-			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'from' date format, expected RFC3339")
-			return
-		}
-	}
-	if v := q.Get("to"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			params.To = &t
-		} else {
-			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid 'to' date format, expected RFC3339")
-			return
-		}
-	}
-	if v := q.Get("min_cost"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			params.MinCost = &f
-		}
-	}
+	params.Cursor = q.Get("cursor")
+	params.Limit = limit
 
 	cdrs, nextCursor, err := h.cdrStore.ListByTenant(r.Context(), tenantID, params)
 	if err != nil {
@@ -162,10 +271,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 type exportRequest struct {
-	From       string  `json:"from"`
-	To         string  `json:"to"`
-	OperatorID *string `json:"operator_id,omitempty"`
-	Format     string  `json:"format"`
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	OperatorID *string  `json:"operator_id,omitempty"`
+	SimID      *string  `json:"sim_id,omitempty"`
+	APNID      *string  `json:"apn_id,omitempty"`
+	SessionID  *string  `json:"session_id,omitempty"`
+	RecordType *string  `json:"record_type,omitempty"`
+	RATType    *string  `json:"rat_type,omitempty"`
+	MinCost    *float64 `json:"min_cost,omitempty"`
+	Format     string   `json:"format"`
 }
 
 type exportResponse struct {
@@ -215,10 +330,31 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 30d cap (with super_admin override via query ?override_range=true).
+	if toTime.Sub(fromTime) > maxCDRQueryRange {
+		override := r.URL.Query().Get("override_range") == "true"
+		if !override {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed",
+				[]map[string]interface{}{{"field": "from,to", "message": "Date range exceeds 30 days", "code": "invalid"}})
+			return
+		}
+		role, _ := r.Context().Value(apierr.RoleKey).(string)
+		if role != "super_admin" {
+			apierr.WriteError(w, http.StatusForbidden, apierr.CodeInsufficientRole, "override_range requires super_admin")
+			return
+		}
+	}
+
 	payload, _ := json.Marshal(map[string]interface{}{
 		"from":        req.From,
 		"to":          req.To,
 		"operator_id": req.OperatorID,
+		"sim_id":      req.SimID,
+		"apn_id":      req.APNID,
+		"session_id":  req.SessionID,
+		"record_type": req.RecordType,
+		"rat_type":    req.RATType,
+		"min_cost":    req.MinCost,
 		"format":      req.Format,
 	})
 
@@ -253,6 +389,9 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		"from":        req.From,
 		"to":          req.To,
 		"operator_id": req.OperatorID,
+		"sim_id":      req.SimID,
+		"apn_id":      req.APNID,
+		"session_id":  req.SessionID,
 		"format":      req.Format,
 	})
 

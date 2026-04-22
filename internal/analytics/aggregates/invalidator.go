@@ -96,6 +96,27 @@ func (i *invalidator) onSessionActivity(ctx context.Context, subject string, dat
 		i.logger.Warn().Err(err).Str("subject", subject).Str("tenant_id", tid.String()).
 			Msg("aggregates invalidator: DEL session keys failed")
 	}
+	// CDR stats are downstream of session activity — drop filter-keyed variants.
+	if err := i.unlinkCDRStatKeys(ctx, tid); err != nil {
+		i.logger.Warn().Err(err).Str("subject", subject).Str("tenant_id", tid.String()).
+			Msg("aggregates invalidator: UNLINK cdr stats keys failed")
+	}
+}
+
+func (i *invalidator) unlinkCDRStatKeys(ctx context.Context, tid uuid.UUID) error {
+	pattern := fmt.Sprintf("%s:%s:cdr_stats_in_window:*", keyPrefix, tid.String())
+	iter := i.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+	var batch []string
+	for iter.Next(ctx) {
+		batch = append(batch, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("scan cdr stats keys: %w", err)
+	}
+	if len(batch) == 0 {
+		return nil
+	}
+	return i.rdb.Unlink(ctx, batch...).Err()
 }
 
 func (i *invalidator) unlinkPolicyKeys(ctx context.Context, tid uuid.UUID) error {

@@ -25,6 +25,7 @@ type fakeAggregates struct {
 	simStateByState    []store.SIMStateCount
 	sessionStats       *store.SessionStatsResult
 	trafficByOperator  map[uuid.UUID]int64
+	cdrStats           *store.CDRStats
 
 	errSIMCountByTenant   error
 	errSIMCountByOperator error
@@ -33,6 +34,7 @@ type fakeAggregates struct {
 	errSIMCountByState    error
 	errActiveSessionStats error
 	errTrafficByOperator  error
+	errCDRStats           error
 }
 
 func newFakeAggregates() *fakeAggregates {
@@ -74,6 +76,18 @@ func (f *fakeAggregates) TrafficByOperator(_ context.Context, _ uuid.UUID) (map[
 	return f.trafficByOperator, f.errTrafficByOperator
 }
 
+func (f *fakeAggregates) CDRStatsInWindow(_ context.Context, _ uuid.UUID, _ CDRFilter) (*store.CDRStats, error) {
+	f.calls["CDRStatsInWindow"]++
+	if f.errCDRStats != nil {
+		return nil, f.errCDRStats
+	}
+	if f.cdrStats == nil {
+		return nil, nil
+	}
+	s := *f.cdrStats
+	return &s, nil
+}
+
 // fakeMetrics records calls for assertion in tests.
 type fakeMetrics struct {
 	hits      map[string]int
@@ -85,8 +99,8 @@ func newFakeMetrics() *fakeMetrics {
 	return &fakeMetrics{hits: make(map[string]int), misses: make(map[string]int)}
 }
 
-func (m *fakeMetrics) IncAggregatesCacheHit(method string)   { m.hits[method]++ }
-func (m *fakeMetrics) IncAggregatesCacheMiss(method string)  { m.misses[method]++ }
+func (m *fakeMetrics) IncAggregatesCacheHit(method string)  { m.hits[method]++ }
+func (m *fakeMetrics) IncAggregatesCacheMiss(method string) { m.misses[method]++ }
 func (m *fakeMetrics) ObserveAggregatesCallDuration(method, cache string, _ time.Duration) {
 	m.durations = append(m.durations, method+":"+cache)
 }
@@ -352,6 +366,56 @@ func TestCachedAggregates_SIMCountByState_Roundtrip(t *testing.T) {
 	}
 	if inner.calls["SIMCountByState"] != 1 {
 		t.Fatalf("inner should be called once, was %d", inner.calls["SIMCountByState"])
+	}
+}
+
+// TestCachedAggregates_CDRStatsInWindow_MissThenHit verifies FIX-214 Task 3:
+// identical filter args hit cache; different filters miss (hash key separation).
+func TestCachedAggregates_CDRStatsInWindow_MissThenHit(t *testing.T) {
+	_, rdb := newTestRedis(t)
+	inner := newFakeAggregates()
+	inner.cdrStats = &store.CDRStats{TotalCount: 7, TotalBytesIn: 1024}
+
+	svc := &cachedAggregates{inner: inner, rdb: rdb, ttl: defaultTTL}
+
+	tenantID := uuid.New()
+	simID := uuid.New()
+	ctx := context.Background()
+
+	filter := CDRFilter{SimID: &simID}
+	v1, err := svc.CDRStatsInWindow(ctx, tenantID, filter)
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if v1.TotalCount != 7 {
+		t.Fatalf("first call: want 7, got %d", v1.TotalCount)
+	}
+	if inner.calls["CDRStatsInWindow"] != 1 {
+		t.Fatalf("inner should be called once, was %d", inner.calls["CDRStatsInWindow"])
+	}
+
+	// Second call with same filter — should hit cache.
+	inner.cdrStats = &store.CDRStats{TotalCount: 999} // would be returned on miss
+	v2, err := svc.CDRStatsInWindow(ctx, tenantID, filter)
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if v2.TotalCount != 7 {
+		t.Fatalf("second call (cache hit) should keep original value, got %d", v2.TotalCount)
+	}
+	if inner.calls["CDRStatsInWindow"] != 1 {
+		t.Fatalf("inner should still be called once, was %d", inner.calls["CDRStatsInWindow"])
+	}
+
+	// Third call with a DIFFERENT filter — should miss and hit inner again.
+	otherSim := uuid.New()
+	filter2 := CDRFilter{SimID: &otherSim}
+	_, err = svc.CDRStatsInWindow(ctx, tenantID, filter2)
+	if err != nil {
+		t.Fatalf("third call: %v", err)
+	}
+	if inner.calls["CDRStatsInWindow"] != 2 {
+		t.Fatalf("inner should be called twice after filter change, was %d", inner.calls["CDRStatsInWindow"])
 	}
 }
 

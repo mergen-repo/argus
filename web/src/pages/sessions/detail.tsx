@@ -10,6 +10,7 @@ import {
   Zap,
   BarChart3,
   AlertCircle,
+  FileBarChart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -171,6 +172,31 @@ export default function SessionDetailPage() {
             label={session.imsi || (id?.slice(0, 8) ?? '')}
             path={`/sessions/${id}`}
           />
+          {/*
+            FIX-214 deep-link → CDR Explorer filtered to this session.
+            Session detail's per-session CDR panel is stubbed until FIX-248 lands
+            (reports subsystem + embedded CDR pane). Until then, this button is
+            the canonical path for drilling into a session's CDR timeline.
+          */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const endedAt = (session as unknown as { ended_at?: string }).ended_at
+              const from = session.started_at
+              const to = endedAt ?? new Date().toISOString()
+              const p = new URLSearchParams()
+              p.set('session_id', session.id)
+              if (session.sim_id) p.set('sim_id', session.sim_id)
+              p.set('from', from)
+              p.set('to', to)
+              navigate(`/cdrs?${p.toString()}`)
+            }}
+            className="gap-1.5"
+          >
+            <FileBarChart className="h-3.5 w-3.5" />
+            CDR Kayıtları
+          </Button>
           {isActive && (
             <Button
               variant="destructive"

@@ -29,6 +29,7 @@ const OperatorDetailPage = lazy(() => import('@/pages/operators/detail'))
 const OperatorComparePage = lazy(() => import('@/pages/operators/compare'))
 
 const SessionListPage = lazy(() => import('@/pages/sessions/index'))
+const CDRExplorerPage = lazy(() => import('@/pages/cdrs/index'))
 
 const PolicyListPage = lazy(() => import('@/pages/policies/index'))
 const PolicyEditorPage = lazy(() => import('@/pages/policies/editor'))
@@ -145,6 +146,7 @@ export const router = createBrowserRouter([
           { path: '/operators/:id', element: lazySuspense(OperatorDetailPage) },
           { path: '/sessions', element: lazySuspense(SessionListPage) },
           { path: '/sessions/:id', element: lazySuspense(SessionDetailPage) },
+          { path: '/cdrs', element: lazySuspense(CDRExplorerPage) },
           { path: '/policies', element: lazySuspense(PolicyListPage) },
           { path: '/policies/compare', element: lazySuspense(PolicyComparePage) },
           { path: '/policies/:id', element: lazySuspense(PolicyEditorPage) },

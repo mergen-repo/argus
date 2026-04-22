@@ -607,6 +607,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("analyst"))
 				r.Get("/api/v1/cdrs", deps.CDRHandler.List)
+				r.Get("/api/v1/cdrs/stats", deps.CDRHandler.Stats)
+				r.Get("/api/v1/cdrs/by-session/{session_id}", deps.CDRHandler.BySession)
 				r.Get("/api/v1/cdrs/export.csv", deps.CDRHandler.ExportCSV)
 				r.Post("/api/v1/cdrs/export", deps.CDRHandler.Export)
 			})

@@ -289,6 +289,7 @@ argus/
 | /policies/:id | PolicyEditorPage | JWT (policy_editor+) | DashboardLayout |
 | /esim | EsimListPage | JWT (sim_manager+) | DashboardLayout |
 | /sessions | SessionListPage | JWT (sim_manager+) | DashboardLayout |
+| /cdrs | CDRExplorerPage | JWT (analyst+) | DashboardLayout |
 | /analytics | AnalyticsDashboardPage | JWT (analyst+) | DashboardLayout |
 | /analytics/cost | CostAnalyticsPage | JWT (analyst+) | DashboardLayout |
 | /jobs | JobListPage | JWT (sim_manager+) | DashboardLayout |

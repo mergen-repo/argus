@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 78 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191)
+> Total: 79 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192)
 > Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
@@ -89,3 +89,4 @@
 | SCR-189 | Webhooks (list) | Integrations | /webhooks | JWT (tenant_admin+) | STORY-069 AC-5/6: alias to SCR-131 via `/webhooks` route; kept separate for router parity |
 | SCR-190 | Knowledge Base | Settings | /settings/knowledgebase | JWT (any) | STORY-077: in-app help articles / troubleshooting guide |
 | SCR-191 | Reliability | Settings | /settings/reliability | JWT (super_admin) | STORY-066: backup/restore history, PITR runbook link, JWT rotation status |
+| SCR-192 | CDR Explorer | Analytics | /cdrs | JWT (analyst+) | FIX-214: filter bar (SIM/Operator/APN/record_type chip ToggleGroup/timeframe), 4 stat cards (Records/Unique SIMs/Unique Sessions/Total Bytes), infinite-scroll table with ICCID/IMSI/MSISDN/Operator/APN/record_type badge/Bytes/Timestamp, LIVE pip, row click → SessionTimelineDrawer (SlidePanel), export button → POST /api/v1/cdrs/export → toast, deep-link from /sessions/:id CDR button |

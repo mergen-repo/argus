@@ -527,8 +527,9 @@ func runServe(cfg *config.Config) {
 	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	operatorMetricsCDRStore := store.NewCDRStore(pg.Pool)
 	aggSessionStore := store.NewRadiusSessionStore(pg.Pool)
+	aggCDRStore := store.NewCDRStore(pg.Pool)
 	aggSvc := aggregates.New(
-		simStore, aggSessionStore,
+		simStore, aggSessionStore, aggCDRStore,
 		rdb.Client,
 		metricsReg,
 		log.Logger,
@@ -621,7 +622,7 @@ func runServe(cfg *config.Config) {
 	if err := cdrConsumer.Start(&eventBusCDRSubscriber{eventBus}); err != nil {
 		log.Fatal().Err(err).Msg("failed to start cdr consumer")
 	}
-	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, auditSvc, log.Logger)
+	cdrHandler := cdrapi.NewHandler(cdrStore, jobStore, eventBus, auditSvc, log.Logger, cdrapi.WithAggregates(aggSvc))
 
 	lagPoller := bus.NewLagPoller(
 		bus.NewJSStreamLookup(ns.JetStream),

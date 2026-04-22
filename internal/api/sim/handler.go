@@ -523,6 +523,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
+
+	// FIX-214 D3 — batch lookup by ids for name resolution on tables.
+	if v := q.Get("ids"); v != "" {
+		h.listByIDs(w, r, tenantID, v)
+		return
+	}
+
 	limit := 50
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {

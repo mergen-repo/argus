@@ -2,6 +2,8 @@ package aggregates
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +55,7 @@ func WithTTL(ttl time.Duration) Option {
 func New(
 	simStore *store.SIMStore,
 	sessionStore *store.RadiusSessionStore,
+	cdrStore *store.CDRStore,
 	rdb *redis.Client,
 	reg MetricsRecorder,
 	logger zerolog.Logger,
@@ -62,7 +65,7 @@ func New(
 	for _, o := range opts {
 		o(&options)
 	}
-	inner := NewDB(simStore, sessionStore, logger)
+	inner := NewDB(simStore, sessionStore, cdrStore, logger)
 	return &cachedAggregates{
 		inner:  inner,
 		rdb:    rdb,
@@ -199,8 +202,8 @@ func (c *cachedAggregates) SIMCountByPolicy(ctx context.Context, tenantID, polic
 }
 
 type simCountByStateCache struct {
-	Total   int                    `json:"total"`
-	ByState []store.SIMStateCount  `json:"by_state"`
+	Total   int                   `json:"total"`
+	ByState []store.SIMStateCount `json:"by_state"`
 }
 
 func (c *cachedAggregates) SIMCountByState(ctx context.Context, tenantID uuid.UUID) (int, []store.SIMStateCount, error) {
@@ -288,6 +291,46 @@ func (c *cachedAggregates) TrafficByOperator(ctx context.Context, tenantID uuid.
 	}
 	c.recordMiss(method, start)
 	return v, nil
+}
+
+func (c *cachedAggregates) CDRStatsInWindow(ctx context.Context, tenantID uuid.UUID, f CDRFilter) (*store.CDRStats, error) {
+	if tenantID == uuid.Nil {
+		return c.inner.CDRStatsInWindow(ctx, tenantID, f)
+	}
+	method := "cdr_stats_in_window"
+	hash := hashCDRFilter(f)
+	key := fmt.Sprintf("%s:%s:%s:%s", keyPrefix, tenantID.String(), method, hash)
+	start := time.Now()
+
+	if c.rdb != nil {
+		var cached store.CDRStats
+		hit, err := cacheGet(ctx, c.rdb, key, &cached)
+		if err == nil && hit {
+			c.recordHit(method, start)
+			return &cached, nil
+		}
+	}
+
+	v, err := c.inner.CDRStatsInWindow(ctx, tenantID, f)
+	if err != nil {
+		return nil, err
+	}
+	if c.rdb != nil && v != nil {
+		_ = cacheSet(ctx, c.rdb, key, *v, c.ttl)
+	}
+	c.recordMiss(method, start)
+	return v, nil
+}
+
+// hashCDRFilter produces a stable key segment for a filter value. We hash
+// the canonical JSON form so filter changes produce distinct keys.
+func hashCDRFilter(f CDRFilter) string {
+	b, err := json.Marshal(f)
+	if err != nil {
+		return "invalid"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
 }
 
 func (c *cachedAggregates) recordHit(method string, start time.Time) {

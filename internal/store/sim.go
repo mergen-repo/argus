@@ -897,6 +897,7 @@ type SIMSummary struct {
 	ID              uuid.UUID  `json:"id"`
 	ICCID           string     `json:"iccid"`
 	IMSI            string     `json:"imsi"`
+	MSISDN          *string    `json:"msisdn,omitempty"`
 	State           string     `json:"state"`
 	PolicyVersionID *uuid.UUID `json:"policy_version_id"`
 	OperatorID      uuid.UUID  `json:"operator_id"`
@@ -984,7 +985,7 @@ func (s *SIMStore) GetSIMsByIDs(ctx context.Context, tenantID uuid.UUID, ids []u
 		batch := ids[batchStart:batchEnd]
 
 		rows, err := s.db.Query(ctx,
-			`SELECT id, iccid, imsi, state, policy_version_id, operator_id, sim_type
+			`SELECT id, iccid, imsi, msisdn, state, policy_version_id, operator_id, sim_type
 			 FROM sims WHERE tenant_id = $1 AND id = ANY($2)`,
 			tenantID, batch,
 		)
@@ -993,10 +994,12 @@ func (s *SIMStore) GetSIMsByIDs(ctx context.Context, tenantID uuid.UUID, ids []u
 		}
 		for rows.Next() {
 			var sim SIMSummary
-			if err := rows.Scan(&sim.ID, &sim.ICCID, &sim.IMSI, &sim.State, &sim.PolicyVersionID, &sim.OperatorID, &sim.SimType); err != nil {
+			var msisdn *string
+			if err := rows.Scan(&sim.ID, &sim.ICCID, &sim.IMSI, &msisdn, &sim.State, &sim.PolicyVersionID, &sim.OperatorID, &sim.SimType); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("store: scan sim summary: %w", err)
 			}
+			sim.MSISDN = msisdn
 			results = append(results, sim)
 		}
 		rows.Close()

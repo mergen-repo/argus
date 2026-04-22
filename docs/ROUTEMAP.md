@@ -376,7 +376,7 @@ Architectural decisions (documented, not blocking UAT):
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-214 | CDR Explorer Page (filter, search, session timeline, export) | P1 | L | [ ] PENDING | — |
+| FIX-214 | CDR Explorer Page (filter, search, session timeline, export) | P1 | L | [~] IN PROGRESS (Review) | — |
 | FIX-215 | SLA Historical Reports + PDF Export + Drill-down | P1 | L | [ ] PENDING | FIX-203 |
 
 ### Wave 5 — P2 UI Consistency Standardization
@@ -672,6 +672,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-076 | FIX-209 Gate F-A9 | Three alert-state enums drift in the codebase: `validAlertStates` (all 4 values including `suppressed`), `validAlertTransitions` (store-side map exposing only `open/acknowledged`), and `allowedUpdateStates` (handler-side accepting only `acknowledged, resolved`). FIX-210 introduces the `suppressed` state machine — consolidate into a single source of truth at that time (likely a `store/alert_states.go` helper exporting typed constants + `IsTerminal`, `IsTransitionable` predicates). | FIX-210 | RESOLVED 2026-04-21 (FIX-210) |
 | D-080 | FIX-213 Gate F-U6 | `web/src/components/ui/sheet.tsx` width is hardcoded `42rem` — not responsive below 768px viewport. Out of FIX-213 file scope (lives in sheet primitive, not event-stream). Fix: add responsive width classes (`w-full md:w-[42rem]`) or a `size` prop with `sm|md|lg` variants. Affects Canlı Olay Akışı drawer + every other Sheet surface. | future UI polish story | OPEN |
 | D-081 | FIX-213 Gate F-U8 | `web/src/components/ui/popover.tsx` is a hand-rolled disclosure (no portal, no focus trap, no collision detection) — matches the scope of FIX-213 but would benefit from Radix `@radix-ui/react-popover` migration in a later polish pass. Current implementation is correct for all FIX-213 callsites (chip popovers, date range) but lacks a11y affordances like focus trap on open. | future UI polish story | OPEN |
+| D-082 | FIX-214 Gate F-A22 | `internal/job/cdr_export.go` buffers the full CSV in a `bytes.Buffer` + base64-encodes it into the job result — NOT streaming. Risk: 150MB+ memory spike at ~1M rows. Plan R6 said "streaming job". Refactor to chunked writes (S3 multipart / temp file + signed URL) when the reports subsystem lands. | FIX-248 | OPEN |
 
 ---
 

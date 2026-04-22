@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -27,18 +28,52 @@ type Aggregates interface {
 	SIMCountByState(ctx context.Context, tenantID uuid.UUID) (total int, byState []store.SIMStateCount, err error)
 	ActiveSessionStats(ctx context.Context, tenantID uuid.UUID) (*store.SessionStatsResult, error)
 	TrafficByOperator(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]int64, error)
+	// CDR aggregates (FIX-214). Window is (from, to]; filters narrow the set.
+	CDRStatsInWindow(ctx context.Context, tenantID uuid.UUID, f CDRFilter) (*store.CDRStats, error)
+}
+
+// CDRFilter is the narrow subset of list predicates the stats facade accepts.
+// Mirrors store.ListCDRParams but excludes cursor/limit and is passed by value
+// so it is safe to key the cache on its stable JSON form.
+type CDRFilter struct {
+	SimID      *uuid.UUID `json:"sim_id,omitempty"`
+	OperatorID *uuid.UUID `json:"operator_id,omitempty"`
+	APNID      *uuid.UUID `json:"apn_id,omitempty"`
+	SessionID  *uuid.UUID `json:"session_id,omitempty"`
+	RecordType string     `json:"record_type,omitempty"`
+	RATType    string     `json:"rat_type,omitempty"`
+	From       *time.Time `json:"from,omitempty"`
+	To         *time.Time `json:"to,omitempty"`
+	MinCost    *float64   `json:"min_cost,omitempty"`
+}
+
+// toListParams adapts CDRFilter to the store filter struct.
+func (f CDRFilter) toListParams() store.ListCDRParams {
+	return store.ListCDRParams{
+		SimID:      f.SimID,
+		OperatorID: f.OperatorID,
+		APNID:      f.APNID,
+		SessionID:  f.SessionID,
+		RecordType: f.RecordType,
+		RATType:    f.RATType,
+		From:       f.From,
+		To:         f.To,
+		MinCost:    f.MinCost,
+	}
 }
 
 type dbAggregates struct {
 	simStore     *store.SIMStore
 	sessionStore *store.RadiusSessionStore
+	cdrStore     *store.CDRStore
 	logger       zerolog.Logger
 }
 
 // NewDB returns a pure-delegation Aggregates backed directly by the database.
 // No caching; use Task 4's cached constructor for production use.
-func NewDB(simStore *store.SIMStore, sessionStore *store.RadiusSessionStore, logger zerolog.Logger) Aggregates {
-	return &dbAggregates{simStore: simStore, sessionStore: sessionStore, logger: logger}
+// cdrStore may be nil; callers that do not use CDR aggregates can pass nil.
+func NewDB(simStore *store.SIMStore, sessionStore *store.RadiusSessionStore, cdrStore *store.CDRStore, logger zerolog.Logger) Aggregates {
+	return &dbAggregates{simStore: simStore, sessionStore: sessionStore, cdrStore: cdrStore, logger: logger}
 }
 
 func (d *dbAggregates) SIMCountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
@@ -119,6 +154,20 @@ func (d *dbAggregates) TrafficByOperator(ctx context.Context, tenantID uuid.UUID
 	result, err := d.sessionStore.TrafficByOperator(ctx, &tid)
 	if err != nil {
 		return nil, fmt.Errorf("aggregates: TrafficByOperator: %w", err)
+	}
+	return result, nil
+}
+
+func (d *dbAggregates) CDRStatsInWindow(ctx context.Context, tenantID uuid.UUID, f CDRFilter) (*store.CDRStats, error) {
+	if tenantID == uuid.Nil {
+		return nil, ErrInvalidTenant
+	}
+	if d.cdrStore == nil {
+		return nil, fmt.Errorf("aggregates: CDRStatsInWindow: cdr store not configured")
+	}
+	result, err := d.cdrStore.StatsInWindow(ctx, tenantID, f.toListParams())
+	if err != nil {
+		return nil, fmt.Errorf("aggregates: CDRStatsInWindow: %w", err)
 	}
 	return result, nil
 }

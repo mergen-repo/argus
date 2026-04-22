@@ -168,6 +168,7 @@ Base unit: `4px`
 | Component | Path | Usage |
 |-----------|------|-------|
 | `OperatorChip` | `web/src/components/shared/operator-chip.tsx` | Operator name + code + colored dot. Reads `operator_code` (stable key) for color routing (turkcell=warning/yellow, vodafone_tr=danger/red, turk_telekom=info/blue, other=muted). Orphan fallback: `AlertCircle` + "(Unknown)" italic. Clickable prop routes to `/operators/:id`. Color map: `web/src/lib/operator-chip.ts`. Used across SIMs list/detail, Sessions, Violations, eSIM profiles, Dashboard operator health (FIX-202). |
+| `recordTypeBadgeClass` | `web/src/lib/cdr.ts` | Tone-map helper returning the Tailwind token class pair for a CDR `record_type` Badge. Mapping: start=`bg-accent-dim text-accent`, interim/update=`bg-info-dim text-info`, stop=`bg-success-dim text-success`, auth=`bg-warning-dim text-warning`, auth_fail/reject=`bg-danger-dim text-danger`, default=`bg-bg-elevated text-text-secondary`. Used in CDR Explorer table and SessionTimelineDrawer (FIX-214). |
 
 ## Reference Mockups
 

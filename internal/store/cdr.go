@@ -58,33 +58,37 @@ type ListCDRParams struct {
 	Limit      int
 	SimID      *uuid.UUID
 	OperatorID *uuid.UUID
+	APNID      *uuid.UUID
+	SessionID  *uuid.UUID
+	RecordType string
+	RATType    string
 	From       *time.Time
 	To         *time.Time
 	MinCost    *float64
 }
 
 type UsageBucket struct {
-	Bucket  time.Time `json:"bucket"`
-	BytesIn int64     `json:"bytes_in"`
-	BytesOut int64    `json:"bytes_out"`
-	Cost    float64   `json:"cost"`
+	Bucket   time.Time `json:"bucket"`
+	BytesIn  int64     `json:"bytes_in"`
+	BytesOut int64     `json:"bytes_out"`
+	Cost     float64   `json:"cost"`
 }
 
 type TopSession struct {
-	SessionID  uuid.UUID `json:"session_id"`
-	StartedAt  time.Time `json:"started_at"`
-	BytesTotal int64     `json:"bytes_total"`
-	DurationSec int     `json:"duration_sec"`
+	SessionID   uuid.UUID `json:"session_id"`
+	StartedAt   time.Time `json:"started_at"`
+	BytesTotal  int64     `json:"bytes_total"`
+	DurationSec int       `json:"duration_sec"`
 }
 
 type SIMUsageResult struct {
-	SimID         uuid.UUID      `json:"sim_id"`
-	Period        string         `json:"period"`
-	TotalBytesIn  int64          `json:"total_bytes_in"`
-	TotalBytesOut int64          `json:"total_bytes_out"`
-	TotalCost     float64        `json:"total_cost"`
-	Series        []UsageBucket  `json:"series"`
-	TopSessions   []TopSession   `json:"top_sessions"`
+	SimID         uuid.UUID     `json:"sim_id"`
+	Period        string        `json:"period"`
+	TotalBytesIn  int64         `json:"total_bytes_in"`
+	TotalBytesOut int64         `json:"total_bytes_out"`
+	TotalCost     float64       `json:"total_cost"`
+	Series        []UsageBucket `json:"series"`
+	TopSessions   []TopSession  `json:"top_sessions"`
 }
 
 type CostAggRow struct {
@@ -190,6 +194,26 @@ func (s *CDRStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, p ListC
 	if p.OperatorID != nil {
 		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
 		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.SessionID != nil {
+		conditions = append(conditions, fmt.Sprintf("session_id = $%d", argIdx))
+		args = append(args, *p.SessionID)
+		argIdx++
+	}
+	if p.RecordType != "" {
+		conditions = append(conditions, fmt.Sprintf("record_type = $%d", argIdx))
+		args = append(args, p.RecordType)
+		argIdx++
+	}
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		args = append(args, p.RATType)
 		argIdx++
 	}
 	if p.From != nil {
@@ -344,6 +368,213 @@ func (s *CDRStore) StreamForExport(ctx context.Context, tenantID uuid.UUID, from
 	return nil
 }
 
+// ListBySession returns all CDR rows for a session ordered by timestamp ASC, id ASC.
+// Tenant-scoped for safety; cross-tenant queries return ErrCDRNotFound semantics via empty result.
+func (s *CDRStore) ListBySession(ctx context.Context, tenantID, sessionID uuid.UUID) ([]CDR, error) {
+	if tenantID == uuid.Nil || sessionID == uuid.Nil {
+		return nil, fmt.Errorf("store: list cdrs by session: tenant_id and session_id required")
+	}
+
+	query := fmt.Sprintf(`SELECT %s FROM cdrs
+		WHERE tenant_id = $1 AND session_id = $2
+		ORDER BY timestamp ASC, id ASC`, cdrColumns)
+
+	rows, err := s.db.Query(ctx, query, tenantID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list cdrs by session: %w", err)
+	}
+	defer rows.Close()
+
+	var results []CDR
+	for rows.Next() {
+		var c CDR
+		if err := rows.Scan(
+			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
+			&c.APNID, &c.RATType, &c.RecordType,
+			&c.BytesIn, &c.BytesOut, &c.DurationSec,
+			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
+			&c.Timestamp,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan cdr by session: %w", err)
+		}
+		results = append(results, c)
+	}
+	return results, rows.Err()
+}
+
+// CDRStats is the per-tenant aggregate over a filter window.
+type CDRStats struct {
+	TotalCount     int64   `json:"total_count"`
+	TotalBytesIn   int64   `json:"total_bytes_in"`
+	TotalBytesOut  int64   `json:"total_bytes_out"`
+	TotalCost      float64 `json:"total_cost"`
+	UniqueSims     int64   `json:"unique_sims"`
+	UniqueSessions int64   `json:"unique_sessions"`
+}
+
+// StatsInWindow computes aggregate stats over the same filter predicates as ListByTenant.
+// Used by aggregates facade — keeps stats + list in lockstep (PAT-012).
+func (s *CDRStore) StatsInWindow(ctx context.Context, tenantID uuid.UUID, p ListCDRParams) (*CDRStats, error) {
+	if tenantID == uuid.Nil {
+		return nil, fmt.Errorf("store: cdr stats: tenant_id required")
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 2
+
+	if p.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("sim_id = $%d", argIdx))
+		args = append(args, *p.SimID)
+		argIdx++
+	}
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.SessionID != nil {
+		conditions = append(conditions, fmt.Sprintf("session_id = $%d", argIdx))
+		args = append(args, *p.SessionID)
+		argIdx++
+	}
+	if p.RecordType != "" {
+		conditions = append(conditions, fmt.Sprintf("record_type = $%d", argIdx))
+		args = append(args, p.RecordType)
+		argIdx++
+	}
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+	if p.From != nil {
+		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argIdx))
+		args = append(args, *p.From)
+		argIdx++
+	}
+	if p.To != nil {
+		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", argIdx))
+		args = append(args, *p.To)
+		argIdx++
+	}
+	if p.MinCost != nil {
+		conditions = append(conditions, fmt.Sprintf("usage_cost >= $%d", argIdx))
+		args = append(args, *p.MinCost)
+		argIdx++
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	query := fmt.Sprintf(`SELECT
+		COUNT(*) AS total_count,
+		COALESCE(SUM(bytes_in), 0)  AS total_bytes_in,
+		COALESCE(SUM(bytes_out), 0) AS total_bytes_out,
+		COALESCE(SUM(usage_cost), 0)::float8 AS total_cost,
+		COUNT(DISTINCT sim_id)     AS unique_sims,
+		COUNT(DISTINCT session_id) AS unique_sessions
+		FROM cdrs %s`, where)
+
+	var out CDRStats
+	err := s.db.QueryRow(ctx, query, args...).Scan(
+		&out.TotalCount, &out.TotalBytesIn, &out.TotalBytesOut, &out.TotalCost,
+		&out.UniqueSims, &out.UniqueSessions,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: cdr stats in window: %w", err)
+	}
+	return &out, nil
+}
+
+// StreamForExportFiltered is a richer version of StreamForExport that honors
+// the full ListCDRParams filter set (sim, apn, session, record_type, rat_type,
+// min_cost), not just operator. Used by the cdr_export job.
+func (s *CDRStore) StreamForExportFiltered(ctx context.Context, tenantID uuid.UUID, p ListCDRParams, callback CDRExportCallback) error {
+	if tenantID == uuid.Nil {
+		return fmt.Errorf("store: stream export filtered: tenant_id required")
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 2
+
+	if p.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("sim_id = $%d", argIdx))
+		args = append(args, *p.SimID)
+		argIdx++
+	}
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.SessionID != nil {
+		conditions = append(conditions, fmt.Sprintf("session_id = $%d", argIdx))
+		args = append(args, *p.SessionID)
+		argIdx++
+	}
+	if p.RecordType != "" {
+		conditions = append(conditions, fmt.Sprintf("record_type = $%d", argIdx))
+		args = append(args, p.RecordType)
+		argIdx++
+	}
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+	if p.From != nil {
+		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argIdx))
+		args = append(args, *p.From)
+		argIdx++
+	}
+	if p.To != nil {
+		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", argIdx))
+		args = append(args, *p.To)
+		argIdx++
+	}
+	if p.MinCost != nil {
+		conditions = append(conditions, fmt.Sprintf("usage_cost >= $%d", argIdx))
+		args = append(args, *p.MinCost)
+		argIdx++
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	query := fmt.Sprintf(`SELECT %s FROM cdrs %s ORDER BY timestamp ASC, id ASC`, cdrColumns, where)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("store: stream cdrs for export (filtered): %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var c CDR
+		if err := rows.Scan(
+			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
+			&c.APNID, &c.RATType, &c.RecordType,
+			&c.BytesIn, &c.BytesOut, &c.DurationSec,
+			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
+			&c.Timestamp,
+		); err != nil {
+			return fmt.Errorf("store: scan cdr export filtered row: %w", err)
+		}
+		if err := callback(c); err != nil {
+			return fmt.Errorf("store: cdr export filtered callback: %w", err)
+		}
+	}
+	return rows.Err()
+}
+
 func (s *CDRStore) GetCumulativeSessionBytes(ctx context.Context, sessionID uuid.UUID) (int64, error) {
 	var total int64
 	err := s.db.QueryRow(ctx, `
@@ -473,9 +704,9 @@ func (s *CDRStore) GetMonthlyCostForTenant(ctx context.Context, tenantID uuid.UU
 }
 
 type OperatorMetricBucket struct {
-	Ts             time.Time `json:"ts"`
-	AuthRatePerSec float64   `json:"auth_rate_per_sec"`
-	ErrorRatePerSec float64  `json:"error_rate_per_sec"`
+	Ts              time.Time `json:"ts"`
+	AuthRatePerSec  float64   `json:"auth_rate_per_sec"`
+	ErrorRatePerSec float64   `json:"error_rate_per_sec"`
 }
 
 type APNTrafficBucket struct {
@@ -748,7 +979,10 @@ func (s *CDRStore) GetTrafficHeatmap7x24(ctx context.Context, tenantID uuid.UUID
 		matrix[i] = make([]float64, 24)
 	}
 	var maxVal float64
-	type cell struct{ dow, hour int; val float64 }
+	type cell struct {
+		dow, hour int
+		val       float64
+	}
 	var cells []cell
 
 	for rows.Next() {

@@ -3580,3 +3580,63 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 1. Simulator ile 600 event tetikle.
 2. `stores/events.ts` event sayisi 500'de sinirlenir; eski eventler dusar.
 3. Pane header `"Son 500 olay"` gosterir.
+
+## FIX-214: CDR Explorer Page
+
+### 1. Temel Liste ve Filtre
+
+1. `/cdrs` sayfasina git.
+2. `Tarih Araligi` olarak `Son 7 gun` sec — CDR listesi yuklenir.
+3. `KAYIT SAYISI`, `BENZERSIZ SIM`, `BENZERSIZ OTURUM`, `TOPLAM BAYT` stat kartlarinin doldugunu dogrula.
+4. `SIM Ara` alanina gecerli bir ICCID yaz — liste filtrelenir; satir ICCID/IMSI/MSISDN sutunlarini gosterir.
+5. Operator `Select` acilir — tenant'a atanmis operatorler listelenir; birini sec, liste yenilenir.
+6. APN `Select` acilir — APN listesi gelir; birini sec, liste yenilenir.
+7. `Record Type` chip grubundan `stop` sec — yalnizca stop kayitlari gozukur.
+8. `Filtreleri Temizle` (bos durumda EmptyState icerisindeki CTA) tiklayinca tum filtreler sifirlanir.
+
+### 2. Record Type Badge Renkleri
+
+1. Listede `start` kaydinin Badge'i mavi/accent oldugunu dogrula.
+2. `interim` kaydinin Badge'i info rengi (mavi-mor).
+3. `stop` kaydinin Badge'i yesil/success.
+4. `auth_fail` / `reject` kaydinin Badge'i kirmizi/danger.
+
+### 3. Session Timeline Drawer
+
+1. Herhangi bir CDR satirina tikla — sag tarafta SlidePanel/drawer acilar.
+2. Drawer basliginda `Oturum Zaman Cizelgesi` gorunur.
+3. Metadata header: SIM EntityLink (/sims/:id), Operatör EntityLink (/operators/:id), APN EntityLink veya `—`, Sure, Baslangic, Son alanlari var.
+4. Recharts LineChart kumulatif bytes egrisini gosterir.
+5. Tablo 7 sutun gosterir: ZAMAN / TİP / ↓ BYTES / Δ↓ / ↑ BYTES / Δ↑ / KÜMÜLATİF.
+6. Drawer kapatilir — `X` veya backdrop tikladiginda kapanir.
+
+### 4. EntityLink Navigasyonu
+
+1. Tablodaki Operatör sutununda operatör adina tikla — `/operators/:id` sayfasina navigate edilir.
+2. APN sutununda APN adina tikla — `/apns/:id` sayfasina navigate edilir.
+3. ICCID sutununa tikla — `/sims/:id` sayfasina navigate edilir.
+4. APN null olan bir satirin APN hucresinde `—` gozukur (tiklanabilir degil).
+
+### 5. Export
+
+1. Sayfa toolbar'inda `Disa Aktar` butonuna tikla.
+2. Toast `"Rapor kuyruğa alındı. İlerleme için /reports."` mesajini gosterir.
+3. `/jobs` sayfasinda yeni `cdr_export` job'i gozukur (pending → running → completed).
+
+### 6. Deep-Link (Session Detail'den)
+
+1. `/sessions/:id` sayfasina git — `CDR Kayıtları` butonu gozukur.
+2. Butona tikla — `/cdrs?session_id=X&from=Y&to=Z` adresine navigate edilir.
+3. CDR Explorer sayfasi yuklendiginde `session_id` filtresi otomatik uygulanir; yalnizca o oturumun kayitlari listelenir.
+
+### 7. 30 Gun Sinirlama (Non-Admin)
+
+1. Non-admin (orn. `analyst`) rolunde oturum ac.
+2. `Son 30 gun` timeframe presetine hover/tikla — devre disi oldugunu ve aciklama mesajini goster.
+3. `tenant_admin` veya `super_admin` ile `Son 30 gun` secebilmeli.
+
+### 8. Bos Durum
+
+1. Hicbir CDR donmeyecek sartlarda filtre uygula (orn. gelecek tarih aralik).
+2. `Bu filtre için CDR bulunamadı.` baslikli EmptyState gozukur.
+3. `Filtreleri Temizle` CTA butonu tiklayinca filtreler sifirlanir; liste yenilenir.
