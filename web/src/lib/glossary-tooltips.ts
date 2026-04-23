@@ -10,4 +10,5 @@ export const GLOSSARY_TOOLTIPS: Record<string, string> = {
   ICCID: 'Integrated Circuit Card Identifier (SIM card serial)',
   CoA: 'Change of Authorization (mid-session policy update, RFC 5176)',
   SLA: 'Service Level Agreement (uptime contract)',
+  static_ip: 'Static IP — an IP address permanently assigned to a specific SIM via pool reservation. Survives re-authentication and session teardown. Reclaim grace window configurable per pool.',
 }

@@ -4019,3 +4019,38 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 1. Hem Operator hem APN SIMs tablosunda ICCID (ⓘ), IMSI (ⓘ), MSISDN (ⓘ) basliklarinda InfoTooltip simgesi olmali.
 2. APN sayfasinda ayrica APN (ⓘ) sutun basligi olmali.
 3. Toplam 11 InfoTooltip cagrisi her iki sayfa arasinda dagitilmis olmali (tsc PASS ile dogrulandi).
+
+## FIX-223: IP Pool Detail Polish — Server-side Search, Last Seen, Reserve Modal ICCID
+
+### 1. Sunucu Tarafli Arama (AC-1)
+
+1. `/settings/ip-pools/:id` sayfasina git; herhangi bir IP pool detay sayfasini ac.
+2. Adres tablosunun ustundeki arama kutusuna en az 3 karakter yaz.
+3. 300ms bekle — tablo sunucu tarafinda filtrelenmis sonuclari gostermeli (network istegi atilmali: `?q=<term>`).
+4. Arama kutusunu temizle → tablo tam listeye donmeli.
+5. 64 karakterden uzun sorgu yazildiginda API `400 Bad Request` donmeli (q param validation).
+
+### 2. ICCID ile Arama (AC-1)
+
+1. Bilinen bir SIM ICCID'sinin ilk 8 hanesiyle arama yap.
+2. O SIM'e atanmis IP adresi satiri tabloda gorunmeli.
+3. IMSISDN veya IMSI ile de ayni sekilde filtreleme calistirilabilir.
+
+### 3. Last Seen Sutunu (AC-3)
+
+1. IP adresleri tablosunda "Last Seen" sutunu gorunmeli (6. sutun).
+2. `last_seen_at` dolu olan adreslerde formatDistanceToNow ile goreceli zaman gosterilmeli (ornek: `"3 minutes ago"`).
+3. `last_seen_at` null olan (AAA writer henuz implement edilmemis D-121) adreslerde `—` (em-dash) gosterilmeli.
+
+### 4. Reserve SlidePanel — ICCID Gorunumlugu (AC-4)
+
+1. Tabloda herhangi bir IP adresinin ustundeki "Reserve" butonuna tikla.
+2. SlidePanel acilmali; "Currently reserved" mini-listesi mevcut rezervasyonlari gostermeli.
+3. Her rezervasyon satiri: adres + sim_iccid degerini gostermeli (ornek: `10.0.0.5 — 8901...`).
+4. Ana tabloda aktif bir arama filtresi varken "Reserve" acildiginda, unfiltered kaynak kullanildigi icin "Currently reserved" listesi arama filtresiyle kisaltilmamali — tum rezervasyonlar gorunmeli.
+
+### 5. Static IP Tooltip — APN Detay (AC-5)
+
+1. `/apns/:id` sayfasini ac; "IP Pools" bolum basliginin yanindaki ⓘ simgesine hover et veya tikla.
+2. Tooltip acilmali; icerik: "Static IP — an IP address permanently assigned to a specific SIM via pool reservation..."
+3. ESC tusu tooltip'i kapatmali.

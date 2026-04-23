@@ -73,6 +73,7 @@ export interface IpAddress {
   sim_imsi?: string
   sim_msisdn?: string
   allocated_at?: string
+  last_seen_at?: string
 }
 
 export interface NotificationConfig {

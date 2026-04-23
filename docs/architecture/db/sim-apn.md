@@ -63,6 +63,7 @@ Indexes:
 | state | VARCHAR(20) | NOT NULL, DEFAULT 'available' | available, allocated, reserved, reclaiming |
 | allocated_at | TIMESTAMPTZ | | Allocation timestamp |
 | reclaim_at | TIMESTAMPTZ | | Scheduled reclaim time |
+| last_seen_at | TIMESTAMPTZ | NULL | Last RADIUS/Diameter keep-alive (FIX-223; writer deferred to D-121 / AAA accounting enrichment) |
 
 Indexes:
 - `idx_ip_addresses_pool_state` on (pool_id, state)

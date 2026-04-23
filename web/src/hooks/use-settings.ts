@@ -207,13 +207,14 @@ export function useCreateIpPool() {
   })
 }
 
-export function useIpPoolAddresses(poolId: string) {
+export function useIpPoolAddresses(poolId: string, q?: string) {
   return useInfiniteQuery({
-    queryKey: [...IP_POOLS_KEY, 'addresses', poolId],
+    queryKey: [...IP_POOLS_KEY, 'addresses', poolId, q ?? ''],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '50')
+      if (q) params.set('q', q)
       const res = await api.get<ListResponse<IpAddress>>(`/ip-pools/${poolId}/addresses?${params.toString()}`)
       return res.data
     },

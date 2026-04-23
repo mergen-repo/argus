@@ -126,7 +126,7 @@
 | API-081 | POST | /api/v1/ip-pools | Create IP pool | JWT (tenant_admin+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 | API-082 | GET | /api/v1/ip-pools/:id | Get pool detail + utilization | JWT (operator_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 | API-083 | PATCH | /api/v1/ip-pools/:id | Update pool settings | JWT (tenant_admin+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
-| API-084 | GET | /api/v1/ip-pools/:id/addresses | List addresses in pool | JWT (operator_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
+| API-084 | GET | /api/v1/ip-pools/:id/addresses | List addresses in pool. `?q=<≤64>` server-side search across address_v4/iccid/imsi/msisdn (FIX-223). DTO includes `sim_iccid`, `sim_imsi`, `sim_msisdn`, `last_seen_at` (omitempty). | JWT (operator_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 | API-085 | POST | /api/v1/ip-pools/:id/addresses/reserve | Reserve static IP for SIM | JWT (sim_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 
 ## Policies (11 endpoints)

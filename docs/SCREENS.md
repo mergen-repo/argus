@@ -37,7 +37,7 @@
 | SCR-110 | [Users & Roles](screens/SCR-110-settings-users.md) | Settings | /settings/users | JWT (tenant_admin+) | |
 | SCR-111 | [API Keys](screens/SCR-111-settings-apikeys.md) | Settings | /settings/api-keys | JWT (tenant_admin+) | IP whitelist per key (STORY-068 AC-5) |
 | SCR-115 | Active Sessions | Settings | /settings/sessions | JWT (any) | STORY-068 AC-6 |
-| SCR-112 | [IP Pools](screens/SCR-112-settings-ippools.md) | Settings | /settings/ip-pools | JWT (op_manager+) | FIX-216: Reserve IP SlidePanel already compliant; hand-rolled footer div → SlidePanelFooter conformance fix |
+| SCR-112 | [IP Pools](screens/SCR-112-settings-ippools.md) | Settings | /settings/ip-pools | JWT (op_manager+) | FIX-216: Reserve IP SlidePanel already compliant; hand-rolled footer div → SlidePanelFooter conformance fix. FIX-223: server-side `?q=` search (300ms debounce) across address/ICCID/IMSI/MSISDN; +Last Seen column; Reserve SlidePanel "Currently reserved" list shows sim_iccid (unfiltered source). |
 | SCR-113 | [Notification Config](screens/SCR-113-settings-notifications.md) | Settings | /settings/notifications | JWT (any) | STORY-069: extended with Preferences matrix tab + Templates editor tab |
 | SCR-120 | [System Health](screens/SCR-120-system-health.md) | System | /system/health | JWT (super_admin) | |
 | SCR-121 | [Tenant Management](screens/SCR-121-tenant-management.md) | System | /system/tenants | JWT (super_admin) | |

@@ -488,3 +488,28 @@ func TestListAddressesInvalidID(t *testing.T) {
 		t.Errorf("ListAddresses(invalid id) status = %d, want 400", w.Code)
 	}
 }
+
+// FIX-223 Gate: verify the `q` query param length guard (max 64 chars) is
+// enforced before any store call. Valid UUID so ID parsing passes; the pool
+// does not exist but we never reach the store because validation short-circuits.
+func TestListAddressesRejectsLongQ(t *testing.T) {
+	h := &Handler{
+		logger: zerolog.Nop(),
+	}
+
+	poolID := uuid.New().String()
+	tooLong := strings.Repeat("a", 65)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ip-pools/"+poolID+"/addresses?q="+tooLong, nil)
+	ctx := withTenantCtx(req.Context())
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", poolID)
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.ListAddresses(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("ListAddresses(q>64) status = %d, want 400", w.Code)
+	}
+}

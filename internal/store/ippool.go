@@ -148,6 +148,10 @@ type IPAddress struct {
 	State          string     `json:"state"`
 	AllocatedAt    *time.Time `json:"allocated_at"`
 	ReclaimAt      *time.Time `json:"reclaim_at"`
+	LastSeenAt     *time.Time `json:"last_seen_at"`
+	SimICCID       *string    `json:"sim_iccid,omitempty"`
+	SimIMSI        *string    `json:"sim_imsi,omitempty"`
+	SimMSISDN      *string    `json:"sim_msisdn,omitempty"`
 }
 
 type ExpiredIPAddress struct {
@@ -208,14 +212,25 @@ func scanIPPool(row pgx.Row) (*IPPool, error) {
 	return &p, err
 }
 
+// ipAddressColumns is used for mutation/single-row lookups (no SIM JOIN).
+// Must match scanIPAddress exactly (10 columns).
 var ipAddressColumns = `id, pool_id, address_v4::text, address_v6::text,
-	allocation_type, sim_id, state, allocated_at, reclaim_at`
+	allocation_type, sim_id, state, allocated_at, reclaim_at, last_seen_at`
+
+// ipAddressColumnsJoined is used in ListAddresses with a LEFT JOIN on sims.
+// Returns 13 columns; scanned inline in ListAddresses (NOT via scanIPAddress).
+const ipAddressColumnsJoined = `
+	ip.id, ip.pool_id, ip.address_v4::text, ip.address_v6::text,
+	ip.allocation_type, ip.sim_id, ip.state, ip.allocated_at, ip.reclaim_at,
+	ip.last_seen_at,
+	s.iccid, s.imsi, s.msisdn`
 
 func scanIPAddress(row pgx.Row) (*IPAddress, error) {
 	var a IPAddress
 	err := row.Scan(
 		&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6,
 		&a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt,
+		&a.LastSeenAt,
 	)
 	return &a, err
 }
@@ -487,33 +502,43 @@ func (s *IPPoolStore) Update(ctx context.Context, tenantID, id uuid.UUID, p Upda
 func (s *IPPoolStore) GetAddressByID(ctx context.Context, id uuid.UUID) (*IPAddress, error) {
 	var a IPAddress
 	err := s.db.QueryRow(ctx,
-		`SELECT id, pool_id, address_v4::text, address_v6::text, allocation_type, sim_id, state, allocated_at, reclaim_at
+		`SELECT id, pool_id, address_v4::text, address_v6::text, allocation_type, sim_id, state, allocated_at, reclaim_at, last_seen_at
 		 FROM ip_addresses WHERE id = $1`, id).
-		Scan(&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6, &a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt)
+		Scan(&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6, &a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt, &a.LastSeenAt)
 	if err != nil {
 		return nil, fmt.Errorf("store: get ip address: %w", err)
 	}
 	return &a, nil
 }
 
-func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, cursor string, limit int, stateFilter string) ([]IPAddress, string, error) {
+func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, cursor string, limit int, stateFilter string, q string) ([]IPAddress, string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 
 	args := []interface{}{poolID}
-	conditions := []string{"pool_id = $1"}
+	conditions := []string{"ip.pool_id = $1"}
 	argIdx := 2
 
 	if stateFilter != "" {
-		conditions = append(conditions, fmt.Sprintf("state = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("ip.state = $%d", argIdx))
 		args = append(args, stateFilter)
 		argIdx++
 	}
 
 	if cursor != "" {
-		conditions = append(conditions, fmt.Sprintf("address_v4 > $%d::inet", argIdx))
+		conditions = append(conditions, fmt.Sprintf("ip.address_v4 > $%d::inet", argIdx))
 		args = append(args, cursor)
+		argIdx++
+	}
+
+	if q != "" {
+		like := "%" + q + "%"
+		conditions = append(conditions, fmt.Sprintf(
+			`(ip.address_v4::text ILIKE $%d OR COALESCE(s.iccid,'') ILIKE $%d OR COALESCE(s.imsi,'') ILIKE $%d OR COALESCE(s.msisdn,'') ILIKE $%d)`,
+			argIdx, argIdx, argIdx, argIdx,
+		))
+		args = append(args, like)
 		argIdx++
 	}
 
@@ -522,8 +547,11 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 	args = append(args, limit+1)
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
-	query := fmt.Sprintf(`SELECT %s FROM ip_addresses %s ORDER BY address_v4 ASC NULLS LAST, address_v6 ASC NULLS LAST LIMIT %s`,
-		ipAddressColumns, where, limitPlaceholder)
+	query := fmt.Sprintf(`SELECT %s
+		FROM ip_addresses ip
+		LEFT JOIN sims s ON s.id = ip.sim_id
+		%s ORDER BY ip.address_v4 ASC NULLS LAST, ip.address_v6 ASC NULLS LAST LIMIT %s`,
+		ipAddressColumnsJoined, where, limitPlaceholder)
 
 	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
@@ -537,6 +565,8 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 		if err := rows.Scan(
 			&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6,
 			&a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt,
+			&a.LastSeenAt,
+			&a.SimICCID, &a.SimIMSI, &a.SimMSISDN,
 		); err != nil {
 			return nil, "", fmt.Errorf("store: scan ip address: %w", err)
 		}

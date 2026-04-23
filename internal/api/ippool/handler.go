@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -67,9 +68,13 @@ type addressResponse struct {
 	AddressV6      *string `json:"address_v6"`
 	AllocationType string  `json:"allocation_type"`
 	SimID          *string `json:"sim_id,omitempty"`
+	SimICCID       *string `json:"sim_iccid,omitempty"`
+	SimIMSI        *string `json:"sim_imsi,omitempty"`
+	SimMSISDN      *string `json:"sim_msisdn,omitempty"`
 	State          string  `json:"state"`
 	AllocatedAt    *string `json:"allocated_at,omitempty"`
 	ReclaimAt      *string `json:"reclaim_at,omitempty"`
+	LastSeenAt     *string `json:"last_seen_at,omitempty"`
 }
 
 type createPoolRequest struct {
@@ -131,6 +136,9 @@ func toAddressResponse(a *store.IPAddress) addressResponse {
 		AddressV6:      a.AddressV6,
 		AllocationType: a.AllocationType,
 		State:          a.State,
+		SimICCID:       a.SimICCID,
+		SimIMSI:        a.SimIMSI,
+		SimMSISDN:      a.SimMSISDN,
 	}
 	if a.SimID != nil {
 		s := a.SimID.String()
@@ -143,6 +151,10 @@ func toAddressResponse(a *store.IPAddress) addressResponse {
 	if a.ReclaimAt != nil {
 		s := a.ReclaimAt.Format(time.RFC3339Nano)
 		resp.ReclaimAt = &s
+	}
+	if a.LastSeenAt != nil {
+		s := a.LastSeenAt.Format(time.RFC3339Nano)
+		resp.LastSeenAt = &s
 	}
 	return resp
 }
@@ -389,6 +401,16 @@ func (h *Handler) ListAddresses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cursor := r.URL.Query().Get("cursor")
+	limitStr := r.URL.Query().Get("limit")
+	stateFilter := r.URL.Query().Get("state")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	if len(q) > 64 {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Search query too long (max 64 chars)")
+		return
+	}
+
 	if _, err := h.ippoolStore.GetByID(r.Context(), tenantID, poolID); err != nil {
 		if errors.Is(err, store.ErrIPPoolNotFound) {
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "IP pool not found")
@@ -399,10 +421,6 @@ func (h *Handler) ListAddresses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cursor := r.URL.Query().Get("cursor")
-	limitStr := r.URL.Query().Get("limit")
-	stateFilter := r.URL.Query().Get("state")
-
 	limit := 50
 	if limitStr != "" {
 		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 100 {
@@ -410,7 +428,7 @@ func (h *Handler) ListAddresses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	addresses, nextCursor, err := h.ippoolStore.ListAddresses(r.Context(), poolID, cursor, limit, stateFilter)
+	addresses, nextCursor, err := h.ippoolStore.ListAddresses(r.Context(), poolID, cursor, limit, stateFilter, q)
 	if err != nil {
 		h.logger.Error().Err(err).Str("pool_id", idStr).Msg("list addresses")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")

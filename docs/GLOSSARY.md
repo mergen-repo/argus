@@ -150,7 +150,7 @@
 | Dead Letter Queue | Storage for failed/unprocessable AAA requests | For retry and investigation |
 | IP Pool | A range of IP addresses (defined by CIDR) assigned to an APN, from which IPs are allocated to SIMs. Supports IPv4 and IPv6 separately. Tracks utilization and alerts at configurable thresholds. | IPAM (TBL-08) |
 | IP Allocation | Process of assigning the next available IP address from a pool to a SIM. Uses `FOR UPDATE SKIP LOCKED` for concurrent safety. | IPAM (ALGORITHMS.md Section 1) |
-| Static IP | An IP address permanently reserved for a specific SIM. Not returned to pool while SIM exists. Allocation type = `static`. | IPAM per-SIM reservation |
+| Static IP | An IP address permanently assigned to a specific SIM via pool reservation. Survives re-authentication and session teardown; reclaim grace window configurable per pool. Allocation type = `static`. | IPAM per-SIM reservation |
 | Dynamic IP | An IP address temporarily assigned to a SIM for the duration of a session. Returned to pool on session end. Allocation type = `dynamic`. | IPAM session-based |
 | IP Reclaim | Process of returning terminated SIM's IP to pool after grace period. IP enters `reclaiming` state with `reclaim_at` timestamp. | Configurable retention |
 | Dual-Stack | Supporting both IPv4 and IPv6 address families simultaneously. IP pools can have separate CIDRv4 and CIDRv6 ranges. | IPAM network addressing |

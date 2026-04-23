@@ -102,3 +102,9 @@ FIX-222 STEP LOG — Operator/APN Detail Polish
 STEP_3 GATE: EXECUTED | 2026-04-23 | team=lead+3scouts | findings=29(1-MED+1-LOW+27-PASS) | fixes=1(F-A1 EsimProfilesTab isError+Retry) | deferred=4(D-117,D-118,D-119 pre-existing; D-120 new) | go-test=3531-pass tsc=PASS build=PASS | evidence=docs/stories/fix-ui-review/FIX-222-gate.md | result=PASS-WITH-DEFERRALS
 
 STEP_4 REVIEW: EXECUTED | 2026-04-23 | docs-updated=5(SCR-041-operator-detail.md:KPI-row+10-tabs+health-merge+eSIM+alerts-merge, SCR-032-apn-detail.md:KPI-row+8-tabs+overview-first+alerts-merge, FRONTEND.md:KPICard+InfoTooltip+useTabUrlSync-shared-components, USERTEST.md:FIX-222-section-8-scenarios, glossary-tooltips.ts:EID-wording-aligned-to-GLOSSARY) | findings=1(EID-tooltip-wording-drift→FIXED-inline) | checks=decisions-DEV-298..302=PRESENT, routemap-D-117..D-120=PRESENT, tsc=PASS(0-errors), no-new-envvars=PASS, no-new-api=PASS, no-mocks-to-retire=PASS | next-story-impact=FIX-223+FIX-224-should-consume-shared-KPICard | result=PASS
+
+2026-04-23 STEP_4 REVIEW: EXECUTED | docs-updated=5(SCR-041+SCR-032+FRONTEND+USERTEST+GLOSSARY-align) | findings=1-fixed-inline(EID-tooltip-copy) | DEV-298..302=verified | D-117..120=verified | result=PASS
+
+2026-04-23 STEP_5 COMMIT: EXECUTED | items=1 files=25 commit=3950716 | result=PASS
+
+2026-04-23 STEP_6 HANDOFF: EXECUTED | ROUTEMAP=FIX-222-DONE+FIX-223-IN-PROGRESS(Plan) | CLAUDE.md=session-updated | next=FIX-223 | result=PASS

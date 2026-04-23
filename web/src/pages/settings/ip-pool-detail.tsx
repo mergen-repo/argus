@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useDebounce } from '@/hooks/use-debounce'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   Globe,
@@ -67,12 +68,19 @@ export default function IpPoolDetailPage() {
   const [searchFilter, setSearchFilter] = useState('')
   const [reserving, setReserving] = useState(false)
 
+  const debouncedSearch = useDebounce(searchFilter, 300)
+
   const {
     data: addressPages,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useIpPoolAddresses(poolId ?? '')
+  } = useIpPoolAddresses(poolId ?? '', debouncedSearch || undefined)
+
+  // Unfiltered copy powers the Reserve panel's "Currently reserved" mini-list,
+  // so an active search on the main table never hides already-reserved IPs in
+  // the side panel. When no search is active this is the same cached query.
+  const { data: unfilteredAddressPages } = useIpPoolAddresses(poolId ?? '', undefined)
 
   const reserveMutation = useReserveIp()
   const releaseMutation = useReleaseIp()
@@ -107,23 +115,10 @@ export default function IpPoolDetailPage() {
     })
   }, [allAddresses])
 
-  const filteredAddresses = useMemo(() => {
-    if (!searchFilter) return sortedAddresses
-    const q = searchFilter.toLowerCase()
-    return sortedAddresses.filter((addr) =>
-      (addr.address_v4?.toLowerCase().includes(q)) ||
-      (addr.address_v6?.toLowerCase().includes(q)) ||
-      (addr.sim_iccid?.toLowerCase().includes(q)) ||
-      (addr.sim_imsi?.toLowerCase().includes(q)) ||
-      (addr.sim_msisdn?.toLowerCase().includes(q)) ||
-      (addr.sim_id?.toLowerCase().includes(q)) ||
-      addr.state.toLowerCase().includes(q)
-    )
-  }, [sortedAddresses, searchFilter])
-
   const reservedAddresses = useMemo(() => {
-    return sortedAddresses.filter((a) => a.state === 'reserved' || a.state === 'assigned')
-  }, [sortedAddresses])
+    const src = unfilteredAddressPages?.pages?.flatMap((page) => page.data) ?? []
+    return src.filter((a) => a.state === 'reserved' || a.state === 'assigned')
+  }, [unfilteredAddressPages])
 
   const handleAddToQueue = useCallback((_simId: string, sim?: SIM) => {
     if (!sim) return
@@ -290,13 +285,14 @@ export default function IpPoolDetailPage() {
                 <TableHead>State</TableHead>
                 <TableHead>Assigned SIM</TableHead>
                 <TableHead>Assigned At</TableHead>
+                <TableHead>Last Seen</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAddresses.length === 0 && (
+              {sortedAddresses.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <Globe className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
                       <p className="text-xs text-text-secondary">
@@ -306,7 +302,7 @@ export default function IpPoolDetailPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {filteredAddresses.map((addr) => (
+              {sortedAddresses.map((addr) => (
                 <TableRow key={addr.id}>
                   <TableCell>
                     <span className="font-mono text-xs text-text-primary">{addr.address_v4 || addr.address_v6 || '-'}</span>
@@ -338,6 +334,11 @@ export default function IpPoolDetailPage() {
                   <TableCell>
                     <span className="text-xs text-text-secondary">
                       {addr.allocated_at ? new Date(addr.allocated_at).toLocaleString() : '-'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-secondary">
+                      {addr.last_seen_at ? new Date(addr.last_seen_at).toLocaleString() : '—'}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -377,9 +378,9 @@ export default function IpPoolDetailPage() {
             >
               Load more addresses
             </Button>
-          ) : allAddresses.length > 0 ? (
+          ) : sortedAddresses.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
-              {searchFilter ? `${filteredAddresses.length} of ${allAddresses.length} addresses` : `${allAddresses.length} addresses`}
+              {sortedAddresses.length} addresses
             </p>
           ) : null}
         </div>

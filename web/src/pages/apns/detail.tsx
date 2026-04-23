@@ -184,7 +184,9 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div />
+        <InfoTooltip term="static_ip">
+          <span className="text-xs text-text-secondary font-medium">IP Pools</span>
+        </InfoTooltip>
         <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5" />
           Create IP Pool
