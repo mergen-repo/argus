@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
@@ -68,6 +67,7 @@ const GROUP_COLORS = [
 ]
 
 import { Skeleton } from '@/components/ui/skeleton'
+import { EntityLink } from '@/components/shared/entity-link'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useChartExport } from '@/hooks/use-chart-export'
 
@@ -186,7 +186,6 @@ function PillFilter({ label, value, displayValue, options, onChange }: {
 }
 
 export default function AnalyticsPage() {
-  const navigate = useNavigate()
   const [timeframe, setTimeframe] = useState('24h')
   const [groupBy, setGroupBy] = useState<UsageGroupBy>('')
   const [metric, setMetric] = useState<UsageMetric>('total_bytes')
@@ -473,16 +472,10 @@ export default function AnalyticsPage() {
               </TableHeader>
               <TableBody>
                 {data.top_consumers.map((tc, i) => (
-                  <TableRow
-                    key={tc.sim_id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/sims/${tc.sim_id}`)}
-                  >
+                  <TableRow key={tc.sim_id}>
                     <TableCell className="font-mono text-text-tertiary w-8">{i + 1}</TableCell>
                     <TableCell>
-                      <span className="font-mono text-xs text-accent hover:underline">
-                        {tc.iccid ?? tc.sim_id.slice(0, 8) + '...'}
-                      </span>
+                      <EntityLink entityType="sim" entityId={tc.sim_id} label={tc.iccid} truncate />
                     </TableCell>
                     <TableCell className="text-xs text-text-secondary">
                       {tc.operator_name ?? '—'}

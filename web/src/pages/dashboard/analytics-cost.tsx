@@ -28,6 +28,7 @@ const COST_TIMEFRAME_OPTIONS = [
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes, formatNumber } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 
 function formatCurrency(n: number): string {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -117,7 +118,7 @@ export default function AnalyticsCostPage() {
   const isEmpty = !data || (data.by_operator.length === 0 && data.total_cost === 0)
 
   const chartData = (data?.by_operator ?? []).map((op) => ({
-    name: op.operator_id.slice(0, 8),
+    name: op.operator_name || '—',
     cost: op.total_usage_cost,
     carrier: op.total_carrier_cost,
   }))
@@ -285,7 +286,7 @@ export default function AnalyticsCostPage() {
                   <TableBody>
                     {data!.cost_per_mb.map((row, i) => (
                       <TableRow key={i}>
-                        <TableCell className="font-mono text-xs">{row.operator_id.slice(0, 8)}...</TableCell>
+                        <TableCell><EntityLink entityType="operator" entityId={row.operator_id} label={row.operator_name || row.operator_id} /></TableCell>
                         <TableCell>
                           <Badge variant="secondary">{row.rat_type || 'N/A'}</Badge>
                         </TableCell>

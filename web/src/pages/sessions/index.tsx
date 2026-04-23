@@ -51,6 +51,7 @@ import type { Session } from '@/types/session'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatDuration, formatNumber } from '@/lib/format'
 import { RATBadge } from '@/components/ui/rat-badge'
+import { EntityLink } from '@/components/shared'
 
 function LiveDot() {
   return (
@@ -142,10 +143,12 @@ function SessionRow({
         <span className="font-mono text-xs text-text-secondary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.operator_name || session.operator_id.slice(0, 8)}</span>
+        <EntityLink entityType="operator" entityId={session.operator_id} label={session.operator_name} />
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.apn_name || (session.apn_id?.slice(0, 8) ?? '-')}</span>
+        {session.apn_id
+          ? <EntityLink entityType="apn" entityId={session.apn_id} label={session.apn_name} />
+          : <span className="text-xs text-text-secondary">-</span>}
       </TableCell>
       <TableCell>
         <span className="font-mono text-xs text-text-tertiary">{session.nas_ip}</span>
@@ -357,7 +360,7 @@ export default function SessionListPage() {
             />
             {topOperators.length > 0 && (
               <StatCard
-                label={`Top: ${topOperators[0][0].slice(0, 8)}`}
+                label={`Top: ${stats?.top_operator?.name ?? topOperators[0][0].slice(0, 8)}`}
                 value={formatNumber(topOperators[0][1])}
                 icon={<Users className="h-4 w-4" />}
                 color="var(--color-purple)"
@@ -503,11 +506,17 @@ export default function SessionListPage() {
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Operator</div>
-                <div className="text-xs text-text-primary">{selectedSession.operator_name || selectedSession.operator_id.slice(0, 12)}</div>
+                <div className="text-xs text-text-primary">
+                  <EntityLink entityType="operator" entityId={selectedSession.operator_id} label={selectedSession.operator_name} />
+                </div>
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">APN</div>
-                <div className="text-xs text-text-primary">{selectedSession.apn_name || selectedSession.apn_id || '-'}</div>
+                <div className="text-xs text-text-primary">
+                  {selectedSession.apn_id
+                    ? <EntityLink entityType="apn" entityId={selectedSession.apn_id} label={selectedSession.apn_name} />
+                    : '-'}
+                </div>
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">NAS IP</div>

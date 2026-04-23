@@ -144,7 +144,7 @@ function ExpandableRow({ entry, rowIndex }: { entry: AuditLog; rowIndex?: number
           {entry.entity_id && entry.entity_type ? (
             <EntityLink entityType={entry.entity_type} entityId={entry.entity_id} truncate />
           ) : (
-            <span className="font-mono text-xs text-text-tertiary">{entry.entity_id?.slice(0, 8)}</span>
+            <span className="text-text-tertiary" title="No entity reference">—</span>
           )}
         </TableCell>
         <TableCell>

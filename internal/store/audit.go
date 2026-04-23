@@ -191,6 +191,109 @@ func (s *AuditStore) RepairChain(ctx context.Context) error {
 	return nil
 }
 
+// EntryWithUser extends audit.Entry with optional user display fields populated via LEFT JOIN.
+type EntryWithUser struct {
+	audit.Entry
+	UserEmail *string
+	UserName  *string
+}
+
+func (s *AuditStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, params ListAuditParams) ([]EntryWithUser, string, error) {
+	if params.Limit <= 0 || params.Limit > 100 {
+		params.Limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"al.tenant_id = $1"}
+	argIdx := 2
+
+	if params.From != nil {
+		conditions = append(conditions, fmt.Sprintf("al.created_at >= $%d", argIdx))
+		args = append(args, *params.From)
+		argIdx++
+	}
+	if params.To != nil {
+		conditions = append(conditions, fmt.Sprintf("al.created_at <= $%d", argIdx))
+		args = append(args, *params.To)
+		argIdx++
+	}
+	if params.UserID != nil {
+		conditions = append(conditions, fmt.Sprintf("al.user_id = $%d", argIdx))
+		args = append(args, *params.UserID)
+		argIdx++
+	}
+	if params.Action != "" {
+		conditions = append(conditions, fmt.Sprintf("al.action = $%d", argIdx))
+		args = append(args, params.Action)
+		argIdx++
+	}
+	if len(params.Actions) > 0 {
+		conditions = append(conditions, fmt.Sprintf("al.action = ANY($%d)", argIdx))
+		args = append(args, params.Actions)
+		argIdx++
+	}
+	if params.EntityType != "" {
+		conditions = append(conditions, fmt.Sprintf("al.entity_type = $%d", argIdx))
+		args = append(args, params.EntityType)
+		argIdx++
+	}
+	if params.EntityID != "" {
+		conditions = append(conditions, fmt.Sprintf("al.entity_id = $%d", argIdx))
+		args = append(args, params.EntityID)
+		argIdx++
+	}
+	if params.Cursor != "" {
+		conditions = append(conditions, fmt.Sprintf("al.id < $%d", argIdx))
+		args = append(args, params.Cursor)
+		argIdx++
+	}
+
+	args = append(args, params.Limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`
+		SELECT al.id, al.tenant_id, al.user_id, al.api_key_id, al.action, al.entity_type, al.entity_id,
+			al.before_data, al.after_data, al.diff, al.ip_address::text, al.user_agent, al.correlation_id,
+			al.hash, al.prev_hash, al.created_at,
+			u.email, u.name
+		FROM audit_logs al
+		LEFT JOIN users u ON u.id = al.user_id
+		WHERE %s
+		ORDER BY al.id DESC
+		LIMIT %s
+	`, strings.Join(conditions, " AND "), limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []EntryWithUser
+	for rows.Next() {
+		var ew EntryWithUser
+		if err := rows.Scan(
+			&ew.ID, &ew.TenantID, &ew.UserID, &ew.APIKeyID,
+			&ew.Action, &ew.EntityType, &ew.EntityID,
+			&ew.BeforeData, &ew.AfterData, &ew.Diff,
+			&ew.IPAddress, &ew.UserAgent, &ew.CorrelationID,
+			&ew.Hash, &ew.PrevHash, &ew.CreatedAt,
+			&ew.UserEmail, &ew.UserName,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched audit entry: %w", err)
+		}
+		results = append(results, ew)
+	}
+
+	nextCursor := ""
+	if len(results) > params.Limit {
+		nextCursor = fmt.Sprintf("%d", results[params.Limit-1].ID)
+		results = results[:params.Limit]
+	}
+
+	return results, nextCursor, nil
+}
+
 func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAuditParams) ([]audit.Entry, string, error) {
 	if params.Limit <= 0 || params.Limit > 100 {
 		params.Limit = 50

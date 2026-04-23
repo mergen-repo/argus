@@ -15,6 +15,7 @@ import {
 import { useDSARQueue } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { DSARFilters } from '@/types/admin'
 
 const STATUS_OPTIONS = [
@@ -149,13 +150,15 @@ export default function DSARQueuePage() {
                 items.map((item) => (
                   <TableRow key={item.job_id}>
                     <TableCell className="font-mono text-xs text-text-secondary">
-                      {item.job_id.slice(0, 8)}
+                      <EntityLink entityType="job" entityId={item.job_id} truncate />
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-text-primary">{typeLabel(item.type)}</span>
                     </TableCell>
                     {isSuperAdmin && (
-                      <TableCell className="text-text-secondary text-sm">{item.tenant_id.slice(0, 8)}</TableCell>
+                      <TableCell className="text-text-secondary text-sm">
+                        <EntityLink entityType="tenant" entityId={item.tenant_id} truncate />
+                      </TableCell>
                     )}
                     <TableCell>
                       <Badge variant={statusVariant(item.status)}>{item.status}</Badge>

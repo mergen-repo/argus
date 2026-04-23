@@ -27,6 +27,7 @@ import type { ListResponse } from '@/types/sim'
 import { AlertActionButtons } from './_partials/alert-actions'
 import { useExport } from '@/hooks/use-export'
 import { CommentThread } from './_partials/comment-thread'
+import { EntityLink } from '@/components/shared/entity-link'
 
 interface AlertFilters {
   severity: string
@@ -425,15 +426,7 @@ function AlertCardExpanded({ alert }: { alert: Alert }) {
       {alert.sim_id && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-2">Related Entity</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(`/sims/${alert.sim_id}`)}
-            className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline h-auto p-0"
-          >
-            <ExternalLink className="h-3 w-3" />
-            View SIM {alert.sim_id.slice(0, 12)}
-          </Button>
+          <EntityLink entityType="sim" entityId={alert.sim_id} label={alert.sim_iccid || alert.sim_id} showIcon />
         </div>
       )}
 
@@ -527,18 +520,9 @@ function AlertCard({
         </div>
 
         {alert.sim_id && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              navigate(`/sims/${alert.sim_id}`)
-            }}
-            className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-accent hover:underline flex-shrink-0 h-auto p-0"
-          >
-            <ExternalLink className="h-3 w-3" />
-            {alert.sim_id.slice(0, 8)}
-          </Button>
+          <span className="hidden sm:flex flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <EntityLink entityType="sim" entityId={alert.sim_id} label={alert.sim_iccid || alert.sim_id} showIcon />
+          </span>
         )}
 
         <div className="hidden md:flex items-center gap-1 text-[11px] text-text-tertiary font-mono flex-shrink-0">

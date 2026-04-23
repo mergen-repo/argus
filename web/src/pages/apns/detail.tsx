@@ -351,7 +351,7 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
                             {addr.sim_iccid ? (
                               <span className="font-mono text-accent">{addr.sim_iccid}</span>
                             ) : addr.sim_id ? (
-                              <span className="font-mono text-text-tertiary">{addr.sim_id.slice(0, 12)}</span>
+                              <span className="font-mono text-text-tertiary">{addr.sim_id.slice(0, 12) /* UUID slice ok: sim_iccid absent path, secondary info in IP allocation row */}</span>
                             ) : (
                               <span className="text-text-tertiary">-</span>
                             )}

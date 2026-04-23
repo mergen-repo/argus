@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useDeployHistory } from '@/hooks/use-ops'
+import { EntityLink } from '@/components/shared'
 import { useState } from 'react'
 
 const GIT_REPO_URL = import.meta.env.VITE_GIT_REPO_URL as string | undefined
@@ -108,7 +109,7 @@ export default function DeployHistory() {
                       <GitSHALink sha={entry.entity_id} />
                     </TableCell>
                     <TableCell className="text-[12px] text-text-primary">{entry.action}</TableCell>
-                    <TableCell className="text-[12px] text-text-secondary font-mono">{entry.user_id?.slice(0, 8) ?? '—'}</TableCell>
+                    <TableCell className="text-[12px] text-text-secondary font-mono">{entry.user_id ? <EntityLink entityType="user" entityId={entry.user_id} truncate /> : '—'}</TableCell>
                     <TableCell className="text-right pr-4">
                       <Badge className="bg-success-dim text-success border-0 text-[10px]">deployed</Badge>
                     </TableCell>

@@ -77,7 +77,7 @@ import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { FavoriteToggle, EmptyState, OperatorChip } from '@/components/shared'
+import { FavoriteToggle, EmptyState, OperatorChip, EntityLink } from '@/components/shared'
 import { ESimTab } from './esim-tab'
 import { RelatedDataTab } from './_tabs/related-data-tab'
 import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
@@ -495,7 +495,7 @@ function UsageTab({ simId }: { simId: string }) {
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-text-secondary">
-                        {cdr.session_id.slice(0, 8)}
+                        <EntityLink entityType="session" entityId={cdr.session_id} label={cdr.session_id.slice(0, 8) + '…'} />
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs text-success">
                         {formatBytes(cdr.bytes_in)}

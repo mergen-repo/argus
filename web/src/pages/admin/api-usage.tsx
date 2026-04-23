@@ -16,6 +16,7 @@ import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { useAPIKeyUsage } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared/entity-link'
 
 const WINDOW_PRESETS = [
   { value: '1h' as const, label: 'Last 1h' },
@@ -123,7 +124,7 @@ export default function APIUsagePage() {
                   <TableRow key={k.key_id}>
                     <TableCell>
                       <div className="font-medium text-text-primary">{k.key_name}</div>
-                      <div className="text-xs text-text-tertiary font-mono">{k.key_id.slice(0, 8)}</div>
+                      <EntityLink entityType="apikey" entityId={k.key_id} label={k.key_name} />
                     </TableCell>
                     <TableCell className="text-text-secondary">{k.tenant_name}</TableCell>
                     <TableCell className="text-right font-mono text-sm">

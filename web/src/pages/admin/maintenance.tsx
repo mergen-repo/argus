@@ -17,6 +17,7 @@ import { SlidePanel } from '@/components/ui/slide-panel'
 import { Textarea } from '@/components/ui/textarea'
 import { useMaintenanceWindows, useCreateMaintenanceWindow, useDeleteMaintenanceWindow } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { CreateMaintenanceWindowRequest } from '@/types/admin'
 
 function stateVariant(state: string): 'default' | 'success' | 'warning' | 'danger' {
@@ -176,7 +177,7 @@ export default function MaintenancePage() {
                       <Badge variant={stateVariant(w.state)}>{w.state}</Badge>
                     </TableCell>
                     <TableCell className="text-xs text-text-tertiary">
-                      {w.tenant_id ? w.tenant_id.slice(0, 8) : 'Global'}
+                      {w.tenant_id ? <EntityLink entityType="tenant" entityId={w.tenant_id} truncate /> : 'Global'}
                     </TableCell>
                     <TableCell>
                       {w.state !== 'completed' && (

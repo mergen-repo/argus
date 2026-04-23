@@ -1,5 +1,7 @@
 export { EntityLink } from './entity-link'
 export type { EntityType } from './entity-link'
+export { EntityHoverCard } from './entity-hover-card'
+export type { EntityHoverCardProps } from './entity-hover-card'
 export { CopyableId } from './copyable-id'
 export { RelatedAuditTab } from './related-audit-tab'
 export { RelatedNotificationsPanel } from './related-notifications-panel'

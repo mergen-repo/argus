@@ -24,10 +24,24 @@ export function EventSourceChips({ event }: { event: LiveEvent }) {
   if (ip) chips.push({ label: 'IP', value: ip, highlight: true })
   if (msisdn) chips.push({ label: 'MSISDN', value: msisdn })
 
-  if (event.operator_id && !imsi) chips.push({ label: 'Op', value: event.operator_id.slice(0, 8) })
-  if (event.apn_id && !imsi) chips.push({ label: 'APN', value: event.apn_id.slice(0, 8) })
-  if (event.policy_id) chips.push({ label: 'Policy', value: event.policy_id.slice(0, 8) })
-  if (event.job_id) chips.push({ label: 'Job', value: event.job_id.slice(0, 8) })
+  // Name-aware priority chain (FIX-219 / AC-7):
+  // P1: envelope entity display_name (FIX-212 shape)
+  // P2: legacy name fields from meta bag
+  // P3: UUID slice fallback
+  const entityType = event.entity?.type
+  const entityDisplayName = event.entity?.display_name
+
+  function resolveId(id: string, matchType: string, metaNameKey: string): string {
+    if (entityType === matchType && entityDisplayName) return entityDisplayName
+    const metaName = pickString(meta[metaNameKey])
+    if (metaName) return metaName
+    return id.slice(0, 8)
+  }
+
+  if (event.operator_id && !imsi) chips.push({ label: 'Op', value: resolveId(event.operator_id, 'operator', 'operator_name') })
+  if (event.apn_id && !imsi) chips.push({ label: 'APN', value: resolveId(event.apn_id, 'apn', 'apn_name') })
+  if (event.policy_id) chips.push({ label: 'Policy', value: resolveId(event.policy_id, 'policy', 'policy_name') })
+  if (event.job_id) chips.push({ label: 'Job', value: resolveId(event.job_id, 'job', 'job_name') })
 
   const progress = event.progress_pct ?? pickNumber(meta.progress_pct)
   if (typeof progress === 'number') chips.push({ label: '%', value: `${Math.round(progress)}` })
@@ -46,10 +60,11 @@ export function EventSourceChips({ event }: { event: LiveEvent }) {
     }
   }
 
-  const entityType = event.entity?.type || event.entity_type
-  const entityId = event.entity?.id || event.entity_id
-  if (chips.length === 0 && entityType && entityId) {
-    chips.push({ label: entityType, value: entityId.slice(0, 8) })
+  const fallbackEntityType = event.entity?.type || event.entity_type
+  const fallbackEntityId = event.entity?.id || event.entity_id
+  if (chips.length === 0 && fallbackEntityType && fallbackEntityId) {
+    const fallbackValue = entityDisplayName || fallbackEntityId.slice(0, 8)
+    chips.push({ label: fallbackEntityType, value: fallbackValue })
   }
 
   if (chips.length === 0) return null

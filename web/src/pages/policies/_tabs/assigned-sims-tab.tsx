@@ -86,7 +86,7 @@ export function AssignedSimsTab({ versionId }: AssignedSimsTabProps) {
                 <Badge variant={stateVariant(sim.state)} className="text-[10px]">{sim.state}</Badge>
               </TableCell>
               <TableCell className="py-2.5">
-                <span className="text-[12px] text-text-secondary">{sim.operator_name ?? sim.operator_id.slice(0, 8)}</span>
+                <EntityLink entityType="operator" entityId={sim.operator_id} label={sim.operator_name} />
               </TableCell>
             </TableRow>
           ))}

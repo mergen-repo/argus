@@ -17,6 +17,7 @@ import {
   TableCell,
 } from '@/components/ui/table'
 import { useSendSMS, useSMSHistory } from '@/hooks/use-sms'
+import { EntityLink } from '@/components/shared'
 
 const STATUS_BADGE: Record<string, 'success' | 'warning' | 'danger' | 'outline'> = {
   sent: 'success',
@@ -172,7 +173,7 @@ export default function SMSPage() {
             {history.map((m) => (
               <TableRow key={m.id}>
                 <TableCell className="text-xs font-mono text-text-secondary">{new Date(m.queued_at).toLocaleString()}</TableCell>
-                <TableCell><code className="text-xs font-mono">{m.sim_id.slice(0, 8)}…</code></TableCell>
+                <TableCell><EntityLink entityType="sim" entityId={m.sim_id} truncate /></TableCell>
                 <TableCell><code className="text-xs font-mono">{m.msisdn}</code></TableCell>
                 <TableCell><span className="text-xs text-text-secondary">{m.text_preview}</span></TableCell>
                 <TableCell>

@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAnomalyList, useAnomalyStateUpdate, type AnomalyFilters } from '@/hooks/use-analytics'
 import type { Anomaly, AnomalyState, AnomalySeverity } from '@/types/analytics'
 import { timeAgo } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 
 const SEVERITY_OPTIONS = SEVERITY_FILTER_OPTIONS
 
@@ -178,14 +179,8 @@ function AnomalyRow({
         </TableCell>
         <TableCell>
           {anomaly.sim_id ? (
-            <span
-              className="font-mono text-xs text-accent hover:underline cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigate(`/sims/${anomaly.sim_id}`)
-              }}
-            >
-              {anomaly.sim_iccid || anomaly.sim_id.slice(0, 8) + '...'}
+            <span onClick={(e) => e.stopPropagation()}>
+              <EntityLink entityType="sim" entityId={anomaly.sim_id} label={anomaly.sim_iccid} />
             </span>
           ) : (
             <span className="text-xs text-text-tertiary">N/A</span>

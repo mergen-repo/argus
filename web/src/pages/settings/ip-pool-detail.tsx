@@ -324,7 +324,7 @@ export default function IpPoolDetailPage() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <span className="font-mono text-xs text-accent hover:underline block">
-                          {addr.sim_iccid || addr.sim_id.slice(0, 12)}
+                          {addr.sim_iccid || addr.sim_id.slice(0, 12) /* UUID slice ok: sim_iccid is primary; this row is already a Link to /sims/${sim_id} */}
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
                           {addr.sim_imsi && <span className="font-mono text-[10px] text-text-tertiary">{addr.sim_imsi}</span>}
@@ -435,7 +435,7 @@ export default function IpPoolDetailPage() {
                     {addr.sim_iccid ? (
                       <span className="font-mono text-accent">{addr.sim_iccid}</span>
                     ) : (
-                      <span className="font-mono text-text-tertiary">{addr.sim_id?.slice(0, 12)}</span>
+                      <span className="font-mono text-text-tertiary">{addr.sim_id?.slice(0, 12) /* UUID slice ok: compact address→SIM mapping list, sim_iccid absent, secondary info */}</span>
                     )}
                   </div>
                 ))}

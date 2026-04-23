@@ -1,6 +1,8 @@
 export interface AuditLog {
   id: number
   user_id?: string
+  user_email?: string
+  user_name?: string
   action: string
   entity_type: string
   entity_id: string

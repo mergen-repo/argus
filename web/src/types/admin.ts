@@ -156,6 +156,8 @@ export interface PurgeHistoryItem {
   purged_at: string
   reason: string
   actor_id: string | null
+  actor_email?: string
+  actor_name?: string
 }
 
 export interface PurgeHistoryFilters {

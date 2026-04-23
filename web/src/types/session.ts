@@ -24,6 +24,13 @@ export interface Session {
   started_at: string
 }
 
+export interface TopOperator {
+  id: string
+  name: string
+  code: string
+  count: number
+}
+
 export interface SessionStats {
   total_active: number
   by_operator: Record<string, number>
@@ -31,6 +38,7 @@ export interface SessionStats {
   by_rat_type: Record<string, number>
   avg_duration_sec: number
   avg_bytes: number
+  top_operator?: TopOperator | null
 }
 
 export interface SessionStartedEvent {

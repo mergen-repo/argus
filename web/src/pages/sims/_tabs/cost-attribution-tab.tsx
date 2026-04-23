@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react'
 import { formatCurrency, formatBytes } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { ApiResponse } from '@/types/sim'
 import type { CostResponse } from '@/types/analytics'
 
@@ -100,7 +101,7 @@ export function CostAttributionTab({ simId }: CostAttributionTabProps) {
           <div className="space-y-2">
             {data.by_operator.map((op) => (
               <div key={op.operator_id} className="flex items-center justify-between p-3 bg-bg-surface rounded-[10px] border border-border">
-                <span className="text-[12px] font-mono text-text-secondary">{op.operator_id.slice(0, 8)}...</span>
+                <EntityLink entityType="operator" entityId={op.operator_id} label={op.operator_name || op.operator_id} />
                 <span className="text-[13px] font-medium text-text-primary">{formatCurrency(op.total_usage_cost)}</span>
               </div>
             ))}

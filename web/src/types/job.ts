@@ -16,6 +16,9 @@ export interface Job {
   completed_at?: string
   created_at: string
   created_by?: string
+  created_by_name?: string
+  created_by_email?: string
+  is_system?: boolean
   duration?: string
   locked_by?: string
 }

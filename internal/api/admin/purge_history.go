@@ -19,6 +19,8 @@ type purgeHistoryItem struct {
 	PurgedAt   time.Time  `json:"purged_at"`
 	Reason     string     `json:"reason"`
 	ActorID    *uuid.UUID `json:"actor_id"`
+	ActorEmail string     `json:"actor_email,omitempty"`
+	ActorName  string     `json:"actor_name,omitempty"`
 }
 
 // ListPurgeHistory GET /api/v1/admin/purge-history (super_admin + tenant_admin)
@@ -50,10 +52,12 @@ func (h *Handler) ListPurgeHistory(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT ssh.sim_id, COALESCE(s.iccid, ''), COALESCE(s.msisdn, ''),
 			s.tenant_id, COALESCE(t.name, ''),
-			ssh.created_at, COALESCE(ssh.reason, ''), ssh.triggered_by
+			ssh.created_at, COALESCE(ssh.reason, ''), ssh.user_id,
+			COALESCE(u.email, ''), COALESCE(u.name, '')
 		FROM sim_state_history ssh
 		JOIN sims s ON s.id = ssh.sim_id
 		LEFT JOIN tenants t ON t.id = s.tenant_id
+		LEFT JOIN users u ON u.id = ssh.user_id
 		WHERE ` + cond + `
 		ORDER BY ssh.created_at DESC
 		LIMIT $` + strconv.Itoa(argIdx)
@@ -69,19 +73,12 @@ func (h *Handler) ListPurgeHistory(w http.ResponseWriter, r *http.Request) {
 	items := make([]purgeHistoryItem, 0)
 	for rows.Next() {
 		var simID, tenantID uuid.UUID
-		var iccid, msisdn, tenantName, reason string
+		var iccid, msisdn, tenantName, reason, actorEmail, actorName string
 		var createdAt time.Time
-		var triggeredBy *string
+		var userID *uuid.UUID
 
-		if err := rows.Scan(&simID, &iccid, &msisdn, &tenantID, &tenantName, &createdAt, &reason, &triggeredBy); err != nil {
+		if err := rows.Scan(&simID, &iccid, &msisdn, &tenantID, &tenantName, &createdAt, &reason, &userID, &actorEmail, &actorName); err != nil {
 			continue
-		}
-
-		var actorID *uuid.UUID
-		if triggeredBy != nil && *triggeredBy != "" {
-			if id, err := uuid.Parse(*triggeredBy); err == nil {
-				actorID = &id
-			}
 		}
 
 		items = append(items, purgeHistoryItem{
@@ -92,7 +89,9 @@ func (h *Handler) ListPurgeHistory(w http.ResponseWriter, r *http.Request) {
 			TenantName: tenantName,
 			PurgedAt:   createdAt,
 			Reason:     reason,
-			ActorID:    actorID,
+			ActorID:    userID,
+			ActorEmail: actorEmail,
+			ActorName:  actorName,
 		})
 	}
 

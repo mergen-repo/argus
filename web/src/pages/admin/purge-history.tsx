@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table'
 import { usePurgeHistory } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { PurgeHistoryFilters } from '@/types/admin'
 
 export default function PurgeHistoryPage() {
@@ -91,7 +92,7 @@ export default function PurgeHistoryPage() {
                     </TableCell>
                     <TableCell className="text-sm text-text-secondary">{item.reason || '—'}</TableCell>
                     <TableCell className="font-mono text-xs text-text-tertiary">
-                      {item.actor_id ? item.actor_id.slice(0, 8) : 'system'}
+                      {item.actor_id ? <EntityLink entityType="user" entityId={item.actor_id} label={item.actor_email || item.actor_name} /> : 'system'}
                     </TableCell>
                   </TableRow>
                 ))

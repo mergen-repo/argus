@@ -16,6 +16,7 @@ import {
 import { useActiveSessions, useForceLogoutSession } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
 import { timeAgo } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { SessionFilters } from '@/types/admin'
 
 function idleColor(seconds: number) {
@@ -124,7 +125,7 @@ export default function GlobalSessionsPage() {
                   <TableRow key={s.session_id}>
                     <TableCell>
                       <div className="font-medium text-text-primary">{s.user_email}</div>
-                      <div className="text-xs text-text-tertiary font-mono">{s.user_id.slice(0, 8)}</div>
+                      <EntityLink entityType="user" entityId={s.user_id} label={s.user_email} />
                     </TableCell>
                     {isSuperAdmin && (
                       <TableCell className="text-text-secondary">{s.tenant_name}</TableCell>

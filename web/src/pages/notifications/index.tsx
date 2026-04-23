@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { severityIconClass } from '@/lib/severity'
 import { useNotificationList, useMarkAsRead, useMarkAllAsRead, useRealtimeNotifications } from '@/hooks/use-notifications'
 import type { Notification } from '@/types/notification'
+import { EntityLink } from '@/components/shared/entity-link'
 import { NotificationPreferencesPanel } from './preferences-panel'
 import { NotificationTemplatesPanel } from './templates-panel'
 
@@ -161,6 +162,22 @@ export default function NotificationsPage() {
                         <span className="shrink-0 text-xs text-text-tertiary">{formatTimestamp(n.created_at)}</span>
                       </div>
                       <p className="mt-0.5 text-xs text-text-tertiary">{n.message}</p>
+                      {n.entity_refs && n.entity_refs.length > 0 && (
+                        <div
+                          className="mt-1.5 flex flex-wrap gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {n.entity_refs.map((ref, i) => (
+                            <EntityLink
+                              key={`${ref.entity_type}-${ref.entity_id}-${i}`}
+                              entityType={ref.entity_type}
+                              entityId={ref.entity_id}
+                              label={ref.display_name || undefined}
+                              showIcon
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {!n.read && (
                       <Button

@@ -3819,3 +3819,53 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 
 1. `cd web && npx tsc --noEmit` → 0 hata.
 2. `make web-build` → PASS, build suresi ~3s.
+
+---
+
+## FIX-219: Name Resolution + Clickable Cells Everywhere
+
+**Story:** FIX-219 — Global EntityLink extension, EntityHoverCard, backend DTO enrichment, 23-page audit.
+
+### 1. EntityLink Appearance per Page
+
+1. `/sims` listesini ac; APN ve Operator sutunlari "Cloud apnAdi" / "Radio operatorAdi" seklinde ikon + etiket render eder. Ham UUID prefix (`abc12345...`) HIC GORUNMEMELI.
+2. `/operators` listesini ac; Tenant sutunu `EntityLink` olarak render edilir — Building2 ikonu + tenant adi.
+3. `/audit` listesini ac; Actor ve Entity sutunlari `EntityLink` gosterir (user email label + User ikonu; entity label + entity tipi ikonu). Ham UUID dilimi (`abc12345`) OLMAMALI.
+4. `/admin/purge-history` sayfasini ac; Actor sutunu `EntityLink` (user ikonu + email) veya `—` em-dash (sistem aksiyonu). `actor_id` dolu satir varsa tiklanabilir.
+5. `/jobs` listesini ac; Created By sutunu kullanici adi veya `[System]` etiketi gosterir — ham UUID OLMAMALI.
+
+### 2. EntityHoverCard Delay + Offline
+
+1. `/dashboard` sayfasinda Op Health veya Top APNs widget'ini bul; EntityLink uzerinde 200ms hover bekle — kucuk popover acilar, entity ozet bilgisi (operator: code + MCC/MNC + health chip; APN: code + operator + subscriber count) gosterilir.
+2. Popover acildiktan sonra imleci uzaklastir (mouse-leave) — popover kapanir.
+3. Browser'da DevTools → Network → Offline moduna gec; EntityLink uzerine hover yap — popover acilmaz (navigator.onLine guard).
+4. Tekrar Online moduna don; hover çalışır.
+
+### 3. Orphan Em-Dash Rendering
+
+1. `/audit` listesini ac; deleted/orphan entity referanslari icin `entityId` dolup `label` bos olan satirlarda truncated UUID tooltip (mevcut fallback), her ikisi de bos ise `—` karakter render edilir.
+2. `grep -rn '\.slice(0,8)\|\.slice(0, 8)' web/src/pages/ --include='*.tsx'` → 0 sonuc (UUID dilimi yoklugu dogrulamasi).
+
+### 4. Right-Click Copy UUID
+
+1. Herhangi bir sayfada `EntityLink` uzerine sag-tik yap → native browser context menu yerine "UUID copied" toast gorunur.
+2. Clipboard'da kopyalanan deger orijinal `entityId` (tam UUID) dir.
+3. `copyOnRightClick={false}` ile render edilmis bir EntityLink uzerinde sag-tik → native browser menu acilir (test icin `audit/index.tsx` export UUID link ornegi).
+
+### 5. Keyboard Navigation + A11y
+
+1. Tab ile EntityLink'e odaklan — `focus-visible` halkas gorunur.
+2. Screen reader ile `aria-label="View operator Turkcell"` gibi anlamlı etiket okunur; label yoksa aria-label `entityType` + truncated ID icerir.
+3. Enter tusuna bas — detail sayfasina gider.
+
+### 6. UUID Slice Absence (Grep Check)
+
+1. `grep -rn '\.slice(0,8)\|\.slice(0, 8)\|\.substring(0,8)' web/src/pages/ --include='*.tsx'` → 0 match (birincil UI UUID dilimi yok).
+2. `grep -rn '\.slice(0,8)' web/src/components/shared/entity-link.tsx` → 0 match (bileşen içinde de yok).
+
+### 7. Backend DTO Enrichment
+
+1. `GET /api/v1/sessions/stats` → response body'de `top_operator.name` alani dolu (UUID degil insan-okunakli isim).
+2. `GET /api/v1/jobs` → `created_by_name` + `created_by_email` + `is_system` alanlari mevcut.
+3. `GET /api/v1/audit` → `user_email` + `user_name` alanlari dolu.
+4. `GET /api/v1/admin/purge-history` → `actor_email` + `actor_name` alanlari dolu (insan aksiyonu icin); sistem purgelarda `actor_id: null` ve `actor_email: ""` beklenir.

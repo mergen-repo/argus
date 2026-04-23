@@ -53,6 +53,7 @@ import {
 import type { Job, JobState } from '@/types/job'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -341,9 +342,17 @@ export default function JobListPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-xs text-text-primary font-mono">
-                        {job.created_by ? job.created_by.slice(0, 8) : '-'}
-                      </span>
+                      {job.is_system || !job.created_by ? (
+                        <span className="text-xs text-text-secondary italic">
+                          {job.is_system ? 'System' : '-'}
+                        </span>
+                      ) : (
+                        <EntityLink
+                          entityType="user"
+                          entityId={job.created_by}
+                          label={job.created_by_name || job.created_by_email}
+                        />
+                      )}
                       <span className="text-[10px] text-text-tertiary" title={new Date(job.created_at).toLocaleString()}>
                         {new Date(job.created_at).toLocaleString()}
                       </span>

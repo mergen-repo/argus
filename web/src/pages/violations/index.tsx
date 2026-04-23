@@ -256,7 +256,7 @@ export default function ViolationsPage() {
   const topSims = useMemo(() => {
     const agg: Record<string, { count: number; iccid: string; simId: string }> = {}
     violations.forEach((v) => {
-      if (!agg[v.sim_id]) agg[v.sim_id] = { count: 0, iccid: v.iccid || v.sim_iccid || v.sim_id.slice(0, 12), simId: v.sim_id }
+      if (!agg[v.sim_id]) agg[v.sim_id] = { count: 0, iccid: v.iccid || v.msisdn || v.sim_iccid || v.sim_id.slice(0, 12), simId: v.sim_id }
       agg[v.sim_id].count++
     })
     return Object.values(agg).sort((a, b) => b.count - a.count).slice(0, 5)

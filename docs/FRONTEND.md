@@ -175,6 +175,81 @@ Both primitives consume `bg-bg-surface`, `bg-bg-elevated`, `text-text-primary`, 
 
 Deferred (ROUTEMAP Tech Debt D-090): static lint rule flagging `Dialog` usage with >3 form fields. PR review + this doc enforce the rule in the interim.
 
+## Entity Reference Pattern
+
+Entity references — UUID + human-readable name — appear on every Argus surface: list cells, detail page headers, event stream rows, notifications, and audit logs. This section defines the canonical component, component boundaries, and the rules that keep raw UUIDs out of the primary UI.
+
+### When to use EntityLink vs EventEntityButton vs OperatorChip
+
+| Component | When to use |
+|-----------|-------------|
+| `EntityLink` | Table cells, detail page labels, generic entity references in any list or detail surface |
+| `EventEntityButton` | Event stream rows (WebSocket live events) — see `docs/architecture/WEBSOCKET_EVENTS.md` for the envelope contract |
+| `OperatorChip` | Operator-specific badge with MCC/MNC code (retained for legacy operator-heavy surfaces; new code should prefer `EntityLink` with `showIcon`) |
+
+### Canonical call shape
+
+```tsx
+<EntityLink
+  entityType="operator"
+  entityId={operator.id}
+  label={operator.name}
+  showIcon
+/>
+```
+
+### Supported entity types + route mapping
+
+| Type | Route |
+|------|-------|
+| `sim` | `/sims/{id}` |
+| `operator` | `/operators/{id}` |
+| `apn` | `/apns/{id}` |
+| `policy` | `/policies/{id}` |
+| `user` | `/settings/users/{id}` |
+| `session` | `/sessions/{id}` |
+| `tenant` | `/system/tenants/{id}` |
+| `ippool` | `/settings/ip-pools/{id}` |
+| `esim_profile` | `/esim?profile_id={id}` |
+| `violation` | (tooltip only — no route today) |
+| `alert`, `anomaly`, `job`, `apikey` | icon + label; route if available |
+
+### Icon map
+
+lucide-react icons per entity type: `sim→Smartphone`, `operator→Radio`, `apn→Cloud`, `policy→ShieldCheck`, `user→User`, `session→Activity`, `tenant→Building2`, `ippool→Network`, `esim_profile→Smartphone`, `violation→AlertTriangle`, `alert→Bell`, `anomaly→Sparkles`, `job→Briefcase`, `apikey→Key`.
+
+Size: 3.5 × 3.5 (`w-3.5 h-3.5`). Color: `text-text-tertiary` default, `text-accent` on hover (`group-hover` variant).
+
+### Orphan rule (AC-9)
+
+- `label` empty **AND** `entityId` empty → render `<span title="Entity reference broken">—</span>`. Never render a UUID prefix in the primary UI.
+- `label` empty **AND** `entityId` present → truncate+tooltip fallback (existing component behavior).
+
+### UUID-only allowed zones (AC-12)
+
+Raw UUID display is acceptable **only** in:
+
+- CSV / JSON exports (machine-readable output)
+- URL query strings (unavoidable)
+- Audit log JSON dump (verbatim record)
+- Developer debug pane (future — Shift+D toggle)
+
+**Not allowed:** table cells, detail page labels, notification body, event stream cards.
+
+### Hover card opt-in (AC-3)
+
+- Pass `hoverCard={true}` to enable (default `false` — reduces network requests).
+- 200 ms hover delay before fetch; cancel on `mouseleave`.
+- Auto-disabled when `navigator.onLine === false`.
+- Enable only on low-frequency surfaces (dashboard widgets, detail page header). **Do not enable inside large tables** — it would multiply hover-triggered requests with every row render.
+
+### Right-click copy UX (AC-11)
+
+- Default: right-click on any `EntityLink` → copies `entityId` (UUID) to clipboard → shows `"UUID copied"` toast.
+- Opt out with `copyOnRightClick={false}`.
+- Falls back to no-op when `navigator.clipboard` is unavailable (Safari private mode, older browsers).
+- This lets power users grab UUIDs for debugging or direct API use without the primary UI ever displaying them.
+
 ## Timeframe Pattern
 
 Argus uses a single canonical `<TimeframeSelector>` primitive for all timeframe/window selection surfaces. Never hand-roll a pill group or use a `<Select>` for timeframe — always reach for this component.

@@ -33,6 +33,8 @@ func NewHandler(auditStore *store.AuditStore, auditSvc *audit.FullService, logge
 type auditLogResponse struct {
 	ID         int64           `json:"id"`
 	UserID     *uuid.UUID      `json:"user_id"`
+	UserEmail  string          `json:"user_email,omitempty"`
+	UserName   string          `json:"user_name,omitempty"`
 	Action     string          `json:"action"`
 	EntityType string          `json:"entity_type"`
 	EntityID   string          `json:"entity_id"`
@@ -67,8 +69,8 @@ type systemEventResponse struct {
 	EntityID   string `json:"entity_id"`
 }
 
-func toAuditLogResponse(e audit.Entry) auditLogResponse {
-	return auditLogResponse{
+func toAuditLogResponse(e store.EntryWithUser) auditLogResponse {
+	r := auditLogResponse{
 		ID:         e.ID,
 		UserID:     e.UserID,
 		Action:     e.Action,
@@ -78,6 +80,13 @@ func toAuditLogResponse(e audit.Entry) auditLogResponse {
 		IPAddress:  e.IPAddress,
 		CreatedAt:  e.CreatedAt.Format(time.RFC3339Nano),
 	}
+	if e.UserEmail != nil {
+		r.UserEmail = *e.UserEmail
+	}
+	if e.UserName != nil {
+		r.UserName = *e.UserName
+	}
+	return r
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +158,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, nextCursor, err := h.auditStore.List(r.Context(), tenantID, params)
+	entries, nextCursor, err := h.auditStore.ListEnriched(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list audit logs")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")

@@ -17,6 +17,7 @@ import { useTenantResources } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared/entity-link'
 
 function SparkBar({ data }: { data: number[] }) {
   if (!data?.length) return <span className="text-text-tertiary text-xs">—</span>
@@ -117,7 +118,7 @@ export default function TenantResourcesPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-text-primary flex items-center justify-between">
                   {t.tenant_name}
-                  <Badge variant="outline" className="text-xs font-mono">{t.tenant_id.slice(0, 8)}</Badge>
+                  <EntityLink entityType="tenant" entityId={t.tenant_id} label={t.tenant_name} truncate />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -170,7 +171,7 @@ export default function TenantResourcesPage() {
                 >
                   <TableCell>
                     <div className="font-medium text-text-primary">{t.tenant_name}</div>
-                    <div className="text-xs text-text-tertiary font-mono">{t.tenant_id.slice(0, 8)}</div>
+                    <EntityLink entityType="tenant" entityId={t.tenant_id} label={t.tenant_name || undefined} truncate />
                   </TableCell>
                   <TableCell className="text-right">{formatNumber(t.sim_count)}</TableCell>
                   <TableCell className="text-right">{t.active_sessions}</TableCell>

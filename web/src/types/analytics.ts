@@ -54,6 +54,7 @@ export interface UsageResponse {
 
 export interface OperatorCost {
   operator_id: string
+  operator_name?: string | null
   total_usage_cost: number
   total_carrier_cost: number
   total_bytes: number
@@ -63,6 +64,7 @@ export interface OperatorCost {
 
 export interface CostPerMB {
   operator_id: string
+  operator_name?: string | null
   rat_type: string
   avg_cost_per_mb: number
   total_cost: number
@@ -142,6 +144,7 @@ export interface Alert {
   description: string
   meta: Record<string, unknown>
   sim_id: string | null
+  sim_iccid?: string | null
   operator_id: string | null
   apn_id: string | null
   dedup_key: string | null

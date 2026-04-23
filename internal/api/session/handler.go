@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -119,6 +120,13 @@ type sessionDetailDTO struct {
 	QuotaUsage    *quotaUsageDTO    `json:"quota_usage,omitempty"`
 }
 
+type topOperatorDTO struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Code  string `json:"code"`
+	Count int64  `json:"count"`
+}
+
 type statsDTO struct {
 	TotalActive    int64            `json:"total_active"`
 	ByOperator     map[string]int64 `json:"by_operator"`
@@ -126,6 +134,7 @@ type statsDTO struct {
 	ByRATType      map[string]int64 `json:"by_rat_type"`
 	AvgDurationSec float64          `json:"avg_duration_sec"`
 	AvgBytes       float64          `json:"avg_bytes"`
+	TopOperator    *topOperatorDTO  `json:"top_operator,omitempty"`
 }
 
 type disconnectRequest struct {
@@ -370,6 +379,40 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 		ByRATType:      stats.ByRATType,
 		AvgDurationSec: stats.AvgDurationSec,
 		AvgBytes:       stats.AvgBytes,
+	}
+
+	if len(stats.ByOperator) > 0 && h.operatorStore != nil {
+		keys := make([]string, 0, len(stats.ByOperator))
+		for k := range stats.ByOperator {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		var topID string
+		var topCount int64
+		for _, k := range keys {
+			if stats.ByOperator[k] > topCount {
+				topCount = stats.ByOperator[k]
+				topID = k
+			}
+		}
+
+		if topID != "" {
+			opID, parseErr := uuid.Parse(topID)
+			if parseErr == nil {
+				op, opErr := h.operatorStore.GetByID(r.Context(), opID)
+				if opErr == nil {
+					dto.TopOperator = &topOperatorDTO{
+						ID:    op.ID.String(),
+						Name:  op.Name,
+						Code:  op.Code,
+						Count: topCount,
+					}
+				} else if !errors.Is(opErr, store.ErrOperatorNotFound) {
+					h.logger.Warn().Err(opErr).Str("operator_id", topID).Msg("top_operator lookup")
+				}
+			}
+		}
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, dto)

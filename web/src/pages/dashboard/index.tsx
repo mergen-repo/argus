@@ -20,6 +20,7 @@ import { Sparkline } from '@/components/ui/sparkline'
 import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions, useRealtimeOperatorHealth } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
 import { OperatorChip } from '@/components/shared/operator-chip'
+import { EntityLink } from '@/components/shared'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { SeverityBadge } from '@/components/shared/severity-badge'
@@ -657,8 +658,8 @@ const TopAPNsByTraffic = React.memo(function TopAPNsByTraffic({
                   onClick={() => apn.id && navigate(`/apns/${apn.id}`)}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-mono text-text-primary group-hover:text-accent transition-colors truncate">
-                      {apn.name === 'none' ? 'No APN' : apn.name}
+                    <span className="text-[12px] font-mono text-text-primary group-hover:text-accent transition-colors truncate" onClick={(e) => e.stopPropagation()}>
+                      {apn.id ? <EntityLink entityType="apn" entityId={apn.id} label={apn.name === 'none' ? 'No APN' : apn.name} /> : (apn.name === 'none' ? 'No APN' : apn.name)}
                     </span>
                     <div className="flex items-center gap-3 flex-shrink-0 pl-2">
                       <span className="text-[11px] font-mono text-text-secondary">
@@ -694,18 +695,36 @@ const TopAPNsByTraffic = React.memo(function TopAPNsByTraffic({
 // derived from the LiveEvent payload. Highlights SIM-level context
 // (IMSI/IP) in accent colour; falls back to entity_type:entity_id when no
 // richer signal is present.
+function pickStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v ? v : undefined
+}
+
 function EventSourceChips({ event }: { event: LiveEvent }) {
+  const meta = event.meta || {}
   const chips: Array<{ label: string; value: string; highlight?: boolean }> = []
   if (event.imsi) chips.push({ label: 'IMSI', value: event.imsi, highlight: true })
   if (event.framed_ip) chips.push({ label: 'IP', value: event.framed_ip, highlight: true })
   if (event.msisdn) chips.push({ label: 'MSISDN', value: event.msisdn })
-  if (event.operator_id && !event.imsi) chips.push({ label: 'Op', value: event.operator_id.slice(0, 8) })
-  if (event.apn_id && !event.imsi) chips.push({ label: 'APN', value: event.apn_id.slice(0, 8) })
-  if (event.policy_id) chips.push({ label: 'Policy', value: event.policy_id.slice(0, 8) })
-  if (event.job_id) chips.push({ label: 'Job', value: event.job_id.slice(0, 8) })
+
+  // Name-aware priority chain (FIX-219 / AC-7):
+  // P1: envelope entity display_name, P2: meta name fields, P3: UUID slice
+  const envEntityType = event.entity?.type
+  const envDisplayName = event.entity?.display_name
+  function resolveId(id: string, matchType: string, metaNameKey: string): string {
+    if (envEntityType === matchType && envDisplayName) return envDisplayName
+    const metaName = pickStr(meta[metaNameKey])
+    if (metaName) return metaName
+    return id.slice(0, 8)
+  }
+
+  if (event.operator_id && !event.imsi) chips.push({ label: 'Op', value: resolveId(event.operator_id, 'operator', 'operator_name') })
+  if (event.apn_id && !event.imsi) chips.push({ label: 'APN', value: resolveId(event.apn_id, 'apn', 'apn_name') })
+  if (event.policy_id) chips.push({ label: 'Policy', value: resolveId(event.policy_id, 'policy', 'policy_name') })
+  if (event.job_id) chips.push({ label: 'Job', value: resolveId(event.job_id, 'job', 'job_name') })
   if (typeof event.progress_pct === 'number') chips.push({ label: '%', value: `${Math.round(event.progress_pct)}` })
   if (chips.length === 0 && event.entity_type && event.entity_id) {
-    chips.push({ label: event.entity_type, value: event.entity_id.slice(0, 8) })
+    const fallbackValue = envDisplayName || event.entity_id.slice(0, 8)
+    chips.push({ label: event.entity_type, value: fallbackValue })
   }
   if (chips.length === 0) return null
   return (
@@ -870,6 +889,11 @@ const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardA
                   <p className="text-[12px] text-text-primary truncate">{alert.message}</p>
                   <p className="text-[10px] text-text-tertiary mt-0.5">{timeAgo(alert.detected_at)}</p>
                 </div>
+                {alert.sim_id && (
+                  <span className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <EntityLink entityType="sim" entityId={alert.sim_id} truncate className="text-[10px]" />
+                  </span>
+                )}
                 {alert.source && (
                   <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary flex-shrink-0">
                     {alert.source}

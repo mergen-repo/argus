@@ -27,6 +27,7 @@ import {
   TableCell,
 } from '@/components/ui/table'
 import { EmptyState } from '@/components/shared/empty-state'
+import { EntityLink } from '@/components/shared'
 import { useExport } from '@/hooks/use-export'
 import { useRoamingAgreements, useCreateRoamingAgreement } from '@/hooks/use-roaming-agreements'
 import type { RoamingAgreement, AgreementType, AgreementState, CostTerms, SLATerms } from '@/types/roaming'
@@ -307,7 +308,7 @@ export default function RoamingAgreementsPage() {
                   data-href={`/roaming-agreements/${ag.id}`}
                 >
                   <TableCell className="font-medium">{ag.partner_operator_name}</TableCell>
-                  <TableCell className="font-mono text-xs text-text-secondary">{ag.operator_id.slice(0, 8)}</TableCell>
+                  <TableCell className="font-mono text-xs text-text-secondary"><EntityLink entityType="operator" entityId={ag.operator_id} truncate /></TableCell>
                   <TableCell>{typeBadge(ag.agreement_type)}</TableCell>
                   <TableCell>{agreementStateBadge(ag.state)}</TableCell>
                   <TableCell className="text-text-secondary">{ag.end_date}</TableCell>

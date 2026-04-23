@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { EntityLink } from '@/components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -219,7 +220,7 @@ export default function TopologyPage() {
               >
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', (isDown || isDegraded) && 'animate-pulse')} style={{ backgroundColor: opColor, boxShadow: `0 0 ${isDown ? 12 : 8}px ${opColor}80` }} />
-                  <span className={cn('text-sm font-semibold truncate', isDown ? 'text-danger' : 'text-text-primary')}>{op.name}</span>
+                  <span className={cn('text-sm font-semibold truncate', isDown ? 'text-danger' : 'text-text-primary')} onClick={(e) => e.stopPropagation()}><EntityLink entityType="operator" entityId={op.id} label={op.name} /></span>
                   <Badge variant={op.health_status === 'healthy' ? 'success' : op.health_status === 'degraded' ? 'warning' : 'danger'} className="text-[9px] ml-auto shrink-0">
                     {isDown && <XCircle className="h-2.5 w-2.5 mr-0.5" />}
                     {isDegraded && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />}
@@ -273,7 +274,7 @@ export default function TopologyPage() {
                       >
                         <div className="flex items-center gap-2">
                           <Wifi className={cn('h-3.5 w-3.5 shrink-0', apnSevered ? 'text-danger' : apnActive ? 'text-cyan' : 'text-text-tertiary')} />
-                          <span className={cn('text-xs font-medium truncate', apnSevered ? 'text-danger/80' : 'text-text-primary')}>{apn.name}</span>
+                          <span className={cn('text-xs font-medium truncate', apnSevered ? 'text-danger/80' : 'text-text-primary')} onClick={(e) => e.stopPropagation()}><EntityLink entityType="apn" entityId={apn.id} label={apn.name} /></span>
                           <Badge variant={apnSevered ? 'danger' : apn.state === 'active' ? 'success' : 'secondary'} className="text-[9px] ml-auto shrink-0">
                             {isDown ? 'UNREACHABLE' : apn.state}
                           </Badge>

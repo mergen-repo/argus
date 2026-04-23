@@ -12,6 +12,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -195,16 +196,22 @@ func TestToAuditLogResponse(t *testing.T) {
 	userID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	ip := "192.168.1.1"
 	ts := time.Date(2026, 3, 18, 14, 2, 0, 123456789, time.UTC)
+	email := "user@example.com"
+	name := "Test User"
 
-	entry := audit.Entry{
-		ID:         42,
-		UserID:     &userID,
-		Action:     "create",
-		EntityType: "sim",
-		EntityID:   "sim-1",
-		Diff:       json.RawMessage(`{"name":{"from":null,"to":"test"}}`),
-		IPAddress:  &ip,
-		CreatedAt:  ts,
+	entry := store.EntryWithUser{
+		Entry: audit.Entry{
+			ID:         42,
+			UserID:     &userID,
+			Action:     "create",
+			EntityType: "sim",
+			EntityID:   "sim-1",
+			Diff:       json.RawMessage(`{"name":{"from":null,"to":"test"}}`),
+			IPAddress:  &ip,
+			CreatedAt:  ts,
+		},
+		UserEmail: &email,
+		UserName:  &name,
 	}
 
 	resp := toAuditLogResponse(entry)
@@ -227,17 +234,25 @@ func TestToAuditLogResponse(t *testing.T) {
 	if resp.CreatedAt != ts.Format(time.RFC3339Nano) {
 		t.Fatalf("created_at = %s, want %s", resp.CreatedAt, ts.Format(time.RFC3339Nano))
 	}
+	if resp.UserEmail != "user@example.com" {
+		t.Fatalf("user_email = %s, want user@example.com", resp.UserEmail)
+	}
+	if resp.UserName != "Test User" {
+		t.Fatalf("user_name = %s, want Test User", resp.UserName)
+	}
 }
 
 func TestToAuditLogResponse_NilOptionalFields(t *testing.T) {
 	ts := time.Date(2026, 3, 18, 14, 0, 0, 0, time.UTC)
 
-	entry := audit.Entry{
-		ID:         1,
-		Action:     "delete",
-		EntityType: "user",
-		EntityID:   "user-1",
-		CreatedAt:  ts,
+	entry := store.EntryWithUser{
+		Entry: audit.Entry{
+			ID:         1,
+			Action:     "delete",
+			EntityType: "user",
+			EntityID:   "user-1",
+			CreatedAt:  ts,
+		},
 	}
 
 	resp := toAuditLogResponse(entry)

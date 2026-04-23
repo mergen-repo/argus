@@ -52,7 +52,7 @@ import type { ESimProfile, ESimProfileState } from '@/types/esim'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/empty-state'
-import { OperatorChip } from '@/components/shared/operator-chip'
+import { EntityLink } from '@/components/shared'
 import { useExport } from '@/hooks/use-export'
 
 const STATE_OPTIONS = [
@@ -300,7 +300,7 @@ export default function EsimListPage() {
               {allProfiles.map((profile, idx) => (
                 <TableRow key={profile.id} data-row-index={idx} data-href={`/sims/${profile.sim_id}`}>
                   <TableCell>
-                    <span className="font-mono text-xs text-accent">{profile.sim_id.slice(0, 8)}</span>
+                    <EntityLink entityType="sim" entityId={profile.sim_id} label={profile.iccid_on_profile ?? undefined} truncate />
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-xs text-text-secondary">{profile.eid.slice(0, 16)}...</span>
@@ -311,11 +311,7 @@ export default function EsimListPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <OperatorChip
-                      name={profile.operator_name}
-                      code={profile.operator_code}
-                      rawId={profile.operator_id}
-                    />
+                    <EntityLink entityType="operator" entityId={profile.operator_id} label={profile.operator_name} />
                   </TableCell>
                   <TableCell>
                     <Badge variant={stateVariant(profile.profile_state as ESimProfileState)} className="gap-1">

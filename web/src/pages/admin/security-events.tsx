@@ -18,6 +18,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared/entity-link'
 import type { ListResponse } from '@/types/sim'
 import type { AuditLog } from '@/types/audit'
 
@@ -144,10 +145,10 @@ export default function SecurityEventsPage() {
                     </TableCell>
                     <TableCell>{severityBadge(e.action)}</TableCell>
                     <TableCell className="text-sm text-text-secondary">
-                      {e.user_id ? e.user_id.slice(0, 8) : '—'}
+                      {e.user_id ? <EntityLink entityType="user" entityId={e.user_id} label={e.user_email || e.user_name} /> : '—'}
                     </TableCell>
                     <TableCell className="text-xs text-text-tertiary font-mono">
-                      {e.entity_type} {e.entity_id ? e.entity_id.slice(0, 8) : ''}
+                      {e.entity_type}{' '}{e.entity_id ? <EntityLink entityType={e.entity_type} entityId={e.entity_id} truncate /> : ''}
                     </TableCell>
                     <TableCell className="text-xs text-text-tertiary">
                       {timeAgo(e.created_at)}
