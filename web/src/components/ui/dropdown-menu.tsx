@@ -110,6 +110,44 @@ function DropdownMenuItem({ className, ...props }: React.ButtonHTMLAttributes<HT
   )
 }
 
+function DropdownMenuCheckboxItem({
+  className,
+  checked,
+  children,
+  onCheckedChange,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  checked?: boolean
+  onCheckedChange?: (checked: boolean) => void
+}) {
+  return (
+    <button
+      className={cn(
+        'flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer whitespace-nowrap text-left',
+        className,
+      )}
+      onClick={(e) => {
+        e.stopPropagation()
+        onCheckedChange?.(!checked)
+        props.onClick?.(e)
+      }}
+      {...props}
+    >
+      <span className={cn(
+        'flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border transition-colors flex-shrink-0',
+        checked ? 'border-accent bg-accent' : 'border-border bg-transparent',
+      )}>
+        {checked && (
+          <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+            <path d="M1.5 5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      {children}
+    </button>
+  )
+}
+
 function DropdownMenuSeparator({ className }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('-mx-1 my-1 h-px bg-border', className)} />
 }
@@ -123,4 +161,4 @@ function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<HTMLDiv
   )
 }
 
-export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel }
+export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel }

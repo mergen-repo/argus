@@ -17,7 +17,7 @@
 | SCR-011 | [Analytics — Usage](screens/SCR-011-analytics-usage.md) | Analytics | /analytics | JWT (analyst+) | |
 | SCR-012 | [Analytics — Cost](screens/SCR-012-analytics-cost.md) | Analytics | /analytics/cost | JWT (analyst+) | |
 | SCR-013 | [Analytics — Anomalies](screens/SCR-013-analytics-anomalies.md) | Analytics | /analytics/anomalies | JWT (analyst+) | |
-| SCR-020 | [SIM List](screens/SCR-020-sim-list.md) | SIM | /sims | JWT (sim_manager+) | FIX-216: bulk state-change (Suspend/Resume/Terminate) → Dialog; Assign Policy → SlidePanel (width="md") per Option C rule |
+| SCR-020 | [SIM List](screens/SCR-020-sim-list.md) | SIM | /sims | JWT (sim_manager+) | FIX-216: bulk state-change (Suspend/Resume/Terminate) → Dialog; Assign Policy → SlidePanel (width="md") per Option C rule. FIX-224: multi-state filter (DropdownMenuCheckboxItem, 5 states: ordered/active/suspended/terminated/stolen_lost, CSV URL param, per-token chip removal), Created column datetime + timeAgo tooltip, Import SlidePanel 3-stage flow (input→preview→result) with native CSV parse + column validation + row limit 10 + useJobPolling post-import report (success/fail counts + error rows + CSV download). |
 | SCR-021 | [SIM Detail — Overview](screens/SCR-021-sim-detail.md) | SIM | /sims/:id | JWT (sim_manager+) | |
 | SCR-021b | [SIM Detail — Sessions](screens/SCR-021b-sim-sessions.md) | SIM | /sims/:id#sessions | JWT (sim_manager+) | |
 | SCR-021c | [SIM Detail — Usage](screens/SCR-021c-sim-usage.md) | SIM | /sims/:id#usage | JWT (sim_manager+) | |
@@ -77,7 +77,7 @@
 | SCR-174 | Tenant Detail | System | /system/tenants/:id | JWT (super_admin) | STORY-075: AnimatedCounter stats, overview/audit/alerts tabs, super_admin guard |
 | SCR-175 | Announcements | Admin | /admin/announcements | JWT (super_admin) | STORY-077: CRUD for system announcements (info/warning/critical), target all or specific tenant, starts_at/ends_at scheduling, dismissible flag |
 | SCR-176 | Impersonate User | Admin | /admin/impersonate | JWT (super_admin) | STORY-077: user list with "Impersonate" button per row; triggers 1h read-only JWT + purple banner |
-| SCR-180 | SIM Compare | SIM | /sims/compare | JWT (sim_manager+) | STORY-078/077: two-SIM side-by-side diff; `?sim_id_a=&sim_id_b=` pre-populate (F-4 = D-016 OPEN against STORY-079) |
+| SCR-180 | SIM Compare | SIM | /sims/compare | JWT (sim_manager+) | STORY-078/077: two-SIM side-by-side diff; `?sim_id_a=&sim_id_b=` pre-populate (F-4 = D-016 OPEN against STORY-079). FIX-224: MAX_SIMS 3→4, lg:grid-cols-4 grid layout, warn+disable at cap ("Compare limit reached (4/4)"). |
 | SCR-181 | Operator Compare | Operator | /operators/compare | JWT (operator_manager+) | STORY-077: two-operator side-by-side comparison |
 | SCR-182 | Policy Compare | Policy | /policies/compare | JWT (policy_editor+) | STORY-077: two-policy version diff (DSL + metadata) |
 | SCR-183 | Alerts List | Alerts | /alerts | JWT (sim_manager+) | STORY-075/077: alert feed with severity filters; drill-down to SCR-172. FIX-209: unified multi-source feed (sim/operator/infra/policy/system), Source chip per row, source filter param (valid enum required), backed by TBL-53 alerts table (was anomalies only). |

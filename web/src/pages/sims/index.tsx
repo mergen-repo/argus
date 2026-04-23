@@ -40,8 +40,11 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip } from '@/components/ui/tooltip'
+import { timeAgo } from '@/lib/format'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -77,7 +80,6 @@ import { useDataFreshness } from '@/hooks/use-data-freshness'
 import { useUIStore } from '@/stores/ui'
 
 const STATE_OPTIONS = [
-  { value: '', label: 'All States' },
   { value: 'ordered', label: 'Ordered' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
@@ -177,16 +179,35 @@ export default function SimListPage() {
   const [importFile, setImportFile] = useState<File | null>(null)
   const [pasteContent, setPasteContent] = useState('')
   const [reserveOnImport, setReserveOnImport] = useState(false)
-  const [importResult, setImportResult] = useState<{ job_id: string; rows_parsed: number; errors: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ job_id: string; tenant_id: string; status: string } | null>(null)
+  const [importJobId, setImportJobId] = useState<string | null>(null)
+  const [importPreview, setImportPreview] = useState<{ headers: string[]; rows: string[][]; errors: { row: number; message: string }[] } | null>(null)
+  const importJobPolling = useJobPolling(importJobId, {
+    onComplete: () => {
+      queryClient.invalidateQueries({ queryKey: ['sims'] })
+    },
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { exportCSV, exporting } = useExport('sims')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
+  const selectedStates = useMemo(() => {
+    if (!filters.state) return [] as string[]
+    return filters.state.split(',').filter(Boolean)
+  }, [filters.state])
+
   const activeFilters = useMemo(() => {
-    const applied: { key: string; label: string; value: string }[] = []
-    if (filters.state) {
-      const opt = STATE_OPTIONS.find((o) => o.value === filters.state)
-      applied.push({ key: 'state', label: 'State', value: opt?.label ?? filters.state })
+    const applied: { key: string; label: string; value: string; stateToken?: string }[] = []
+    if (selectedStates.length > 0) {
+      if (selectedStates.length === 1) {
+        const opt = STATE_OPTIONS.find((o) => o.value === selectedStates[0])
+        applied.push({ key: 'state', label: 'State', value: opt?.label ?? selectedStates[0], stateToken: selectedStates[0] })
+      } else {
+        selectedStates.forEach((token) => {
+          const opt = STATE_OPTIONS.find((o) => o.value === token)
+          applied.push({ key: 'state', label: 'State', value: opt?.label ?? token, stateToken: token })
+        })
+      }
     }
     if (filters.rat_type) {
       applied.push({ key: 'rat_type', label: 'RAT', value: RAT_DISPLAY[filters.rat_type] ?? filters.rat_type })
@@ -203,7 +224,7 @@ export default function SimListPage() {
       applied.push({ key: 'ip', label: 'IP', value: filters.ip })
     }
     return applied
-  }, [filters])
+  }, [filters, selectedStates])
 
   const handleSearch = useCallback(() => {
     const trimmed = searchInput.trim()
@@ -264,8 +285,10 @@ export default function SimListPage() {
 
   const allSims = useMemo(() => {
     if (!data?.pages) return []
-    return data.pages.flatMap((page) => page.data)
-  }, [data])
+    const raw = data.pages.flatMap((page) => page.data)
+    if (selectedStates.length <= 1) return raw
+    return raw.filter((sim) => selectedStates.includes(sim.state))
+  }, [data, selectedStates])
 
   const { visibleSelectedCount, hiddenSelectedCount } = useMemo(() => {
     const visible = [...selectedIds].filter((id) => allSims.some((s) => s.id === id)).length
@@ -301,8 +324,15 @@ export default function SimListPage() {
     setSelectedIds(new Set())
   }
 
-  const removeFilter = (key: string) => {
-    setFilters((f) => ({ ...f, [key]: undefined }))
+  const removeFilter = (key: string, stateToken?: string) => {
+    if (key === 'state' && stateToken) {
+      setFilters((f) => {
+        const tokens = (f.state ?? '').split(',').filter((t) => t && t !== stateToken)
+        return { ...f, state: tokens.length > 0 ? tokens.join(',') : undefined }
+      })
+    } else {
+      setFilters((f) => ({ ...f, [key]: undefined }))
+    }
   }
 
   const handleSegmentSelect = (segId: string) => {
@@ -351,6 +381,36 @@ export default function SimListPage() {
     }
   }
 
+  const REQUIRED_COLUMNS = ['iccid', 'imsi', 'msisdn']
+
+  const parseCSVPreview = useCallback((content: string) => {
+    const lines = content.trim().split('\n')
+    if (lines.length < 1) return null
+    const delimiter = lines[0].includes('\t') ? '\t' : ','
+    const headers = lines[0].split(delimiter).map((h) => h.trim().toLowerCase())
+    const rows = lines.slice(1).map((l) => l.split(delimiter).map((c) => c.trim()))
+    const errors: { row: number; message: string }[] = []
+    const missingCols = REQUIRED_COLUMNS.filter((c) => !headers.includes(c))
+    if (missingCols.length > 0) {
+      errors.push({ row: 0, message: `Missing required columns: ${missingCols.join(', ')}` })
+    }
+    if (missingCols.length === 0) {
+      const iccidIdx = headers.indexOf('iccid')
+      const imsiIdx = headers.indexOf('imsi')
+      const msisdnIdx = headers.indexOf('msisdn')
+      rows.forEach((row, i) => {
+        const rowNum = i + 2
+        const iccid = row[iccidIdx] ?? ''
+        const imsi = row[imsiIdx] ?? ''
+        const msisdn = row[msisdnIdx] ?? ''
+        if (!/^\d{18,22}$/.test(iccid)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid ICCID "${iccid}"` })
+        if (!/^\d{14,15}$/.test(imsi)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid IMSI "${imsi}"` })
+        if (msisdn && !/^\+?\d{10,15}$/.test(msisdn)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid MSISDN "${msisdn}"` })
+      })
+    }
+    return { headers, rows, errors }
+  }, [])
+
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -386,7 +446,7 @@ export default function SimListPage() {
             <GitCompareArrows className="h-4 w-4" />
             Compare
           </Button>
-          <Button className="gap-2" size="sm" onClick={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportTab('paste'); setReserveOnImport(false) }}>
+          <Button className="gap-2" size="sm" onClick={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportPreview(null); setImportJobId(null); setImportTab('paste'); setReserveOnImport(false) }}>
             <Upload className="h-4 w-4" />
             Import SIMs
           </Button>
@@ -449,22 +509,37 @@ export default function SimListPage() {
         <DropdownMenu>
           <DropdownMenuTrigger className={cn(
             'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
-            filters.state
+            selectedStates.length > 0
               ? 'border-accent/30 bg-accent-dim text-accent'
               : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
           )}>
             <Filter className="h-3 w-3" />
-            <span>State{filters.state ? `: ${stateLabel(filters.state)}` : ''}</span>
+            <span>
+              {selectedStates.length === 0
+                ? 'State'
+                : selectedStates.length === 1
+                  ? `State: ${STATE_OPTIONS.find((o) => o.value === selectedStates[0])?.label ?? selectedStates[0]}`
+                  : `States: ${selectedStates.length} selected`}
+            </span>
+            <ChevronDown className="h-3 w-3" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             {STATE_OPTIONS.map((opt) => (
-              <DropdownMenuItem
+              <DropdownMenuCheckboxItem
                 key={opt.value}
-                onClick={() => setFilters((f) => ({ ...f, state: opt.value || undefined }))}
+                checked={selectedStates.includes(opt.value)}
+                onCheckedChange={(checked) => {
+                  setFilters((f) => {
+                    const tokens = (f.state ?? '').split(',').filter(Boolean)
+                    const next = checked
+                      ? [...tokens.filter((t) => t !== opt.value), opt.value]
+                      : tokens.filter((t) => t !== opt.value)
+                    return { ...f, state: next.length > 0 ? next.join(',') : undefined }
+                  })
+                }}
               >
-                <span className="flex-1">{opt.label}</span>
-                {filters.state === opt.value && <Check className="h-3.5 w-3.5 text-accent" />}
-              </DropdownMenuItem>
+                {opt.label}
+              </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -545,11 +620,11 @@ export default function SimListPage() {
         {/* Applied filter chips */}
         {activeFilters.map((af) => (
           <span
-            key={af.key}
+            key={`${af.key}-${af.stateToken ?? af.value}`}
             className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border border-accent/30 bg-accent-dim text-accent"
           >
             {af.label}: {af.value}
-            <Button variant="ghost" size="icon" aria-label="Remove filter" onClick={() => removeFilter(af.key)} className="h-4 w-4 hover:text-text-primary">
+            <Button variant="ghost" size="icon" aria-label="Remove filter" onClick={() => removeFilter(af.key, af.stateToken)} className="h-4 w-4 hover:text-text-primary">
               <X className="h-3 w-3" />
             </Button>
           </span>
@@ -664,7 +739,7 @@ export default function SimListPage() {
                         title="No SIMs yet"
                         description="Import SIMs to get started with subscriber management."
                         ctaLabel="Import SIMs"
-                        onCta={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportTab('paste'); setReserveOnImport(false) }}
+                        onCta={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportPreview(null); setImportJobId(null); setImportTab('paste'); setReserveOnImport(false) }}
                       />
                     )}
                   </TableCell>
@@ -750,9 +825,11 @@ export default function SimListPage() {
                     <RATBadge ratType={sim.rat_type} />
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary">
-                      {new Date(sim.created_at).toLocaleDateString()}
-                    </span>
+                    <Tooltip content={timeAgo(sim.created_at)} side="top">
+                      <span className="text-xs text-text-secondary cursor-default">
+                        {new Date(sim.created_at).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+                      </span>
+                    </Tooltip>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <RowActionsMenu
@@ -966,27 +1043,136 @@ export default function SimListPage() {
       </Dialog>
 
       {/* Import SIMs SlidePanel */}
-      <SlidePanel open={importOpen} onOpenChange={setImportOpen} title="Import SIMs" description="Paste CSV data or upload a file. A background job will process the import." width="lg">
+      <SlidePanel open={importOpen} onOpenChange={setImportOpen} title="Import SIMs" description="Paste CSV data or upload a file. Preview validates before commit." width="lg">
         {importResult ? (
-          <div className="rounded-[var(--radius-sm)] border border-success/30 bg-success-dim p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <Check className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-text-primary">Import job created</span>
-            </div>
-            <div className="text-xs text-text-secondary space-y-1">
-              <p>Rows parsed: <span className="font-mono text-text-primary">{importResult.rows_parsed}</span></p>
-              <p>Job ID: <span className="font-mono text-text-tertiary">{importResult.job_id.slice(0, 12)}...</span></p>
-              {importResult.errors.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-warning font-medium">{importResult.errors.length} validation errors:</p>
-                  <ul className="list-disc pl-4 text-text-tertiary mt-1">
-                    {importResult.errors.slice(0, 5).map((err, i) => <li key={i}>{err}</li>)}
-                    {importResult.errors.length > 5 && <li>...and {importResult.errors.length - 5} more</li>}
-                  </ul>
+          <div className="space-y-4">
+            <div className="rounded-[var(--radius-sm)] border border-success/30 bg-success-dim p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-success" />
+                <span className="text-sm font-medium text-text-primary">Import job queued</span>
+              </div>
+              <div className="text-xs text-text-secondary space-y-1">
+                <p>Job ID: <span className="font-mono text-text-tertiary">{importResult.job_id.slice(0, 12)}...</span></p>
+                <p>Status: <span className="font-mono text-text-primary capitalize">{importJobPolling.data?.state ?? importResult.status}</span></p>
+                {importJobPolling.data && (importJobPolling.data.state === 'running' || importJobPolling.data.state === 'completed') && (
+                  <p>
+                    Progress: <span className="font-mono text-text-primary">{importJobPolling.data.processed_items}</span>
+                    {importJobPolling.data.total_items > 0 && ` / ${importJobPolling.data.total_items}`}
+                    {importJobPolling.data.failed_items > 0 && (
+                      <span className="text-warning ml-1">({importJobPolling.data.failed_items} failed)</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              {importJobPolling.data?.state === 'running' && (
+                <div className="flex items-center gap-2 text-xs text-text-tertiary">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Processing import...
                 </div>
               )}
+              {importJobPolling.data?.state === 'completed' && importJobPolling.data.failed_items > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-warning/30 text-warning hover:bg-warning/10"
+                  onClick={() => navigate(`/jobs/${importResult.job_id}`)}
+                >
+                  <Download className="h-3 w-3" />
+                  View failed rows
+                </Button>
+              )}
             </div>
-            <p className="text-xs text-text-tertiary">Check the Jobs page for progress.</p>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => navigate(`/jobs/${importResult.job_id}`)}>
+              View job details
+            </Button>
+          </div>
+        ) : importPreview ? (
+          <div className="space-y-4">
+            <div className={cn(
+              'rounded-[var(--radius-sm)] border p-3 space-y-1',
+              importPreview.errors.length > 0 ? 'border-danger/30 bg-danger-dim' : 'border-success/30 bg-success-dim',
+            )}>
+              <div className="flex items-center gap-2">
+                {importPreview.errors.length > 0
+                  ? <AlertCircle className="h-4 w-4 text-danger" />
+                  : <Check className="h-4 w-4 text-success" />}
+                <span className="text-sm font-medium text-text-primary">
+                  {importPreview.errors.length > 0
+                    ? `${importPreview.errors.length} validation error${importPreview.errors.length !== 1 ? 's' : ''}`
+                    : `${importPreview.rows.length} row${importPreview.rows.length !== 1 ? 's' : ''} ready to import`}
+                </span>
+              </div>
+              {importPreview.errors.length > 0 && (
+                <ul className="list-disc pl-5 text-xs text-danger space-y-0.5 max-h-32 overflow-y-auto">
+                  {importPreview.errors.map((e, i) => <li key={i}>{e.message}</li>)}
+                </ul>
+              )}
+            </div>
+
+            {importPreview.rows.length > 0 && (
+              <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-border">
+                <Table>
+                  <TableHeader className="bg-bg-elevated">
+                    <TableRow>
+                      {importPreview.headers.map((h) => (
+                        <TableHead key={h} className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">
+                          {h}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importPreview.rows.slice(0, 10).map((row, i) => (
+                      <TableRow key={i}>
+                        {row.map((cell, j) => (
+                          <TableCell key={j} className="font-mono text-xs text-text-secondary py-1.5">
+                            {cell || <span className="text-text-tertiary italic">—</span>}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {importPreview.rows.length > 10 && (
+                  <p className="text-[10px] text-text-tertiary text-center py-1.5 border-t border-border">
+                    …and {importPreview.rows.length - 10} more rows
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-4 border-t border-border">
+              <Button variant="outline" size="sm" onClick={() => setImportPreview(null)}>
+                Back
+              </Button>
+              <div className="flex items-center gap-3">
+                <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={async () => {
+                    let file: File
+                    if (importTab === 'paste') {
+                      const normalized = pasteContent.includes('\t') ? pasteContent.replace(/\t/g, ',') : pasteContent
+                      file = new File([normalized], 'import.csv', { type: 'text/csv' })
+                    } else {
+                      if (!importFile) return
+                      file = importFile
+                    }
+                    try {
+                      const result = await importMutation.mutateAsync({ file, reserveStaticIP: reserveOnImport })
+                      setImportResult(result)
+                      setImportJobId(result.job_id)
+                    } catch {
+                      // handled by api interceptor
+                    }
+                  }}
+                  disabled={importPreview.errors.some((e) => e.row === 0) || importMutation.isPending}
+                  className="gap-2"
+                >
+                  {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Commit Import
+                </Button>
+              </div>
+            </div>
           </div>
         ) : (
           <Tabs value={importTab} onValueChange={(v) => setImportTab(v as 'paste' | 'file')}>
@@ -1003,9 +1189,9 @@ export default function SimListPage() {
 
             <div className="mt-3">
               <div className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated p-2.5 mb-3">
-                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Columns</p>
+                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Required columns</p>
                 <pre className="font-mono text-[11px] text-text-secondary">iccid, imsi, msisdn, operator_code, apn_name, <span className="text-text-tertiary">ip_address</span></pre>
-                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers. <span className="text-text-tertiary">ip_address</span> is optional — if provided, reserves that IP from the APN's pool.</p>
+                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers. <span className="text-text-tertiary">ip_address</span> is optional.</p>
               </div>
 
               <label className="flex items-center gap-2 mb-3 cursor-pointer">
@@ -1069,42 +1255,37 @@ export default function SimListPage() {
                 </Button>
               </TabsContent>
             </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+              <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+              <Button
+                onClick={async () => {
+                  let content: string
+                  if (importTab === 'paste') {
+                    if (!pasteContent.trim()) return
+                    content = pasteContent
+                  } else {
+                    if (!importFile) return
+                    content = await importFile.text()
+                  }
+                  const preview = parseCSVPreview(content)
+                  if (preview) setImportPreview(preview)
+                }}
+                disabled={(importTab === 'paste' ? !pasteContent.trim() : !importFile)}
+                className="gap-2"
+              >
+                <Check className="h-4 w-4" />
+                Preview & Validate
+              </Button>
+            </div>
           </Tabs>
         )}
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
-          <Button variant="outline" onClick={() => setImportOpen(false)}>
-            {importResult ? 'Close' : 'Cancel'}
-          </Button>
-          {!importResult && (
-            <Button
-              onClick={async () => {
-                let file: File
-                if (importTab === 'paste') {
-                  if (!pasteContent.trim()) return
-                  const normalized = pasteContent.includes('\t')
-                    ? pasteContent.replace(/\t/g, ',')
-                    : pasteContent
-                  file = new File([normalized], 'import.csv', { type: 'text/csv' })
-                } else {
-                  if (!importFile) return
-                  file = importFile
-                }
-                try {
-                  const result = await importMutation.mutateAsync({ file, reserveStaticIP: reserveOnImport })
-                  setImportResult(result)
-                } catch {
-                  // handled by api interceptor
-                }
-              }}
-              disabled={(importTab === 'paste' ? !pasteContent.trim() : !importFile) || importMutation.isPending}
-              className="gap-2"
-            >
-              {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Import
-            </Button>
-          )}
-        </div>
+        {importResult && (
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+            <Button variant="outline" onClick={() => setImportOpen(false)}>Close</Button>
+          </div>
+        )}
       </SlidePanel>
 
       {/* Bulk Assign Policy SlidePanel */}

@@ -291,7 +291,7 @@ export function useImportSIMs() {
       const res = await api.post('/sims/bulk/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      return res.data.data as { job_id: string; rows_parsed: number; errors: string[] }
+      return res.data.data as { job_id: string; tenant_id: string; status: string }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })

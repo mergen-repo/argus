@@ -4054,3 +4054,56 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 1. `/apns/:id` sayfasini ac; "IP Pools" bolum basliginin yanindaki ⓘ simgesine hover et veya tikla.
 2. Tooltip acilmali; icerik: "Static IP — an IP address permanently assigned to a specific SIM via pool reservation..."
 3. ESC tusu tooltip'i kapatmali.
+
+---
+
+## FIX-224: SIM List/Detail Polish — State Filter, Created Datetime, Compare Cap, Import Preview
+
+### 1. Multi-State Filter (AC-1)
+
+1. `/sims` sayfasina git; filtre cubugundaki **States** dropdown'ina tikla.
+2. Dropdown acilmali ve 5 checkbox item gosterilmeli: **Ordered**, **Active**, **Suspended**, **Terminated**, **Lost/Stolen**.
+3. "Active" secimi: checkbox isaretle — menu acik kalmali (kapanmamali). Tablo "active" state'li SIM'leri gostermeli. URL: `?state=active`.
+4. Ek olarak "Suspended" sec — menu acik kalmaya devam etmeli. Tablo her iki state'i gostermeli. URL: `?state=active,suspended`. Filtre cubugunda her state icin ayri chip gosterilmeli ("Active", "Suspended").
+5. "Active" chip'indeki X'e tikla → sadece o token kaldirilmali, "Suspended" chip'i kalmali. URL: `?state=suspended`.
+6. Dropdown'dan tum secimleri kaldir → States filter yok, URL'de `state` param yok.
+7. URL'e manuel `?state=active` yaz + Enter → tablo tek-state filtreli yuklemeli; FIX-219 oncesi URL backward compatible.
+
+### 2. Created Datetime + Tooltip (AC-2)
+
+1. SIM listesinde "Created" kolonuna bak — tarih + saat formatinda gosterilmeli (ornek: `4/19/2026, 15:59:00`).
+2. Herhangi bir SIM'in Created hucresinin uzerine hover et — shadcn Tooltip gorunmeli; icerik: goreceli zaman (ornek: `"4 days ago"`).
+3. Tooltip 300-500ms sonra acilmali; mouse uzaklasmca kapanmali.
+4. Quick-peek panelindeki Created alani eski format'i (toLocaleDateString) korumali — tooltip yok (kompakt goruntu amacli).
+
+### 3. Compare Cap 4 + Warn+Disable (AC-4)
+
+1. `/sims/compare` sayfasina git.
+2. 4 SIM slot'u mevcutsa grid `lg:grid-cols-4` seklinde 4 kolona dusmeli.
+3. 4 SIM ekle — "Add SIM" butonu devre disi (disabled) olmali ve `aria-disabled="true"` attribute'u olmali.
+4. 4 SIM seciliyken "Compare limit reached (4/4) — remove a slot to add another SIM." uyari mesaji gorunmeli (`text-warning` renk, AlertCircle ikonu).
+5. 5. SIM aramasi: slot arama kutusuna yeni ICCID yaz → sec tusu/secim aktif olsa da 5. slot eklenmemeli.
+6. Bir slot'u kaldirinca "Add SIM" butonu yeniden aktif olmali ve uyari mesaji kaybolmali.
+7. EmptyState mesaji "up to 4 SIM cards" ibaresi icermeli (eski "3" degil).
+
+### 4. Import SlidePanel — 3-Stage Flow (AC-5)
+
+1. SIM listesinde "Import" butonuna tikla — SlidePanel acilmali (3 stage: input → preview → result).
+2. **Stage: input** — CSV icerigi yapistir veya dosya sec.
+3. Gecerli 20 satirlik CSV yapistir (gerekli kolonlar: `iccid,imsi,msisdn,operator_code,apn_name`):
+   - "Preview" a tikla → Stage 2'ye gec.
+   - 10 preview satiri tablo olarak gorunmeli (fazlasi gosterilmez); "20 rows detected • estimated ~1s processing time" ozeti gosterilmeli.
+   - Hicbir satir kirmizi border ile isaretlenmemeli (gecerli veriler).
+4. `msisdn` kolonunu cikarin CSV'den → "Preview" tiklandiktan sonra kirmizi banner gorunmeli: "Missing required columns: msisdn". Commit butonu devre disi olmali.
+5. ICCID kolonu formatini boz (cok kisa) → format uyarisi satir bazinda kirmizi sol border ile isaretlenmeli; commit butonu aktif (uyari; kolon-seviyesi engel degil).
+6. "Back" ile Stage 1'e don; duzelt; "Preview" → Stage 2; "Import N SIMs" tiklayinca Stage 3'e gec.
+
+### 5. Import Post-Process Report (AC-6)
+
+1. Gecerli CSV ile import baslatinca Stage 3'e gec — polling baslamali; spinner + "Importing…" gorunmeli.
+2. Job tamamlaninca: "X succeeded • Y failed" header gorunmeli.
+3. Hata varsa: ilk 20 satir `Row #{row} — ICCID {iccid}: {reason}` formatinda listelenmeli.
+4. Hata sayisi > 0 ise: "View failed rows" butonu gorunmeli → `/jobs/:id` sayfasina navigate etmeli.
+5. Hicbir hata yoksa: "View failed rows" butonu gorunmemeli.
+6. Import sonrasi SIM listesi yenilenmeli (refetch tetiklenmeli).
+7. `useImportSIMs` hook response: `{ job_id, tenant_id, status }` shape (eski `rows_parsed`/`errors[]` yok — `tsc --noEmit` temiz olmali).

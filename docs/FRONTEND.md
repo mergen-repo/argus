@@ -412,6 +412,7 @@ const { timeframe, setTimeframe, customRange, setCustomRange } = useTimeframeUrl
 | `KPICard` | `web/src/components/shared/kpi-card.tsx` | Reusable KPI metric tile. Props: `title`, `value` (string\|number), `subtitle?`, `loading?`, `icon?`. Renders animated counter with null-safe fallback (`—`). Used in Dashboard, Operator Detail, and APN Detail KPI rows (FIX-222). Consumed by analytics KPI row. |
 | `InfoTooltip` | `web/src/components/ui/info-tooltip.tsx` | Glossary term tooltip primitive. Props: `term` (keyof `GLOSSARY_TOOLTIPS`). Wraps a ghost icon-button (lucide `Info`); 500ms hover delay; tap/click toggles; ESC closes; `aria-label` + `aria-expanded`. Copy source: `web/src/lib/glossary-tooltips.ts` (9 terms: MCC, MNC, EID, MSISDN, APN, IMSI, ICCID, CoA, SLA). Dev `console.warn` on unknown term (FIX-222). |
 | `useTabUrlSync` | `web/src/hooks/use-tab-url-sync.ts` | Deep-linkable tab hook. Options: `defaultTab`, `validTabs`, `aliases` (map old tab name → new). Reads `?tab=` on mount; resolves aliases with `replace:true`; `setTab` writes with `replace:true` (no history pollution). Pattern mirrors `use-timeframe-url-sync.ts` (FIX-222). |
+| `DropdownMenuCheckboxItem` | `web/src/components/ui/dropdown-menu.tsx` | Radix-based checkbox menu item primitive for multi-select dropdowns. Props: `checked`, `onCheckedChange`, `onSelect` (use `e.preventDefault()` to keep menu open on toggle). Used by SIM state filter (FIX-224). Note: D-125 (OPEN) — `role="menuitemcheckbox"` / `aria-checked` a11y fix pending FIX-24x a11y sweep. |
 
 ## Reference Mockups
 

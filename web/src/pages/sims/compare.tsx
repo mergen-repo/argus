@@ -32,7 +32,7 @@ import { timeAgo } from '@/lib/format'
 import type { SIM, ApiResponse, SIMFieldDiff } from '@/types/sim'
 import { useSIMComparePair } from '@/hooks/use-sims'
 
-const MAX_SIMS = 3
+const MAX_SIMS = 4
 
 function useSearchSIM(query: string) {
   return useQuery({
@@ -433,7 +433,7 @@ function EmptyState() {
         </div>
         <h3 className="text-sm font-semibold text-text-primary mb-1">No SIMs selected</h3>
         <p className="text-xs text-text-secondary">
-          Search and add up to 3 SIM cards above to compare their properties side by side.
+          Search and add up to {MAX_SIMS} SIM cards above to compare their properties side by side.
         </p>
       </div>
     </div>
@@ -447,8 +447,8 @@ function LoadingSkeleton() {
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-6 w-48" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {Array.from({ length: 3 }).map((_, i) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {Array.from({ length: MAX_SIMS }).map((_, i) => (
           <Skeleton key={i} className="h-12 w-full" />
         ))}
       </div>
@@ -543,21 +543,30 @@ export default function SIMComparePage() {
         />
         <div className="flex items-center justify-between">
           <h1 className="text-[16px] font-semibold text-text-primary">SIM Comparison</h1>
-          {selectedIds.length < MAX_SIMS && selectedIds.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={handleAddSlot}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add SIM ({selectedIds.length}/{MAX_SIMS})
-            </Button>
+          {selectedIds.length > 0 && (
+            <div className="flex items-center gap-2">
+              {selectedIds.length >= MAX_SIMS && (
+                <span className="text-xs text-warning bg-warning/10 border border-warning/20 rounded-[var(--radius-sm)] px-2 py-1">
+                  Max {MAX_SIMS} SIMs for compare. Remove one to add another.
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleAddSlot}
+                disabled={selectedIds.length >= MAX_SIMS}
+                aria-disabled={selectedIds.length >= MAX_SIMS}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add SIM ({selectedIds.length}/{MAX_SIMS})
+              </Button>
+            </div>
           )}
         </div>
       </div>
 
-      <div className={cn('grid gap-3', visibleSlots === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3')}>
+      <div className={cn('grid gap-3', visibleSlots === 2 ? 'grid-cols-1 md:grid-cols-2' : visibleSlots === 4 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3')}>
         {Array.from({ length: visibleSlots }).map((_, i) => {
           const simId = selectedIds[i]
           const sim = simId ? sims.find((s) => s?.id === simId) ?? null : null
