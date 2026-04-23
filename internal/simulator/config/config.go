@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -187,6 +188,81 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("ARGUS_SIM_COA_SECRET"); v != "" {
 		c.Reactive.CoAListener.SharedSecret = v
 	}
+
+	// AC-9 env knobs — applied after YAML is parsed so YAML defaults remain
+	// the fallback when env is unset. Validate() runs after this function and
+	// enforces range constraints on every mutated field.
+
+	if v := os.Getenv("ARGUS_SIM_SESSION_RATE_PER_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Rate.MaxRadiusRequestsPerSecond = n
+		}
+	}
+
+	// ARGUS_SIM_DIAMETER_ENABLED=false disables Diameter for all operators.
+	// Per-operator enabled:true is respected only when this global toggle is true.
+	if v := os.Getenv("ARGUS_SIM_DIAMETER_ENABLED"); strings.EqualFold(v, "false") {
+		for i := range c.Operators {
+			c.Operators[i].Diameter = nil
+		}
+	}
+
+	// ARGUS_SIM_SBA_ENABLED=false disables 5G SBA for all operators globally.
+	if v := os.Getenv("ARGUS_SIM_SBA_ENABLED"); strings.EqualFold(v, "false") {
+		for i := range c.Operators {
+			c.Operators[i].SBA = nil
+		}
+	}
+
+	// ARGUS_SIM_INTERIM_INTERVAL_SEC, when >0, overrides interim_interval_seconds
+	// for every scenario. Enables 30s cadence demo without editing YAML.
+	if v := os.Getenv("ARGUS_SIM_INTERIM_INTERVAL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			for i := range c.Scenarios {
+				c.Scenarios[i].InterimIntervalSeconds = n
+			}
+		}
+	}
+
+	// ARGUS_SIM_VIOLATION_RATE_PCT (0-100 float) rescales aggressive_m2m scenario
+	// weight proportionally by reducing normal_browsing weight to compensate.
+	// When aggressive_m2m is absent, the env has no effect (safe no-op).
+	if v := os.Getenv("ARGUS_SIM_VIOLATION_RATE_PCT"); v != "" {
+		if pct, err := strconv.ParseFloat(v, 64); err == nil {
+			c.applyViolationRatePct(pct)
+		}
+	}
+}
+
+// applyViolationRatePct rescales the aggressive_m2m scenario weight from its
+// YAML default to the requested pct (0-100). It proportionally reduces the
+// normal_browsing scenario weight to keep the total at ~1.0. When either
+// scenario is absent from the config, the function is a safe no-op so custom
+// YAML configs without the aggressive_m2m scenario are unaffected.
+func (c *Config) applyViolationRatePct(pct float64) {
+	if pct < 0 || pct > 100 {
+		return
+	}
+	newWeight := pct / 100.0
+
+	aggressiveIdx := -1
+	normalIdx := -1
+	for i, s := range c.Scenarios {
+		if s.Name == "aggressive_m2m" {
+			aggressiveIdx = i
+		}
+		if s.Name == "normal_browsing" {
+			normalIdx = i
+		}
+	}
+	if aggressiveIdx < 0 || normalIdx < 0 {
+		return
+	}
+
+	oldWeight := c.Scenarios[aggressiveIdx].Weight
+	delta := newWeight - oldWeight
+	c.Scenarios[aggressiveIdx].Weight = newWeight
+	c.Scenarios[normalIdx].Weight -= delta
 }
 
 // Validate enforces the invariants the engine assumes.
@@ -240,7 +316,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("scenario weights must sum to ~1.0, got %.3f", weightSum)
 	}
 	if c.Rate.MaxRadiusRequestsPerSecond <= 0 {
-		c.Rate.MaxRadiusRequestsPerSecond = 5
+		return fmt.Errorf("rate.max_radius_requests_per_second must be > 0 (got %d; set ARGUS_SIM_SESSION_RATE_PER_SEC to override)", c.Rate.MaxRadiusRequestsPerSecond)
 	}
 	if c.Metrics.Listen == "" {
 		c.Metrics.Listen = ":9099"

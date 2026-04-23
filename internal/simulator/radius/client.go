@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/simulator/discovery"
+	"github.com/btopcu/argus/internal/simulator/metrics"
 	"github.com/google/uuid"
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
@@ -166,6 +167,8 @@ func (c *Client) newAcct(sc *SessionContext, status rfc2866.AcctStatusType) *rad
 func setCommonNAS(pkt *radius.Packet, sc *SessionContext) {
 	if ip := net.ParseIP(sc.NASIP); ip != nil {
 		_ = rfc2865.NASIPAddress_Set(pkt, ip)
+	} else {
+		metrics.SimulatorNASIPMissingTotal.WithLabelValues(sc.SIM.OperatorCode).Inc()
 	}
 	if sc.NASIdentifier != "" {
 		_ = rfc2865.NASIdentifier_SetString(pkt, sc.NASIdentifier)

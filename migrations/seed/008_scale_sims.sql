@@ -1,5 +1,17 @@
 -- SEED-08: Scale SIM fleet to ~200 total (100 per tenant) (STORY-082 follow-up)
 --
+-- FIX-226 (2026-04-23): Stagger activated_at across 60 days to fix F-221.
+-- Root cause: original seed set activated_at = NOW() on all 200 SIMs → analytics
+-- "growth rate" widget computed 100% of fleet activated in last 24 hours (+73%/day).
+-- Fix: activated_at = NOW() - INTERVAL '1 day' * (60 - (g - start)) where start is
+-- the generate_series start value (100). This spreads activations monotonically:
+--   40-SIM groups (g=100..139): 60 → 21 days ago (oldest → newest)
+--   20-SIM Türk Telekom groups (g=100..119): 60 → 41 days ago
+-- No group reaches "today" (by design — keeps last 21 days as a churn buffer
+-- for future growth simulation). Analytics widgets that bucket by week will
+-- see realistic activation distribution across the last 60 days.
+-- Analytics "growth rate" widget will show realistic sub-10%/week rate after re-seeding.
+--
 -- Extends the test infra from 16 SIMs to ~200 so the Live Event Stream
 -- carries real per-subscriber signal volume (dozens of auths/minute,
 -- hundreds of interim updates/minute).
@@ -92,7 +104,7 @@ SELECT
     '+90531' || lpad((100 + g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 3) WHEN 0 THEN 'lte' WHEN 1 THEN 'nb_iot' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 139) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 
@@ -107,7 +119,7 @@ SELECT
     '+90532' || lpad((g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 3) WHEN 0 THEN 'lte' WHEN 1 THEN 'nr_5g' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 139) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 
@@ -122,7 +134,7 @@ SELECT
     '+90533' || lpad((g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 2) WHEN 0 THEN 'lte' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 119) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 
@@ -137,7 +149,7 @@ SELECT
     '+90541' || lpad((g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 3) WHEN 0 THEN 'lte' WHEN 1 THEN 'nb_iot' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 139) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 
@@ -152,7 +164,7 @@ SELECT
     '+90542' || lpad((g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 3) WHEN 0 THEN 'lte' WHEN 1 THEN 'nr_5g' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 139) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 
@@ -167,7 +179,7 @@ SELECT
     '+90543' || lpad((g - 100)::text, 7, '0'),
     'physical', 'active',
     CASE (g % 2) WHEN 0 THEN 'lte' ELSE 'lte_m' END,
-    NOW()
+    NOW() - INTERVAL '1 day' * (60 - (g - 100))
 FROM generate_series(100, 119) AS g
 ON CONFLICT (imsi, operator_id) DO NOTHING;
 

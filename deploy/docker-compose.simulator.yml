@@ -23,6 +23,12 @@ services:
       SIMULATOR_ENABLED: "true"
       ARGUS_SIM_CONFIG: /etc/simulator/config.yaml
       ARGUS_SIM_LOG_LEVEL: ${ARGUS_SIM_LOG_LEVEL:-info}
+      # AC-9 env knobs (FIX-226) — all optional; YAML values used when unset.
+      ARGUS_SIM_SESSION_RATE_PER_SEC: ${ARGUS_SIM_SESSION_RATE_PER_SEC:-}    # max RADIUS req/s
+      ARGUS_SIM_VIOLATION_RATE_PCT: ${ARGUS_SIM_VIOLATION_RATE_PCT:-}         # aggressive_m2m weight (0-100%)
+      ARGUS_SIM_DIAMETER_ENABLED: ${ARGUS_SIM_DIAMETER_ENABLED:-}             # false = disable all Diameter
+      ARGUS_SIM_SBA_ENABLED: ${ARGUS_SIM_SBA_ENABLED:-}                       # false = disable all SBA
+      ARGUS_SIM_INTERIM_INTERVAL_SEC: ${ARGUS_SIM_INTERIM_INTERVAL_SEC:-}     # override all interim intervals
     volumes:
       - ./simulator/config.example.yaml:/etc/simulator/config.yaml:ro
     ports:

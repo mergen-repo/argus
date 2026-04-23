@@ -159,11 +159,13 @@ func (l *Listener) handleDM(req *radius.Packet, src *net.UDPAddr) {
 }
 
 func (l *Listener) handleCoA(req *radius.Packet, src *net.UDPAddr) {
+	t0 := time.Now()
 	acct := rfc2866.AcctSessionID_GetString(req)
 	sess := l.registry.Lookup(acct)
 	operator := operatorFromSession(sess)
 	if sess == nil {
 		l.writeResponse(req, radius.CodeCoANAK, rfc3576.ErrorCause_Value_SessionContextNotFound, src)
+		metrics.SimulatorCoAAckLatencySeconds.WithLabelValues("nak").Observe(time.Since(t0).Seconds())
 		metrics.SimulatorReactiveIncomingTotal.WithLabelValues(operator, "coa", "unknown_session").Inc()
 		return
 	}
@@ -182,6 +184,7 @@ func (l *Listener) handleCoA(req *radius.Packet, src *net.UDPAddr) {
 		}
 	}
 	l.writeResponse(req, radius.CodeCoAACK, 0, src)
+	metrics.SimulatorCoAAckLatencySeconds.WithLabelValues("ack").Observe(time.Since(t0).Seconds())
 	metrics.SimulatorReactiveIncomingTotal.WithLabelValues(operator, "coa", "ack").Inc()
 }
 

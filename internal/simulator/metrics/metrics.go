@@ -151,6 +151,31 @@ var (
 		[]string{"operator", "result"},
 	)
 
+	// FIX-226 — NAS-IP AVP coverage + CoA ack latency
+
+	// SimulatorNASIPMissingTotal counts RADIUS packets where net.ParseIP returned
+	// nil for nas_ip, causing NAS-IP-Address AVP to be omitted. When this counter
+	// is zero, all operators have correctly-formatted IPv4 nas_ip values.
+	// Single writer: radius/client.go setCommonNAS (PAT-001).
+	SimulatorNASIPMissingTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "simulator_nas_ip_missing_total",
+			Help: "RADIUS packets sent without NAS-IP-Address AVP because nas_ip is not a valid IPv4 address.",
+		},
+		[]string{"operator"},
+	)
+
+	// SimulatorCoAAckLatencySeconds measures the time from CoA packet reception
+	// to ACK/NAK write in handleCoA. Single writer: reactive/listener.go (PAT-001).
+	SimulatorCoAAckLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "simulator_coa_ack_latency_seconds",
+			Help:    "Latency from CoA-Request reception to ACK/NAK response write in the reactive listener.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5, 1},
+		},
+		[]string{"result"}, // result: ack|nak
+	)
+
 	// STORY-085 — reactive behavior (approach B)
 
 	SimulatorReactiveTerminationsTotal = prometheus.NewCounterVec(
@@ -203,6 +228,8 @@ func MustRegister(reg prometheus.Registerer) {
 		SBASessionAbortedTotal,
 		SBAServiceErrorsTotal,
 		SBAPDUSessionsTotal,
+		SimulatorNASIPMissingTotal,
+		SimulatorCoAAckLatencySeconds,
 		SimulatorReactiveTerminationsTotal,
 		SimulatorReactiveRejectBackoffsTotal,
 		SimulatorReactiveIncomingTotal,

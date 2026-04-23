@@ -725,6 +725,133 @@ func TestReactive_OperatorConfigs_ValidWithOrWithoutReactive(t *testing.T) {
 	}
 }
 
+// validYAMLWithScenarios is validYAML extended with explicit scenarios including
+// aggressive_m2m so the violation-rate env tests have a realistic fixture.
+const validYAMLWithScenarios = `
+argus:
+  radius_host: argus-app
+  radius_auth_port: 1812
+  radius_accounting_port: 1813
+  radius_shared_secret: test-secret-at-least-16chars
+  db_url: postgres://user:pass@host/db
+operators:
+  - code: turkcell
+    nas_identifier: sim-turkcell
+    nas_ip: 10.99.0.1
+scenarios:
+  - name: normal_browsing
+    weight: 0.69
+    session_duration_seconds: [600, 1800]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [1000000, 10000000]
+    bytes_per_interim_out: [500000, 5000000]
+  - name: heavy_user
+    weight: 0.20
+    session_duration_seconds: [3600, 7200]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [50000000, 200000000]
+    bytes_per_interim_out: [25000000, 100000000]
+  - name: idle
+    weight: 0.10
+    session_duration_seconds: [60, 300]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [100000, 1000000]
+    bytes_per_interim_out: [50000, 500000]
+  - name: aggressive_m2m
+    weight: 0.01
+    session_duration_seconds: [300, 900]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [200000000, 500000000]
+    bytes_per_interim_out: [100000000, 200000000]
+rate:
+  max_radius_requests_per_second: 25
+  initial_jitter_seconds: [0, 60]
+metrics:
+  listen: ":9099"
+log:
+  level: info
+  format: console
+`
+
+func TestEnvOverrides_RateOverride(t *testing.T) {
+	t.Setenv("ARGUS_SIM_SESSION_RATE_PER_SEC", "50")
+	p := writeTemp(t, validYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Rate.MaxRadiusRequestsPerSecond != 50 {
+		t.Errorf("rate: want 50 got %d", cfg.Rate.MaxRadiusRequestsPerSecond)
+	}
+}
+
+func TestEnvOverrides_DiameterDisabled(t *testing.T) {
+	t.Setenv("ARGUS_SIM_DIAMETER_ENABLED", "false")
+	body := validYAML + `diameter:
+  destination_realm: argus.local
+`
+	body = strings.Replace(body, "nas_ip: 10.99.0.1", "nas_ip: 10.99.0.1\n    diameter:\n      enabled: true", 1)
+	p := writeTemp(t, body)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load with Diameter disabled via env: %v", err)
+	}
+	if cfg.Operators[0].Diameter != nil {
+		t.Errorf("expected Diameter nil when ARGUS_SIM_DIAMETER_ENABLED=false, got %+v", cfg.Operators[0].Diameter)
+	}
+}
+
+func TestEnvOverrides_SBADisabled(t *testing.T) {
+	t.Setenv("ARGUS_SIM_SBA_ENABLED", "false")
+	body := strings.Replace(validYAML, "nas_ip: 10.99.0.1", "nas_ip: 10.99.0.1\n    sba:\n      enabled: true\n      rate: 0.2", 1)
+	p := writeTemp(t, body)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load with SBA disabled via env: %v", err)
+	}
+	if cfg.Operators[0].SBA != nil {
+		t.Errorf("expected SBA nil when ARGUS_SIM_SBA_ENABLED=false, got %+v", cfg.Operators[0].SBA)
+	}
+}
+
+func TestEnvOverrides_InterimOverride(t *testing.T) {
+	t.Setenv("ARGUS_SIM_INTERIM_INTERVAL_SEC", "15")
+	p := writeTemp(t, validYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, s := range cfg.Scenarios {
+		if s.InterimIntervalSeconds != 15 {
+			t.Errorf("scenario %q: want interim=15 got %d", s.Name, s.InterimIntervalSeconds)
+		}
+	}
+}
+
+func TestEnvOverrides_ViolationPct(t *testing.T) {
+	t.Setenv("ARGUS_SIM_VIOLATION_RATE_PCT", "2.0")
+	p := writeTemp(t, validYAMLWithScenarios)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var aggressiveW, normalW float64
+	for _, s := range cfg.Scenarios {
+		switch s.Name {
+		case "aggressive_m2m":
+			aggressiveW = s.Weight
+		case "normal_browsing":
+			normalW = s.Weight
+		}
+	}
+	if aggressiveW < 0.019 || aggressiveW > 0.021 {
+		t.Errorf("aggressive_m2m weight: want ~0.02 got %v", aggressiveW)
+	}
+	if normalW < 0.67 || normalW > 0.69 {
+		t.Errorf("normal_browsing weight: want ~0.68 got %v", normalW)
+	}
+}
+
 func TestToKebab(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"turkcell", "turkcell"},

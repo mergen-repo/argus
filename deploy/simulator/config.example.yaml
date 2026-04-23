@@ -74,10 +74,12 @@ reactive:
 #   enabled: true, rate: 0.2         → 20% of sessions use 5G-SBA instead of RADIUS
 #   enabled: true, rate: 1.0         → all sessions use 5G-SBA (RADIUS never called for this operator)
 # NOTE: SBA sessions are ALTERNATIVE to RADIUS (not additive) — a session uses one path only.
+# nas_ip: RFC 5737 TEST-NET-1 address; enables NAS-IP-Address AVP population.
+# CoA/DM still reach simulator via compose DNS (argus-simulator) — see reactive.coa_listener.listen_addr.
 operators:
   - code: turkcell
     nas_identifier: sim-turkcell
-    nas_ip: argus-simulator      # STORY-085 AC-9: compose DNS name; Argus dials nasIP:3799 at CoA/DM time. net.ParseIP returns nil for hostnames → NAS-IP-Address AVP is omitted (RFC 2865 allows NAS-Identifier as substitute); NAS-Identifier above carries operator identity.
+    nas_ip: 192.0.2.10           # RFC 5737 TEST-NET-1; net.ParseIP resolves → NAS-IP-Address AVP populated
     diameter:
       enabled: true
       # origin_host defaults to "sim-turkcell.<origin_realm>" when omitted
@@ -88,41 +90,50 @@ operators:
       auth_method: 5G_AKA        # "5G_AKA" (default); "EAP_AKA_PRIME" reserved for future story
   - code: vodafone
     nas_identifier: sim-vodafone
-    nas_ip: argus-simulator      # STORY-085 AC-9: same compose DNS name — simulator is one container.
+    nas_ip: 192.0.2.20           # RFC 5737 TEST-NET-1; distinct per-operator for AVP identity
     # No diameter block → RADIUS-only
     # No sba block → RADIUS-only
   - code: turk_telekom
     nas_identifier: sim-turk-telekom
-    nas_ip: argus-simulator      # STORY-085 AC-9: same compose DNS name — simulator is one container.
+    nas_ip: 192.0.2.30           # RFC 5737 TEST-NET-1; distinct per-operator for AVP identity
     # No diameter block → RADIUS-only
     # No sba block → RADIUS-only
 
 # Weighted-random scenario picker (weights must sum to ~1.0).
+# aggressive_m2m (weight 0.01) triggers bandwidth_exceeded policy violations via
+# the real policy enforcer path — simulator does NOT write policy_violations directly.
 scenarios:
   - name: normal_browsing
-    weight: 0.7
+    weight: 0.69
     session_duration_seconds: [600, 1800]
-    interim_interval_seconds: 60
+    interim_interval_seconds: 30
     bytes_per_interim_in: [1000000, 10000000]
     bytes_per_interim_out: [500000, 5000000]
 
   - name: heavy_user
-    weight: 0.2
+    weight: 0.20
     session_duration_seconds: [3600, 7200]
     interim_interval_seconds: 60
     bytes_per_interim_in: [50000000, 200000000]
     bytes_per_interim_out: [25000000, 100000000]
 
   - name: idle
-    weight: 0.1
+    weight: 0.10
     session_duration_seconds: [60, 300]
     interim_interval_seconds: 60
     bytes_per_interim_in: [100000, 1000000]
     bytes_per_interim_out: [50000, 500000]
 
+  - name: aggressive_m2m
+    weight: 0.01
+    session_duration_seconds: [300, 900]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [200000000, 500000000]   # 200-500 MB / 30s = 53-133 Mbps; breaches meter-low-v1 (256kbps)
+    bytes_per_interim_out: [100000000, 200000000]
+
 # Global rate limit protects Argus from startup bursts. Sized for ~200
-# concurrent SIMs: auth (1×) + acct-start (1×) + interim (every 60s) +
-# acct-stop (1×). At 200 SIMs steady-state: ~3.3 interims/s → 20 req/s
+# concurrent SIMs: auth (1×) + acct-start (1×) + interim (every 30s normal_browsing) +
+# acct-stop (1×). At 200 SIMs steady-state normal_browsing (69%): ~4.6 interims/s → 25 req/s
 # cap leaves headroom for session churn.
 rate:
   max_radius_requests_per_second: 25

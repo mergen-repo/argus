@@ -433,6 +433,35 @@ Config file (optional): `~/.argusctl.yaml` — keys map to flag names without th
 
 ---
 
+## Simulator Environment (dev/demo only)
+
+The RADIUS + Diameter + 5G SBA traffic simulator is an **opt-in** component started via `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.simulator.yml up simulator`. It runs as a separate binary (`cmd/simulator`) with its own YAML config file (`deploy/simulator/config.example.yaml`) and a dedicated read-only PG role (`argus_sim`).
+
+All `ARGUS_SIM_*` env vars override YAML fields at startup. When unset, YAML values are used as-is. Validate() rejects invalid values — there is no silent clamping.
+
+| Variable | Maps to YAML | Default (YAML) | Notes |
+|----------|--------------|----------------|-------|
+| `SIMULATOR_ENABLED` | — | (unset = exit) | Must be `"true"` for the binary to run; exit 1 if absent or non-true |
+| `ARGUS_SIM_CONFIG` | — | `/etc/simulator/config.yaml` | Path to YAML config file |
+| `ARGUS_SIM_LOG_LEVEL` | `log.level` | `info` | `debug\|info\|warn\|error` |
+| `ARGUS_SIM_DB_URL` | `argus.db_url` | (YAML) | Read-only PG URL (`argus_sim` role) |
+| `ARGUS_SIM_RADIUS_HOST` | `argus.radius_host` | `argus-app` | Argus RADIUS server hostname |
+| `ARGUS_SIM_RADIUS_SECRET` | `argus.radius_shared_secret` | (YAML) | Must match Argus `RADIUS_SECRET` |
+| `ARGUS_SIM_COA_SECRET` | `reactive.coa_listener.shared_secret` | (inherits RADIUS secret) | CoA/DM listener shared secret |
+| `ARGUS_SIM_SESSION_RATE_PER_SEC` | `rate.max_radius_requests_per_second` | `25` | Max RADIUS req/s; must be > 0 |
+| `ARGUS_SIM_VIOLATION_RATE_PCT` | `scenarios[aggressive_m2m].weight` | `1.0` (=1%) | Float 0–100; rescales `aggressive_m2m` weight, reduces `normal_browsing` proportionally |
+| `ARGUS_SIM_DIAMETER_ENABLED` | all `operators[*].diameter` blocks | `true` | `false` = nil out all operator Diameter configs globally |
+| `ARGUS_SIM_SBA_ENABLED` | all `operators[*].sba` blocks | `true` | `false` = nil out all operator SBA configs globally |
+| `ARGUS_SIM_INTERIM_INTERVAL_SEC` | `scenarios[*].interim_interval_seconds` | `0` (=use YAML) | When > 0, overrides ALL scenario interim intervals at startup |
+
+**NOT ADDED** (follow-up if demand arises):
+- `SIM_COUNT_TARGET` — simulator uses read-only `argus_sim` role; SIM creation requires a writer-component story (see DEV-317).
+- `SBA_USE_RATE_FLOOR` — reserved for future knob to guarantee minimum SBA traffic volume.
+
+> **Note:** `nas_ip` in the operator config block must be a valid IPv4 address (RFC 5737 TEST-NET-1 is recommended: `192.0.2.10/20/30`). DNS hostnames are silently skipped by `net.ParseIP` and cause NAS-IP-Address AVP to be omitted; the `simulator_nas_ip_missing_total` Prometheus counter tracks this condition.
+
+---
+
 ## Complete .env.example
 
 ```bash

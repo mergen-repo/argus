@@ -4121,3 +4121,42 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (ops/altyapi). Asagidaki
 5. `curl -s http://localhost:8084/health` → HTTP 200 OK (nginx → argus zinciri saglikli).
 6. Crash recovery: `docker kill -s KILL argus-app` → 10s icinde Docker otomatik yeniden baslatmali; 90s icinde `healthy` olmali.
 7. Recovery doc: `docs/architecture/DEPLOYMENT.md` mevcutsa ve 13 bolum iceriyorsa PASS (`grep "^##" docs/architecture/DEPLOYMENT.md | wc -l` ≥ 7).
+
+---
+
+## FIX-226: Simulator Coverage + Volume Realism
+
+Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+### 1. SIM Buyume Gercekci (AC-6 — seed stagger)
+
+1. `make db-seed` calistir → hata olmadan tamamlanmali.
+2. `psql -c "SELECT DATE_TRUNC('day', activated_at)::date AS day, COUNT(*) FROM sims GROUP BY 1 ORDER BY 1"` → en az 40 farkli gun gostermeli (60 gunluk stagger; ~3.3 SIM/gun).
+3. Dashboard → Capacity sayfasina git → "SIM Growth" widget → haftalik buyume orani **< %10** olmali (eski `+73.3%/gun` yerine gercekci deger).
+
+### 2. Bandwidth Ihlali — Gercek Enforcer Yolu (AC-4)
+
+1. Simulatoru baslat: `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.simulator.yml up simulator`.
+2. 10 dakika bekle.
+3. `psql -c "SELECT COUNT(*) FROM policy_violations WHERE violation_type='bandwidth_exceeded' AND created_at > NOW() - INTERVAL '10 min'"` → `> 0` olmali (aggressive_m2m senaryosu ihlalleri kaydediyor).
+4. Dashboard → Alerts sayfasina git → "bandwidth_exceeded" uyarisi gorunmeli.
+
+### 3. NAS-IP AVP Doldurulmus (AC-3)
+
+1. Simulatoru baslat (yukardaki compose komutuyla).
+2. `curl -s http://localhost:9099/metrics | grep simulator_nas_ip_missing_total` → deger `0` olmali.
+3. Argus tarafinda: `curl -s http://localhost:8080/metrics | grep argus_radius_nas_ip_missing_total` → deger `0` veya cok dusuk olmali (NAS-IP AVP artik her Access-Request'te mevcut).
+
+### 4. CoA Latency Metrik (AC-8)
+
+1. Simulatoru baslat.
+2. `curl -s http://localhost:9099/metrics | grep simulator_coa_ack_latency_seconds` → histogram satirlari gorunmeli.
+3. CoA exchangi sonrasinda: `histogram_quantile(0.99, ...)` < 200ms olmali.
+
+### 5. Env Knob Dogrulama (AC-9)
+
+1. `ARGUS_SIM_SESSION_RATE_PER_SEC=5 docker compose ... up simulator` → rate.max_radius_requests_per_second=5 ile baslamali.
+2. `ARGUS_SIM_VIOLATION_RATE_PCT=10 docker compose ... up simulator` → aggressive_m2m weight ~%10 olmali.
+3. `ARGUS_SIM_DIAMETER_ENABLED=false docker compose ... up simulator` → Diameter CCR paketleri gonderilmemeli.
+4. Gecersiz deger: `ARGUS_SIM_SESSION_RATE_PER_SEC=0` → simulatoru baslatmamali; hata mesaji `rate must be > 0` icermeli.
+5. `docs/architecture/CONFIG.md` → "Simulator Environment (dev/demo only)" bolumu `ARGUS_SIM_SESSION_RATE_PER_SEC`, `ARGUS_SIM_VIOLATION_RATE_PCT`, `ARGUS_SIM_DIAMETER_ENABLED`, `ARGUS_SIM_SBA_ENABLED`, `ARGUS_SIM_INTERIM_INTERVAL_SEC` satirlarini icermeli.
