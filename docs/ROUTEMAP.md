@@ -397,7 +397,7 @@ Architectural decisions (documented, not blocking UAT):
 | FIX-222 | Operator/APN Detail Polish — KPI row, tab consolidation, tooltips | P2 | M | [x] DONE (2026-04-23) | — |
 | FIX-223 | IP Pool Detail Polish — backend search, last_seen, reserve modal ICCID | P2 | M | [x] DONE (2026-04-23) | — |
 | FIX-224 | SIM List/Detail Polish — state filter, Created datetime, bulk bar sticky | P2 | M | [x] DONE (2026-04-23) | FIX-216 |
-| FIX-225 | Docker Restart Policy + Infra Stability | P2 | S | [ ] PENDING | — |
+| FIX-225 | Docker Restart Policy + Infra Stability | P2 | S | [x] DONE (2026-04-23) | — |
 | FIX-226 | Simulator Coverage + Volume Realism | P2 | M | [ ] PENDING | — |
 | FIX-227 | APN Connected SIMs SlidePanel — CDR + Usage graph + quick stats | P2 | S | [ ] PENDING | FIX-214 |
 

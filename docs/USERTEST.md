@@ -4107,3 +4107,17 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 5. Hicbir hata yoksa: "View failed rows" butonu gorunmemeli.
 6. Import sonrasi SIM listesi yenilenmeli (refetch tetiklenmeli).
 7. `useImportSIMs` hook response: `{ job_id, tenant_id, status }` shape (eski `rows_parsed`/`errors[]` yok — `tsc --noEmit` temiz olmali).
+
+---
+
+## FIX-225: Docker Restart Policy + Infra Stability
+
+Bu story icin manuel kullanici arayuzu senaryosu yoktur (ops/altyapi). Asagidaki komutlar ile dogrulama yapilabilir:
+
+1. `docker compose -f deploy/docker-compose.yml config --quiet` → exit 0 (YAML gecerli).
+2. `make down && make up` → Tum 7 container (nginx, argus, postgres, redis, nats, operator-sim, pgbouncer) `healthy` durumuna gelmeli (~90s bekle).
+3. `docker inspect argus-nats --format='{{.State.Health.Status}}'` → `healthy` (NATS /healthz probu aktif).
+4. `grep "service_started" deploy/docker-compose.yml` → 0 eslesme (tum argus hard-dep'leri `service_healthy`).
+5. `curl -s http://localhost:8084/health` → HTTP 200 OK (nginx → argus zinciri saglikli).
+6. Crash recovery: `docker kill -s KILL argus-app` → 10s icinde Docker otomatik yeniden baslatmali; 90s icinde `healthy` olmali.
+7. Recovery doc: `docs/architecture/DEPLOYMENT.md` mevcutsa ve 13 bolum iceriyorsa PASS (`grep "^##" docs/architecture/DEPLOYMENT.md | wc -l` ≥ 7).

@@ -110,13 +110,14 @@ docs/            → All documentation
 - `docs/architecture/WEBSOCKET_EVENTS.md` — WebSocket event schemas + canonical bus.Envelope wire format (FIX-212)
 - `docs/architecture/TESTING.md` — Test strategy & frameworks
 - `docs/architecture/CONFIG.md` — Environment variable reference
+- `docs/architecture/DEPLOYMENT.md` — Container restart policy + recovery runbook
 
 ## Active Session
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
 - Story: FIX-225 (Docker Restart Policy + Infra Stability)
-- Step: Plan
+- Step: Review
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
 - ROUTEMAP: `docs/ROUTEMAP.md` "UI Review Remediation [IN PROGRESS]" track (10 waves)

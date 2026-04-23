@@ -48,7 +48,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       operator-sim:
         condition: service_healthy
     healthcheck:
@@ -122,8 +122,13 @@ services:
       - natsdata:/data
       - ../infra/nats/nats.conf:/etc/nats/nats.conf:ro
     command: ["-c", "/etc/nats/nats.conf"]
-    # NOTE: nats:latest is distroless (no wget/curl/sh), so no healthcheck
-    # block is defined. /healthz is still exposed on :8222 for external probes.
+    # nats:2.10-alpine includes busybox wget; /healthz exposed on :8222 via http_port in nats.conf
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - argus-net
     restart: unless-stopped
