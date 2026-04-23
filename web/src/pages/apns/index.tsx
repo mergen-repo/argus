@@ -34,7 +34,6 @@ import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { EmptyState } from '@/components/shared/empty-state'
-import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
 import { useExport } from '@/hooks/use-export'
 
 const APN_TYPE_OPTIONS = [
@@ -380,7 +379,6 @@ export default function ApnListPage() {
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">APN Management</h1>
         <div className="flex items-center gap-2">
-          <SavedViewsMenu page="apns" />
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export

@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import type React from 'react'
-import { Checkbox } from '@/components/ui/checkbox'
 import { useNavigate } from 'react-router-dom'
 import {
   RefreshCw,
@@ -17,7 +15,6 @@ import { Input } from '@/components/ui/input'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { EmptyState } from '@/components/shared/empty-state'
-import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
 import { useExport } from '@/hooks/use-export'
 import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator, useOperatorGrants, useAssignOperator, useRemoveOperatorGrant } from '@/hooks/use-operators'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -330,7 +327,6 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
 export default function OperatorListPage() {
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { data: operators, isLoading, isError, refetch } = useOperatorList()
   const { data: grants = [] } = useOperatorGrants()
   const assignMutation = useAssignOperator()
@@ -357,16 +353,6 @@ export default function OperatorListPage() {
     } catch { /* interceptor */ }
   }
 
-  const toggleSelect = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else if (next.size < 3) next.add(id)
-      return next
-    })
-  }
-
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -388,17 +374,6 @@ export default function OperatorListPage() {
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Operators</h1>
         <div className="flex items-center gap-2">
-          {selectedIds.size >= 2 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => navigate(`/operators/compare?ids=${Array.from(selectedIds).join(',')}`)}
-            >
-              Compare ({selectedIds.size})
-            </Button>
-          )}
-          <SavedViewsMenu page="operators" />
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export
@@ -437,13 +412,7 @@ export default function OperatorListPage() {
                 onClick={() => navigate(`/operators/${op.id}`)}
                 assigned={grantedOperatorIds.has(op.id)}
               />
-              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Checkbox
-                  checked={selectedIds.has(op.id)}
-                  onClick={(e: React.MouseEvent) => toggleSelect(op.id, e)}
-                  disabled={!selectedIds.has(op.id) && selectedIds.size >= 3}
-                  aria-label={`Select ${op.name}`}
-                />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <RowActionsMenu
                   actions={[
                     { label: 'View Details', onClick: () => navigate(`/operators/${op.id}`) },

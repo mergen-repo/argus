@@ -11,3 +11,5 @@ STEP_2.5 LINT: EXECUTED | 2026-04-22 | raw-button-scan=0 hex-scan=0 | tsc=PASS w
 STEP_2.5 LINT-FIX: primitive timeframe-selector.tsx L176 raw-button -> Button(ghost,sm) | tsc=PASS build=PASS | result=PASS
 STEP_3 GATE: EXECUTED | 2026-04-22 | team=lead+3scouts | findings=merged-12 | fixes=2(F-A6,F-A12) | deferred=4(D-092..D-095) | stale-reads=5(F-A1,F-A2,F-A3,F-A4,F-A5) | tsc=PASS | build=PASS | evidence=docs/stories/fix-ui-review/FIX-217-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | 2026-04-23 | findings=2 | updated=0 | needs_attention=1(USERTEST.md) | resolution=FIX(USERTEST-section-added-6-scenarios) | story-file-AC-drift=REPORT-ONLY(house-style) | evidence=docs/stories/fix-ui-review/FIX-217-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | 2026-04-23 | items=1 files=22 commit=048050d | insertions=1667 deletions=171 | result=PASS
+STEP_6 POSTPROC: EXECUTED | 2026-04-23 | artifacts=plan+gate+review+step-log+USERTEST | step-log=PLAN+DEV+LINT+GATE+REVIEW+COMMIT-present | unresolved=0 | result=PASS

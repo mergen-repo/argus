@@ -54,7 +54,6 @@ import { cn } from '@/lib/utils'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { EmptyState } from '@/components/shared/empty-state'
-import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
 import { useExport } from '@/hooks/use-export'
 
 const STATUS_OPTIONS = [
@@ -204,7 +203,6 @@ export default function PolicyListPage() {
               Compare ({selectedIds.size})
             </Button>
           )}
-          <SavedViewsMenu page="policies" />
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV({ state: statusFilter, q: search })} disabled={exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export

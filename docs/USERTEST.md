@@ -1817,7 +1817,7 @@ npx tsc --noEmit  # TypeScript hata olmamali
 
 ### Backend / Altyapi (6 senaryo)
 
-1. **Saved views CRUD**: `tenant_admin` JWT ile `POST /api/v1/user/views` body `{page:"sims", name:"Active VF", filters_json:{...}, is_default:true}` → 201 döner; `GET /api/v1/user/views?page=sims` → oluşturulan view listede olmalı. `DELETE /api/v1/user/views/:id` → 204. Başka tenant'ın JWT'si ile aynı view_id → 404 dönmeli.
+1. **Saved views CRUD** _(DEFERRED per FIX-218: FE "Save View" button removed; backend endpoints retained for AC-3 future reintroduction — backend-only smoke still valid)_: `tenant_admin` JWT ile `POST /api/v1/user/views` body `{page:"sims", name:"Active VF", filters_json:{...}, is_default:true}` → 201 döner; `GET /api/v1/user/views?page=sims` → oluşturulan view listede olmalı. `DELETE /api/v1/user/views/:id` → 204. Başka tenant'ın JWT'si ile aynı view_id → 404 dönmeli.
 2. **Undo endpoint**: Bir bulk-suspend işlemi sonrası oluşturulan `action_id` ile `POST /api/v1/undo/:action_id` → 200 ve inverse işlem uygulanmış olmalı. 15 saniye TTL geçince aynı action_id ile istek → 404 `NOT_FOUND`. Farklı tenant JWT ile geçerli action_id → 404 döner (tenant isolation).
 3. **CSV export — SIM**: `GET /api/v1/sims/export?format=csv&status=active&operator_id=X` → `Content-Type: text/csv` streaming response; `Content-Disposition: attachment; filename=sims_active_...csv`. Her 500 satırda bir flush yapılmalı; 10K satırda OOM çıkmamalı.
 4. **Announcements CRUD**: `super_admin` JWT ile `POST /api/v1/admin/announcements` → 201; `GET /api/v1/announcements/active` → başlangıç/bitiş tarihinde aktif olan duyurular listesi dönmeli. Başlangıç tarihi ileride olan duyuru aktif listede görünmemeli. `POST /api/v1/announcements/:id/dismiss` → 204; tekrar `/active` çağrısında o duyuru `dismissed:true` ile işaretlenmeli.
@@ -1826,7 +1826,7 @@ npx tsc --noEmit  # TypeScript hata olmamali
 
 ### Frontend (10 senaryo)
 
-7. **Saved views round-trip**: SIM list sayfasında filtre uygula → "Save View" butonuna tıkla → isim ver → kaydet. Sidebar "My Views" bölümünde görünmeli. Tıklanınca filtreler restore edilmeli. "Set as Default" ile default yapılınca sayfayı yenile → filtreler otomatik uygulanmış olmalı.
+7. **Saved views round-trip** _(DEFERRED per FIX-218: FE "Save View" button removed from list pages; backend + `useSavedViews` hook + `SavedViewsMenu` component retained for AC-3 future reintroduction — skip this step until the Views affordance is re-wired by a future story)_: SIM list sayfasında filtre uygula → "Save View" butonuna tıkla → isim ver → kaydet. Sidebar "My Views" bölümünde görünmeli. Tıklanınca filtreler restore edilmeli. "Set as Default" ile default yapılınca sayfayı yenile → filtreler otomatik uygulanmış olmalı.
 8. **Undo toast**: Bir SIM'i suspend et → "1 SIM suspended. [Undo]" toast 10 saniye görünmeli → "Undo" tıklanınca SIM active state'e dönmeli ve "Action undone" toast görünmeli. 10 saniye geçince toast kapanmalı; Undo artık mevcut değilse 404 mesajı toast'ta gösterilmeli.
 9. **Inline edit**: SIM list'te bir satırdaki label alanının üzerine gelinince kalem ikonu görünmeli. Tıklanınca contentEditable aktif olmalı. Enter veya blur → PATCH API çağrısı → optimistic olarak UI güncellenmeli. Esc → değişiklik iptal edilmeli, orijinal değer restore edilmeli.
 10. **Empty state CTA**: Boş tenant (SIM yok) ile SIM list sayfasına gidince "Import your first SIMs" butonlu empty state görünmeli. Dashboard'da first-run checklist (`Connect an operator → Create an APN → Import SIMs → Create a policy`) görünmeli; her adım ilgili sayfaya link vermeli.
@@ -3783,3 +3783,39 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 4. `Enter` veya `Space` → odaktaki pill'i sec (onChange fire eder, URL guncellenir).
 5. Disabled pill'de `Enter` → onChange fire ETMEZ (native `disabled` bloklar).
 6. Screen reader: `role=group aria-label="Timeframe"` anons eder; her pill `aria-pressed={isActive}` + aktif pill icin "selected" anonsu.
+
+## FIX-218: Views Button Global Removal + Operators Checkbox Cleanup
+
+### 1. Views Button Absent — 4 List Pages
+
+1. `/operators` sayfasini ac — toolbar'da (sayfa basliginin yaninda filtre/arama alani) "Views" veya "Save View" butonu OLMAMALI. `grep 'SavedViewsMenu' web/src/pages/operators/index.tsx` → 0 sonuc.
+2. `/apns` sayfasini ac — ayni sekilde toolbar'da Views butonu OLMAMALI.
+3. `/policies` sayfasini ac — Views butonu OLMAMALI.
+4. `/sims` sayfasini ac — Views butonu OLMAMALI.
+5. Her 4 sayfada diger toolbar elemanlari (arama, filtreler, Export, New/Create butonlari) NORMAL calisir.
+
+### 2. Operators Page — Checkbox + Compare Removed
+
+1. `/operators` sayfasini ac; operator kartlari listelenir.
+2. Her kartın sag-ust kösesinde CHECKBOX OLMAMALI — hover durumunda da checkbox gorunmez.
+3. Sayfanin ustteki toolbar alaninda "Compare (N)" butonu OLMAMALI (secili kart yokken de, hicbir durumda).
+4. Kart uzerine hover'da yalnizca `RowActionsMenu` (uc nokta) gorunur — calisir, detail/edit/delete aksiyonlari aktif.
+5. `grep 'selectedIds\|Compare\|Checkbox' web/src/pages/operators/index.tsx` → 0 sonuc (tsc-clean).
+
+### 3. Policies + SIMs — Checkbox Scaffolding KORUNDU
+
+1. `/policies` sayfasini ac; satirlarda checkbox var; birden fazla secilince Compare veya bulk aksiyon butonu cikiyor → calisir.
+2. `/sims` sayfasini ac; bulk-action bar (Suspend / Resume / Terminate) SIM secilince gorunur → calisir.
+3. Policies ve SIMs sayfalarinda `selectedIds` state + Compare/bulk mekanizmasi BOZULMAMIS.
+
+### 4. Backend Retention Smoke
+
+1. `tenant_admin` JWT ile `GET /api/v1/user/views?page=sims` → 200 (endpoint hala aktif; frontend widget kaldirilmis olsa da backend endpoint saglikli).
+2. `POST /api/v1/user/views` → 201 (backend endpoint yazma islemleri de calisiyor).
+3. `web/src/components/shared/saved-views-menu.tsx` dosyasi MEVCUT (tree-shake tarafindan bundle'dan cikarilir ama kaynak kodda korunur — ROUTEMAP D-096).
+4. `web/src/hooks/use-saved-views.ts` dosyasi MEVCUT.
+
+### 5. Build Clean
+
+1. `cd web && npx tsc --noEmit` → 0 hata.
+2. `make web-build` → PASS, build suresi ~3s.

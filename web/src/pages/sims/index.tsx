@@ -72,7 +72,6 @@ import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { OperatorChip } from '@/components/shared/operator-chip'
 import { EmptyState } from '@/components/shared/empty-state'
 import { DataFreshness } from '@/components/shared/data-freshness'
-import { SavedViewsMenu } from '@/components/shared/saved-views-menu'
 import { useExport } from '@/hooks/use-export'
 import { useDataFreshness } from '@/hooks/use-data-freshness'
 import { useUIStore } from '@/stores/ui'
@@ -373,7 +372,6 @@ export default function SimListPage() {
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">SIM Management</h1>
         <div className="flex items-center gap-2">
-          <SavedViewsMenu page="sims" />
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export
