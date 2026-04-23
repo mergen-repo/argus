@@ -3935,3 +3935,28 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 
 1. `?period=30d&apn_id=<id>` query — onceki buggy halde 30d window aggregate view apn filtresini sessizce dusurup TUM verileri donerdi. Gate fix sonrasi artik filtre gecerli ve dogru alt-kumeyi doner.
 2. Ayni `rat_type` filtresi icin de gecerli.
+
+## FIX-221: Dashboard Polish — Heatmap Tooltip, IP Pool KPI Clarity
+
+### 1. Traffic Heatmap Tooltip
+
+1. Dashboard (`/`) sayfasina git; Traffic Heatmap kartini bul (7 gun × 24 saat grid).
+2. Herhangi bir hucrenin uzerine gel (hover) → tooltip acilmali.
+3. Tooltip formati: `<formatBytes(rawBytes)> @ <Weekday> HH:00` (ornek: `"1.4 GB @ Mon 14:00"`).
+4. rawBytes = 0 olan (bos) hucreler icin tooltip `"0 B @ <Day> HH:00"` gostermeli.
+5. Tooltip metni `text-[10px] font-mono` stilinde, koyu token (`bg-bg-elevated border text-text-primary`) kullanmali.
+
+### 2. IP Pool KPI Karti
+
+1. Dashboard KPI satirinda "Pool Utilization" kartini bul.
+2. KPI baslik her zaman `"Pool Utilization (avg across all pools)"` olarak gozukmeli — parantezli aciklama her zaman gorunur.
+3. Aktif IP pool'u olan tenant'ta: kartın altinda subtitle `"Top pool: <pool-adi> <pct>%"` (ornek: `"Top pool: iot-pool-1 73%"`) gozukmeli.
+4. Aktif IP pool'u olmayan/sifir olan tenant'ta: subtitle gozukmemeli (null/omitempty).
+5. Pool adi uzunsa `truncate` ile kesilmeli; tasmamali.
+
+### 3. Backend DTO Spot-Check
+
+1. `GET /api/v1/dashboard` response → `traffic_heatmap[]` her eleman `value` (float, normalize [0,1]) + `raw_bytes` (int64, ham byte toplami) icermeli.
+2. Aktif pool'u olan tenant'ta response `top_ip_pool: { id, name, usage_pct }` icermeli.
+3. Aktif pool'u olmayan tenant'ta `top_ip_pool` alani response'da yer almamali (omitempty).
+4. 168 eleman beklenmez — sadece veri olan bucket'lar doner; bos saatler response'a dahil edilmez.

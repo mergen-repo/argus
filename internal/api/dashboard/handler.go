@@ -136,9 +136,16 @@ type alertDTO struct {
 }
 
 type trafficHeatmapCell struct {
-	Day   int     `json:"day"`
-	Hour  int     `json:"hour"`
-	Value float64 `json:"value"`
+	Day      int     `json:"day"`
+	Hour     int     `json:"hour"`
+	Value    float64 `json:"value"`
+	RawBytes int64   `json:"raw_bytes"`
+}
+
+type topIPPoolDTO struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	UsagePct float64 `json:"usage_pct"`
 }
 
 type dashboardDTO struct {
@@ -157,6 +164,7 @@ type dashboardDTO struct {
 	Sparklines         map[string][]float64 `json:"sparklines"`
 	Deltas             map[string]float64   `json:"deltas"`
 	TrafficHeatmap     []trafficHeatmapCell `json:"traffic_heatmap"`
+	TopIPPool          *topIPPoolDTO        `json:"top_ip_pool,omitempty"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -389,8 +397,19 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn().Err(err).Msg("tenant ip pool usage")
 			return
 		}
+		top, err := h.ippoolStore.TopPoolUsage(ctx, tenantID)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("top ip pool usage")
+		}
 		mu.Lock()
 		resp.IPPoolUsagePct = pct
+		if top != nil {
+			resp.TopIPPool = &topIPPoolDTO{
+				ID:       top.ID.String(),
+				Name:     top.Name,
+				UsagePct: top.UsagePct,
+			}
+		}
 		mu.Unlock()
 	}()
 
@@ -425,16 +444,19 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		if h.cdrStore == nil {
 			return
 		}
-		matrix, err := h.cdrStore.GetTrafficHeatmap7x24(ctx, tenantID)
+		rawCells, err := h.cdrStore.GetTrafficHeatmap7x24WithRaw(ctx, tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("get traffic heatmap")
 			return
 		}
-		cells := make([]trafficHeatmapCell, 0, 168)
-		for day, hours := range matrix {
-			for hour, val := range hours {
-				cells = append(cells, trafficHeatmapCell{Day: day, Hour: hour, Value: val})
-			}
+		cells := make([]trafficHeatmapCell, 0, len(rawCells))
+		for _, c := range rawCells {
+			cells = append(cells, trafficHeatmapCell{
+				Day:      c.Day,
+				Hour:     c.Hour,
+				Value:    c.Normalized,
+				RawBytes: c.RawBytes,
+			})
 		}
 		mu.Lock()
 		resp.TrafficHeatmap = cells

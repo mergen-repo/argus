@@ -65,6 +65,13 @@ export interface TrafficHeatmapCell {
   day: number
   hour: number
   value: number
+  raw_bytes: number
+}
+
+export interface TopIPPool {
+  id: string
+  name: string
+  usage_pct: number
 }
 
 export interface DashboardData {
@@ -82,4 +89,5 @@ export interface DashboardData {
   sparklines: Record<string, number[]>
   system_status: 'operational' | 'degraded' | 'critical'
   alert_counts: { critical: number; warning: number; info: number }
+  top_ip_pool?: TopIPPool | null
 }

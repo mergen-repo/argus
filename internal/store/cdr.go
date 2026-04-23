@@ -952,6 +952,69 @@ func (s *CDRStore) GetOperatorTraffic(ctx context.Context, tenantID, operatorID 
 	return results, nil
 }
 
+// TrafficHeatmapCellRaw holds both the normalized intensity value [0,1]
+// and the raw byte total for a single (day, hour) bucket.
+type TrafficHeatmapCellRaw struct {
+	Day        int
+	Hour       int
+	Normalized float64
+	RawBytes   int64
+}
+
+// GetTrafficHeatmap7x24WithRaw returns heatmap cells with both normalized
+// intensity [0,1] and raw byte totals for tooltip display.
+func (s *CDRStore) GetTrafficHeatmap7x24WithRaw(ctx context.Context, tenantID uuid.UUID) ([]TrafficHeatmapCellRaw, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			(EXTRACT(ISODOW FROM (bucket AT TIME ZONE 'Europe/Istanbul'))::int - 1) AS dow,
+			EXTRACT(HOUR FROM (bucket AT TIME ZONE 'Europe/Istanbul'))::int AS hour,
+			COALESCE(SUM(total_bytes_in + total_bytes_out), 0) AS total_bytes
+		FROM cdrs_hourly
+		WHERE tenant_id = $1
+		  AND bucket >= NOW() - INTERVAL '7 days'
+		GROUP BY dow, hour
+		ORDER BY dow, hour
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: get traffic heatmap with raw: %w", err)
+	}
+	defer rows.Close()
+
+	type rawCell struct {
+		dow, hour int
+		total     int64
+	}
+	var rawCells []rawCell
+	var maxVal int64
+
+	for rows.Next() {
+		var dow, hour int
+		var total int64
+		if err := rows.Scan(&dow, &hour, &total); err != nil {
+			return nil, fmt.Errorf("store: scan heatmap row: %w", err)
+		}
+		rawCells = append(rawCells, rawCell{dow, hour, total})
+		if total > maxVal {
+			maxVal = total
+		}
+	}
+
+	result := make([]TrafficHeatmapCellRaw, 0, len(rawCells))
+	for _, c := range rawCells {
+		var normalized float64
+		if maxVal > 0 {
+			normalized = float64(c.total) / float64(maxVal)
+		}
+		result = append(result, TrafficHeatmapCellRaw{
+			Day:        c.dow,
+			Hour:       c.hour,
+			Normalized: normalized,
+			RawBytes:   c.total,
+		})
+	}
+	return result, nil
+}
+
 func (s *CDRStore) GetTrafficHeatmap7x24(ctx context.Context, tenantID uuid.UUID) ([][]float64, error) {
 	// Frontend expects dow 0=Monday..6=Sunday in LOCAL time (Europe/Istanbul
 	// per the deployment target). Postgres' EXTRACT(DOW) returns 0=Sun..6=Sat

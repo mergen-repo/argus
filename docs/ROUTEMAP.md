@@ -392,8 +392,8 @@ Architectural decisions (documented, not blocking UAT):
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-220 | Analytics Polish — MSISDN, IN/OUT split, tooltip, delta cap | P2 | M | [~] IN PROGRESS (Review) | — |
-| FIX-221 | Dashboard Polish — Heatmap tooltip, IP pool KPI clarity | P2 | S | [ ] PENDING | — |
+| FIX-220 | Analytics Polish — MSISDN, IN/OUT split, tooltip, delta cap | P2 | M | [x] DONE (2026-04-23) | — |
+| FIX-221 | Dashboard Polish — Heatmap tooltip, IP pool KPI clarity | P2 | S | [~] IN PROGRESS (Review) | — |
 | FIX-222 | Operator/APN Detail Polish — KPI row, tab consolidation, tooltips | P2 | M | [ ] PENDING | — |
 | FIX-223 | IP Pool Detail Polish — backend search, last_seen, reserve modal ICCID | P2 | M | [ ] PENDING | — |
 | FIX-224 | SIM List/Detail Polish — state filter, Created datetime, bulk bar sticky | P2 | M | [ ] PENDING | FIX-216 |
@@ -706,6 +706,9 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-111 | FIX-220 Gate F-A9 | `GetTopConsumers` SELECT now includes `s.iccid, s.imsi, s.msisdn, s.operator_id, s.apn_id` forcing GROUP BY to list all five plus `c.sim_id`. At LIMIT=20 on indexed `c.sim_id`, plan stays hash-aggregate bounded — acceptable today. At scale (10M SIMs + 100M CDRs/day), p95 may exceed 500ms. Plan Risk R2 anticipated: fallback is post-query enrichment (pre-FIX-220 pattern) pulling only `msisdn/imsi` via enrichTopConsumer. Add p95 measurement in a perf hardening wave; migrate if threshold exceeded. | FIX-24x (perf hardening) | OPEN |
 | D-112 | FIX-220 Gate F-A10 | For 30d-period queries, `buildTimeSeriesQuery` returns `bytes_in=0, bytes_out=0` from the `cdrs_daily` branch because the materialized view lacks per-direction columns (documented choice in plan R1). TwoWayTraffic (currently non-grouped-only in UsageChartTooltip) would render "—" for those rows if the grouping routing ever changes. Cosmetic polish: in UsageChartTooltip non-grouped branch, when `curr.bytes_in === 0 && curr.bytes_out === 0 && curr.total_bytes > 0`, render the Total row but skip TwoWayTraffic (or show "IN/OUT: aggregated"). | FIX-24x (UI polish) | OPEN |
 | D-113 | FIX-220 Gate F-U3 | `analytics.tsx` EmptyState date-range hint uses `toLocaleDateString('en-GB', ...)` yielding `5 Mar` style — CLAUDE.md global preference is Turkish `DD.MM.YYYY`. Pre-existing page-wide convention (chart axis tick formatter at line 449 uses same `en-GB` locale). Defer to a global i18n pass that covers all analytics screens consistently. | Separate i18n wave | OPEN |
+| D-114 | FIX-221 Gate F-A1 | `GetTrafficHeatmap7x24WithRaw` (`internal/store/cdr.go:966-1016`) duplicates the SQL + max-normalization loop of legacy `GetTrafficHeatmap7x24` (`:1018-1069`). Retained intentionally to keep `cdr_test.go:329` test green (plan Task 1 + Risk #2 "don't rename in place"). Follow-up: delete legacy method and migrate the test to assert matrix shape derived from new flat-slice method, OR refactor legacy into a thin wrapper that calls new + builds matrix. Maintenance risk if one diverges (TZ/index/SQL). | FIX-24x (cleanup) | OPEN |
+| D-115 | FIX-221 Gate F-A2 | `TopPoolUsage` query (`internal/store/ippool.go:124-132`) `ORDER BY pct DESC NULLS LAST LIMIT 1` — no secondary tiebreaker. On ties (two pools at same utilization %) the surfaced "Top pool" name can flip between 30s cache refreshes for the same tenant state. Fix: add `, name ASC` (or `, created_at ASC`) as secondary sort key. Cosmetic only. | FIX-24x (UI polish) | OPEN |
+| D-116 | FIX-221 Gate F-U2 | Heatmap tooltip at `web/src/pages/dashboard/index.tsx:504` uses fixed `absolute top-0 right-0` anchor — can visually occlude top-right cells (Sun/Sat evening hours) on narrow viewports. `pointer-events-none` prevents hit-break so hover still works, but UX is suboptimal. Fix: smart positioning (follow cursor with edge-flip, or offset anchor based on `dayIdx >= 5 && hour >= 18`). | FIX-24x (UI polish) | OPEN |
 
 ---
 

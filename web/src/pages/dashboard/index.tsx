@@ -128,6 +128,7 @@ interface KPICardProps {
   deltaFormat?: 'percent' | 'absolute'
   live?: boolean
   suffix?: string
+  subtitle?: string
   onClick?: () => void
   delay: number
 }
@@ -142,6 +143,7 @@ const KPICard = React.memo(function KPICard({
   deltaFormat = 'percent',
   live,
   suffix,
+  subtitle,
   onClick,
   delay,
 }: KPICardProps) {
@@ -206,6 +208,9 @@ const KPICard = React.memo(function KPICard({
           )}
         </div>
         <Sparkline data={sparklineData} color={color} height={24} width={200} className="w-full" />
+        {subtitle && (
+          <p className="mt-1.5 text-[10px] font-mono text-text-tertiary truncate">{subtitle}</p>
+        )}
       </CardContent>
     </Card>
   )
@@ -425,7 +430,7 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
 }: {
   data: TrafficHeatmapCell[]
 }) {
-  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number } | null>(null)
+  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number; rawBytes: number } | null>(null)
 
   const maxValue = useMemo(() => {
     if (data.length === 0) return 1
@@ -433,8 +438,8 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
   }, [data])
 
   const grid = useMemo(() => {
-    const map = new Map<string, number>()
-    data.forEach((d) => map.set(`${d.day}-${d.hour}`, d.value))
+    const map = new Map<string, { value: number; rawBytes: number }>()
+    data.forEach((d) => map.set(`${d.day}-${d.hour}`, { value: d.value, rawBytes: d.raw_bytes ?? 0 }))
     return map
   }, [data])
 
@@ -475,19 +480,19 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
                 <React.Fragment key={dayIdx}>
                   <div className="text-[10px] font-mono text-text-tertiary flex items-center pr-1">{day}</div>
                   {HOURS.map((hour) => {
-                    const value = grid.get(`${dayIdx}-${hour}`) ?? 0
+                    const cell = grid.get(`${dayIdx}-${hour}`) ?? { value: 0, rawBytes: 0 }
                     const isHovered = hoveredCell?.day === dayIdx && hoveredCell?.hour === hour
                     return (
                       <div
                         key={hour}
                         className="aspect-square rounded-[2px] transition-all cursor-crosshair relative"
                         style={{
-                          backgroundColor: cellColor(value),
+                          backgroundColor: cellColor(cell.value),
                           outline: isHovered ? '1px solid var(--color-accent)' : 'none',
                           transform: isHovered ? 'scale(1.3)' : 'scale(1)',
                           zIndex: isHovered ? 10 : 0,
                         }}
-                        onMouseEnter={() => setHoveredCell({ day: dayIdx, hour, value })}
+                        onMouseEnter={() => setHoveredCell({ day: dayIdx, hour, value: cell.value, rawBytes: cell.rawBytes })}
                         onMouseLeave={() => setHoveredCell(null)}
                       />
                     )
@@ -498,10 +503,9 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
 
             {hoveredCell && (
               <div className="absolute top-0 right-0 bg-bg-elevated border border-border rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[11px] font-mono pointer-events-none z-20 shadow-lg">
+                <span className="text-accent font-semibold">{formatBytes(hoveredCell.rawBytes)}</span>
+                <span className="mx-1.5 text-text-tertiary">@</span>
                 <span className="text-text-secondary">{DAYS[hoveredCell.day]} {hoveredCell.hour.toString().padStart(2, '0')}:00</span>
-                <span className="mx-1.5 text-text-tertiary">|</span>
-                <span className="text-accent font-semibold">{hoveredCell.value}</span>
-                <span className="text-text-tertiary ml-1">req/s</span>
               </div>
             )}
 
@@ -1122,13 +1126,18 @@ export default function DashboardPage() {
           delay={200}
         />
         <KPICard
-          title="IP Pool Usage"
+          title="Pool Utilization (avg across all pools)"
           value={m.ip_pool_usage_pct}
           formatter={(n) => `${n.toFixed(1)}%`}
           sparklineData={sp.ip_pool_usage || []}
           color={ipPoolColor}
           delta={d.ip_pool_usage_delta}
           deltaFormat="absolute"
+          subtitle={
+            data.top_ip_pool
+              ? `Top pool: ${data.top_ip_pool.name} ${data.top_ip_pool.usage_pct.toFixed(0)}%`
+              : undefined
+          }
           delay={230}
         />
         <KPICard

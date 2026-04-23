@@ -110,6 +110,34 @@ func (s *IPPoolStore) TenantPoolUsage(ctx context.Context, tenantID uuid.UUID) (
 	return float64(used) / float64(total) * 100, nil
 }
 
+// TopPoolSummary holds the identity and utilization of a single IP pool.
+type TopPoolSummary struct {
+	ID       uuid.UUID
+	Name     string
+	UsagePct float64
+}
+
+// TopPoolUsage returns the single most-utilized active IP pool for the tenant.
+// Returns (nil, nil) when the tenant has zero active pools with total_addresses > 0.
+func (s *IPPoolStore) TopPoolUsage(ctx context.Context, tenantID uuid.UUID) (*TopPoolSummary, error) {
+	var summary TopPoolSummary
+	err := s.db.QueryRow(ctx, `
+		SELECT id, name,
+		       (used_addresses::float / total_addresses::float) * 100 AS pct
+		FROM ip_pools
+		WHERE tenant_id = $1 AND state = 'active' AND total_addresses > 0
+		ORDER BY pct DESC NULLS LAST
+		LIMIT 1
+	`, tenantID).Scan(&summary.ID, &summary.Name, &summary.UsagePct)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("store: top pool usage: %w", err)
+	}
+	return &summary, nil
+}
+
 type IPAddress struct {
 	ID             uuid.UUID  `json:"id"`
 	PoolID         uuid.UUID  `json:"pool_id"`

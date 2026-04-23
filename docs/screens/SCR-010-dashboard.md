@@ -59,6 +59,8 @@
 | APN name in top 5 | Click | SCR-032 APN Detail | Navigation |
 | Alert feed row | Click | Anomaly detail or SIM detail | Navigation |
 | Quick Action buttons | Click | SCR-020 import modal / SCR-031 create | Navigation/Modal |
+| Traffic Heatmap cell | Hover | Tooltip: `<formatBytes(rawBytes)> @ <Day> HH:00` — raw byte total for that 7-day/hour bucket; uses `raw_bytes` from API-110 DTO (FIX-221) | Tooltip |
+| Pool Utilization KPI | Render | Title always shows "(avg across all pools)" clarifier; subtitle conditionally shows `Top pool: <name> <pct>%` when `top_ip_pool` is non-null in API-110 response (FIX-221) | Subtitle |
 
 ## States
 
@@ -69,7 +71,7 @@
 
 ## API References
 
-- API-110: GET /api/v1/analytics/dashboard
+- API-110: GET /api/v1/dashboard
 - API-101: GET /api/v1/sessions/stats
 - API-023: GET /api/v1/operators/:id/health
 - WebSocket: metrics.realtime, alert.new
