@@ -4,16 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { useDeliveryStatus } from '@/hooks/use-admin'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
 import type { ChannelHealth } from '@/types/admin'
 
-const WINDOW_OPTIONS = [
-  { value: '1h', label: 'Last 1h' },
-  { value: '24h', label: 'Last 24h' },
-  { value: '7d', label: 'Last 7d' },
-] as const
+const WINDOW_PRESETS = [
+  { value: '1h' as const, label: 'Last 1h' },
+  { value: '24h' as const, label: 'Last 24h' },
+  { value: '7d' as const, label: 'Last 7d' },
+  { value: '30d' as const, label: 'Last 30d' },
+]
 
 const CHANNELS = [
   { key: 'webhook', label: 'Webhook' },
@@ -84,7 +86,7 @@ function ChannelCard({ label, ch }: { label: string; ch: ChannelHealth }) {
 export default function DeliveryStatusPage() {
   const user = useAuthStore((s) => s.user)
   const isSuperAdmin = user?.role === 'super_admin'
-  const [window, setWindow] = useState<'1h' | '24h' | '7d'>('24h')
+  const [window, setWindow] = useState<'1h' | '24h' | '7d' | '30d'>('24h')
 
   const { data: status, isLoading, isError, refetch } = useDeliveryStatus(window)
 
@@ -107,25 +109,12 @@ export default function DeliveryStatusPage() {
           <p className="text-sm text-text-secondary mt-0.5">Notification delivery health per channel</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            {WINDOW_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setWindow(opt.value)}
-                className={cn(
-                  'rounded-none px-3 py-1.5 text-xs h-auto',
-                  window === opt.value
-                    ? 'bg-accent-dim text-accent'
-                    : 'text-text-secondary hover:text-text-primary'
-                )}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
+          <TimeframeSelector
+            value={window}
+            onChange={(v) => setWindow((typeof v === 'string' ? v : v.value) as '1h' | '24h' | '7d' | '30d')}
+            options={WINDOW_PRESETS}
+            allowCustom={false}
+          />
           <Button variant="ghost" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" />
           </Button>

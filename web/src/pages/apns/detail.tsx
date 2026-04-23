@@ -51,6 +51,7 @@ import {
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { Spinner } from '@/components/ui/spinner'
 import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool, useAPNReferencingPolicies } from '@/hooks/use-apns'
 import { useAPNTraffic } from '@/hooks/use-apn-traffic'
@@ -606,14 +607,6 @@ function TrafficTab({ apnId }: { apnId: string }) {
     )
   }
 
-  const periodOptions = [
-    { value: '1h', label: 'Last 1 hour' },
-    { value: '6h', label: 'Last 6 hours' },
-    { value: '24h', label: 'Last 24 hours' },
-    { value: '7d', label: 'Last 7 days' },
-    { value: '30d', label: 'Last 30 days' },
-  ]
-
   return (
     <div className="space-y-4">
       {/* Header with period selector */}
@@ -622,11 +615,17 @@ function TrafficTab({ apnId }: { apnId: string }) {
           <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
           <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
         </div>
-        <Select
-          options={periodOptions}
+        <TimeframeSelector
+          options={[
+            { value: '1h', label: '1h' },
+            { value: '6h', label: '6h' },
+            { value: '24h', label: '24h' },
+            { value: '7d', label: '7d' },
+            { value: '30d', label: '30d' },
+          ]}
           value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="w-40 h-8 text-xs"
+          onChange={(v) => setPeriod(typeof v === 'string' ? v : v.value)}
+          allowCustom={false}
         />
       </div>
 

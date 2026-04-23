@@ -8,3 +8,5 @@ STEP_2 DEV W3 T6: EXECUTED | 2026-04-22 | hex-scan=0 rgba-scan=1(FIXED: sims/ind
 STEP_2.5 LINT: EXECUTED | 2026-04-22 | raw-button-scan=0 hex-scan=0 rgba-scan=0 | tsc=PASS web-build=PASS | result=PASS
 STEP_3 GATE: EXECUTED | 2026-04-22 | scouts=3 findings=6(A=4+T=0+U=2) dedup=6 fixed=1 false-positive=1 deferred=2 no-action=2 escalated=0 | verify: tsc=PASS web-build=PASS(2.52s) | evidence=FIX-216-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | 2026-04-22 | findings=19(PASS=14,UPDATED=4,OPEN=1->resolved-in-step5) | doc-edits=3(SCREENS,decisions,FRONTEND.D-090-earlier) | story-impact=skipped(story-file-aligned) | evidence=FIX-216-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | 2026-04-22 | items=1 files=17 commit=3a6b03f insertions=1626 deletions=254 | result=PASS
+STEP_6 POSTPROC: EXECUTED | 2026-04-22 | artifacts=plan+gate+review+step-log+USERTEST | step-log=PLAN+DEV+LINT+GATE+REVIEW+COMMIT | unresolved=0 | result=PASS

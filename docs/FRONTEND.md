@@ -175,6 +175,95 @@ Both primitives consume `bg-bg-surface`, `bg-bg-elevated`, `text-text-primary`, 
 
 Deferred (ROUTEMAP Tech Debt D-090): static lint rule flagging `Dialog` usage with >3 form fields. PR review + this doc enforce the rule in the interim.
 
+## Timeframe Pattern
+
+Argus uses a single canonical `<TimeframeSelector>` primitive for all timeframe/window selection surfaces. Never hand-roll a pill group or use a `<Select>` for timeframe — always reach for this component.
+
+### Canonical preset set
+
+`'1h' | '24h' | '7d' | '30d'` — default list rendered when no `options` override is passed. The full type is `TimeframePreset = '15m' | '1h' | '6h' | '24h' | '7d' | '30d' | 'custom'`. Default selected: `'24h'`.
+
+### Primitive API (controlled)
+
+```tsx
+import { TimeframeSelector, type TimeframePreset, type TimeframeValue } from '@/components/ui/timeframe-selector'
+
+// Minimal (legacy-compat — callers that keep value as string still work)
+<TimeframeSelector value={timeframe} onChange={setTimeframe} />
+
+// Full controlled usage with role-gating
+<TimeframeSelector
+  value={timeframeValue}           // TimeframeValue | TimeframePreset
+  onChange={handleChange}          // (v: TimeframeValue) => void
+  options={[                       // Override canonical list for context-specific needs
+    { value: '1h', label: '1h' },
+    { value: '6h', label: '6h' },
+    { value: '24h', label: '24h' },
+  ]}
+  disabledPresets={['30d']}        // Role-gate: disable but still render
+  allowCustom={false}              // Opt-out of Custom popover (tight strips)
+  aria-label="Traffic window"      // Override default "Timeframe" label
+/>
+```
+
+### Options override
+
+Pass `options` only when the canonical preset set doesn't fit the context (e.g., operator/APN traffic tabs that need `6h`, CDRs that start from `1h`). Sub-hour presets (`15m`, `6h`) are not in the canonical list but are available via override.
+
+### Role-gating via `disabledPresets`
+
+`disabledPresets` is purely presentational: the pill renders as `opacity-40 cursor-not-allowed aria-disabled="true" title="Not available for your role"`. Access enforcement is server-side. Example — analyst cannot use `30d` on CDRs:
+
+```tsx
+<TimeframeSelector
+  disabledPresets={user.role === 'analyst' ? ['30d'] : []}
+  ...
+/>
+```
+
+### Custom range Popover
+
+When `allowCustom !== false` (default), a `Custom` pill is appended. Clicking it opens a `<Popover>` with two `<Input type="datetime-local">` controls (From / To) plus Cancel + Apply buttons. On Apply, `onChange` is called with `{ value: 'custom', from: ISO, to: ISO }`. The pill label truncates to 22 chars showing the active range (e.g., `Custom · Apr 22 → Apr 23`). No new npm dependency — uses the existing `<Popover>` primitive.
+
+### URL sync hook
+
+For pages that need `?tf=` in the URL, use the optional hook:
+
+```ts
+import { useTimeframeUrlSync } from '@/hooks/use-timeframe-url-sync'
+
+const { timeframe, setTimeframe, customRange, setCustomRange } = useTimeframeUrlSync('24h')
+// Reads/writes: ?tf=24h  |  ?tf=custom&tf_start=ISO&tf_end=ISO
+// Uses { replace: true } to avoid history spam
+```
+
+### A11y contract
+
+- Container: `role="group" aria-label="Timeframe"` (or page-specific override via `aria-label` prop)
+- Each pill: `aria-pressed={isActive}`, `aria-disabled="true"` on role-gated pills
+- Keyboard navigation: `ArrowLeft`/`ArrowRight` cycles between enabled presets; `Home`/`End` jump to first/last enabled preset. Roving `tabIndex`: active pill `tabIndex={0}`, others `-1`
+- Custom Popover: focus is contained inside the `<Popover>` primitive (Escape closes)
+
+### Adoption map
+
+| Screen | Context | Notes |
+|--------|---------|-------|
+| `dashboard/analytics.tsx` | Usage analytics | Default canonical presets |
+| `dashboard/analytics-cost.tsx` | Cost analytics | Custom `COST_TIMEFRAME_OPTIONS` override |
+| `sims/detail.tsx` | SIM usage trend | Default presets |
+| `admin/api-usage.tsx` | API usage window | Canonical presets (1h/24h/7d/30d); no custom |
+| `admin/delivery.tsx` | Delivery window | Canonical presets (1h/24h/7d/30d); no custom |
+| `operators/detail.tsx` | Traffic tab + AAA history | Canonical presets, shared across tabs via URL hook |
+| `apns/detail.tsx` | Traffic tab | Canonical presets; URL-synced via `useTimeframeUrlSync` |
+| `cdrs/index.tsx` | CDR Explorer | Canonical presets + Custom popover + analyst role-gate; URL `?tf=` / `?tf_start=&tf_end=` |
+
+### Never do
+
+- Raw `<button>` loops for timeframe selection outside this primitive file
+- `<Select>` dropdown for preset timeframes
+- Hardcoded hex colors or `text-[Npx]` arbitrary values
+- `allowCustom` on surfaces where the popover would confuse context (use `allowCustom={false}`)
+
 ## Key Visual Patterns
 
 ### Card Hover Effect

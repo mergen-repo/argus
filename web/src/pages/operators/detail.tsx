@@ -38,6 +38,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -293,11 +294,11 @@ function OverviewTab({
   )
 }
 
-const HOURS_OPTIONS = [
-  { value: '6', label: 'Last 6h' },
-  { value: '24', label: 'Last 24h' },
-  { value: '72', label: 'Last 3d' },
-  { value: '168', label: 'Last 7d' },
+const HEALTH_HISTORY_OPTIONS = [
+  { value: '6', label: '6h' },
+  { value: '24', label: '24h' },
+  { value: '72', label: '3d' },
+  { value: '168', label: '7d' },
 ]
 
 function HealthTimelineTab({ operatorId }: { operatorId: string }) {
@@ -335,11 +336,11 @@ function HealthTimelineTab({ operatorId }: { operatorId: string }) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Health Check History</CardTitle>
-          <Select
-            options={HOURS_OPTIONS}
+          <TimeframeSelector
+            options={HEALTH_HISTORY_OPTIONS}
             value={String(hours)}
-            onChange={(e) => setHours(Number(e.target.value))}
-            className="w-32 h-7 text-xs"
+            onChange={(v) => setHours(Number(typeof v === 'string' ? v : v.value))}
+            allowCustom={false}
           />
         </div>
       </CardHeader>
@@ -493,11 +494,12 @@ function CircuitBreakerTab({
   )
 }
 
-const WINDOW_OPTIONS = [
-  { value: '15m', label: 'Last 15m' },
-  { value: '1h', label: 'Last 1h' },
-  { value: '6h', label: 'Last 6h' },
-  { value: '24h', label: 'Last 24h' },
+const TRAFFIC_OPTIONS = [
+  { value: '1h', label: '1h' },
+  { value: '6h', label: '6h' },
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
 ]
 
 const tooltipStyle = {
@@ -546,14 +548,6 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
     )
   }
 
-  const periodOptions = [
-    { value: '1h', label: 'Last 1 hour' },
-    { value: '6h', label: 'Last 6 hours' },
-    { value: '24h', label: 'Last 24 hours' },
-    { value: '7d', label: 'Last 7 days' },
-    { value: '30d', label: 'Last 30 days' },
-  ]
-
   return (
     <div className="space-y-4">
       {/* Header with period selector */}
@@ -562,11 +556,11 @@ function TrafficTab({ operatorId }: { operatorId: string }) {
           <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
           <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
         </div>
-        <Select
-          options={periodOptions}
+        <TimeframeSelector
+          options={TRAFFIC_OPTIONS}
           value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="w-40 h-8 text-xs"
+          onChange={(v) => setPeriod(typeof v === 'string' ? v : v.value)}
+          allowCustom={false}
         />
       </div>
 

@@ -92,7 +92,7 @@ export function useDeleteMaintenanceWindow() {
   })
 }
 
-export function useDeliveryStatus(window: '1h' | '24h' | '7d' = '24h') {
+export function useDeliveryStatus(window: '1h' | '24h' | '7d' | '30d' = '24h') {
   return useQuery({
     queryKey: DELIVERY_STATUS_KEY(window),
     queryFn: async () => {
@@ -166,7 +166,7 @@ export function useForceLogoutSession() {
   })
 }
 
-export function useAPIKeyUsage(window: '1h' | '24h' | '7d' = '24h') {
+export function useAPIKeyUsage(window: '1h' | '24h' | '7d' | '30d' = '24h') {
   return useQuery({
     queryKey: API_KEY_USAGE_KEY(window),
     queryFn: async () => {

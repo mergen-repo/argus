@@ -31,6 +31,8 @@ import { EntityLink } from '@/components/shared/entity-link'
 import { CopyableId } from '@/components/shared/copyable-id'
 import { SimSearch } from '@/components/ui/sim-search'
 import { RATBadge } from '@/components/ui/rat-badge'
+import { TimeframeSelector, type TimeframeValue, type TimeframePreset } from '@/components/ui/timeframe-selector'
+import { useTimeframeUrlSync } from '@/hooks/use-timeframe-url-sync'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useAPNList } from '@/hooks/use-apns'
 import { useCDRList, useCDRStats, useSimBatch, type CDRFilters } from '@/hooks/use-cdrs'
@@ -49,19 +51,26 @@ const RECORD_TYPES = ['start', 'interim', 'stop', 'auth', 'auth_fail', 'reject']
 const RAT_TYPES = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 const ADMIN_ROLES = new Set(['super_admin', 'tenant_admin'])
 
-interface PresetRange {
-  label: string
-  getRange: () => { from: string; to: string }
-  rangeDays: number
-}
-
-const PRESET_RANGES: PresetRange[] = [
-  { label: 'Son 1 saat', rangeDays: 1 / 24, getRange: () => ({ from: new Date(Date.now() - 60 * 60 * 1000).toISOString(), to: new Date().toISOString() }) },
-  { label: 'Son 6 saat', rangeDays: 6 / 24, getRange: () => ({ from: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), to: new Date().toISOString() }) },
-  { label: 'Son 24 saat', rangeDays: 1, getRange: () => ({ from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), to: new Date().toISOString() }) },
-  { label: 'Son 7 gün', rangeDays: 7, getRange: () => ({ from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), to: new Date().toISOString() }) },
-  { label: 'Son 30 gün', rangeDays: 30, getRange: () => ({ from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), to: new Date().toISOString() }) },
+const CDR_TIMEFRAME_OPTIONS = [
+  { value: '1h' as TimeframePreset, label: '1h' },
+  { value: '6h' as TimeframePreset, label: '6h' },
+  { value: '24h' as TimeframePreset, label: '24h' },
+  { value: '7d' as TimeframePreset, label: '7d' },
+  { value: '30d' as TimeframePreset, label: '30d' },
 ]
+
+function presetToRange(preset: TimeframePreset): { from: string; to: string } {
+  const now = Date.now()
+  const offsets: Record<string, number> = {
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+  }
+  const offset = offsets[preset] ?? offsets['24h']
+  return { from: new Date(now - offset).toISOString(), to: new Date(now).toISOString() }
+}
 
 function initialFilters(): CDRFilters {
   try {
@@ -70,9 +79,7 @@ function initialFilters(): CDRFilters {
       const parsed = JSON.parse(stored) as CDRFilters
       const from = parsed.from ? new Date(parsed.from) : null
       if (from && (Date.now() - from.getTime()) > 60 * 60 * 1000) {
-        // Stored range older than an hour: refresh the window AND clear
-        // per-session/per-SIM filters since those IDs may be stale (F-A13).
-        const range = PRESET_RANGES[2].getRange()
+        const range = presetToRange('24h')
         return {
           operator_id: parsed.operator_id,
           apn_id: parsed.apn_id,
@@ -87,7 +94,7 @@ function initialFilters(): CDRFilters {
   } catch {
     /* ignore */
   }
-  const range = PRESET_RANGES[2].getRange()
+  const range = presetToRange('24h')
   return { from: range.from, to: range.to }
 }
 
@@ -96,6 +103,12 @@ export default function CDRExplorerPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((s) => s.user)
   const isAdmin = user ? ADMIN_ROLES.has(user.role) : false
+
+  const { timeframe, setTimeframe, customRange, setCustomRange } = useTimeframeUrlSync('24h')
+
+  const tfValue: TimeframeValue = customRange
+    ? { value: 'custom', from: customRange.start, to: customRange.end }
+    : { value: timeframe }
 
   const [filters, setFiltersState] = useState<CDRFilters>(() => {
     const params = Object.fromEntries(searchParams.entries())
@@ -107,12 +120,18 @@ export default function CDRExplorerPage() {
       if (params.apn_id) fromQ.apn_id = params.apn_id
       if (params.record_type) fromQ.record_type = params.record_type
       if (params.rat_type) fromQ.rat_type = params.rat_type
-      if (params.from) fromQ.from = params.from
-      if (params.to) fromQ.to = params.to
-      if (fromQ.from && fromQ.to) return fromQ
     }
     return initialFilters()
   })
+
+  useEffect(() => {
+    if (tfValue.value === 'custom' && tfValue.from && tfValue.to) {
+      setFiltersState((prev) => ({ ...prev, from: tfValue.from, to: tfValue.to }))
+    } else if (tfValue.value !== 'custom') {
+      const range = presetToRange(tfValue.value)
+      setFiltersState((prev) => ({ ...prev, from: range.from, to: range.to }))
+    }
+  }, [tfValue.value, tfValue.from, tfValue.to])
 
   const setFilters = useCallback((updater: CDRFilters | ((prev: CDRFilters) => CDRFilters)) => {
     setFiltersState((prev) => {
@@ -127,12 +146,26 @@ export default function CDRExplorerPage() {
   }, [])
 
   useEffect(() => {
-    const p = new URLSearchParams()
-    for (const [k, v] of Object.entries(filters)) {
-      if (v !== undefined && v !== '') p.set(k, String(v))
-    }
-    setSearchParams(p, { replace: true })
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const FILTER_KEYS = ['operator_id', 'apn_id', 'record_type', 'rat_type'] as const
+      for (const k of FILTER_KEYS) p.delete(k)
+      for (const [k, v] of Object.entries(filters)) {
+        if (k === 'from' || k === 'to') continue
+        if (!(FILTER_KEYS as readonly string[]).includes(k)) continue
+        if (v !== undefined && v !== '') p.set(k, String(v))
+      }
+      return p
+    }, { replace: true })
   }, [filters, setSearchParams])
+
+  const handleTimeframeChange = useCallback((v: TimeframeValue) => {
+    if (v.value === 'custom' && v.from && v.to) {
+      setCustomRange({ start: v.from, end: v.to })
+    } else if (v.value !== 'custom') {
+      setTimeframe(v.value)
+    }
+  }, [setTimeframe, setCustomRange])
 
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -179,20 +212,11 @@ export default function CDRExplorerPage() {
     [],
   )
 
-  const applyPreset = useCallback((idx: number) => {
-    const preset = PRESET_RANGES[idx]
-    if (preset.rangeDays > 30 && !isAdmin) {
-      toast.error('30 günü aşan sorgular yönetici rolü gerektirir.')
-      return
-    }
-    const range = preset.getRange()
-    setFilters((prev) => ({ ...prev, from: range.from, to: range.to }))
-  }, [setFilters, isAdmin])
-
   const clearFilters = useCallback(() => {
-    const range = PRESET_RANGES[2].getRange()
+    setTimeframe('24h')
+    const range = presetToRange('24h')
     setFilters({ from: range.from, to: range.to })
-  }, [setFilters])
+  }, [setFilters, setTimeframe])
 
   const handleExport = useCallback(async () => {
     if (!filters.from || !filters.to) {
@@ -276,23 +300,15 @@ export default function CDRExplorerPage() {
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Filter className="h-3.5 w-3.5 text-text-secondary" />
           <p className="text-[11px] uppercase tracking-[1.5px] text-text-secondary font-medium">Filtreler</p>
-          <div className="ml-auto flex flex-wrap gap-1">
-            {PRESET_RANGES.map((preset, idx) => {
-              const disabled = preset.rangeDays > 30 && !isAdmin
-              return (
-                <Button
-                  key={preset.label}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => applyPreset(idx)}
-                  disabled={disabled}
-                  title={disabled ? '30 günü aşan sorgular yönetici rolü gerektirir.' : undefined}
-                  className="h-7 px-2 text-[11px]"
-                >
-                  {preset.label}
-                </Button>
-              )
-            })}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <TimeframeSelector
+              value={tfValue}
+              onChange={handleTimeframeChange}
+              options={CDR_TIMEFRAME_OPTIONS}
+              allowCustom
+              disabledPresets={!isAdmin ? ['30d'] : []}
+              aria-label="CDR zaman aralığı"
+            />
             <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 px-2 text-[11px] gap-1">
               <X className="h-3 w-3" />
               Temizle

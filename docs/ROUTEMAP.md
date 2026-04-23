@@ -383,8 +383,8 @@ Architectural decisions (documented, not blocking UAT):
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-216 | Modal Pattern Standardization — Dialog (confirm) vs SlidePanel (rich form) | P2 | M | [~] IN PROGRESS (Review) | — |
-| FIX-217 | Timeframe Selector Pill Toggle Unification | P2 | S | [ ] PENDING | — |
+| FIX-216 | Modal Pattern Standardization — Dialog (confirm) vs SlidePanel (rich form) | P2 | M | [x] DONE (2026-04-22) | — |
+| FIX-217 | Timeframe Selector Pill Toggle Unification | P2 | S | [~] IN PROGRESS (Commit) | — |
 | FIX-218 | Views Button Global Removal + Operators Checkbox Cleanup | P2 | S | [ ] PENDING | — |
 | FIX-219 | Name Resolution + Clickable Cells Everywhere (global audit) | P2 | M | [ ] PENDING | FIX-212 |
 
@@ -681,6 +681,11 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-088 | FIX-215 Gate D-8+D-9+D-10+D-11+D-12 | Minor UX polish: full-row click target in operator table (F-U14), reset-defaults button + last-changed line (F-U15), `aria-describedby` on SLA input help text (F-U16), `isDirty` flash on invalid numeric input (F-U19), `SLAOverallAgg` type split for unused `operator_id` field (F-U20). All minor — batch into FIX-248 a11y/polish pass. | FIX-248 | OPEN |
 | D-089 | FIX-215 Gate D-6 | English-only UI labels throughout SLA pages (F-U12): month cards, breach drawer headers, SLA targets section use hardcoded EN strings. Plan deliberately defers i18n as a separate wave (consistent with FIX-214 EN-first precedent). No AC requires TR/EN toggle for SLA feature. | Separate i18n wave | OPEN |
 | D-090 | FIX-216 AC-4 | ESLint rule to flag `Dialog` usage with >3 form fields (nudge toward SlidePanel per Option C). ROI vs PR review + FRONTEND.md Modal Pattern doc judged LOW; documented rule + human review sufficient. Revisit if Modal-Pattern violations recur in ≥3 stories. | future lint-infra wave | OPEN |
+| D-091 | FIX-217 T7 | Unit tests for `TimeframeSelector` (renders presets, `disabledPresets` aria-disabled, keyboard arrow nav, Custom popover Apply emits ISO range) deferred — `web/` has no test runner configured (no vitest/jest/RTL in `web/package.json`). Suggested devDependencies: `vitest`, `@vitest/ui`, `@testing-library/react`, `@testing-library/user-event`, `jsdom` (mirrors D-053 FE test infra gap). Wire as part of the POST-GA FE test infra wave. | FIX-24x (FE test infra) | OPEN |
+| D-092 | FIX-217 Gate F-A7 | Keyboard Arrow navigation on `TimeframeSelector` pills commits selection on focus move (calls `handleSelect(nextOpt)` at `timeframe-selector.tsx:189`). Convention: arrow keys should move focus only; Enter/Space selects. Consequence: tabbing Right across pills and landing on `custom` triggers `setPopoverOpen(true)` uninvited. Low-impact polish — AC-5 keyboard functionality verified working. Fix: introduce `focusedIndex` state with `tabIndex`-driven roving focus; commit only on Enter/Space/Click. | FIX-24x (UI polish) | OPEN |
+| D-093 | FIX-217 Gate F-A8 | State variable `window` in `web/src/pages/admin/api-usage.tsx:46` and `web/src/pages/admin/delivery.tsx:89` shadows the browser global. Pre-existed before FIX-217; preserved unchanged. Non-blocking hygiene. Fix: rename to `tfWindow` with matching `setTfWindow` setter. | FIX-24x (UI polish) | OPEN |
+| D-094 | FIX-217 Gate F-A9 | `operators/detail.tsx` HealthTimelineTab `HEALTH_HISTORY_OPTIONS` stores numeric-hour string values (`'6'`, `'24'`, `'72'`, `'168'`) with canonical labels (`6h/24h/3d/7d`). Typing leans on `TimeframeOption.value: TimeframePreset \| string` escape hatch — if `disabledPresets` is ever introduced here, cannot reference these keys via the `TimeframePreset` union. Fix: switch values to canonical keys (`'6h'/'24h'/'3d'/'7d'`); convert to hours inside the query call. | FIX-24x (UI polish) | OPEN |
+| D-095 | FIX-217 Gate F-A11 | `TimeframeSelector` primitive recomputes `allOptions` + `selectableIndices` on every render (`timeframe-selector.tsx:141-148`). Arrays are ≤6 elements, so there is no measurable hot-path cost today; cdrs page re-renders frequently due to filter updates but the selector is not on any identified performance hot-list. Defensive micro-opt: wrap in `React.useMemo(..., [options, allowCustom, normalized.value, normalized.from, normalized.to])`. | FIX-24x (UI polish) | OPEN |
 
 ---
 

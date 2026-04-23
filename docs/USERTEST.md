@@ -3730,3 +3730,56 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 2. Yukaridaki 4 senaryoyu tekrarla — her modal/drawer dark theme tokenlariyla render olur.
 3. Beyaz arka plan (`bg-white`), gri Tailwind palette veya hardcoded hex/rgba gorunmemeli.
 4. Shadow tokenlari (`--shadow-card`, `--shadow-card-success/warning/danger`) dogru uygulanir.
+
+---
+
+## FIX-217: Timeframe Selector Pill Toggle Unification
+
+### 1. Canonical Pill Rendering — 5 Sayfa
+
+1. Sirasiyla ac: `/admin/api-usage`, `/admin/delivery`, `/operators/:id` (Traffic + Health-Timeline sekmeleri), `/apns/:id` (Traffic sekmesi), `/cdrs`.
+2. Her sayfada ust filtre alaninda segmented-control pill grubu gorunur (rounded-[3px], ghost active=`bg-accent text-bg-primary shadow-sm`, inactive=`text-text-secondary hover:bg-bg-hover`).
+3. Preset seti: canonical `1h / 24h / 7d / 30d` (admin/delivery sayfasi allowCustom=false ek Custom yok; cdrs + operators + apns icin Custom var).
+4. Default secim varsayilan olarak `24h` (admin sayfalari; cdrs `24h`; operators TrafficTab `24h`; apns TrafficTab `24h`).
+5. Hicbir sayfada eski `<Select>` dropdown veya elle-yazilmis `<button>` pill grubu kalmis olmamali.
+
+### 2. Custom Popover — Date Range Akisi (cdrs)
+
+1. `/cdrs` sayfasina git; pill grubunda `Custom` tikla → popover acilir (role=dialog, From/To iki `datetime-local` input, Apply/Cancel butonlari).
+2. Baslangic = `2026-04-22T10:00`, Bitis = `2026-04-22T18:00` gir; Apply bas.
+3. URL guncellenir: `?tf=custom&tf_start=...&tf_end=...` (ISO UTC formati).
+4. Pill etiketi `Custom · Apr 22 → Apr 22` benzeri bir ozet gosterir (secim aktiftir, `bg-accent`).
+5. Popover'i yeniden ac — `From`/`To` girilmis DEGERLERI local olarak gosterir (UTC kayma YOK — F-A3/A4 fix).
+6. Cancel tikla — popover kapanir, deger degismez.
+7. Browser'i URL ile refresh et (`?tf=custom&tf_start=...&tf_end=...`) — Custom pill aktif gelir, popover re-open ayni lokal saat.
+
+### 3. Role Gating — Analyst 30d Kilidi (cdrs)
+
+1. Analyst rolunde oturum ac (admin OLMAYAN kullanici); `/cdrs` ac.
+2. 30d pill'i `opacity-40 cursor-not-allowed`, `aria-disabled="true"`, `title="Not available for your role"` gosterir.
+3. 30d uzerine TIKLA → hic bir sey olmaz (onChange fire etmez, URL degismez).
+4. Klavye ile ArrowLeft/Right cycle et → 30d pill UZERINE LANDING YAPMAZ (selectableIndices atlar).
+5. Admin kullanici olarak login ol — 30d artik aktif ve tiklanabilir.
+
+### 4. URL Sync Deep-Link — cdrs
+
+1. `/cdrs?tf=7d` adresine direkt git → 7d pill aktif, tablo son 7 gun CDRs'leri getirir.
+2. Pill'den 1h sec → URL `?tf=1h` olur.
+3. Record-type chip veya session_id filtresi degistir → URL'de `tf` korunur (F-A1 fix — filter-sync effect `tf/tf_start/tf_end` temizlemez).
+4. Back/Forward navigation ile history gezin — her adimda pill state URL ile senkron.
+5. `/cdrs?tf=invalidvalue` ac → hook `24h` fallback'e duser (gecersiz preset sessizce reddedilir).
+
+### 5. Back-Compat Legacy Callers
+
+1. `/dashboard` (analytics), `/dashboard/cost` (analytics-cost), `/sims/:id` (detail) sayfalarini ac — her biri hala `TimeframeSelector`'u eski `value: string` overload imzasi ile kullaniyor.
+2. Pill grubu ayni canonical stilde render olur; eski davranis bozulmaz (3 sayfada tsc=PASS + runtime normal).
+3. Timeframe degistir → iligli grafik/tablolar refresh olur.
+
+### 6. Keyboard Nav + A11y
+
+1. Herhangi bir adopted sayfada pill grubunu Tab ile focus'a al — aktif pill focus halkasi (`focus-visible:outline-accent`).
+2. `ArrowRight` → bir sonraki secilebilir preset'e gec (disabled pill atla); `ArrowLeft` → ters yon.
+3. `Home` → ilk enabled preset; `End` → son enabled preset.
+4. `Enter` veya `Space` → odaktaki pill'i sec (onChange fire eder, URL guncellenir).
+5. Disabled pill'de `Enter` → onChange fire ETMEZ (native `disabled` bloklar).
+6. Screen reader: `role=group aria-label="Timeframe"` anons eder; her pill `aria-pressed={isActive}` + aktif pill icin "selected" anonsu.
