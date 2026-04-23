@@ -393,8 +393,8 @@ Architectural decisions (documented, not blocking UAT):
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
 | FIX-220 | Analytics Polish — MSISDN, IN/OUT split, tooltip, delta cap | P2 | M | [x] DONE (2026-04-23) | — |
-| FIX-221 | Dashboard Polish — Heatmap tooltip, IP pool KPI clarity | P2 | S | [~] IN PROGRESS (Review) | — |
-| FIX-222 | Operator/APN Detail Polish — KPI row, tab consolidation, tooltips | P2 | M | [ ] PENDING | — |
+| FIX-221 | Dashboard Polish — Heatmap tooltip, IP pool KPI clarity | P2 | S | [x] DONE (2026-04-23) | — |
+| FIX-222 | Operator/APN Detail Polish — KPI row, tab consolidation, tooltips | P2 | M | [~] IN PROGRESS (Review) | — |
 | FIX-223 | IP Pool Detail Polish — backend search, last_seen, reserve modal ICCID | P2 | M | [ ] PENDING | — |
 | FIX-224 | SIM List/Detail Polish — state filter, Created datetime, bulk bar sticky | P2 | M | [ ] PENDING | FIX-216 |
 | FIX-225 | Docker Restart Policy + Infra Stability | P2 | S | [ ] PENDING | — |
@@ -709,6 +709,10 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-114 | FIX-221 Gate F-A1 | `GetTrafficHeatmap7x24WithRaw` (`internal/store/cdr.go:966-1016`) duplicates the SQL + max-normalization loop of legacy `GetTrafficHeatmap7x24` (`:1018-1069`). Retained intentionally to keep `cdr_test.go:329` test green (plan Task 1 + Risk #2 "don't rename in place"). Follow-up: delete legacy method and migrate the test to assert matrix shape derived from new flat-slice method, OR refactor legacy into a thin wrapper that calls new + builds matrix. Maintenance risk if one diverges (TZ/index/SQL). | FIX-24x (cleanup) | OPEN |
 | D-115 | FIX-221 Gate F-A2 | `TopPoolUsage` query (`internal/store/ippool.go:124-132`) `ORDER BY pct DESC NULLS LAST LIMIT 1` — no secondary tiebreaker. On ties (two pools at same utilization %) the surfaced "Top pool" name can flip between 30s cache refreshes for the same tenant state. Fix: add `, name ASC` (or `, created_at ASC`) as secondary sort key. Cosmetic only. | FIX-24x (UI polish) | OPEN |
 | D-116 | FIX-221 Gate F-U2 | Heatmap tooltip at `web/src/pages/dashboard/index.tsx:504` uses fixed `absolute top-0 right-0` anchor — can visually occlude top-right cells (Sun/Sat evening hours) on narrow viewports. `pointer-events-none` prevents hit-break so hover still works, but UX is suboptimal. Fix: smart positioning (follow cursor with edge-flip, or offset anchor based on `dayIdx >= 5 && hour >= 18`). | FIX-24x (UI polish) | OPEN |
+| D-117 | FIX-222 DEV-298 | eSIM Profiles tab built on pre-existing `operator_id` filter infra in `internal/store/esim.go::ListEnriched`. FIX-235 (SGP.22→SGP.02 backend provisioning pipeline refactor) is a distinct scope — it adds deeper protocol flows but does not block the listing tab. Track FIX-235 separately. | FIX-235 | OPEN |
+| D-118 | FIX-222 DEV-302 | Operator Protocols tab "persisted last probe" feature deferred — no `operator_probe_results` table exists. Auto-probe placeholder stays disabled. Probe result shown only from live Test Connection button in current session. Revisit when probe persistence is added to the data model. | FIX-24x (probe persistence) | OPEN |
+| D-119 | FIX-222 DEV-301 | APN "Top Operator" KPI computed client-side from first page (50 SIMs). True max requires a backend `/apns/{id}/top-operators` aggregation endpoint. Defer to FIX-236 scale work. Current subtitle "Based on first 50 SIMs" discloses limitation when `hasNextPage=true`. | FIX-236 (APN analytics) | OPEN |
+| D-120 | FIX-222 Gate F-A2 | `use-tab-url-sync` alias chains: current config (`circuit→health`, `notifications→alerts`) has no chained aliases and the redirect effect self-terminates. If a future developer introduces `old→circuit` it would redirect twice; add an iteration guard or aliases-closure pre-resolution when a chain is first introduced. | FIX-24x (UI polish) | OPEN |
 
 ---
 

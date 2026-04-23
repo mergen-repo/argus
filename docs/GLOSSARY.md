@@ -56,7 +56,9 @@
 | IMSI | International Mobile Subscriber Identity | Unique subscriber identifier (up to 15 digits) |
 | MSISDN | Mobile Station International Subscriber Directory Number | Phone number associated with SIM |
 | ICCID | Integrated Circuit Card Identifier | Unique SIM card serial number (up to 22 digits) |
-| EID | eUICC Identifier | Unique identifier for eSIM hardware |
+| EID | eUICC Identifier | Unique identifier for eSIM hardware (32-digit eUICC chip serial) |
+| MCC | Mobile Country Code | 3-digit code identifying a country in ITU E.212 (e.g. 286 = Turkey) |
+| MNC | Mobile Network Code | 2-3 digit code identifying an operator within a country (combined with MCC forms PLMN) |
 | IMEI | International Mobile Equipment Identity | Device hardware identifier |
 | SM-DP+ | Subscription Manager - Data Preparation+ | Server that prepares and delivers eSIM profiles (SGP.22) |
 | OTA | Over-The-Air | Remote SIM management via APDU commands |

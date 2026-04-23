@@ -2,9 +2,9 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, Activity, Cpu, DollarSign, RefreshCw, AlertCircle, Info,
-  Zap, Globe, ArrowUpRight, ArrowDownRight, Wifi, WifiOff,
+  Zap, Globe, Wifi, WifiOff,
   ShieldCheck, ShieldAlert, ShieldX, Radio, CheckCircle2, XCircle,
-  Minus, ChevronRight, Gauge, TrendingUp,
+  ChevronRight, Gauge, TrendingUp,
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -15,8 +15,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
-import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Sparkline } from '@/components/ui/sparkline'
+import { KPICard } from '@/components/shared/kpi-card'
+import type { KPICardProps } from '@/components/shared/kpi-card'
 import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions, useRealtimeOperatorHealth } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
 import { OperatorChip } from '@/components/shared/operator-chip'
@@ -117,104 +118,7 @@ const SystemStatusStrip = React.memo(function SystemStatusStrip({
 })
 
 // ─── KPI Metric Card ────────────────────────────────────────────────────────
-
-interface KPICardProps {
-  title: string
-  value: number
-  formatter?: (n: number) => string
-  sparklineData: number[]
-  color: string
-  delta?: number
-  deltaFormat?: 'percent' | 'absolute'
-  live?: boolean
-  suffix?: string
-  subtitle?: string
-  onClick?: () => void
-  delay: number
-}
-
-const KPICard = React.memo(function KPICard({
-  title,
-  value,
-  formatter,
-  sparklineData,
-  color,
-  delta,
-  deltaFormat = 'percent',
-  live,
-  suffix,
-  subtitle,
-  onClick,
-  delay,
-}: KPICardProps) {
-  const deltaColor = delta === undefined || delta === 0
-    ? 'text-text-tertiary'
-    : delta > 0
-      ? 'text-success'
-      : 'text-danger'
-
-  const deltaIcon = delta === undefined || delta === 0
-    ? <Minus className="h-3 w-3" />
-    : delta > 0
-      ? <ArrowUpRight className="h-3 w-3" />
-      : <ArrowDownRight className="h-3 w-3" />
-
-  const deltaText = delta === undefined
-    ? null
-    : deltaFormat === 'percent'
-      ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`
-      : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`
-
-  return (
-    <Card
-      className="card-hover cursor-pointer relative overflow-hidden stagger-item group"
-      style={{ animationDelay: `${delay}ms` }}
-      onClick={onClick}
-    >
-      <div className="absolute bottom-0 left-0 right-0 h-[2px] transition-all" style={{ backgroundColor: color }} />
-      <CardHeader className="flex flex-row items-center justify-between pb-1 pt-3 px-4">
-        <span className="text-[10px] uppercase tracking-[1.5px] text-text-secondary font-medium">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          {live && (
-            <span className="flex items-center gap-1">
-              <span
-                className="h-1.5 w-1.5 rounded-full pulse-dot"
-                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}60` }}
-              />
-              <span className="text-[9px] font-semibold tracking-[1px]" style={{ color }}>LIVE</span>
-            </span>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 pb-3 px-4">
-        <div className="flex items-end justify-between gap-2 mb-2">
-          <div className="flex items-baseline gap-1">
-            <AnimatedCounter
-              value={value}
-              formatter={formatter}
-              className="font-mono text-[28px] font-bold text-text-primary leading-none"
-            />
-            {suffix && (
-              <span className="text-[12px] text-text-tertiary font-mono">{suffix}</span>
-            )}
-          </div>
-          {deltaText && (
-            <span className={cn('flex items-center gap-0.5 text-[11px] font-mono font-medium', deltaColor)}>
-              {deltaIcon}
-              {deltaText}
-            </span>
-          )}
-        </div>
-        <Sparkline data={sparklineData} color={color} height={24} width={200} className="w-full" />
-        {subtitle && (
-          <p className="mt-1.5 text-[10px] font-mono text-text-tertiary truncate">{subtitle}</p>
-        )}
-      </CardContent>
-    </Card>
-  )
-})
+// Extracted to web/src/components/shared/kpi-card.tsx — imported above.
 
 // ─── Operator Health Matrix ─────────────────────────────────────────────────
 

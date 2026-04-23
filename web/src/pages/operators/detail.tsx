@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useTabUrlSync } from '@/hooks/use-tab-url-sync'
 import {
   ArrowLeft,
   RefreshCw,
@@ -19,7 +20,6 @@ import {
   Handshake,
   Plus,
   Layers,
-  Bell,
   Wifi,
   Radio,
 } from 'lucide-react'
@@ -76,8 +76,11 @@ import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
 import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle, EmptyState } from '@/components/shared'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
+import { EsimProfilesTab } from '@/components/operators/EsimProfilesTab'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { useSIMList } from '@/hooks/use-sims'
+import { KPICard } from '@/components/shared/kpi-card'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { ProtocolsPanel } from '@/components/operators/ProtocolsPanel'
@@ -1048,12 +1051,12 @@ function OperatorSimsTab({ operatorId }: { operatorId: string }) {
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
-                <TableHead>ICCID</TableHead>
-                <TableHead>IMSI</TableHead>
-                <TableHead>MSISDN</TableHead>
+                <TableHead><InfoTooltip term="ICCID">ICCID</InfoTooltip></TableHead>
+                <TableHead><InfoTooltip term="IMSI">IMSI</InfoTooltip></TableHead>
+                <TableHead><InfoTooltip term="MSISDN">MSISDN</InfoTooltip></TableHead>
                 <TableHead>IP Address</TableHead>
                 <TableHead>State</TableHead>
-                <TableHead>APN</TableHead>
+                <TableHead><InfoTooltip term="APN">APN</InfoTooltip></TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
@@ -1154,10 +1157,19 @@ function OperatorSimsTab({ operatorId }: { operatorId: string }) {
   )
 }
 
+const OPERATOR_TABS = [
+  'overview', 'protocols', 'health', 'traffic', 'sessions',
+  'sims', 'esim', 'alerts', 'audit', 'agreements',
+] as const
+
 export default function OperatorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useTabUrlSync({
+    defaultTab: 'overview',
+    aliases: { circuit: 'health', notifications: 'alerts' },
+    validTabs: [...OPERATOR_TABS],
+  })
   const [testResult, setTestResult] = useState<{ success: boolean; latency_ms: number; error?: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -1167,6 +1179,35 @@ export default function OperatorDetailPage() {
   const testMutation = useTestConnection(id ?? '')
   useRealtimeOperatorHealth()
   const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  // KPI row data
+  const { data: simListData } = useSIMList({ operator_id: id ?? '' })
+  const { data: metricsData } = useOperatorMetrics(id ?? '', '1h')
+  const { data: healthHistory } = useOperatorHealthHistory(id ?? '', 24)
+  const { data: sessionsData } = useOperatorSessions(id ?? '', 50)
+
+  const simPages = simListData?.pages ?? []
+  const simLoadedCount = simPages.flatMap((p) => p.data).length
+  const simHasMore = simListData?.pages[simListData.pages.length - 1]?.meta?.has_more ?? false
+  const simTotal = simLoadedCount
+
+  const authRateSparkline = useMemo<number[]>(() => {
+    if (!metricsData?.buckets || metricsData.buckets.length === 0) return []
+    return metricsData.buckets.slice(-12).map((b) => b.auth_rate_per_sec)
+  }, [metricsData])
+
+  const avgAuthRate = useMemo<number>(() => {
+    if (authRateSparkline.length === 0) return 0
+    return authRateSparkline.reduce((a, b) => a + b, 0) / authRateSparkline.length
+  }, [authRateSparkline])
+
+  const uptimePct = useMemo<number>(() => {
+    if (!healthHistory || healthHistory.length === 0) return 0
+    const upCount = healthHistory.filter((e) => e.status === 'up' || e.status === 'healthy').length
+    return Math.round((upCount / healthHistory.length) * 1000) / 10
+  }, [healthHistory])
+
+  const activeSessionsCount = sessionsData?.length ?? 0
 
   useEffect(() => {
     if (operator && id) {
@@ -1269,7 +1310,10 @@ export default function OperatorDetailPage() {
           </div>
           <div className="flex items-center gap-4 mt-1">
             <span className="font-mono text-xs text-text-secondary">{operator.code}</span>
-            <span className="font-mono text-xs text-text-tertiary">MCC {operator.mcc} / MNC {operator.mnc}</span>
+            <span className="font-mono text-xs text-text-tertiary">
+              <InfoTooltip term="MCC">MCC</InfoTooltip>{' '}{operator.mcc}{' / '}
+              <InfoTooltip term="MNC">MNC</InfoTooltip>{' '}{operator.mnc}
+            </span>
             {operator.supported_rat_types.slice(0, 4).map((rat) => (
               <span
                 key={rat}
@@ -1292,6 +1336,45 @@ export default function OperatorDetailPage() {
         </div>
       </div>
 
+      {/* KPI Row — operator health summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          title="SIMs"
+          value={simTotal}
+          sparklineData={[]}
+          color="var(--color-accent)"
+          subtitle={simHasMore ? `${simLoadedCount}+ loaded (more available)` : 'Total SIMs for this operator'}
+          delay={0}
+        />
+        <KPICard
+          title="Active Sessions"
+          value={activeSessionsCount}
+          sparklineData={[]}
+          color="var(--color-success)"
+          subtitle="Current page count"
+          live={activeSessionsCount > 0}
+          delay={80}
+        />
+        <KPICard
+          title="Auth/s (1h avg)"
+          value={Math.round(avgAuthRate * 100) / 100}
+          formatter={(n) => n.toFixed(2)}
+          sparklineData={authRateSparkline}
+          color="var(--color-warning)"
+          subtitle="Last 12 buckets × 5min"
+          delay={160}
+        />
+        <KPICard
+          title="Uptime % (24h)"
+          value={uptimePct}
+          formatter={(n) => `${n.toFixed(1)}%`}
+          sparklineData={[]}
+          color={uptimePct >= 99 ? 'var(--color-success)' : uptimePct >= 95 ? 'var(--color-warning)' : 'var(--color-danger)'}
+          subtitle="Last 24h health checks"
+          delay={240}
+        />
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview" className="gap-1.5">
@@ -1304,11 +1387,7 @@ export default function OperatorDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5">
             <Activity className="h-3.5 w-3.5" />
-            Health History
-          </TabsTrigger>
-          <TabsTrigger value="circuit" className="gap-1.5">
-            <Shield className="h-3.5 w-3.5" />
-            Circuit Breaker
+            Health
           </TabsTrigger>
           <TabsTrigger value="traffic" className="gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
@@ -1318,25 +1397,25 @@ export default function OperatorDetailPage() {
             <Radio className="h-3.5 w-3.5" />
             Sessions
           </TabsTrigger>
-          <TabsTrigger value="agreements" className="gap-1.5">
-            <Handshake className="h-3.5 w-3.5" />
-            Agreements
+          <TabsTrigger value="sims" className="gap-1.5">
+            <Wifi className="h-3.5 w-3.5" />
+            SIMs
           </TabsTrigger>
-          <TabsTrigger value="audit" className="gap-1.5">
-            <Shield className="h-3.5 w-3.5" />
-            Audit
+          <TabsTrigger value="esim" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            eSIM Profiles
           </TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5">
             <AlertCircle className="h-3.5 w-3.5" />
             Alerts
           </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-1.5">
-            <Bell className="h-3.5 w-3.5" />
-            Notifications
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
           </TabsTrigger>
-          <TabsTrigger value="sims" className="gap-1.5">
-            <Wifi className="h-3.5 w-3.5" />
-            SIMs
+          <TabsTrigger value="agreements" className="gap-1.5">
+            <Handshake className="h-3.5 w-3.5" />
+            Agreements
           </TabsTrigger>
         </TabsList>
 
@@ -1353,11 +1432,12 @@ export default function OperatorDetailPage() {
           <ProtocolsPanel operator={operator} />
           <SLATargetsSection operator={operator} />
         </TabsContent>
+        {/* Health tab — merged with Circuit Breaker (FIX-222) */}
         <TabsContent value="health">
-          <HealthTimelineTab operatorId={operator.id} />
-        </TabsContent>
-        <TabsContent value="circuit">
-          <CircuitBreakerTab operator={operator} health={health} />
+          <div className="space-y-4">
+            <HealthTimelineTab operatorId={operator.id} />
+            <CircuitBreakerTab operator={operator} health={health} />
+          </div>
         </TabsContent>
         <TabsContent value="traffic">
           <TrafficTab operatorId={operator.id} />
@@ -1365,26 +1445,31 @@ export default function OperatorDetailPage() {
         <TabsContent value="sessions">
           <SessionsTab operatorId={operator.id} />
         </TabsContent>
-        <TabsContent value="agreements">
-          <AgreementsTab operatorId={operator.id} />
+        <TabsContent value="sims">
+          <OperatorSimsTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="esim">
+          <EsimProfilesTab operatorId={operator.id} />
+        </TabsContent>
+        {/* Alerts tab — merged with Notifications (FIX-222); notifications concatenated below alerts */}
+        <TabsContent value="alerts">
+          <div className="mt-4 space-y-6">
+            <RelatedAlertsPanel entityId={operator.id} entityType="operator" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
+                System Notifications
+              </p>
+              <RelatedNotificationsPanel entityId={operator.id} />
+            </div>
+          </div>
         </TabsContent>
         <TabsContent value="audit">
           <div className="mt-4">
             <RelatedAuditTab entityId={operator.id} entityType="operator" />
           </div>
         </TabsContent>
-        <TabsContent value="alerts">
-          <div className="mt-4">
-            <RelatedAlertsPanel entityId={operator.id} entityType="operator" />
-          </div>
-        </TabsContent>
-        <TabsContent value="notifications">
-          <div className="mt-4">
-            <RelatedNotificationsPanel entityId={operator.id} />
-          </div>
-        </TabsContent>
-        <TabsContent value="sims">
-          <OperatorSimsTab operatorId={operator.id} />
+        <TabsContent value="agreements">
+          <AgreementsTab operatorId={operator.id} />
         </TabsContent>
       </Tabs>
 

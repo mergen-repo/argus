@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useTabUrlSync } from '@/hooks/use-tab-url-sync'
 import {
   ArrowLeft,
   RefreshCw,
@@ -54,6 +55,7 @@ import { Select } from '@/components/ui/select'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { Spinner } from '@/components/ui/spinner'
 import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool, useAPNReferencingPolicies } from '@/hooks/use-apns'
+import { useSIMList } from '@/hooks/use-sims'
 import { useAPNTraffic } from '@/hooks/use-apn-traffic'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useIpPoolAddresses } from '@/hooks/use-settings'
@@ -67,6 +69,8 @@ import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
 import { InfoRow } from '@/components/ui/info-row'
 import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
+import { KPICard } from '@/components/shared/kpi-card'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
@@ -447,9 +451,9 @@ function SIMsTab({ apnId }: { apnId: string }) {
       <Table>
         <TableHeader className="bg-bg-elevated">
           <TableRow>
-            <TableHead>ICCID</TableHead>
-            <TableHead>IMSI</TableHead>
-            <TableHead>MSISDN</TableHead>
+            <TableHead><InfoTooltip term="ICCID">ICCID</InfoTooltip></TableHead>
+            <TableHead><InfoTooltip term="IMSI">IMSI</InfoTooltip></TableHead>
+            <TableHead><InfoTooltip term="MSISDN">MSISDN</InfoTooltip></TableHead>
             <TableHead>IP Address</TableHead>
             <TableHead>State</TableHead>
             <TableHead>RAT</TableHead>
@@ -918,10 +922,18 @@ function EditAPNDialog({
   )
 }
 
+const APN_TABS = [
+  'overview', 'config', 'ip-pools', 'sims', 'traffic', 'policies', 'audit', 'alerts',
+] as const
+
 export default function ApnDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('config')
+  const [activeTab, setActiveTab] = useTabUrlSync({
+    defaultTab: 'overview',
+    aliases: { notifications: 'alerts' },
+    validTabs: [...APN_TABS],
+  })
 
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -940,6 +952,31 @@ export default function ApnDetailPage() {
     if (!apn || !operators) return 'Unknown'
     return operators.find((o) => o.id === apn.operator_id)?.name ?? 'Unknown'
   }, [apn, operators])
+
+  // KPI data
+  const { data: simListData } = useSIMList({ apn_id: id ?? '' })
+  const { data: trafficData } = useAPNTraffic(id ?? '', '24h')
+
+  const simTotal = simListData?.pages.flatMap((p) => p.data).length ?? 0
+
+  const traffic24h = useMemo<number>(() => {
+    if (!trafficData?.series || trafficData.series.length === 0) return 0
+    return trafficData.series.reduce((acc, b) => acc + b.bytes_in + b.bytes_out, 0)
+  }, [trafficData])
+
+  const topOperator = useMemo<string>(() => {
+    const firstPage = simListData?.pages[0]?.data ?? []
+    if (firstPage.length === 0) return '—'
+    const counts: Record<string, number> = {}
+    for (const sim of firstPage) {
+      const opName = (sim as { operator_name?: string }).operator_name ?? sim.operator_id ?? 'Unknown'
+      counts[opName] = (counts[opName] ?? 0) + 1
+    }
+    const topEntry = Object.entries(counts).sort(([, a], [, b]) => b - a)[0]
+    return topEntry ? topEntry[0] : '—'
+  }, [simListData])
+
+  const hasMoreSims = simListData?.pages[0]?.meta?.has_more ?? false
 
   if (isLoading) {
     return (
@@ -1034,8 +1071,51 @@ export default function ApnDetailPage() {
         </div>
       </div>
 
+      {/* KPI Row — APN health summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          title="SIMs"
+          value={simTotal}
+          sparklineData={[]}
+          color="var(--color-accent)"
+          subtitle="Connected to this APN"
+          delay={0}
+        />
+        <KPICard
+          title="Traffic (24h)"
+          value={traffic24h}
+          formatter={(n) => formatBytes(n)}
+          sparklineData={[]}
+          color="var(--color-success)"
+          subtitle="Inbound + outbound"
+          delay={80}
+        />
+        <KPICard
+          title="Top Operator"
+          value={0}
+          label={topOperator || '—'}
+          sparklineData={[]}
+          color="var(--color-warning)"
+          subtitle={hasMoreSims ? 'Based on first 50 SIMs' : 'By SIM count'}
+          delay={160}
+        />
+        <KPICard
+          title="APN State"
+          value={0}
+          label={apn.state.toUpperCase()}
+          sparklineData={[]}
+          color={apn.state === 'active' ? 'var(--color-success)' : 'var(--color-text-tertiary)'}
+          subtitle={APN_TYPE_DISPLAY[apn.apn_type] ?? apn.apn_type}
+          delay={240}
+        />
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="overview" className="gap-1.5">
+            <Settings className="h-3.5 w-3.5" />
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="config" className="gap-1.5">
             <Settings className="h-3.5 w-3.5" />
             Configuration
@@ -1046,19 +1126,7 @@ export default function ApnDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="sims" className="gap-1.5">
             <Wifi className="h-3.5 w-3.5" />
-            Connected SIMs
-          </TabsTrigger>
-          <TabsTrigger value="audit" className="gap-1.5">
-            <Shield className="h-3.5 w-3.5" />
-            Audit
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-1.5">
-            <Layers className="h-3.5 w-3.5" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5" />
-            Alerts
+            SIMs
           </TabsTrigger>
           <TabsTrigger value="traffic" className="gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
@@ -1068,8 +1136,21 @@ export default function ApnDetailPage() {
             <FileText className="h-3.5 w-3.5" />
             Policies
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          {/* Alerts tab — merged with Notifications (FIX-222) */}
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
         </TabsList>
 
+        {/* Overview tab — config summary (read-heavy first) */}
+        <TabsContent value="overview">
+          <ConfigTab apn={apn} operatorName={operatorName} />
+        </TabsContent>
         <TabsContent value="config">
           <ConfigTab apn={apn} operatorName={operatorName} />
         </TabsContent>
@@ -1087,14 +1168,16 @@ export default function ApnDetailPage() {
             <RelatedAuditTab entityId={apn.id} entityType="apn" />
           </div>
         </TabsContent>
-        <TabsContent value="notifications">
-          <div className="mt-4">
-            <RelatedNotificationsPanel entityId={apn.id} />
-          </div>
-        </TabsContent>
+        {/* Alerts tab — notifications concatenated below alerts */}
         <TabsContent value="alerts">
-          <div className="mt-4">
+          <div className="mt-4 space-y-6">
             <RelatedAlertsPanel entityId={apn.id} entityType="apn" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
+                System Notifications
+              </p>
+              <RelatedNotificationsPanel entityId={apn.id} />
+            </div>
           </div>
         </TabsContent>
         <TabsContent value="policies">

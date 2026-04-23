@@ -3960,3 +3960,62 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 2. Aktif pool'u olan tenant'ta response `top_ip_pool: { id, name, usage_pct }` icermeli.
 3. Aktif pool'u olmayan tenant'ta `top_ip_pool` alani response'da yer almamali (omitempty).
 4. 168 eleman beklenmez — sadece veri olan bucket'lar doner; bos saatler response'a dahil edilmez.
+
+## FIX-222: Operator/APN Detail Polish — KPI Row, Tab Consolidation, Tooltips, eSIM Tab
+
+### 1. Operator Detail KPI Row
+
+1. `/operators/:id` sayfasina git.
+2. Tab satirinin uzerinde 4 KPI karti gorunmeli: **SIMs** (toplam SIM sayisi), **Active Sessions** (anlık), **Auth/s** (1h ortalama), **Uptime %** (24h).
+3. Verinin olmadigi durumlarda kart `—` (em-dash) gostermeli; bos/null hucre olmamali.
+4. Her kart animated counter ile render olmali.
+
+### 2. Operator Detail Tab Consolidation (11→10)
+
+1. Operatör detay sayfasinda 10 tab olmali: Overview / Protocols / Health / Traffic / Sessions / SIMs / eSIM / Alerts / Audit / Agreements (Agreements FIX-238 sonrasi kaldirilacak).
+2. **Circuit** tab artık yok — CircuitBreaker widget, Health tab icine tasindi.
+3. **Notifications** tab artık yok — RelatedNotificationsPanel, Alerts tab icine eslesti.
+4. Eski URL `?tab=circuit` → otomatik `?tab=health` yonlendirmesi yapmali (replace:true, tarayici gecmisi kirletilmemeli).
+5. Eski URL `?tab=notifications` → otomatik `?tab=alerts` yonlendirmesi yapmali.
+
+### 3. Operator Detail eSIM Tab
+
+1. eSIM tab'ina tikla → EID (ⓘ), ICCID (ⓘ), Profile State (Badge), SIM (EntityLink), Created At sutunlari gorunmeli.
+2. Verisi olmayan operator icin EmptyState gorunmeli.
+3. Yukleme sirasinda skeleton gorunmeli.
+4. Hata durumunda AlertCircle + "Retry" butonu gorunmeli.
+5. Birden fazla eSIM profili varsa Load More butonu gorunmeli.
+
+### 4. Operator Detail Header InfoTooltip
+
+1. Baslik altinda MCC/MNC gosterilir — yanlarindaki ⓘ simgesine hover et (500ms delay sonrasi) veya tikla → tooltip acilmali.
+2. Tooltip icerigi: MCC icin "Mobile Country Code (3 digits identifying country, e.g. 286 = Turkey)"; MNC icin "Mobile Network Code (2-3 digits identifying operator within country)".
+3. ESC tusu tooltip'i kapatmali.
+4. `aria-expanded` attribute tooltip acik/kapali durumu yansitmali.
+
+### 5. APN Detail KPI Row
+
+1. `/apns/:id` sayfasina git.
+2. 4 KPI karti gorunmeli: **SIMs**, **Traffic 24h** (formatBytes), **Top Operator** (en fazla SIM'in bagli oldugu operator — ilk 50 SIM'den turetilir), **APN State** (ACTIVE/SUSPENDED badge).
+3. SIM listesi paginated (>50) ise Top Operator subtitle `"Based on first 50 SIMs"` uyarisi gostermeli.
+4. SIM verisi yoksa Top Operator karti `—` gostermeli.
+
+### 6. APN Detail Tab Consolidation + Overview First
+
+1. APN detay sayfasinda 8 tab olmali: **Overview** / Config / IP Pools / SIMs / Traffic / Policies / Audit / Alerts.
+2. Overview tab varsayilan (ilk) tab olmali — APN konfigurasyonu okuma agirlikli gosterimi saglar.
+3. Eski `?tab=notifications` → `?tab=alerts` yonlendirmesi (replace:true).
+4. Eski default `config` tab'ina gelen URL'ler (`?tab=config`) normal sekilde Config tab'ini acmali.
+
+### 7. Tab URL Deep-Link
+
+1. Herhangi bir tab'a tikla → URL `?tab=<name>` ile guncellenmeli.
+2. URL'yi kopyala / baska sekmede ac → ayni tab aktif olmali.
+3. Tarayici geri tusuna basildiginda sayfa URL degistirmemeli (replace:true semantigi).
+4. Gecersiz `?tab=xyz` → defaultTab'a (overview) silent fallback; 404 olmamali.
+
+### 8. InfoTooltip — SIMs Tablosu Headers
+
+1. Hem Operator hem APN SIMs tablosunda ICCID (ⓘ), IMSI (ⓘ), MSISDN (ⓘ) basliklarinda InfoTooltip simgesi olmali.
+2. APN sayfasinda ayrica APN (ⓘ) sutun basligi olmali.
+3. Toplam 11 InfoTooltip cagrisi her iki sayfa arasinda dagitilmis olmali (tsc PASS ile dogrulandi).
