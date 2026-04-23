@@ -3869,3 +3869,69 @@ curl -s http://localhost:8080/metrics | grep argus_events_legacy_shape_total
 2. `GET /api/v1/jobs` → `created_by_name` + `created_by_email` + `is_system` alanlari mevcut.
 3. `GET /api/v1/audit` → `user_email` + `user_name` alanlari dolu.
 4. `GET /api/v1/admin/purge-history` → `actor_email` + `actor_name` alanlari dolu (insan aksiyonu icin); sistem purgelarda `actor_id: null` ve `actor_email: ""` beklenir.
+
+---
+
+## FIX-220: Analytics Polish — MSISDN, IN/OUT Split, Tooltip, Delta Cap
+
+### 1. Top Consumers Table — New Columns
+
+1. `/analytics` sayfasina git; Top Consumers tablosu gorunur.
+2. Yeni sutunlar: `ICCID | IMSI | MSISDN | Operator | APN | IN/OUT | Total | Sessions | Avg Duration`.
+3. IMSI + MSISDN sutunlari `hidden md:table-cell` ile mobile'da gizlenir; md+ breakpoint'te gorunur.
+4. Her row: Operator/APN hucreleri `<EntityLink>` ile tiklanabilir (FIX-219 uyumlu); click detail sayfasina gider.
+5. `IN/OUT` sutunu `<TwoWayTraffic>` ile render edilir: `↓` (success renk) inbound + `↑` (info renk) outbound + hover'da tooltip "In: 1.2 MB · Out: 0.8 MB · Total: 2 MB".
+6. Her iki yon=0 ise `—` em-dash gosterir.
+
+### 2. IN/OUT Zero Edge (cdrs_daily 30d)
+
+1. Timeframe'i 30 gune ayarla (`?tf=30d`).
+2. cdrs_daily aggregate tablosu bytes_in/bytes_out split tutmaz (total_bytes var) → IN/OUT sutunu `—` olarak goruntur.
+3. Total sutunu hala dolu kalir.
+
+### 3. Delta Cap + Polarity
+
+1. KPI kartlarinda (Total Bytes, Sessions, Auths, Unique SIMs) delta badge gorunur.
+2. Eger `delta > 999%` → `">999% ↑"` olarak gosterir (cap).
+3. Eger `delta < -100%` → `—` em-dash (anlamsiz azalma) ve `tone='null'`.
+4. `prev === 0 && curr > 0` → `"↑"` (yeni veri gostergesi) + `tone='neutral'`.
+5. Polarity: bytes/sessions up-good (yeşil when pozitif), down-good metrikler ters ton.
+6. `delta === 0` → `"0%"` + neutral ton.
+
+### 4. Rich Usage Chart Tooltip
+
+1. Chart bar'ina hover et → custom `<UsageChartTooltip>` acilir.
+2. Tooltip icerik (non-grouped mode):
+   - Timestamp (formatli, period'e gore 24h → "14:00", 30d → "Apr 22 14:00")
+   - `<TwoWayTraffic>` IN/OUT split
+   - Total bytes
+   - Δ prev bucket (delta badge)
+   - Sessions + Auths
+   - `unique_sims` (value > 0 ise; cdrs_hourly 24h/7d iken 0 → row gizlenir — aggregate view limitation).
+3. Grouped mode (group_by=operator/apn/rat_type): series renk nokta + series name + formatBytes + "Top: {name} — {value}".
+4. Tooltip dark tokenlari kullanir: `bg-bg-elevated`, `border`, `text-text-primary`/`secondary`.
+
+### 5. Empty State + Filter Hints
+
+1. Timeframe'i cok dar bir aralik yap (ornek: gelecekte bir zaman) → tablolar bos doner.
+2. Empty state gorunur: "Try expanding the date range or clearing the active filter." (filter aktif ise) veya "Try expanding the date range." (filter yoksa).
+3. Date range EmptyState'te formatli gosterilir.
+4. group_by secildi ve sifir grup varsa → chart card icinde inline "No groups found for this filter" mesaji.
+
+### 6. Capitalization (humanization)
+
+1. `group_by=operator/apn/rat_type` seciliyken CardTitle dogru etikete donusur (humanizeGroupDim: "Operator" / "APN" / "RAT Type").
+2. Breakdown row etiketleri `rat_type` icin `humanizeRatType` uygulanir: `4g` → `4G`, `5g_sa` → `5G SA`, vs.
+3. Chart legend (grouped mode) rat_type gruplarini humanize eder.
+
+### 7. Backend DTO (API spot-check)
+
+1. `GET /api/v1/analytics/usage?period=1h` → response `top_consumers[]` her entry: `imsi`, `msisdn`, `bytes_in`, `bytes_out`, `avg_duration_sec` alanlarinin dolu oldugunu dogrula.
+2. `time_series[]` her bucket: `bytes_in`, `bytes_out` alanlari mevcut ve toplam `total_bytes`'e esit.
+3. `period=7d` → `time_series` bucket'larinda `unique_sims=0` bekle (cdrs_hourly aggregate dimension yok).
+4. `period=30d` → `bytes_in=0, bytes_out=0` bekle (cdrs_daily split kolonu yok); `total_bytes` + `unique_sims` (SUM(active_sims)) hala dolu.
+
+### 8. cdrs_daily APN/RAT Filter Fix (F-A12)
+
+1. `?period=30d&apn_id=<id>` query — onceki buggy halde 30d window aggregate view apn filtresini sessizce dusurup TUM verileri donerdi. Gate fix sonrasi artik filtre gecerli ve dogru alt-kumeyi doner.
+2. Ayni `rat_type` filtresi icin de gecerli.

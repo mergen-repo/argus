@@ -52,6 +52,8 @@ func (h *Handler) SetChartAnnotationStore(s *store.ChartAnnotationStore) {
 type timeSeriesDTO struct {
 	Timestamp  string `json:"ts"`
 	TotalBytes int64  `json:"total_bytes"`
+	BytesIn    int64  `json:"bytes_in"`
+	BytesOut   int64  `json:"bytes_out"`
 	Sessions   int64  `json:"sessions"`
 	Auths      int64  `json:"auths"`
 	UniqueSims int64  `json:"unique_sims"`
@@ -74,13 +76,20 @@ type breakdownDTO struct {
 }
 
 type topConsumerDTO struct {
-	SimID        string `json:"sim_id"`
-	ICCID        string `json:"iccid,omitempty"`
-	OperatorName string `json:"operator_name,omitempty"`
-	APNName      string `json:"apn_name,omitempty"`
-	IPAddress    string `json:"ip_address,omitempty"`
-	TotalBytes   int64  `json:"total_bytes"`
-	Sessions     int64  `json:"sessions"`
+	SimID          string   `json:"sim_id"`
+	ICCID          string   `json:"iccid,omitempty"`
+	IMSI           string   `json:"imsi,omitempty"`
+	MSISDN         string   `json:"msisdn,omitempty"`
+	OperatorName   string   `json:"operator_name,omitempty"`
+	OperatorID     string   `json:"operator_id,omitempty"`
+	APNName        string   `json:"apn_name,omitempty"`
+	APNID          string   `json:"apn_id,omitempty"`
+	IPAddress      string   `json:"ip_address,omitempty"`
+	TotalBytes     int64    `json:"total_bytes"`
+	BytesIn        int64    `json:"bytes_in"`
+	BytesOut       int64    `json:"bytes_out"`
+	Sessions       int64    `json:"sessions"`
+	AvgDurationSec *float64 `json:"avg_duration_sec,omitempty"`
 }
 
 type comparisonDTO struct {
@@ -307,6 +316,8 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		tsDTO = append(tsDTO, timeSeriesDTO{
 			Timestamp:  tp.Timestamp.Format(time.RFC3339),
 			TotalBytes: tp.TotalBytes,
+			BytesIn:    tp.BytesIn,
+			BytesOut:   tp.BytesOut,
 			Sessions:   tp.Sessions,
 			Auths:      tp.Auths,
 			UniqueSims: tp.UniqueSims,
@@ -317,9 +328,27 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	tcDTO := make([]topConsumerDTO, 0, len(topConsumers))
 	for _, tc := range topConsumers {
 		dto := topConsumerDTO{
-			SimID:      tc.SimID.String(),
-			TotalBytes: tc.TotalBytes,
-			Sessions:   tc.Sessions,
+			SimID:          tc.SimID.String(),
+			TotalBytes:     tc.TotalBytes,
+			BytesIn:        tc.BytesIn,
+			BytesOut:       tc.BytesOut,
+			Sessions:       tc.Sessions,
+			AvgDurationSec: tc.AvgDurationSec,
+		}
+		if tc.ICCID != "" {
+			dto.ICCID = tc.ICCID
+		}
+		if tc.IMSI != "" {
+			dto.IMSI = tc.IMSI
+		}
+		if tc.MSISDN != nil && *tc.MSISDN != "" {
+			dto.MSISDN = *tc.MSISDN
+		}
+		if tc.OperatorID != nil {
+			dto.OperatorID = tc.OperatorID.String()
+		}
+		if tc.APNID != nil {
+			dto.APNID = tc.APNID.String()
 		}
 		if h.simStore != nil {
 			dto = h.enrichTopConsumer(ctx, tenantID, tc.SimID, dto)
@@ -352,7 +381,21 @@ func (h *Handler) enrichTopConsumer(ctx context.Context, tenantID, simID uuid.UU
 	if err != nil {
 		return dto
 	}
-	dto.ICCID = sim.ICCID
+	if sim.ICCID != "" {
+		dto.ICCID = sim.ICCID
+	}
+	if sim.IMSI != "" {
+		dto.IMSI = sim.IMSI
+	}
+	if sim.MSISDN != nil && *sim.MSISDN != "" {
+		dto.MSISDN = *sim.MSISDN
+	}
+	if sim.OperatorID != uuid.Nil {
+		dto.OperatorID = sim.OperatorID.String()
+	}
+	if sim.APNID != nil {
+		dto.APNID = (*sim.APNID).String()
+	}
 
 	if h.operatorStore != nil {
 		if op, err := h.operatorStore.GetByID(ctx, sim.OperatorID); err == nil {

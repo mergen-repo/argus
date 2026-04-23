@@ -26,6 +26,8 @@
 │                    │  │    Mon Tue Wed Thu Fri Sat Sun                       │  │
 │                    │  │  ── Turkcell  ── Vodafone  ── TT Mobile             │  │
 │                    │  └──────────────────────────────────────────────────────┘  │
+│                    │  (hover bar → <UsageChartTooltip>: timestamp, IN/OUT,     │
+│                    │   total, Δ prev bucket, sessions, auths, unique_sims)     │
 │                    │                                                            │
 │                    │  ┌────────────────────────┐ ┌────────────────────────────┐│
 │                    │  │ By RAT Type            │ │ By APN                     ││
@@ -36,24 +38,34 @@
 │                    │  └────────────────────────┘ └────────────────────────────┘│
 │                    │                                                            │
 │                    │  ┌──────────────────────────────────────────────────────┐  │
-│                    │  │ Top Consumers (SIMs by data usage)        [Export ▼]│  │
-│                    │  │ ICCID           │ IMSI      │ APN    │ Usage  │ ⋮  │  │
-│                    │  │ 89901112...     │ 28601...  │ fleet  │ 45 GB  │ ⋮  │  │
-│                    │  │ 89901113...     │ 28602...  │ fleet  │ 38 GB  │ ⋮  │  │
-│                    │  │ 89901114...     │ 28601...  │ veh.   │ 32 GB  │ ⋮  │  │
+│                    │  │ Top Consumers (SIMs by data usage)       [Export ▼] │  │
+│                    │  │ ICCID  │IMSI│MSISDN│Operator│APN│IN/OUT│Total│Sess│⌀D│  │
+│                    │  │ 8990.. │2860│+9050.│[Turk.] │flt│↓1↑0.8│45GB│ 12│5s│  │
+│                    │  │ 8990.. │2860│+9051.│[Voda.] │flt│↓0↑1.2│38GB│  8│4s│  │
+│                    │  │ 8990.. │2860│  —   │[TTMob] │veh│  —   │32GB│  6│3s│  │
 │                    │  └──────────────────────────────────────────────────────┘  │
 └────────────────────┴────────────────────────────────────────────────────────────┘
 ```
+
+Notes:
+- IMSI + MSISDN columns are `hidden md:table-cell` (mobile-responsive).
+- Operator and APN cells render as `<EntityLink>` — clickable, route to detail.
+- IN/OUT column uses `<TwoWayTraffic>`: `↓` success (inbound) + `↑` info (outbound); em-dash when both zero (e.g. 30d cdrs_daily — no byte split stored).
+- KPI cards carry a `<DeltaBadge>` using `formatDeltaPct`: cap at >999%, em-dash for <−100%, neutral for prev=0.
+- CSV Export (AC-14) deferred to FIX-236.
 
 ## Drill-Down Map
 
 | Data Element | Interaction | Target | Pattern |
 |-------------|-------------|--------|---------|
-| Chart line (operator) | Click | Filter by that operator | Filter update |
+| Chart bar (hover) | Hover | `<UsageChartTooltip>` opens (timestamp, IN/OUT, total, Δ, sessions, auths, unique_sims) | Tooltip |
+| Chart line (operator, grouped) | Click | Filter by that operator | Filter update |
 | RAT type bar | Click | Filter by RAT type | Filter update |
 | APN bar | Click | SCR-032 APN Detail | Navigation |
-| Top consumer row | Click | SCR-021 SIM Detail | Navigation |
-| Export button | Click | CSV download (API-115) | Download |
+| Top consumer ICCID cell | Click | SCR-021 SIM Detail | Navigation (EntityLink) |
+| Top consumer Operator cell | Click | SCR-031 Operator Detail | Navigation (EntityLink) |
+| Top consumer APN cell | Click | SCR-032 APN Detail | Navigation (EntityLink) |
+| Export button | Click | CSV download (deferred FIX-236) | Download |
 | Period dropdown | Change | Re-fetch all charts | Reload |
 
 ## API References

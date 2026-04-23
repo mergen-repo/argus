@@ -1,3 +1,67 @@
+export type DeltaTone = 'positive' | 'negative' | 'neutral' | 'null'
+
+export interface DeltaResult {
+  text: string
+  tone: DeltaTone
+}
+
+export function formatDeltaPct(
+  current: number,
+  previous: number,
+  polarity: 'up-good' | 'down-good' = 'up-good',
+): DeltaResult {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+    return { text: '—', tone: 'null' }
+  }
+  if (previous === 0 && current === 0) {
+    return { text: '—', tone: 'null' }
+  }
+  if (previous === 0 && current > 0) {
+    return { text: '↑', tone: 'neutral' }
+  }
+  const delta = ((current - previous) / Math.abs(previous)) * 100
+  if (!Number.isFinite(delta)) {
+    return { text: '—', tone: 'null' }
+  }
+  if (delta === 0) {
+    return { text: '0%', tone: 'neutral' }
+  }
+  if (delta < -100) {
+    return { text: '—', tone: 'null' }
+  }
+  const isUp = delta > 0
+  let tone: DeltaTone
+  if (polarity === 'up-good') {
+    tone = isUp ? 'positive' : 'negative'
+  } else {
+    tone = isUp ? 'negative' : 'positive'
+  }
+  if (delta > 999) {
+    return { text: '>999% ↑', tone }
+  }
+  const sign = delta > 0 ? '+' : ''
+  return { text: `${sign}${delta.toFixed(1)}%`, tone }
+}
+
+export function humanizeRatType(rat: string): string {
+  const map: Record<string, string> = {
+    nb_iot: 'NB-IoT',
+    lte_m: 'LTE-M',
+    lte: 'LTE',
+    nr_5g: '5G NR',
+  }
+  return map[rat] ?? rat.toUpperCase()
+}
+
+export function humanizeGroupDim(dim: string): string {
+  const map: Record<string, string> = {
+    apn: 'APN',
+    operator: 'Operator',
+    rat_type: 'RAT Type',
+  }
+  return map[dim] ?? dim
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -26,6 +90,17 @@ export function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   return `${h}h ${m}m`
+}
+
+export function formatTimestamp(iso: string, period: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return iso
+  if (period === '1h' || period === '24h') {
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString('en-GB', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 export function timeAgo(iso: string): string {

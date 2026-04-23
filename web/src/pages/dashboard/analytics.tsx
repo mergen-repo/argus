@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import {
-  BarChart3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Layers, Check, ImageDown,
+  BarChart3, RefreshCw, AlertCircle, TrendingUp, Layers, Check, ImageDown,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -24,6 +23,20 @@ import { useUsageAnalytics, type UsageFilters } from '@/hooks/use-analytics'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useAPNList } from '@/hooks/use-apns'
 import type { UsagePeriod, UsageGroupBy, UsageMetric, TimeSeriesPoint } from '@/types/analytics'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EntityLink } from '@/components/shared/entity-link'
+import {
+  formatBytes,
+  formatNumber,
+  formatDuration,
+  formatDeltaPct,
+  humanizeRatType,
+  humanizeGroupDim,
+} from '@/lib/format'
+import type { DeltaTone } from '@/lib/format'
+import { useChartExport } from '@/hooks/use-chart-export'
+import { TwoWayTraffic } from '@/components/analytics/two-way-traffic'
+import { UsageChartTooltip } from '@/components/analytics/usage-chart-tooltip'
 
 const TIMEFRAME_TO_PERIOD: Record<string, UsagePeriod> = {
   '15m': '1h',
@@ -66,10 +79,7 @@ const GROUP_COLORS = [
   'var(--color-orange)',
 ]
 
-import { Skeleton } from '@/components/ui/skeleton'
-import { EntityLink } from '@/components/shared/entity-link'
-import { formatBytes, formatNumber } from '@/lib/format'
-import { useChartExport } from '@/hooks/use-chart-export'
+const AGGREGATED_PERIODS: UsagePeriod[] = ['24h', '7d', '30d']
 
 function resolveGroupLabel(groupBy: string | undefined, key: string | undefined | null): string {
   if (!key) return ''
@@ -81,24 +91,35 @@ function resolveGroupLabel(groupBy: string | undefined, key: string | undefined 
       default: return 'Unassigned'
     }
   }
+  if (groupBy === 'rat_type') return humanizeRatType(key)
   return key
 }
 
-function formatTimestamp(ts: string, period: string): string {
-  const d = new Date(ts)
-  if (period === '1h' || period === '24h') {
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  }
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+const TONE_CLASS: Record<DeltaTone, string> = {
+  positive: 'text-success',
+  negative: 'text-danger',
+  neutral: 'text-text-tertiary',
+  null: 'text-text-tertiary',
 }
 
-function DeltaBadge({ delta }: { delta: number }) {
-  if (delta === 0) return null
-  const positive = delta > 0
+function DeltaBadge({
+  current,
+  previous,
+  polarity = 'up-good',
+}: {
+  current: number
+  previous: number
+  polarity?: 'up-good' | 'down-good'
+}) {
+  const { text, tone } = formatDeltaPct(current, previous, polarity)
+  if (tone === 'null') return null
+  const cls = TONE_CLASS[tone]
+  if (text === '↑') {
+    return <span className={`inline-flex items-center text-xs font-mono ${cls}`}><TrendingUp className="h-3 w-3" /></span>
+  }
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-mono ${positive ? 'text-success' : 'text-danger'}`}>
-      {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {positive ? '+' : ''}{delta.toFixed(1)}%
+    <span className={`inline-flex items-center gap-0.5 text-xs font-mono ${cls}`}>
+      {text}
     </span>
   )
 }
@@ -138,21 +159,20 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-function EmptyState() {
+function EmptyState({ from, to, hasFilter }: { from?: string; to?: string; hasFilter: boolean }) {
+  const hint = hasFilter
+    ? 'Try expanding the date range or clearing the active filter.'
+    : 'Try expanding the date range.'
+  const range = from && to
+    ? ` (${new Date(from).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })} – ${new Date(to).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })})`
+    : ''
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-3">
       <BarChart3 className="h-10 w-10 text-text-tertiary" />
-      <p className="text-sm text-text-secondary">No data for selected period</p>
+      <p className="text-sm text-text-secondary">No data for selected period{range}</p>
+      <p className="text-xs text-text-tertiary">{hint}</p>
     </div>
   )
-}
-
-const tooltipStyle = {
-  backgroundColor: 'var(--color-bg-elevated)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--color-text-primary)',
-  fontSize: '12px',
 }
 
 function PillFilter({ label, value, displayValue, options, onChange }: {
@@ -222,6 +242,8 @@ export default function AnalyticsPage() {
   const chartRef = useRef<HTMLDivElement>(null)
   const { exportPng, exporting } = useChartExport(chartRef)
 
+  const hasFilter = !!(operatorId || apnId || ratType)
+
   const groupKeys = useMemo(() => {
     if (!data?.time_series || !groupBy) return []
     const keys = new Set<string>()
@@ -235,7 +257,7 @@ export default function AnalyticsPage() {
     if (!data?.time_series) return []
     if (!groupBy || groupKeys.length === 0) {
       return data.time_series.map((p) => ({
-        ts: formatTimestamp(p.ts, period),
+        ts: p.ts,
         [metric]: p[metric as keyof TimeSeriesPoint],
       }))
     }
@@ -243,7 +265,7 @@ export default function AnalyticsPage() {
     data.time_series.forEach((p) => {
       const key = p.ts
       if (!bucketMap.has(key)) {
-        bucketMap.set(key, { ts: formatTimestamp(p.ts, period) })
+        bucketMap.set(key, { ts: p.ts })
       }
       const bucket = bucketMap.get(key)!
       if (p.group_key) {
@@ -251,12 +273,15 @@ export default function AnalyticsPage() {
       }
     })
     return Array.from(bucketMap.values())
-  }, [data?.time_series, groupBy, groupKeys, metric, period])
+  }, [data?.time_series, groupBy, groupKeys, metric])
 
   if (isLoading) return <UsageSkeleton />
   if (isError) return <ErrorState onRetry={() => refetch()} />
 
   const isEmpty = !data || data.time_series.length === 0
+  const isAggregatedPeriod = AGGREGATED_PERIODS.includes(period)
+
+  const prevTotals = data?.comparison?.previous_totals
 
   return (
     <div className="space-y-4">
@@ -318,7 +343,9 @@ export default function AnalyticsPage() {
               <div className="font-mono text-[22px] font-bold text-text-primary">
                 <AnimatedCounter value={data.totals.total_bytes} formatter={formatBytes} />
               </div>
-              {data.comparison && <DeltaBadge delta={data.comparison.bytes_delta_pct} />}
+              {prevTotals !== undefined && (
+                <DeltaBadge current={data.totals.total_bytes} previous={prevTotals.total_bytes} />
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -329,7 +356,9 @@ export default function AnalyticsPage() {
               <div className="font-mono text-[22px] font-bold text-text-primary">
                 <AnimatedCounter value={data.totals.total_sessions} formatter={formatNumber} />
               </div>
-              {data.comparison && <DeltaBadge delta={data.comparison.sessions_delta_pct} />}
+              {prevTotals !== undefined && (
+                <DeltaBadge current={data.totals.total_sessions} previous={prevTotals.total_sessions} />
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -340,7 +369,9 @@ export default function AnalyticsPage() {
               <div className="font-mono text-[22px] font-bold text-text-primary">
                 <AnimatedCounter value={data.totals.total_auths} formatter={formatNumber} />
               </div>
-              {data.comparison && <DeltaBadge delta={data.comparison.auths_delta_pct} />}
+              {prevTotals !== undefined && (
+                <DeltaBadge current={data.totals.total_auths} previous={prevTotals.total_auths} />
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -348,10 +379,19 @@ export default function AnalyticsPage() {
               <span className="text-[10px] uppercase tracking-[1.5px] text-text-secondary font-medium">Unique SIMs</span>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="font-mono text-[22px] font-bold text-text-primary">
-                <AnimatedCounter value={data.totals.unique_sims} formatter={formatNumber} />
-              </div>
-              {data.comparison && <DeltaBadge delta={data.comparison.sims_delta_pct} />}
+              {data.totals.unique_sims === 0 && isAggregatedPeriod ? (
+                <span
+                  className="font-mono text-[22px] font-bold text-text-tertiary"
+                  title="Unavailable for aggregated view"
+                >—</span>
+              ) : (
+                <div className="font-mono text-[22px] font-bold text-text-primary">
+                  <AnimatedCounter value={data.totals.unique_sims} formatter={formatNumber} />
+                </div>
+              )}
+              {prevTotals !== undefined && data.totals.unique_sims > 0 && (
+                <DeltaBadge current={data.totals.unique_sims} previous={prevTotals.unique_sims} />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -368,6 +408,7 @@ export default function AnalyticsPage() {
                 {data.bucket_size} buckets
               </span>
             )}
+            {/* FIX-220: Export CSV deferred to FIX-236 streaming pattern — no button rendered. */}
             <Button
               variant="ghost"
               size="icon"
@@ -382,58 +423,78 @@ export default function AnalyticsPage() {
         </CardHeader>
         <CardContent>
           {isEmpty ? (
-            <EmptyState />
+            <EmptyState from={data?.from} to={data?.to} hasFilter={hasFilter} />
           ) : (
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis
-                    dataKey="ts"
-                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => metric === 'total_bytes' ? formatBytes(v) : formatNumber(v)}
-                  />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    formatter={((value: unknown, name: string) => [
-                      metric === 'total_bytes' ? formatBytes(Number(value)) : formatNumber(Number(value)),
-                      name,
-                    ]) as never}
-                  />
-                  {groupBy && groupKeys.length > 0 ? (
-                    groupKeys.map((key, i) => (
-                      <Area
-                        key={key}
-                        type="monotone"
-                        dataKey={key}
-                        stackId="1"
-                        stroke={GROUP_COLORS[i % GROUP_COLORS.length]}
-                        fill={GROUP_COLORS[i % GROUP_COLORS.length]}
-                        fillOpacity={0.3}
-                        strokeWidth={2}
-                        name={resolveGroupLabel(groupBy, key)}
-                      />
-                    ))
-                  ) : (
-                    <Area
-                      type="monotone"
-                      dataKey={metric}
-                      stroke="var(--color-accent)"
-                      fill="var(--color-accent)"
-                      fillOpacity={0.15}
-                      strokeWidth={2}
+            <>
+              {groupBy && groupKeys.length === 0 && (
+                <p className="text-xs text-text-tertiary text-center py-4">
+                  No groupings found — all values in &lsquo;__unassigned__&rsquo; bucket. Configure APN mappings to see breakdown.
+                </p>
+              )}
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                    <XAxis
+                      dataKey="ts"
+                      tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => {
+                        const d = new Date(v)
+                        if (!Number.isFinite(d.getTime())) return v
+                        if (period === '1h' || period === '24h') {
+                          return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                        }
+                        return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
+                      }}
                     />
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+                    <YAxis
+                      tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => metric === 'total_bytes' ? formatBytes(v) : formatNumber(v)}
+                    />
+                    <Tooltip
+                      content={(props) => (
+                        <UsageChartTooltip
+                          {...props}
+                          period={period}
+                          metric={metric}
+                          groupBy={groupBy}
+                          allData={data?.time_series ?? []}
+                          groupKeys={groupKeys}
+                        />
+                      )}
+                    />
+                    {groupBy && groupKeys.length > 0 ? (
+                      groupKeys.map((key, i) => (
+                        <Area
+                          key={key}
+                          type="monotone"
+                          dataKey={key}
+                          stackId="1"
+                          stroke={GROUP_COLORS[i % GROUP_COLORS.length]}
+                          fill={GROUP_COLORS[i % GROUP_COLORS.length]}
+                          fillOpacity={0.3}
+                          strokeWidth={2}
+                          name={resolveGroupLabel(groupBy, key)}
+                        />
+                      ))
+                    ) : (
+                      <Area
+                        type="monotone"
+                        dataKey={metric}
+                        stroke="var(--color-accent)"
+                        fill="var(--color-accent)"
+                        fillOpacity={0.15}
+                        strokeWidth={2}
+                      />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </>
           )}
           {groupBy && groupKeys.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-border">
@@ -463,11 +524,14 @@ export default function AnalyticsPage() {
                 <TableRow>
                   <TableHead>#</TableHead>
                   <TableHead>ICCID</TableHead>
+                  <TableHead className="hidden md:table-cell">IMSI</TableHead>
+                  <TableHead className="hidden md:table-cell">MSISDN</TableHead>
                   <TableHead>Operator</TableHead>
                   <TableHead>APN</TableHead>
-                  <TableHead>IP</TableHead>
-                  <TableHead className="text-right">Usage</TableHead>
+                  <TableHead className="text-right">IN / OUT</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Avg Duration</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -477,20 +541,34 @@ export default function AnalyticsPage() {
                     <TableCell>
                       <EntityLink entityType="sim" entityId={tc.sim_id} label={tc.iccid} truncate />
                     </TableCell>
-                    <TableCell className="text-xs text-text-secondary">
-                      {tc.operator_name ?? '—'}
+                    <TableCell className="hidden md:table-cell">
+                      <span className="font-mono text-xs text-text-secondary" title={tc.imsi}>
+                        {tc.imsi ? tc.imsi.slice(-7) : '—'}
+                      </span>
                     </TableCell>
-                    <TableCell className="text-xs text-text-secondary">
-                      {tc.apn_name ?? '—'}
+                    <TableCell className="hidden md:table-cell">
+                      {tc.msisdn
+                        ? <span className="font-mono text-xs">{tc.msisdn}</span>
+                        : <span className="text-text-tertiary">—</span>
+                      }
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-text-secondary">
-                      {tc.ip_address ?? '—'}
+                    <TableCell className="text-xs">
+                      <EntityLink entityType="operator" entityId={tc.operator_id ?? ''} label={tc.operator_name ?? ''} />
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <EntityLink entityType="apn" entityId={tc.apn_id ?? ''} label={tc.apn_name ?? ''} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <TwoWayTraffic in={tc.bytes_in} out={tc.bytes_out} />
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {formatBytes(tc.total_bytes)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {formatNumber(tc.sessions)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {tc.avg_duration_sec != null ? formatDuration(tc.avg_duration_sec) : '—'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -505,28 +583,31 @@ export default function AnalyticsPage() {
           {Object.entries(data.breakdowns).map(([dim, items]) => (
             <Card key={dim}>
               <CardHeader>
-                <CardTitle className="capitalize">{dim.replace(/_/g, ' ')} Breakdown</CardTitle>
+                <CardTitle>{humanizeGroupDim(dim)} Breakdown</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-2">
-                  {items.map((item) => (
-                    <div key={item.key} className="flex items-center justify-between">
-                      <span className="text-xs text-text-secondary truncate" title={resolveGroupLabel(dim, item.key)}>
-                        {resolveGroupLabel(dim, item.key)}
-                      </span>
-                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                        <div className="w-20 h-1.5 bg-bg-hover rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-accent"
-                            style={{ width: `${Math.min(item.percentage, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-mono text-text-primary w-12 text-right">
-                          {item.percentage.toFixed(1)}%
+                  {items.map((item) => {
+                    const label = resolveGroupLabel(dim, item.key)
+                    return (
+                      <div key={item.key} className="flex items-center justify-between">
+                        <span className="text-xs text-text-secondary truncate" title={label}>
+                          {label}
                         </span>
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                          <div className="w-20 h-1.5 bg-bg-hover rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-accent"
+                              style={{ width: `${Math.min(item.percentage, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-mono text-text-primary w-12 text-right">
+                            {item.percentage.toFixed(1)}%
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>

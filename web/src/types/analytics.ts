@@ -1,6 +1,8 @@
 export interface TimeSeriesPoint {
   ts: string
   total_bytes: number
+  bytes_in: number
+  bytes_out: number
   sessions: number
   auths: number
   unique_sims: number
@@ -25,11 +27,18 @@ export interface UsageBreakdown {
 export interface TopConsumer {
   sim_id: string
   iccid?: string
+  imsi?: string
+  msisdn?: string
+  operator_id?: string
   operator_name?: string
+  apn_id?: string
   apn_name?: string
   ip_address?: string
+  bytes_in: number
+  bytes_out: number
   total_bytes: number
   sessions: number
+  avg_duration_sec?: number
 }
 
 export interface UsageComparison {
