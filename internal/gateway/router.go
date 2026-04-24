@@ -231,6 +231,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Post("/api/v1/auth/login", deps.AuthHandler.Login)
 			r.Post("/api/v1/auth/refresh", deps.AuthHandler.Refresh)
 			r.Post("/api/v1/oauth/token", deps.AuthHandler.OAuthToken)
+			r.Post("/api/v1/auth/password-reset/request", deps.AuthHandler.RequestPasswordReset)
+			r.Post("/api/v1/auth/password-reset/confirm", deps.AuthHandler.ConfirmPasswordReset)
 		})
 
 		r.Group(func(r chi.Router) {

@@ -32,6 +32,8 @@
 | API-258 | GET | /api/v1/users/:id/activity | Get user audit-log activity (cursor-paginated, filtered to actor_id); cross-tenant 404 | JWT (tenant_admin+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md) |
 | API-264 | POST | /api/v1/auth/switch-tenant | Super_admin-only: activate a tenant context so all subsequent tenant-scoped endpoints operate as if scoped to `{tenant_id}`. Returns new JWT with `active_tenant` claim. Target tenant must have `state='active'` (403 CodeTenantSuspended otherwise). Emits `tenant.context_switched` audit entry under target tenant. | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. Home tenant remains in `tenant_id` claim for audit. |
 | API-265 | POST | /api/v1/auth/exit-tenant-context | Super_admin-only: clear active tenant context and return to System View. Idempotent. Returns new JWT with `active_tenant` cleared. Emits `tenant.context_exited` audit entry under the previously-active tenant (if any). | JWT (super_admin) | Post-Phase-10 on-prem UX; lives in `internal/api/admin/switch_tenant.go`. |
+| API-317 | POST | /api/v1/auth/password-reset/request | Self-service password reset request. Body: `{email: string}`. Always returns HTTP 200 `{status:"success", data:{message:"If that email exists…"}}` regardless of whether the email is registered (enumeration defense). 429 `RATE_LIMITED` if more than `PASSWORD_RESET_RATE_LIMIT_PER_HOUR` requests in the rolling window. Audit: `auth.password_reset_requested`. FIX-228. | None (public) | `internal/api/auth/password_reset.go` |
+| API-318 | POST | /api/v1/auth/password-reset/confirm | Confirm password reset with token + new password. Body: `{token: string, password: string}`. Returns 200 on success; 400 `PASSWORD_RESET_INVALID_TOKEN` on bad/expired/used token; 422 with existing policy codes (`PASSWORD_TOO_SHORT`, `PASSWORD_MISSING_CLASS`, `PASSWORD_REPEATING_CHARS`, `PASSWORD_REUSED`) on policy violation. Token is single-use (row deleted on success). Audit: `auth.password_reset_completed`. FIX-228. | None (public) | `internal/api/auth/password_reset.go` |
 
 ## Tenants (5 endpoints)
 
@@ -559,8 +561,9 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
-**Total: 247 REST endpoints + 11 WebSocket event types**
+**Total: 249 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
 > Index updated 2026-04-21 by FIX-212 review — 1 row addition (API-316) for event catalog endpoint shipped by FIX-212 AC-5.
+> Index updated 2026-04-25 by FIX-228 Wave 5 docs — 2 row additions (API-317..318) for password reset request + confirm endpoints. Auth & Users count updated 20→22.

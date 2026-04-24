@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -14,12 +15,19 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/api/apikey"
 	authpkg "github.com/btopcu/argus/internal/auth"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
+
+// passwordResetEmailSender is the interface the AuthHandler uses to send password-reset
+// emails. *notification.SMTPEmailSender satisfies this interface.
+type passwordResetEmailSender interface {
+	SendTo(ctx context.Context, to, subject, textBody, htmlBody string) error
+}
 
 func extractIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
@@ -30,13 +38,21 @@ func extractIP(remoteAddr string) string {
 }
 
 type AuthHandler struct {
-	svc           *authpkg.Service
-	refreshMaxAge int
-	secureCookie  bool
-	apiKeyStore   *store.APIKeyStore
-	jwtSecret     string
-	jwtExpiry     time.Duration
-	redis         redis.Cmdable
+	svc             *authpkg.Service
+	refreshMaxAge   int
+	secureCookie    bool
+	apiKeyStore     *store.APIKeyStore
+	jwtSecret       string
+	jwtExpiry       time.Duration
+	redis           redis.Cmdable
+	auditSvc        audit.Auditor
+	userStore       *store.UserStore
+	prStore         *store.PasswordResetStore
+	emailSender     passwordResetEmailSender
+	prRateLimit     int
+	prTokenTTL      time.Duration
+	prPublicBaseURL string
+	dummyBcryptHook func()
 }
 
 func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCookie bool) *AuthHandler {
@@ -64,6 +80,86 @@ func (h *AuthHandler) WithJWTSecret(secret string, expiry time.Duration) *AuthHa
 		h.jwtExpiry = expiry
 	}
 	return h
+}
+
+func (h *AuthHandler) WithUserStore(s *store.UserStore) *AuthHandler {
+	h.userStore = s
+	return h
+}
+
+func (h *AuthHandler) WithAudit(a audit.Auditor) *AuthHandler {
+	h.auditSvc = a
+	return h
+}
+
+func (h *AuthHandler) WithPasswordReset(
+	prStore *store.PasswordResetStore,
+	emailSender passwordResetEmailSender,
+	rateLimit int,
+	ttl time.Duration,
+	baseURL string,
+) *AuthHandler {
+	h.prStore = prStore
+	h.emailSender = emailSender
+	h.prRateLimit = rateLimit
+	h.prTokenTTL = ttl
+	h.prPublicBaseURL = baseURL
+	if h.dummyBcryptHook == nil {
+		h.dummyBcryptHook = func() {}
+	}
+	return h
+}
+
+func (h *AuthHandler) WithDummyBcryptHook(f func()) *AuthHandler {
+	h.dummyBcryptHook = f
+	return h
+}
+
+func (h *AuthHandler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}) {
+	if h.auditSvc == nil {
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	uid, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	var userID *uuid.UUID
+	if ok && uid != uuid.Nil {
+		userID = &uid
+	}
+
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, err := uuid.Parse(cidStr); err == nil {
+			correlationID = &cid
+		}
+	}
+
+	var beforeData, afterData json.RawMessage
+	if before != nil {
+		beforeData, _ = json.Marshal(before)
+	}
+	if after != nil {
+		afterData, _ = json.Marshal(after)
+	}
+
+	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    "auth",
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
+	})
+	if auditErr != nil {
+		log.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
+	}
 }
 
 type loginRequest struct {

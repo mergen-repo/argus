@@ -4200,4 +4200,69 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. Tarayici DevTools'ta Network → simule edilmis network hatasi icin bir isteği sag tikla → "Block request URL" ile `/sims/{id}/usage` engelle.
 2. Panel ac → Usage karti "Failed to load usage" mesaji + `AlertCircle` ikonu gostermeli.
 3. Ekranin ust kosesinde `sonner` toast hatasi gorunmeli (tek toast, tekrar acilip kapansa bile yeni toast uretmemeli — stable id ile deduplication).
+
+---
+
+## FIX-228: Login Forgot Password Flow + Version Footer
+
+### 1. Forgot Link + Klavye Erisilebilirligi (AC-1)
+
+1. `make up` → `http://localhost:8084/login` → admin@argus.io / admin ile giris yap, sonra cikis yap.
+2. Login sayfasinda "Forgot password?" (veya "Parolamı unuttum?") baglantisini gor — submit butonunun altinda olmali.
+3. Baglantiyi **Tab** tusu ile odakla → **Enter** tusa bas → `/auth/forgot` sayfasina gitmeli.
+4. Tarayici URL'si `/auth/forgot` gostermeli; sayfa "Reset your password" basligiyla acilmali.
+
+### 2. Forgot Form — Var Olan E-posta (AC-2, AC-3)
+
+1. `/auth/forgot` sayfasinda gecerli bir e-posta gir (ornegin: `admin@argus.io`).
+2. **Send reset link** butonuna tikla.
+3. Form kaldirili, yerine basarili banner gorunmeli: "If that email exists, a reset link has been sent." (tam metin).
+4. `http://localhost:8025` (Mailhog Web UI) → gelen kutusunda `admin@argus.io` adresine gelen sifre yenileme e-postasi gorunmeli.
+5. E-posta icindeki `/auth/reset?token=<token>` baglantisini kopyala.
+
+### 3. Forgot Form — Var Olmayan E-posta (AC-2 — Enumeration Defense)
+
+1. `/auth/forgot` → `nonexistent@example.com` gir → **Send reset link** tikla.
+2. AYNI basarili banner gorunmeli: "If that email exists, a reset link has been sent."
+3. Gercek e-posta ile yanit byte-identic olmali — DevTools Network sekmesinde response body ayni olmali.
+4. Mailhog'da bu adrese hic e-posta gitmemeli.
+
+### 4. Rate Limit (AC-7)
+
+1. `/auth/forgot` → ayni e-posta adresiyle ard arda 6 kez gonder (5 + 1).
+2. 6. istekte "Too many requests. Please try again later." hata mesaji gorunmeli (form sayfasinda inline).
+3. Hata mesaji "email" veya "password reset" ifadesi icermemeli (generic rate-limit, kaynak tespiti engelleme).
+
+### 5. Reset URL — Gecerli Token (AC-4, AC-5)
+
+1. Mailhog'dan alinan reset linkini tarayicida ac: `/auth/reset?token=<token>`.
+2. "Set a new password" formu gorunmeli (2 parola alani).
+3. Yeni guclu bir parola gir (ornegin: `NewPassword@2026!`), onay alanini ayni degerle doldur.
+4. **Set new password** tikla → basarili toast "Password reset successful" gorunmeli → `/auth/login` sayfasina yonlendirilmeli.
+5. Yeni parola ile giris yap → giris basarili olmali.
+6. Ayni token ile tekrar `/auth/reset?token=<token>` ziyaret et → "This reset link is invalid or has expired" hata paneli gorunmeli (tekrar kullanim engeli — AC-5).
+
+### 6. Reset URL — Gecersiz / Eksik Token (AC-4)
+
+1. `/auth/reset` (token parametresi yok) ziyaret et → inline hata paneli gorunmeli: "This reset link is invalid or has expired. Request a new one." — form gorunmemeli, toast veya yonlendirme olmamali.
+2. `/auth/reset?token=INVALID_GARBAGE` ziyaret et → ayni inline hata paneli gorunmeli.
+3. "Request a new one" baglantisina tikla → `/auth/forgot` sayfasina gitmeli.
+
+### 7. Parola Politikasi Hatasi (AC-4)
+
+1. Gecerli bir reset token ile `/auth/reset?token=<token>` ac.
+2. Cok kisa bir parola gir (ornegin: `abc`) → sunucu hatasi inline gorunmeli (`PASSWORD_TOO_SHORT` veya benzeri policy kodu).
+3. Parola alani `autocomplete="new-password"` ozelligi tasimali (DevTools Elements incelemesi).
+
+### 8. Versiyon Altbilgisi (AC-8)
+
+1. `/auth/login`, `/auth/forgot`, `/auth/reset` sayfalarinin alt kisminda `Argus v0.1.0` (veya guncel paket versiyonu) metni gorunmeli.
+2. Metin `text-text-secondary text-xs` stilinde olmali — ana icerigin dikkatini dagitrnamali.
+3. Dashboard veya diger sehifeler (uygulama icinde) altbilgi gostermemeli — sadece AuthLayout sarmali altinda olmali.
+
+### 9. Mailhog Dev Fixture (AC-3 dev check)
+
+1. `http://localhost:8025` → Mailhog Web UI erisim saglamali.
+2. Yeni bir reset istegi gonder → email `To:` alani dogru adrese gitmeli.
+3. E-posta icerigi: reset linki (`/auth/reset?token=...`), gecerlilik suresi (1 saat), "ignore if not you" notu.
 4. Identity karti her durumda gorunur kalmali (hata olsa bile).

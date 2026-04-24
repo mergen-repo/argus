@@ -37,6 +37,8 @@ Dark-first with glass-morphism, neon accents, terminal-inspired data views.
 | `--purple` | `#A855F7` | Secondary accent — eSIM, Vodafone, charts |
 | `--info` | `#6C8CFF` | Informational |
 
+> **Tailwind v4 utility classes (auto-derived from `@theme`):** The `--color-*` variables above produce corresponding Tailwind utility classes. Use `text-danger`, `bg-danger-dim`, `border-danger` for error states; `text-success`, `bg-success-dim` for success states; `text-warning`, `bg-warning-dim` for warning states; `text-accent`, `bg-accent-dim` for primary accent. These are the preferred project tokens — **do NOT** use Tailwind default palette utilities (`text-red-500`, `bg-green-50`, `border-blue-300`, etc.). Updated by FIX-228 review (2026-04-25).
+
 ### Syntax Highlighting (Policy DSL Editor)
 
 | Token | Value | Usage |

@@ -1,18 +1,20 @@
 # Screen Index — Argus
 
-> Total: 79 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192)
+> Total: 83 screens (+ 4 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192); 2 added by FIX-228 (SCR-193..194)
 > Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
 
 | ID | Screen | Module | Route | Auth | Notes |
 |----|--------|--------|-------|------|-------|
-| SCR-001 | [Login](screens/SCR-001-login.md) | Auth | /login | None | |
+| SCR-001 | [Login](screens/SCR-001-login.md) | Auth | /login | None | FIX-228: adds "Parolamı unuttum?" link below submit button navigating to `/auth/forgot`; version footer "Argus v{version}" inherited from AuthLayout. |
 | SCR-002 | [2FA Verification](screens/SCR-002-2fa.md) | Auth | /login/2fa | Partial | |
 | SCR-003 | [Onboarding Wizard](screens/SCR-003-onboarding.md) | Auth | /setup | JWT | STORY-069: rebuilt as 5-step wizard (Tenant Profile / Operator / APN / SIM Import / Policy Setup) with localStorage resume |
 | SCR-015 | 2FA Setup & Backup Codes | Auth/Security | /settings/security#2fa | JWT (any) | STORY-068 AC-4 |
 | SCR-018 | Force Password Change | Auth | /auth/change-password | Partial (force-change) | STORY-068 AC-3 |
 | SCR-019 | User Settings — Security Tab | Settings | /settings/security | JWT (any) | STORY-068 AC-3/4 |
+| SCR-193 | Forgot Password | Auth | /auth/forgot | None | FIX-228: `web/src/pages/auth/forgot.tsx`. Under AuthLayout. One email input + generic-success state ("If that email exists…" copy). Enum-safe: same success UI regardless of whether email is registered. |
+| SCR-194 | Reset Password | Auth | /auth/reset?token=<b64> | None | FIX-228: `web/src/pages/auth/reset.tsx`. Under AuthLayout. New-password + confirm fields. 400 `PASSWORD_RESET_INVALID_TOKEN` → inline error state with link back to Forgot. Policy violations (422) displayed per-field. |
 | SCR-010 | [Main Dashboard](screens/SCR-010-dashboard.md) | Dashboard | / | JWT (any) | FIX-209: Recent Alerts panel (AlertFeed component) added; source chip next to severity badge; dashboard handler now reads from alertStore (was anomalyStore). FIX-213: Live Event Stream Drawer (right-side Sheet) refreshed — envelope-aware rows (title/message from bus.Envelope), sticky filter bar with catalog-driven chips (type/severity/entity/source/date), Severity Pill inline toggles, pause/resume + queue badge (N yeni olay), virtual scrolling >100 events, clickable entity nav (display_name → route), bytes chips for session.* types, Details link gated on meta.alert_id, Turkish UI chrome. |
 | SCR-011 | [Analytics — Usage](screens/SCR-011-analytics-usage.md) | Analytics | /analytics | JWT (analyst+) | |
 | SCR-012 | [Analytics — Cost](screens/SCR-012-analytics-cost.md) | Analytics | /analytics/cost | JWT (analyst+) | |

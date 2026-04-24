@@ -40,6 +40,7 @@
 | `PASSWORD_REPEATING_CHARS` | 422 | Password has too many consecutive identical characters (`PASSWORD_MAX_REPEATING`) | `{"status":"error","error":{"code":"PASSWORD_REPEATING_CHARS","message":"Password must not have more than 3 consecutive identical characters"}}` |
 | `PASSWORD_REUSED` | 422 | New password matches one of the last N password hashes (`PASSWORD_HISTORY_COUNT`) | `{"status":"error","error":{"code":"PASSWORD_REUSED","message":"Password was used recently. Choose a different password."}}` |
 | `API_KEY_IP_NOT_ALLOWED` | 403 | Request IP is not in the API key's allowed_ips CIDR whitelist | `{"status":"error","error":{"code":"API_KEY_IP_NOT_ALLOWED","message":"Request IP not in API key whitelist"}}` |
+| `PASSWORD_RESET_INVALID_TOKEN` | 400 | Reset link is invalid, has been used, or has expired. Used by FIX-228 password reset confirm endpoint (`POST /api/v1/auth/password-reset/confirm`). | `{"status":"error","error":{"code":"PASSWORD_RESET_INVALID_TOKEN","message":"Reset link is invalid, has been used, or has expired."}}` |
 
 ### Auth Error Details
 

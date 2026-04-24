@@ -517,6 +517,37 @@ func runServe(cfg *config.Config) {
 	apiKeyStore := store.NewAPIKeyStore(pg.Pool)
 	authHandler.WithAPIKeyStore(apiKeyStore)
 	authHandler.WithJWTSecret(cfg.JWTSecret, cfg.JWTExpiry)
+	authHandler.WithUserStore(userStore)
+	authHandler.WithAudit(auditSvc)
+
+	// FIX-228 wiring: password reset
+	passwordResetStore := store.NewPasswordResetStore(pg.Pool)
+	if cfg.SMTPHost != "" {
+		smtpEmailSender := notification.NewSMTPEmailSender(notification.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+			User: cfg.SMTPUser, Password: cfg.SMTPPassword,
+			From: cfg.SMTPFrom, TLS: cfg.SMTPTLS,
+		})
+		authHandler.WithPasswordReset(
+			passwordResetStore,
+			smtpEmailSender,
+			cfg.PasswordResetRateLimitPerHour,
+			time.Duration(cfg.PasswordResetTokenTTLMinutes)*time.Minute,
+			cfg.PublicBaseURL,
+		)
+	} else {
+		// SMTP not configured: pass nil interface explicitly to avoid typed-nil
+		// pointer being wrapped in a non-nil interface value (which would defeat
+		// the nil-check in RequestPasswordReset and panic on SendTo).
+		authHandler.WithPasswordReset(
+			passwordResetStore,
+			nil,
+			cfg.PasswordResetRateLimitPerHour,
+			time.Duration(cfg.PasswordResetTokenTTLMinutes)*time.Minute,
+			cfg.PublicBaseURL,
+		)
+	}
+
 	apiKeyHandler := apikeyapi.NewHandler(apiKeyStore, tenantStore, auditSvc, cfg.DefaultMaxAPIKeys, log.Logger)
 
 	operatorStore := store.NewOperatorStore(pg.Pool)

@@ -72,6 +72,10 @@ type Config struct {
 	RateLimitEnabled            bool   `envconfig:"RATE_LIMIT_ENABLED" default:"true"`
 	NotificationRateLimitPerMin int    `envconfig:"NOTIFICATION_RATE_LIMIT_PER_MINUTE" default:"60"`
 
+	PasswordResetRateLimitPerHour int    `envconfig:"PASSWORD_RESET_RATE_LIMIT_PER_HOUR" default:"5"`
+	PasswordResetTokenTTLMinutes  int    `envconfig:"PASSWORD_RESET_TOKEN_TTL_MINUTES"  default:"60"`
+	PublicBaseURL                 string `envconfig:"PUBLIC_BASE_URL" default:"http://localhost:8084"`
+
 	SMTPHost     string `envconfig:"SMTP_HOST"`
 	SMTPPort     int    `envconfig:"SMTP_PORT" default:"587"`
 	SMTPUser     string `envconfig:"SMTP_USER"`
@@ -360,6 +364,13 @@ func (c *Config) Validate() error {
 
 	if c.LoginMaxAttempts < 1 {
 		return fmt.Errorf("LOGIN_MAX_ATTEMPTS must be >= 1 (got %d)", c.LoginMaxAttempts)
+	}
+
+	if c.PasswordResetRateLimitPerHour < 1 {
+		c.PasswordResetRateLimitPerHour = 5
+	}
+	if c.PasswordResetTokenTTLMinutes < 1 {
+		c.PasswordResetTokenTTLMinutes = 60
 	}
 
 	if c.LoginLockoutDur <= 0 {

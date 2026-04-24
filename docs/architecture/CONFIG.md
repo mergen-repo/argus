@@ -155,6 +155,18 @@ Controls server-side password complexity and history enforcement. Applied on reg
 
 ---
 
+## Password Reset (FIX-228)
+
+Self-service password reset flow: user submits email → receives tokenized link → confirms with new password. All config below is global (no per-tenant override).
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `PASSWORD_RESET_RATE_LIMIT_PER_HOUR` | int | `5` | No | Max password reset requests per email per hour. Enforced DB-side via `password_reset_tokens.email_rate_key` rolling window (no Redis). Valid range: 1–1000. |
+| `PASSWORD_RESET_TOKEN_TTL_MINUTES` | int | `60` | No | Lifetime of a reset token in minutes. Token is single-use (row deleted on confirm). Valid range: 5–1440. |
+| `PUBLIC_BASE_URL` | string | `http://localhost:8084` | No | Base URL used in password reset email links (e.g. `https://argus.example.com`). Reset link format: `{PUBLIC_BASE_URL}/auth/reset?token=<b64token>`. |
+
+---
+
 ## Account Lockout
 
 | Variable | Type | Default | Required | Description |
@@ -274,6 +286,8 @@ These variables set the expected platform-wide capacity targets shown in the Sys
 | `SMTP_PASSWORD` | string | — | No | SMTP authentication password. **Keep secret.** |
 | `SMTP_FROM` | string | `noreply@argus.io` | No | From address for outgoing emails. |
 | `SMTP_TLS` | bool | `true` | No | Enable TLS for SMTP. |
+
+> **Dev SMTP fixture (FIX-228 DEV-328):** `deploy/docker-compose.yml` ships a `mailhog` service (`mailhog/mailhog:v1.0.1`) on port 1025 (SMTP) and 8025 (web UI at `http://localhost:8025`). `.env.example` SMTP defaults point to mailhog (`SMTP_HOST=localhost`, `SMTP_PORT=1025`, `SMTP_TLS=false`). SHA256 digest pin deferred to D-130 (infra pinning wave).
 
 ### Telegram
 

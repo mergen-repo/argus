@@ -199,6 +199,12 @@ export const authApi = {
     }
     return api.delete<{ status: string; data: { revoked: boolean } }>(`/auth/sessions/${id}`)
   },
+
+  requestPasswordReset: (email: string): Promise<{ message: string }> =>
+    api.post<{ status: string; data: { message: string } }>('/auth/password-reset/request', { email }).then((r) => r.data.data),
+
+  confirmPasswordReset: (token: string, password: string): Promise<{ message: string }> =>
+    api.post<{ status: string; data: { message: string } }>('/auth/password-reset/confirm', { token, password }).then((r) => r.data.data),
 }
 
 export const userApi = {

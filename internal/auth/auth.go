@@ -623,6 +623,58 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, currentP
 	return nil
 }
 
+// ResetPasswordForUser sets a new password for the given user without requiring
+// the current password. It validates the new password against the configured
+// policy, updates the password hash, clears lockout, and clears the
+// password-change-required flag. It is intended for use by the password-reset
+// flow after the caller has already verified the reset token.
+func (s *Service) ResetPasswordForUser(ctx context.Context, userID uuid.UUID, newPwd string) error {
+	if err := ValidatePasswordPolicy(newPwd, s.cfg.Policy); err != nil {
+		return err
+	}
+
+	if s.passwordHistory != nil && s.cfg.PasswordHistoryCount > 0 {
+		recent, err := s.passwordHistory.GetLastN(ctx, userID, s.cfg.PasswordHistoryCount)
+		if err != nil {
+			return fmt.Errorf("auth: read password history: %w", err)
+		}
+		for _, h := range recent {
+			if bcrypt.CompareHashAndPassword([]byte(h), []byte(newPwd)) == nil {
+				return ErrPasswordReused
+			}
+		}
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPwd), s.cfg.BcryptCost)
+	if err != nil {
+		return fmt.Errorf("auth: hash new password: %w", err)
+	}
+
+	if err := s.users.SetPasswordHash(ctx, userID, string(newHash)); err != nil {
+		return fmt.Errorf("auth: persist password hash: %w", err)
+	}
+
+	if s.passwordHistory != nil {
+		if err := s.passwordHistory.Insert(ctx, userID, string(newHash)); err != nil {
+			return fmt.Errorf("auth: insert password history: %w", err)
+		}
+		if s.cfg.PasswordHistoryCount > 0 {
+			if err := s.passwordHistory.Trim(ctx, userID, s.cfg.PasswordHistoryCount); err != nil {
+				return fmt.Errorf("auth: trim password history: %w", err)
+			}
+		}
+	}
+
+	if err := s.users.SetPasswordChangeRequired(ctx, userID, false); err != nil {
+		return fmt.Errorf("auth: clear password change flag: %w", err)
+	}
+	if err := s.users.ClearLockout(ctx, userID); err != nil {
+		return fmt.Errorf("auth: clear lockout: %w", err)
+	}
+
+	return nil
+}
+
 // CreateSessionForUser creates a full JWT + refresh session for the given user
 // after a successful password change. It accepts optional ipAddr and userAgent
 // strings (may be empty).

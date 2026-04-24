@@ -38,6 +38,7 @@ Argus is an APN & Subscriber Intelligence Platform built as a Go modular monolit
 | Redis | localhost:6379 | Cache |
 | NATS | localhost:4222, :8222 (monitor) | Events |
 | Operator Sim | :9595 (API), :9596 (health+metrics) | Passive operator SoR HTTP simulator (argus-operator-sim) |
+| Mailhog | :1025 (SMTP), http://localhost:8025 (Web UI) | Dev SMTP catch-all — inspect password reset emails (FIX-228 DEV-328) |
 
 ## Admin Access
 
@@ -116,7 +117,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-228 (Login — Forgot Password Flow + version footer)
+- Story: FIX-229 (Alert Feature Enhancements — Mute All UX, Export, Similar clustering, retention)
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)

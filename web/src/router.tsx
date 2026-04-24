@@ -9,6 +9,8 @@ import LoginPage from '@/pages/auth/login'
 import TwoFactorPage from '@/pages/auth/two-factor'
 import OnboardingPage from '@/pages/auth/onboarding'
 import ChangePasswordPage from '@/pages/auth/change-password'
+import ForgotPasswordPage from '@/pages/auth/forgot'
+import ResetPasswordPage from '@/pages/auth/reset'
 
 import NotFoundPage from '@/pages/not-found'
 
@@ -123,6 +125,8 @@ export const router = createBrowserRouter([
       { path: '/login/2fa', element: <TwoFactorPage /> },
       { path: '/setup', element: <OnboardingPage /> },
       { path: '/auth/change-password', element: <ChangePasswordPage /> },
+      { path: '/auth/forgot', element: <ForgotPasswordPage /> },
+      { path: '/auth/reset', element: <ResetPasswordPage /> },
     ],
   },
   {
