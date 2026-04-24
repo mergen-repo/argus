@@ -23,7 +23,7 @@
 | SCR-021c | [SIM Detail — Usage](screens/SCR-021c-sim-usage.md) | SIM | /sims/:id#usage | JWT (sim_manager+) | |
 | SCR-021d | [SIM Detail — Diagnostics](screens/SCR-021d-sim-diagnostics.md) | SIM | /sims/:id#diagnostics | JWT (sim_manager+) | |
 | SCR-021e | [SIM Detail — History](screens/SCR-021e-sim-history.md) | SIM | /sims/:id#history | JWT (sim_manager+) | |
-| SCR-030 | [APN List](screens/SCR-030-apn-list.md) | APN | /apns | JWT (sim_manager+) | |
+| SCR-030 | [APN List](screens/SCR-030-apn-list.md) | APN | /apns | JWT (sim_manager+) | FIX-227: Connected SIMs tab row click opens SlidePanel with identity card + 7d usage sparkline + CDR summary (7d) + 3 quick actions (View Full Details / Suspend / View CDRs); lazy-fetched on open (a11y: role=button + Enter/Space keyboard activation on row). |
 | SCR-032 | [APN Detail](screens/SCR-032-apn-detail.md) | APN | /apns/:id | JWT (sim_manager+) | |
 | SCR-040 | [Operator List](screens/SCR-040-operator-list.md) | Operator | /operators | JWT (op_manager+) | |
 | SCR-041 | [Operator Detail](screens/SCR-041-operator-detail.md) | Operator | /operators/:id | JWT (op_manager+) | |

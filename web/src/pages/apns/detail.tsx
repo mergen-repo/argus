@@ -69,6 +69,7 @@ import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
 import { InfoRow } from '@/components/ui/info-row'
 import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
+import { QuickViewPanelBody } from '@/components/sims/quick-view-panel'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { KPICard } from '@/components/shared/kpi-card'
 
@@ -467,6 +468,15 @@ function SIMsTab({ apnId }: { apnId: string }) {
               key={sim.id}
               className="cursor-pointer"
               onClick={() => setSelectedSim(sim)}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open SIM ${sim.iccid} quick view`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSelectedSim(sim)
+                }
+              }}
             >
               <TableCell>
                 <span
@@ -528,46 +538,7 @@ function SIMsTab({ apnId }: { apnId: string }) {
       width="lg"
     >
       {selectedSim && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">ICCID</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.iccid}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IMSI</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.imsi}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">MSISDN</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.msisdn ?? '-'}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IP Address</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.ip_address || '-'}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">State</div>
-              <Badge variant={stateVariant(selectedSim.state)} className="text-[10px]">
-                {selectedSim.state.toUpperCase()}
-              </Badge>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">RAT Type</div>
-              <div className="text-xs text-text-primary">{selectedSim.rat_type ? (RAT_DISPLAY[selectedSim.rat_type] ?? selectedSim.rat_type) : '-'}</div>
-            </div>
-          </div>
-          {selectedSim.created_at && (
-            <div className="text-xs text-text-tertiary">
-              Created: {new Date(selectedSim.created_at).toLocaleString()}
-            </div>
-          )}
-          <div className="flex items-center justify-end pt-2">
-            <Button size="sm" className="gap-2" onClick={() => { setSelectedSim(null); navigate(`/sims/${selectedSim.id}`) }}>
-              Open Full Detail
-            </Button>
-          </div>
-        </div>
+        <QuickViewPanelBody sim={selectedSim} onClose={() => setSelectedSim(null)} />
       )}
     </SlidePanel>
     </>

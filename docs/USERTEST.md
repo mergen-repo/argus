@@ -4160,3 +4160,44 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 3. `ARGUS_SIM_DIAMETER_ENABLED=false docker compose ... up simulator` → Diameter CCR paketleri gonderilmemeli.
 4. Gecersiz deger: `ARGUS_SIM_SESSION_RATE_PER_SEC=0` → simulatoru baslatmamali; hata mesaji `rate must be > 0` icermeli.
 5. `docs/architecture/CONFIG.md` → "Simulator Environment (dev/demo only)" bolumu `ARGUS_SIM_SESSION_RATE_PER_SEC`, `ARGUS_SIM_VIOLATION_RATE_PCT`, `ARGUS_SIM_DIAMETER_ENABLED`, `ARGUS_SIM_SBA_ENABLED`, `ARGUS_SIM_INTERIM_INTERVAL_SEC` satirlarini icermeli.
+
+---
+
+## FIX-227: APN Connected SIMs SlidePanel — CDR + Usage graph + quick stats
+
+### 1. Kimlik Karti + SIM Satirina Tiklanma (AC-1)
+
+1. `make up` → `http://localhost:8084/login` → admin@argus.io / admin ile giris yap.
+2. Sol menuden **APNs** → herhangi bir APN → **Connected SIMs** sekme.
+3. Tablodaki herhangi bir SIM satirina tikla → sag taraftan `SlidePanel` acilmali.
+4. Panel icinde **Identity** karti gorunmeli: ICCID (mono), IMSI (mono), MSISDN, State (`<Badge>`), Policy (policy_name veya "None"), Last Session (relatif sure veya "—").
+5. Klavye erisilebilirligi: SIM satirina **Tab** ile odaklan → **Enter** tusa bas → panel acilmali. **ESC** → panel kapanmali.
+
+### 2. Kullanim Grafigi + CDR Ozeti (AC-2)
+
+1. Panel acikken **Usage (last 7 days)** karti gorunmeli.
+2. Aktif CDR verisi olan bir SIM icin: iki sparkline (Data In — accent renk, Data Out — mor renk) + Total In / Total Out metin degerlerini icermeli.
+3. 7 gun icinde verisi olmayan bir SIM icin: "No usage data in last 7 days" mesaji gorunmeli.
+4. **CDR Summary (7d)** karti: Sessions, Total Bytes, Avg Duration satirlari gorunmeli.
+5. "Top Destinations" satiri dim (soluk) + "(coming soon)" etiketi gorunmeli — herhangi bir API cagrisi yapilmamali (DevTools Network: top-destinations endpoint yok).
+
+### 3. Hizli Aksiyonlar (AC-3)
+
+1. **View Full Details** butonuna tikla → `/sims/<id>` sayfasina gitmeli.
+2. **View CDRs** butonuna tikla → `/cdrs?sim_id=<id>` sayfasina gitmeli (FIX-214 CDR Explorer).
+3. **Suspend** butonu: SIM `active` durumundayken etkin olmali → tiklaninca mutation ateislenmeli, toast + undo gorunmeli, panel kapanmali.
+4. **Suspend** butonu: SIM `active` degilse (suspended/inactive) devre disi (disabled) gorunmeli.
+
+### 4. Tembel Veri Cekme (AC-4)
+
+1. DevTools Network sekmesini ac.
+2. Connected SIMs tabine git — panel acilmadan `/sims/{id}/usage`, `/cdrs/stats`, `/sims/{id}/sessions` endpoint cagrilari OLMAMALI.
+3. Bir SIM satirina tikla (panel ac) → bu uc endpoint cagrisi tetiklenmeli.
+4. Paneli kapat (`onOpenChange` false) → devam eden istekler iptal edilmeli (pending requests → cancelled/aborted).
+
+### 5. Hata Durumu
+
+1. Tarayici DevTools'ta Network → simule edilmis network hatasi icin bir isteği sag tikla → "Block request URL" ile `/sims/{id}/usage` engelle.
+2. Panel ac → Usage karti "Failed to load usage" mesaji + `AlertCircle` ikonu gostermeli.
+3. Ekranin ust kosesinde `sonner` toast hatasi gorunmeli (tek toast, tekrar acilip kapansa bile yeni toast uretmemeli — stable id ile deduplication).
+4. Identity karti her durumda gorunur kalmali (hata olsa bile).
