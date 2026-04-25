@@ -117,7 +117,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-229 (Alert Feature Enhancements — Mute All UX, Export, Similar clustering, retention)
+- Story: FIX-231 (Policy Version State Machine — atomic rolling_out→active→superseded + 1-active-rollout + dual-source fix)
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)

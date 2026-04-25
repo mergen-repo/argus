@@ -211,6 +211,36 @@ func (s *SIMStore) GetICCIDByID(ctx context.Context, id uuid.UUID) (string, erro
 	return iccid, nil
 }
 
+// ListICCIDsByIDs returns a map of sim id → ICCID for the supplied id set.
+// Single round-trip via WHERE id = ANY($1) — replaces N+1 GetICCIDByID loops
+// in hot batch hydration paths (e.g. report.AlertsExport — FIX-229 Gate F-A5).
+// Missing IDs are simply absent from the map (no error). Empty input returns
+// an empty map without hitting the DB. Cross-tenant — mirrors GetICCIDByID
+// scope used by the event-envelope name resolver.
+func (s *SIMStore) ListICCIDsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `SELECT id, iccid FROM sims WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sim iccids by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var iccid string
+		if err := rows.Scan(&id, &iccid); err != nil {
+			return nil, fmt.Errorf("store: scan sim iccid: %w", err)
+		}
+		out[id] = iccid
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate sim iccids: %w", err)
+	}
+	return out, nil
+}
+
 func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams) ([]SIM, string, error) {
 	limit := p.Limit
 	if limit <= 0 || limit > 100 {

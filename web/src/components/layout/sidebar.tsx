@@ -44,6 +44,7 @@ import {
   FileSearch,
   PackageSearch,
   MessageSquare,
+  BellOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -118,6 +119,7 @@ const navGroups: NavGroup[] = [
       { label: 'Users & Roles', icon: Users, path: '/settings/users' },
       { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
       { label: 'Notifications', icon: BellRing, path: '/settings/notifications' },
+      { label: 'Alert Rules', icon: BellOff, path: '/settings/alert-rules' },
       { label: 'Security', icon: Lock, path: '/settings/security' },
     ],
   },

@@ -253,6 +253,35 @@ func (s *OperatorStore) GetByID(ctx context.Context, id uuid.UUID) (*Operator, e
 	return o, nil
 }
 
+// ListNamesByIDs returns a map of operator id → name for the supplied id set.
+// Single round-trip via WHERE id = ANY($1) — replaces N+1 GetByID loops in
+// hot batch hydration paths (e.g. report.AlertsExport — FIX-229 Gate F-A5).
+// Missing IDs are simply absent from the map (no error). Empty input returns
+// an empty map without hitting the DB.
+func (s *OperatorStore) ListNamesByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `SELECT id, name FROM operators WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("store: list operator names by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("store: scan operator name: %w", err)
+		}
+		out[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate operator names: %w", err)
+	}
+	return out, nil
+}
+
 func (s *OperatorStore) GetByCode(ctx context.Context, code string) (*Operator, error) {
 	row := s.db.QueryRow(ctx, `SELECT `+operatorColumns+` FROM operators WHERE code = $1`, code)
 	o, err := scanOperator(row)

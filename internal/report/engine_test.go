@@ -104,6 +104,22 @@ func (f *fakeProvider) SIMInventory(_ context.Context, _ uuid.UUID, _ map[string
 	}, nil
 }
 
+func (f *fakeProvider) AlertsExport(_ context.Context, tenantID uuid.UUID, _ AlertsExportFilters) (*AlertsExportData, error) {
+	return &AlertsExportData{
+		GeneratedAt:       time.Now().UTC(),
+		TenantID:          tenantID,
+		Filters:           map[string]string{},
+		FilterDescription: "No filters applied",
+		TotalRows:         2,
+		SeverityBreakdown: map[string]int{"high": 1, "critical": 1},
+		StateBreakdown:    map[string]int{"open": 2},
+		Rows: []AlertExportRow{
+			{ID: "a1", Severity: "high", State: "open", Source: "sim", Type: "sim.data_spike", Title: "Row 1", FiredAt: "2026-04-25 10:00:00 UTC"},
+			{ID: "a2", Severity: "critical", State: "open", Source: "operator", Type: "operator.down", Title: "Row 2", FiredAt: "2026-04-25 11:00:00 UTC"},
+		},
+	}, nil
+}
+
 func TestEngine(t *testing.T) {
 	tenantID := uuid.MustParse("11111111-2222-3333-4444-555555555555")
 	engine := NewEngine(&fakeProvider{})

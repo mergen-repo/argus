@@ -1053,3 +1053,320 @@ func TestAlertStore_UpsertWithDedup_NilDedupKey_FallsThroughToCreate(t *testing.
 		t.Errorf("State: got %q, want open", a.State)
 	}
 }
+
+// FIX-229 W3T4 — exercises ONE scope (type) end-to-end through UpsertWithDedup.
+// The full scope-branch matrix (this / type / operator / dedup_key) is covered
+// at the MatchActive read-path layer in alert_suppression_test.go (see
+// TestAlertSuppressionStore_MatchActive_*Scope siblings); duplicating the
+// trigger-time write path for every scope would be redundant.
+func TestUpsertWithDedup_AppliesActiveSuppression(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	ctx := context.Background()
+
+	ss := NewAlertSuppressionStore(pool)
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	scopeValue := "operator_down"
+	sup, err := ss.Create(ctx, CreateAlertSuppressionParams{
+		TenantID:   tenantID,
+		ScopeType:  "type",
+		ScopeValue: scopeValue,
+		ExpiresAt:  expiresAt,
+	})
+	if err != nil {
+		t.Fatalf("create suppression: %v", err)
+	}
+
+	alertStore := NewAlertStore(pool).WithSuppressionStore(ss)
+
+	dk := "dk-suppressed-" + uuid.New().String()
+	p := CreateAlertParams{
+		TenantID:    tenantID,
+		Type:        scopeValue,
+		Severity:    "high",
+		Source:      "system",
+		Title:       "Suppressed Alert Test",
+		Description: "should be suppressed at trigger time",
+		DedupKey:    &dk,
+	}
+
+	a, _, err := alertStore.UpsertWithDedup(ctx, p, severityOrdinalOf("high"))
+	if err != nil {
+		t.Fatalf("UpsertWithDedup: %v", err)
+	}
+	if a.State != "suppressed" {
+		t.Errorf("State: got %q, want suppressed", a.State)
+	}
+
+	var metaMap map[string]interface{}
+	if err := json.Unmarshal(a.Meta, &metaMap); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	gotSupID, ok := metaMap["suppression_id"]
+	if !ok {
+		t.Fatalf("meta missing suppression_id, got: %v", metaMap)
+	}
+	if gotSupID != sup.ID.String() {
+		t.Errorf("suppression_id: got %v, want %v", gotSupID, sup.ID.String())
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM alert_suppressions WHERE tenant_id = $1`, tenantID)
+	})
+}
+
+// ---- FIX-229 Task 8 — BackfillSuppression / RestoreSuppressedByMetaID -------
+
+func TestBackfillSuppression_TypeScope(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		if _, err := s.Create(ctx, CreateAlertParams{
+			TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+			Title: "down", Description: "d",
+		}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	// One unrelated row.
+	if _, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "sim.data_spike", Severity: "high", Source: "sim",
+		Title: "spike", Description: "d",
+	}); err != nil {
+		t.Fatalf("seed nomatch: %v", err)
+	}
+
+	suppID := uuid.New()
+	count, err := s.BackfillSuppression(ctx, tenantID, "type", "operator.down", suppID, "maintenance")
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if count != 4 {
+		t.Errorf("backfill count = %d, want 4", count)
+	}
+
+	var suppressed int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM alerts
+		 WHERE tenant_id=$1 AND state='suppressed' AND meta->>'suppression_id'=$2`,
+		tenantID, suppID.String()).Scan(&suppressed); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if suppressed != 4 {
+		t.Errorf("rows with meta.suppression_id matching = %d, want 4", suppressed)
+	}
+}
+
+func TestBackfillSuppression_AcknowledgedNotTouched(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	userID := seedAlertUser(t, pool, tenantID)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	// One open + one acknowledged + one resolved, all type=operator.down.
+	openA, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+		Title: "open", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	ackA, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+		Title: "ack", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed ack: %v", err)
+	}
+	if _, err := s.UpdateState(ctx, tenantID, ackA.ID, "acknowledged", &userID, 0); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	resA, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+		Title: "res", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed resolved: %v", err)
+	}
+	if _, err := s.UpdateState(ctx, tenantID, resA.ID, "resolved", nil, 0); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	suppID := uuid.New()
+	count, err := s.BackfillSuppression(ctx, tenantID, "type", "operator.down", suppID, "")
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("backfill count = %d, want 1 (only the open row should flip)", count)
+	}
+
+	// Reload and check states. The open row must be 'suppressed', ack/resolved unchanged.
+	var openState, ackState, resState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM alerts WHERE id=$1`, openA.ID).Scan(&openState); err != nil {
+		t.Fatalf("read open: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT state FROM alerts WHERE id=$1`, ackA.ID).Scan(&ackState); err != nil {
+		t.Fatalf("read ack: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT state FROM alerts WHERE id=$1`, resA.ID).Scan(&resState); err != nil {
+		t.Fatalf("read res: %v", err)
+	}
+	if openState != "suppressed" {
+		t.Errorf("open row state = %q, want suppressed", openState)
+	}
+	if ackState != "acknowledged" {
+		t.Errorf("ack row state = %q, want acknowledged (R7: not touched)", ackState)
+	}
+	if resState != "resolved" {
+		t.Errorf("resolved row state = %q, want resolved (R7: not touched)", resState)
+	}
+}
+
+func TestBackfillSuppression_ThisScope(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	a, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+		Title: "this-scope", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	other, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+		Title: "other", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+
+	suppID := uuid.New()
+	count, err := s.BackfillSuppression(ctx, tenantID, "this", a.ID.String(), suppID, "")
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+	var aState, oState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM alerts WHERE id=$1`, a.ID).Scan(&aState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT state FROM alerts WHERE id=$1`, other.ID).Scan(&oState); err != nil {
+		t.Fatal(err)
+	}
+	if aState != "suppressed" {
+		t.Errorf("target state = %q, want suppressed", aState)
+	}
+	if oState != "open" {
+		t.Errorf("other state = %q, want open (untouched)", oState)
+	}
+}
+
+func TestRestoreSuppressedByMetaID(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		if _, err := s.Create(ctx, CreateAlertParams{
+			TenantID: tenantID, Type: "operator.down", Severity: "high", Source: "operator",
+			Title: "to-restore", Description: "d",
+		}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	// Independent unrelated suppressed row that must NOT be restored.
+	other, err := s.Create(ctx, CreateAlertParams{
+		TenantID: tenantID, Type: "sim.data_spike", Severity: "high", Source: "sim",
+		Title: "other", Description: "d",
+	})
+	if err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+
+	suppA := uuid.New()
+	if _, err := s.BackfillSuppression(ctx, tenantID, "type", "operator.down", suppA, ""); err != nil {
+		t.Fatalf("backfillA: %v", err)
+	}
+	suppB := uuid.New()
+	if _, err := s.BackfillSuppression(ctx, tenantID, "this", other.ID.String(), suppB, ""); err != nil {
+		t.Fatalf("backfillB: %v", err)
+	}
+
+	count, err := s.RestoreSuppressedByMetaID(ctx, tenantID, suppA)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("restore count = %d, want 2", count)
+	}
+
+	var open, suppressed int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND type='operator.down' AND state='open'`,
+		tenantID).Scan(&open); err != nil {
+		t.Fatal(err)
+	}
+	if open != 2 {
+		t.Errorf("operator.down open after restore = %d, want 2", open)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND state='suppressed' AND meta->>'suppression_id'=$2`,
+		tenantID, suppB.String()).Scan(&suppressed); err != nil {
+		t.Fatal(err)
+	}
+	if suppressed != 1 {
+		t.Errorf("other suppressed (suppB) after restore = %d, want 1 (untouched)", suppressed)
+	}
+
+	// Verify meta no longer has suppression_id on restored rows.
+	var withKey int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM alerts WHERE tenant_id=$1 AND type='operator.down' AND meta ? 'suppression_id'`,
+		tenantID).Scan(&withKey); err != nil {
+		t.Fatal(err)
+	}
+	if withKey != 0 {
+		t.Errorf("restored rows still have meta.suppression_id: %d", withKey)
+	}
+}
+
+func TestBackfillSuppression_UnknownScopeType(t *testing.T) {
+	pool := testAlertPool(t)
+	if pool == nil {
+		t.Skip("DATABASE_URL not set; skipping DB-gated alert store test")
+	}
+	tenantID := seedAlertTenant(t, pool)
+	s := NewAlertStore(pool)
+	ctx := context.Background()
+
+	_, err := s.BackfillSuppression(ctx, tenantID, "bogus", "x", uuid.New(), "")
+	if err == nil {
+		t.Fatal("expected error for unknown scope_type, got nil")
+	}
+}

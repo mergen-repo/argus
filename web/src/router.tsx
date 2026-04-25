@@ -52,6 +52,7 @@ const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
 const ReliabilityPage = lazy(() => import('@/pages/settings/reliability'))
 const SecurityPage = lazy(() => import('@/pages/settings/security'))
 const ActiveSessionsPage = lazy(() => import('@/pages/settings/sessions'))
+const AlertRulesPage = lazy(() => import('@/pages/settings/alert-rules'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
 const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
@@ -168,6 +169,7 @@ export const router = createBrowserRouter([
           { path: '/settings/reliability', element: lazySuspense(ReliabilityPage) },
           { path: '/settings/security', element: lazySuspense(SecurityPage) },
           { path: '/settings/sessions', element: lazySuspense(ActiveSessionsPage) },
+          { path: '/settings/alert-rules', element: lazySuspense(AlertRulesPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
           { path: '/alerts/:id', element: lazySuspense(AlertDetailPage) },
           { path: '/sla', element: lazySuspense(SLADashboardPage) },

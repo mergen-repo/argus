@@ -43,8 +43,32 @@ function DropdownMenu({ children }: DropdownMenuProps) {
   )
 }
 
-function DropdownMenuTrigger({ children, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  asChild?: boolean
+}
+
+function DropdownMenuTrigger({ children, className, asChild, ...props }: DropdownMenuTriggerProps) {
   const { open, setOpen } = React.useContext(DropdownContext)
+  // FIX-229 Gate F-A9: when asChild is true, clone the child element and
+  // inject the click handler — lets callers wrap a <Button> atom (or any
+  // styled element) without re-implementing focus/hover styles on top of a
+  // raw <button>. Mirrors the Radix asChild pattern at the API surface
+  // without pulling in @radix-ui/react-slot.
+  if (asChild && React.isValidElement(children)) {
+    const child = children as React.ReactElement<{
+      onClick?: (e: React.MouseEvent<HTMLElement>) => void
+      className?: string
+    }>
+    const childOnClick = child.props.onClick
+    return React.cloneElement(child, {
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        e.stopPropagation()
+        childOnClick?.(e)
+        setOpen(!open)
+      },
+      className: cn(child.props.className, className),
+    })
+  }
   return (
     <button
       className={className}

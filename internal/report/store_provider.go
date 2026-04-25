@@ -18,6 +18,8 @@ type StoreProvider struct {
 	audit      *store.AuditStore
 	sims       *store.SIMStore
 	sla        *store.SLAReportStore
+	alerts     *store.AlertStore
+	operators  *store.OperatorStore
 }
 
 func NewStoreProvider(
@@ -34,6 +36,20 @@ func NewStoreProvider(
 		sims:       sims,
 		sla:        sla,
 	}
+}
+
+// WithAlertStore enables AlertsExport (FIX-229 Task 7). Without it, AlertsExport
+// returns an error — callers must wire the AlertStore for PDF alert exports.
+func (p *StoreProvider) WithAlertStore(s *store.AlertStore) *StoreProvider {
+	p.alerts = s
+	return p
+}
+
+// WithOperatorStore lets AlertsExport hydrate operator names from operator IDs.
+// Optional: if nil, operator column shows the UUID prefix.
+func (p *StoreProvider) WithOperatorStore(s *store.OperatorStore) *StoreProvider {
+	p.operators = s
+	return p
 }
 
 func (p *StoreProvider) KVKK(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*KVKKData, error) {
@@ -297,6 +313,258 @@ func (p *StoreProvider) SIMInventory(ctx context.Context, tenantID uuid.UUID, fi
 		PeriodFrom: time.Now().UTC(),
 		PeriodTo:   time.Now().UTC(),
 	}, nil
+}
+
+// alertsExportRowCap matches the handler-side cap (10 000) — a single page
+// from the store is 100 rows, so we issue at most 100 round-trips.
+const alertsExportRowCap = 10000
+
+// alertsExportTruncateAt is the per-PDF row cap. The PDF footer shows
+// "Showing first 200 of N alerts" when the total exceeds this.
+const alertsExportTruncateAt = 200
+
+// AlertsExport hydrates alerts for the PDF exporter. It pages through the
+// store (100 rows/page) until alertsExportRowCap or EOF, computes severity
+// and state breakdowns over the full set, then truncates to the first 200
+// rows for the printed table.
+func (p *StoreProvider) AlertsExport(ctx context.Context, tenantID uuid.UUID, filters AlertsExportFilters) (*AlertsExportData, error) {
+	if p.alerts == nil {
+		return nil, fmt.Errorf("alerts export: alert store not configured")
+	}
+
+	base := store.ListAlertsParams{
+		Type:       filters.Type,
+		Severity:   filters.Severity,
+		Source:     filters.Source,
+		State:      filters.State,
+		SimID:      filters.SimID,
+		OperatorID: filters.OperatorID,
+		APNID:      filters.APNID,
+		From:       filters.From,
+		To:         filters.To,
+		Q:          filters.Q,
+	}
+
+	const pageSize = 100
+	all := make([]store.Alert, 0, pageSize)
+	params := base
+	params.Limit = pageSize
+	params.Cursor = nil
+
+	for len(all) < alertsExportRowCap {
+		batch, nextCursor, err := p.alerts.ListByTenant(ctx, tenantID, params)
+		if err != nil {
+			return nil, fmt.Errorf("alerts export: list page: %w", err)
+		}
+		all = append(all, batch...)
+		if nextCursor == nil {
+			break
+		}
+		if len(all) >= alertsExportRowCap {
+			break
+		}
+		params.Cursor = nextCursor
+	}
+	if len(all) > alertsExportRowCap {
+		all = all[:alertsExportRowCap]
+	}
+
+	severityBreakdown := make(map[string]int)
+	stateBreakdown := make(map[string]int)
+	operatorIDs := make(map[uuid.UUID]struct{})
+	simIDs := make(map[uuid.UUID]struct{})
+
+	for i := range all {
+		a := &all[i]
+		severityBreakdown[a.Severity]++
+		stateBreakdown[a.State]++
+		if a.OperatorID != nil {
+			operatorIDs[*a.OperatorID] = struct{}{}
+		}
+		if a.SimID != nil {
+			simIDs[*a.SimID] = struct{}{}
+		}
+	}
+
+	// FIX-229 Gate F-A5: batch hydrate via WHERE id = ANY($1) — single query
+	// per resource instead of N per-id GetByID/GetICCIDByID calls. For a 10K
+	// alert export touching 50 operators + 5K SIMs this turns ~5050 round-trips
+	// into 2.
+	operatorNames := make(map[uuid.UUID]string, len(operatorIDs))
+	if p.operators != nil && len(operatorIDs) > 0 {
+		ids := make([]uuid.UUID, 0, len(operatorIDs))
+		for id := range operatorIDs {
+			ids = append(ids, id)
+		}
+		if names, err := p.operators.ListNamesByIDs(ctx, ids); err == nil {
+			operatorNames = names
+		}
+	}
+
+	simICCIDs := make(map[uuid.UUID]string, len(simIDs))
+	if p.sims != nil && len(simIDs) > 0 {
+		ids := make([]uuid.UUID, 0, len(simIDs))
+		for id := range simIDs {
+			ids = append(ids, id)
+		}
+		if iccids, err := p.sims.ListICCIDsByIDs(ctx, ids); err == nil {
+			simICCIDs = iccids
+		}
+	}
+
+	totalRows := len(all)
+	limit := totalRows
+	truncated := 0
+	if limit > alertsExportTruncateAt {
+		limit = alertsExportTruncateAt
+		truncated = alertsExportTruncateAt
+	}
+
+	rows := make([]AlertExportRow, 0, limit)
+	for i := 0; i < limit; i++ {
+		a := &all[i]
+		row := AlertExportRow{
+			ID:       a.ID.String(),
+			Severity: a.Severity,
+			State:    a.State,
+			Source:   a.Source,
+			Type:     a.Type,
+			Title:    a.Title,
+			FiredAt:  a.FiredAt.UTC().Format("2006-01-02 15:04:05 UTC"),
+		}
+		if a.ResolvedAt != nil {
+			row.ResolvedAt = a.ResolvedAt.UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+		if a.OperatorID != nil {
+			if name, ok := operatorNames[*a.OperatorID]; ok && name != "" {
+				row.OperatorName = name
+			} else {
+				row.OperatorName = a.OperatorID.String()[:8]
+			}
+		}
+		if a.SimID != nil {
+			if iccid, ok := simICCIDs[*a.SimID]; ok && iccid != "" {
+				row.SimICCID = iccid
+			} else {
+				row.SimICCID = a.SimID.String()[:8]
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	displayFilters, description := summarizeAlertFilters(filters)
+
+	return &AlertsExportData{
+		GeneratedAt:       time.Now().UTC(),
+		TenantID:          tenantID,
+		Filters:           displayFilters,
+		FilterDescription: description,
+		TotalRows:         totalRows,
+		SeverityBreakdown: severityBreakdown,
+		StateBreakdown:    stateBreakdown,
+		Rows:              rows,
+		TruncatedToFirst:  truncated,
+	}, nil
+}
+
+// alertsExportFiltersFromMap unpacks a Request.Filters map (string keys, any
+// values) into the typed AlertsExportFilters used by the data provider.
+// Unknown / unparseable values are silently dropped — the handler is the
+// source of truth for filter validation.
+func alertsExportFiltersFromMap(m map[string]any) AlertsExportFilters {
+	f := AlertsExportFilters{}
+	if m == nil {
+		return f
+	}
+	if v, ok := m["type"].(string); ok {
+		f.Type = v
+	}
+	if v, ok := m["severity"].(string); ok {
+		f.Severity = v
+	}
+	if v, ok := m["source"].(string); ok {
+		f.Source = v
+	}
+	if v, ok := m["state"].(string); ok {
+		f.State = v
+	}
+	if v, ok := m["q"].(string); ok {
+		f.Q = v
+	}
+	if id, ok := m["sim_id"].(uuid.UUID); ok {
+		f.SimID = &id
+	}
+	if id, ok := m["operator_id"].(uuid.UUID); ok {
+		f.OperatorID = &id
+	}
+	if id, ok := m["apn_id"].(uuid.UUID); ok {
+		f.APNID = &id
+	}
+	if t, ok := m["from"].(time.Time); ok {
+		f.From = &t
+	}
+	if t, ok := m["to"].(time.Time); ok {
+		f.To = &t
+	}
+	return f
+}
+
+func summarizeAlertFilters(f AlertsExportFilters) (map[string]string, string) {
+	m := map[string]string{}
+	if f.Type != "" {
+		m["type"] = f.Type
+	}
+	if f.Severity != "" {
+		m["severity"] = f.Severity
+	}
+	if f.Source != "" {
+		m["source"] = f.Source
+	}
+	if f.State != "" {
+		m["state"] = f.State
+	}
+	if f.Q != "" {
+		m["q"] = f.Q
+	}
+	if f.SimID != nil {
+		m["sim_id"] = f.SimID.String()
+	}
+	if f.OperatorID != nil {
+		m["operator_id"] = f.OperatorID.String()
+	}
+	if f.APNID != nil {
+		m["apn_id"] = f.APNID.String()
+	}
+	if f.From != nil {
+		m["from"] = f.From.UTC().Format(time.RFC3339)
+	}
+	if f.To != nil {
+		m["to"] = f.To.UTC().Format(time.RFC3339)
+	}
+	if len(m) == 0 {
+		return m, "No filters applied"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, m[k]))
+	}
+	return m, "Filters: " + joinFilterParts(parts)
+}
+
+func joinFilterParts(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
 }
 
 func reportWindow(filters map[string]any, fallbackDays int) (time.Time, time.Time) {

@@ -127,6 +127,9 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `ALREADY_EXISTS` | 409 | Attempting to create a resource that already exists (unique constraint) | `{"status":"error","error":{"code":"ALREADY_EXISTS","message":"A resource with this identifier already exists","details":[{"field":"name","value":"iot.fleet"}]}}` |
 | `CONFLICT` | 409 | Optimistic concurrency conflict or state conflict preventing operation | `{"status":"error","error":{"code":"CONFLICT","message":"Resource was modified by another request. Retry with latest version."}}` |
 | `ALERT_NOT_FOUND` | 404 | Alert does not exist in the tenant's scope (or never existed). Same shape for cross-tenant lookups — never reveals existence. | `{"status":"error","error":{"code":"ALERT_NOT_FOUND","message":"alert not found"}}` |
+| `ALERT_NO_DATA` | 404 | Export request matched zero alerts (no rows to export). Returned by CSV/JSON/PDF export endpoints when filters produce an empty result set. FIX-229. | `{"status":"error","error":{"code":"ALERT_NO_DATA","message":"no alerts match the requested filters"}}` |
+| `SUPPRESSION_NOT_FOUND` | 404 | Suppression with given ID does not exist in this tenant (or never existed). Returned by `DELETE /alerts/suppressions/{id}`. FIX-229. | `{"status":"error","error":{"code":"SUPPRESSION_NOT_FOUND","message":"alert suppression not found"}}` |
+| `DUPLICATE` | 409 | Tenant-scoped uniqueness conflict for a named entity. Currently used for duplicate suppression `rule_name` on `POST /alerts/suppressions`. Distinct from the generic `ALREADY_EXISTS` to match the plan spec. FIX-229. | `{"status":"error","error":{"code":"DUPLICATE","message":"a suppression rule with this name already exists"}}` |
 
 ---
 
@@ -318,7 +321,10 @@ const (
     CodeNotFound      = "NOT_FOUND"
     CodeAlreadyExists = "ALREADY_EXISTS"
     CodeConflict      = "CONFLICT"
-    CodeAlertNotFound = "ALERT_NOT_FOUND"  // FIX-209 (unified alerts table)
+    CodeAlertNotFound        = "ALERT_NOT_FOUND"        // FIX-209 (unified alerts table)
+    CodeAlertNoData          = "ALERT_NO_DATA"          // FIX-229 (export empty result)
+    CodeSuppressionNotFound  = "SUPPRESSION_NOT_FOUND"  // FIX-229 (suppression delete/get)
+    CodeDuplicate            = "DUPLICATE"              // FIX-229 (duplicate rule_name on CREATE)
 
     // SIM
     CodeSIMNotFound             = "SIM_NOT_FOUND"

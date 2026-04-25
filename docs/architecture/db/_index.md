@@ -62,6 +62,7 @@
 | TBL-52 | session_quarantine | AAA/Data Integrity | Plain (non-hypertable) quarantine store; original_table CHECK ('sessions','cdrs'); quarantined_at, reason, raw_data JSONB; system-level (no tenant_id). Migration A (20260421000001). FIX-207 AC-6. | No |
 | TBL-53 | alerts | Analytics/Alerts | Unified alert history: operator, infra, policy, SIM-level. 3 CHECK constraints (severity 5-val, state 4-val, source 5-val), 7 indices + 2 FIX-210 indices, RLS tenant-scoped. Retention 180d via `alerts_retention` cron. FIX-209. Extended by FIX-210: +4 columns (`occurrence_count INT DEFAULT 1`, `first_seen_at TIMESTAMPTZ`, `last_seen_at TIMESTAMPTZ`, `cooldown_until TIMESTAMPTZ NULL`), partial unique index `idx_alerts_dedup_unique` on `(tenant_id, dedup_key) WHERE state IN ('open','acknowledged','suppressed')`, partial lookup index `idx_alerts_cooldown_lookup` on resolved rows with non-null `cooldown_until`. | No |
 | TBL-54 | password_reset_tokens | Auth | → TBL-02 (user_id CASCADE); platform-global (no tenant_id) | No |
+| TBL-55 | alert_suppressions | Analytics/Alerts | → TBL-01 (tenant_id CASCADE), → TBL-02 (created_by nullable); scope_type CHECK ('this','type','operator','dedup_key'); partial unique index on (tenant_id, rule_name) WHERE rule_name IS NOT NULL; RLS tenant-scoped. rule_name NULL = ad-hoc mute (AC-1); NOT NULL = saved rule (AC-5). FIX-229 (DEV-333). | No |
 
 ## Domain Detail Files
 

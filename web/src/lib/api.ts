@@ -87,7 +87,10 @@ api.interceptors.response.use(
     const errorData = error.response?.data?.error
     const message = errorData?.message || error.message || 'An error occurred'
     const url = error.config?.url || ''
-    const silentPaths = ['/users/me/views', '/onboarding/status', '/announcements/active']
+    // /alerts/export.{csv,json,pdf} surfaces its own toast in the dedicated
+    // hook (FIX-229 Gate F-A10) — silence the global interceptor toast to
+    // avoid double-firing on 4xx export failures.
+    const silentPaths = ['/users/me/views', '/onboarding/status', '/announcements/active', '/alerts/export']
     const isSilent = silentPaths.some((p) => url.includes(p))
 
     const isSessionFormatError =

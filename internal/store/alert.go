@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/btopcu/argus/internal/alertstate"
@@ -90,6 +92,7 @@ type ListAlertsParams struct {
 	SimID      *uuid.UUID
 	OperatorID *uuid.UUID
 	APNID      *uuid.UUID
+	DedupKey   string // FIX-229 Gate F-A1: filter by dedup_key (similar-alerts deeplink)
 	From       *time.Time
 	To         *time.Time
 	Q          string
@@ -98,11 +101,17 @@ type ListAlertsParams struct {
 }
 
 type AlertStore struct {
-	db *pgxpool.Pool
+	db               *pgxpool.Pool
+	suppressionStore *AlertSuppressionStore
 }
 
 func NewAlertStore(db *pgxpool.Pool) *AlertStore {
 	return &AlertStore{db: db}
+}
+
+func (s *AlertStore) WithSuppressionStore(ss *AlertSuppressionStore) *AlertStore {
+	s.suppressionStore = ss
+	return s
 }
 
 var alertColumns = `id, tenant_id, type, severity, source, state, title, description, meta,
@@ -185,6 +194,33 @@ func (s *AlertStore) UpsertWithDedup(ctx context.Context, p CreateAlertParams, s
 		meta = json.RawMessage(`{}`)
 	}
 
+	insertState := "open"
+	if s.suppressionStore != nil {
+		probe := AlertMatchProbe{
+			AlertID:    uuid.Nil,
+			Type:       p.Type,
+			OperatorID: p.OperatorID,
+			DedupKey:   p.DedupKey,
+		}
+		match, matchErr := s.suppressionStore.MatchActive(ctx, p.TenantID, probe)
+		if matchErr != nil {
+			log.Printf("store: upsert alert suppression check failed (proceeding as open): %v", matchErr)
+		} else if match != nil {
+			insertState = "suppressed"
+			merged := map[string]interface{}{"suppression_id": match.ID.String()}
+			existing := map[string]interface{}{}
+			if len(meta) > 0 {
+				_ = json.Unmarshal(meta, &existing)
+			}
+			for k, v := range existing {
+				merged[k] = v
+			}
+			if b, err := json.Marshal(merged); err == nil {
+				meta = json.RawMessage(b)
+			}
+		}
+	}
+
 	var firedAt interface{}
 	if p.FiredAt.IsZero() {
 		firedAt = nil
@@ -198,7 +234,7 @@ func (s *AlertStore) UpsertWithDedup(ctx context.Context, p CreateAlertParams, s
 			sim_id, operator_id, apn_id, dedup_key, fired_at,
 			occurrence_count, first_seen_at, last_seen_at
 		) VALUES (
-			$1, $2, $3, $4, 'open', $5, $6, COALESCE($7::jsonb, '{}'::jsonb),
+			$1, $2, $3, $4, $14, $5, $6, COALESCE($7::jsonb, '{}'::jsonb),
 			$8, $9, $10, $11, COALESCE($12, NOW()),
 			1, COALESCE($12, NOW()), COALESCE($12, NOW())
 		)
@@ -220,7 +256,7 @@ func (s *AlertStore) UpsertWithDedup(ctx context.Context, p CreateAlertParams, s
 
 	row := s.db.QueryRow(ctx, query,
 		p.TenantID, p.Type, p.Severity, p.Source, p.Title, p.Description, meta,
-		p.SimID, p.OperatorID, p.APNID, p.DedupKey, firedAt, severityOrdinal,
+		p.SimID, p.OperatorID, p.APNID, p.DedupKey, firedAt, severityOrdinal, insertState,
 	)
 
 	var a Alert
@@ -321,6 +357,11 @@ func (s *AlertStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, p Lis
 	if p.APNID != nil {
 		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
 		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.DedupKey != "" {
+		conditions = append(conditions, fmt.Sprintf("dedup_key = $%d", argIdx))
+		args = append(args, p.DedupKey)
 		argIdx++
 	}
 	if p.From != nil {
@@ -499,6 +540,96 @@ func (s *AlertStore) UnsuppressAlert(ctx context.Context, tenantID, id uuid.UUID
 	return a, nil
 }
 
+// BackfillSuppression flips currently-open alerts matching the given scope to
+// state='suppressed' and stamps meta with {"suppression_id":..,"suppress_reason":..}.
+// Acknowledged/resolved alerts are NOT touched (FIX-229 R7). Returns the row count.
+//
+// scopeType ∈ {'this','type','operator','dedup_key'}. The dispatch is hard-coded
+// per scope (one query each) so casts ($::uuid) stay type-safe and the WHERE
+// shape is never assembled from caller input.
+func (s *AlertStore) BackfillSuppression(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	scopeType, scopeValue string,
+	suppressionID uuid.UUID,
+	reason string,
+) (int64, error) {
+	metaPatch := func() string {
+		return `meta = meta || jsonb_build_object('suppression_id', $3::text, 'suppress_reason', $4::text)`
+	}
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	switch scopeType {
+	case "this":
+		tag, err = s.db.Exec(ctx, `
+			UPDATE alerts SET
+				state = 'suppressed',
+				`+metaPatch()+`,
+				updated_at = NOW()
+			WHERE tenant_id = $1 AND state = 'open' AND id = $2::uuid`,
+			tenantID, scopeValue, suppressionID.String(), reason,
+		)
+	case "type":
+		tag, err = s.db.Exec(ctx, `
+			UPDATE alerts SET
+				state = 'suppressed',
+				`+metaPatch()+`,
+				updated_at = NOW()
+			WHERE tenant_id = $1 AND state = 'open' AND type = $2`,
+			tenantID, scopeValue, suppressionID.String(), reason,
+		)
+	case "operator":
+		tag, err = s.db.Exec(ctx, `
+			UPDATE alerts SET
+				state = 'suppressed',
+				`+metaPatch()+`,
+				updated_at = NOW()
+			WHERE tenant_id = $1 AND state = 'open' AND operator_id = $2::uuid`,
+			tenantID, scopeValue, suppressionID.String(), reason,
+		)
+	case "dedup_key":
+		tag, err = s.db.Exec(ctx, `
+			UPDATE alerts SET
+				state = 'suppressed',
+				`+metaPatch()+`,
+				updated_at = NOW()
+			WHERE tenant_id = $1 AND state = 'open' AND dedup_key = $2`,
+			tenantID, scopeValue, suppressionID.String(), reason,
+		)
+	default:
+		return 0, fmt.Errorf("store: backfill suppression: unknown scope_type %q", scopeType)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("store: backfill suppression: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// RestoreSuppressedByMetaID is the best-effort inverse of BackfillSuppression:
+// any alert currently in state='suppressed' whose meta.suppression_id matches
+// the deleted rule's UUID is flipped back to 'open' and the suppression_id key
+// is stripped from meta. Returns the row count. Does NOT remove suppress_reason.
+func (s *AlertStore) RestoreSuppressedByMetaID(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	suppressionID uuid.UUID,
+) (int64, error) {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE alerts SET
+			state = 'open',
+			meta = meta - 'suppression_id',
+			updated_at = NOW()
+		WHERE tenant_id = $1 AND state = 'suppressed' AND meta->>'suppression_id' = $2::text`,
+		tenantID, suppressionID.String(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("store: restore suppressed alerts: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *AlertStore) CountByTenantAndState(ctx context.Context, tenantID uuid.UUID, state string) (int64, error) {
 	var count int64
 	err := s.db.QueryRow(ctx,
@@ -529,4 +660,70 @@ func (s *AlertStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int
 		return count, fmt.Errorf("store: delete old alerts: iterate: %w", rerr)
 	}
 	return count, nil
+}
+
+func (s *AlertStore) DeleteOlderThanForTenant(ctx context.Context, tenantID uuid.UUID, cutoff time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`DELETE FROM alerts WHERE tenant_id = $1 AND fired_at < $2`,
+		tenantID, cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete old alerts for tenant: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (s *AlertStore) ListSimilar(ctx context.Context, tenantID uuid.UUID, anchor *Alert, limit int) ([]Alert, string, error) {
+	if limit < 1 {
+		limit = 1
+	} else if limit > 50 {
+		limit = 50
+	}
+
+	var (
+		query         string
+		args          []interface{}
+		matchStrategy string
+	)
+
+	if anchor.DedupKey != nil && *anchor.DedupKey != "" {
+		matchStrategy = "dedup_key"
+		query = `SELECT ` + alertColumns + ` FROM alerts
+			WHERE tenant_id=$1 AND id <> $2 AND dedup_key = $3
+			ORDER BY fired_at DESC LIMIT $4`
+		args = []interface{}{tenantID, anchor.ID, *anchor.DedupKey, limit}
+	} else {
+		matchStrategy = "type_source"
+		query = `SELECT ` + alertColumns + ` FROM alerts
+			WHERE tenant_id=$1 AND id <> $2 AND type=$3 AND source=$4
+			ORDER BY fired_at DESC LIMIT $5`
+		args = []interface{}{tenantID, anchor.ID, anchor.Type, anchor.Source, limit}
+	}
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list similar alerts: %w", err)
+	}
+	defer rows.Close()
+
+	var results []Alert
+	for rows.Next() {
+		var a Alert
+		if err := rows.Scan(
+			&a.ID, &a.TenantID, &a.Type, &a.Severity, &a.Source, &a.State,
+			&a.Title, &a.Description, &a.Meta,
+			&a.SimID, &a.OperatorID, &a.APNID, &a.DedupKey,
+			&a.FiredAt, &a.AcknowledgedAt, &a.AcknowledgedBy, &a.ResolvedAt,
+			&a.CreatedAt, &a.UpdatedAt,
+			&a.OccurrenceCount, &a.FirstSeenAt, &a.LastSeenAt, &a.CooldownUntil,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan similar alert: %w", err)
+		}
+		results = append(results, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list similar alerts: iterate: %w", err)
+	}
+
+	return results, matchStrategy, nil
 }

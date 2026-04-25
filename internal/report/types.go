@@ -19,6 +19,10 @@ const (
 	ReportCostAnalysis ReportType = "cost_analysis"
 	ReportAuditExport  ReportType = "audit_log_export"
 	ReportSIMInventory ReportType = "sim_inventory"
+	// ReportAlertsExport (FIX-229 Task 7 / DEV-338) — paginated alert export
+	// driven through the unified Engine.Build path. Format: PDF (this task);
+	// CSV/JSON exports are streamed directly by the alert handler instead.
+	ReportAlertsExport ReportType = "alerts_export"
 )
 
 type Format string
@@ -120,6 +124,53 @@ type SIMInventoryData struct {
 	PeriodTo   time.Time
 }
 
+// AlertsExportFilters mirrors store.ListAlertsParams minus pagination
+// cursor — alert exports are single-shot and pagination is internal to the
+// data provider (see store_provider.go AlertsExport).
+type AlertsExportFilters struct {
+	Type       string
+	Severity   string
+	Source     string
+	State      string
+	SimID      *uuid.UUID
+	OperatorID *uuid.UUID
+	APNID      *uuid.UUID
+	From       *time.Time
+	To         *time.Time
+	Q          string
+}
+
+// AlertExportRow is a flattened, display-ready alert row used by the PDF
+// builder. All fields are pre-formatted strings — the PDF builder does not
+// re-format dates or resolve names.
+type AlertExportRow struct {
+	ID           string
+	Severity     string
+	State        string
+	Source       string
+	Type         string
+	Title        string
+	OperatorName string
+	SimICCID     string
+	FiredAt      string
+	ResolvedAt   string
+}
+
+// AlertsExportData is the payload fed to buildAlertsPDF. TotalRows reflects
+// the pre-truncate count; Rows is capped to the first 200 entries when
+// TruncatedToFirst > 0.
+type AlertsExportData struct {
+	GeneratedAt       time.Time
+	TenantID          uuid.UUID
+	Filters           map[string]string
+	FilterDescription string
+	TotalRows         int
+	SeverityBreakdown map[string]int
+	StateBreakdown    map[string]int
+	Rows              []AlertExportRow
+	TruncatedToFirst  int
+}
+
 type DataProvider interface {
 	KVKK(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*KVKKData, error)
 	GDPR(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*GDPRData, error)
@@ -129,6 +180,7 @@ type DataProvider interface {
 	CostAnalysis(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*CostData, error)
 	AuditExport(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*AuditExportData, error)
 	SIMInventory(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*SIMInventoryData, error)
+	AlertsExport(ctx context.Context, tenantID uuid.UUID, filters AlertsExportFilters) (*AlertsExportData, error)
 }
 
 type Engine struct {

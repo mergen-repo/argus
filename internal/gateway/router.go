@@ -642,12 +642,26 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		// FIX-209 — unified alerts endpoints. List/Get are analyst-readable; PATCH
 		// updates state (acknowledged/resolved) and emits an audit log. See
 		// internal/api/alert/handler.go for taxonomy validation.
+		// FIX-229 — export.csv and export.json registered BEFORE {id} to prevent shadowing.
 		if deps.AlertHandler != nil {
 			r.Group(func(r chi.Router) {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("analyst"))
 				r.Get("/api/v1/alerts", deps.AlertHandler.List)
+				r.Get("/api/v1/alerts/export.csv", deps.AlertHandler.ExportCSV)
+				r.Get("/api/v1/alerts/export.json", deps.AlertHandler.ExportJSON)
+				// FIX-229 Task 7 (DEV-338) — PDF export, registered with the other
+				// /alerts/export.* paths so chi precedence keeps it ahead of /alerts/{id}.
+				r.Get("/api/v1/alerts/export.pdf", deps.AlertHandler.ExportPDF)
+				// FIX-229 Task 8 (AC-1 + AC-5) — alert suppressions CRUD.
+				// Registered BEFORE /alerts/{id}/* so chi static-segment precedence
+				// stays explicit even though chi v5 already prefers /suppressions
+				// over /{id}.
+				r.Post("/api/v1/alerts/suppressions", deps.AlertHandler.CreateSuppression)
+				r.Get("/api/v1/alerts/suppressions", deps.AlertHandler.ListSuppressions)
+				r.Delete("/api/v1/alerts/suppressions/{id}", deps.AlertHandler.DeleteSuppression)
 				r.Get("/api/v1/alerts/{id}", deps.AlertHandler.Get)
+				r.Get("/api/v1/alerts/{id}/similar", deps.AlertHandler.ListSimilar)
 				r.Patch("/api/v1/alerts/{id}", deps.AlertHandler.UpdateState)
 			})
 		}

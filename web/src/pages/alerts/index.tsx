@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle, AlertTriangle, CheckCircle, Clock, Shield,
   ChevronDown, ChevronUp, Search, BellOff, ExternalLink, BookOpen,
   RefreshCw, Eye, Radio, Zap, Wifi, WifiOff, Database, Lock,
-  Activity, TrendingUp, MessageSquare, Download, Loader2, Repeat,
+  Activity, TrendingUp, MessageSquare, Repeat,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { SeverityBadge } from '@/components/shared/severity-badge'
@@ -25,15 +25,26 @@ import { timeAgo, formatNumber } from '@/lib/format'
 import type { Alert } from '@/types/analytics'
 import type { ListResponse } from '@/types/sim'
 import { AlertActionButtons } from './_partials/alert-actions'
-import { useExport } from '@/hooks/use-export'
+import { ExportMenu } from './_partials/export-menu'
 import { CommentThread } from './_partials/comment-thread'
+import { MutePanel } from './_partials/mute-panel'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { EntityLink } from '@/components/shared/entity-link'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { SimilarAlerts, useSimilarAlerts } from './_partials/similar-alerts'
 
 interface AlertFilters {
   severity: string
   state: string
   type: string
   source: string
+  dedup_key: string
   q: string
 }
 
@@ -234,6 +245,7 @@ function useAlerts(filters: AlertFilters) {
       if (filters.state) params.set('state', filters.state)
       if (filters.type) params.set('type', filters.type)
       if (filters.source) params.set('source', filters.source)
+      if (filters.dedup_key) params.set('dedup_key', filters.dedup_key)
       if (filters.q) params.set('q', filters.q)
       const res = await api.get<ListResponse<Alert>>(`/alerts?${params.toString()}`)
       return res.data
@@ -337,13 +349,12 @@ function PillFilter<T extends string>({
   )
 }
 
-function AlertCardExpanded({ alert }: { alert: Alert }) {
-  const navigate = useNavigate()
+function AlertDetailsContent({ alert }: { alert: Alert }) {
   const impact = impactEstimate(alert)
   const runbook = RUNBOOKS[alert.type]
 
   return (
-    <div className="animate-slide-up-in border-t border-border bg-bg-primary/50 px-5 py-4 space-y-4">
+    <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary block mb-1">Type</span>
@@ -442,6 +453,52 @@ function AlertCardExpanded({ alert }: { alert: Alert }) {
   )
 }
 
+function SimilarTabLabel({ alertId }: { alertId: string }) {
+  const { data } = useSimilarAlerts(alertId)
+  const count = data?.meta?.count ?? data?.data?.length
+  return <>{count != null ? `Similar (${count})` : 'Similar'}</>
+}
+
+function AlertCardExpanded({ alert }: { alert: Alert }) {
+  const [tab, setTab] = useState('details')
+
+  return (
+    <div className="animate-slide-up-in border-t border-border bg-bg-primary/50 px-5 py-4">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger
+            value="details"
+            role="tab"
+            aria-selected={tab === 'details'}
+          >
+            Details
+          </TabsTrigger>
+          <TabsTrigger
+            value="similar"
+            role="tab"
+            aria-selected={tab === 'similar'}
+          >
+            <SimilarTabLabel alertId={alert.id} />
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="details">
+          <AlertDetailsContent alert={alert} />
+        </TabsContent>
+
+        <TabsContent value="similar">
+          <SimilarAlerts
+            anchorId={alert.id}
+            anchorDedupKey={alert.dedup_key}
+            anchorType={alert.type}
+            anchorSource={alert.source}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
 function statePill(state: string) {
   switch (state) {
     case 'open':
@@ -462,12 +519,14 @@ function AlertCard({
   isExpanded,
   onToggle,
   onCommentOpen,
+  onMuteOpen,
   delay,
 }: {
   alert: Alert
   isExpanded: boolean
   onToggle: () => void
   onCommentOpen: () => void
+  onMuteOpen: () => void
   delay: number
 }) {
   const navigate = useNavigate()
@@ -546,6 +605,7 @@ function AlertCard({
             actions={[
               { label: 'View Details', onClick: () => navigate(`/alerts/${alert.id}`) },
               ...(alert.sim_id ? [{ label: 'View SIM', onClick: () => navigate(`/sims/${alert.sim_id}`) }] : []),
+              { label: 'Mute…', onClick: onMuteOpen, separator: true },
             ]}
           />
         </div>
@@ -624,18 +684,29 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function AlertsPage() {
+  // FIX-229 Gate F-A1: hydrate filters from URL params so similar-alerts
+  // "View all" deeplinks (?dedup_key=… or ?type=…&source=…) actually
+  // narrow the visible list when the user lands on this route.
+  const [searchParams] = useSearchParams()
   const [filters, setFilters] = useState<AlertFilters>({
-    severity: '',
-    state: '',
-    type: '',
-    source: '',
-    q: '',
+    severity: searchParams.get('severity') ?? '',
+    state: searchParams.get('state') ?? '',
+    type: searchParams.get('type') ?? '',
+    source: searchParams.get('source') ?? '',
+    dedup_key: searchParams.get('dedup_key') ?? '',
+    q: searchParams.get('q') ?? '',
   })
   const [searchInput, setSearchInput] = useState('')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [commentAlert, setCommentAlert] = useState<Alert | null>(null)
-  const [muted, setMuted] = useState(false)
+  const [mutePanel, setMutePanel] = useState<{
+    open: boolean
+    anchor?: Alert
+    defaultFilters?: Record<string, string>
+  }>({ open: false })
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const {
@@ -643,7 +714,6 @@ export default function AlertsPage() {
   } = useAlerts(filters)
 
   useRealtimeAlertUpdates()
-  const { exportCSV, exporting } = useExport('analytics/anomalies')
 
   const alerts = useMemo(
     () => data?.pages.flatMap((p) => p.data) ?? [],
@@ -705,7 +775,7 @@ export default function AlertsPage() {
   if (isLoading) return <AlertsSkeleton />
   if (isError) return <ErrorState onRetry={() => refetch()} />
 
-  const hasFilters = !!(filters.severity || filters.state || filters.type || filters.source || filters.q)
+  const hasFilters = !!(filters.severity || filters.state || filters.type || filters.source || filters.dedup_key || filters.q)
 
   return (
     <div className="space-y-6">
@@ -728,19 +798,50 @@ export default function AlertsPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={muted ? 'destructive' : 'ghost'}
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setMuted(!muted)}
-            >
-              <BellOff className="h-3.5 w-3.5" />
-              {muted ? 'Muted' : 'Mute All'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => exportCSV()} disabled={exporting} className="gap-1.5 text-xs">
-              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              Export
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label="Mute alerts"
+                  className="gap-1.5"
+                >
+                  <BellOff className="h-3.5 w-3.5" />
+                  Mute
+                  <ChevronDown className="h-3 w-3 text-text-tertiary" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-bg-elevated border-border rounded-[var(--radius-sm)] w-56">
+                <DropdownMenuItem
+                  onClick={() => setMutePanel({
+                    open: true,
+                    defaultFilters: {
+                      ...(filters.severity ? { severity: filters.severity } : {}),
+                      ...(filters.state ? { state: filters.state } : {}),
+                      ...(filters.type ? { type: filters.type } : {}),
+                      ...(filters.source ? { source: filters.source } : {}),
+                    },
+                  })}
+                  className="text-sm text-text-primary hover:bg-bg-hover"
+                >
+                  Mute matching filters&hellip;
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => navigate('/settings/alert-rules')}
+                  className="text-sm text-text-primary hover:bg-bg-hover"
+                >
+                  Manage saved rules&hellip;
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <ExportMenu filters={{
+              ...(filters.severity ? { severity: filters.severity } : {}),
+              ...(filters.state ? { state: filters.state } : {}),
+              ...(filters.type ? { type: filters.type } : {}),
+              ...(filters.source ? { source: filters.source } : {}),
+              ...(filters.q ? { q: filters.q } : {}),
+            }} />
             <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1.5 text-xs">
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
@@ -844,6 +945,7 @@ export default function AlertsPage() {
                 isExpanded={expandedIds.has(alert.id)}
                 onToggle={() => toggleExpanded(alert.id)}
                 onCommentOpen={() => setCommentAlert(alert)}
+                onMuteOpen={() => setMutePanel({ open: true, anchor: alert })}
                 delay={300 + Math.min(idx, 10) * 40}
               />
             </div>
@@ -874,6 +976,14 @@ export default function AlertsPage() {
           onClose={() => setCommentAlert(null)}
         />
       )}
+
+      <MutePanel
+        open={mutePanel.open}
+        onClose={() => setMutePanel({ open: false })}
+        anchorAlert={mutePanel.anchor}
+        defaultFilters={mutePanel.defaultFilters}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['alerts'] })}
+      />
     </div>
   )
 }

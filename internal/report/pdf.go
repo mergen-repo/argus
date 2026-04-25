@@ -10,6 +10,18 @@ import (
 )
 
 func (e *Engine) buildPDF(ctx context.Context, req Request) (*Artifact, error) {
+	// FIX-229 Task 7: alerts export takes a dedicated landscape PDF builder
+	// because its column layout and breakdown blocks differ from the standard
+	// portrait sections/tables.
+	if req.Type == ReportAlertsExport {
+		filters := alertsExportFiltersFromMap(req.Filters)
+		data, err := e.provider.AlertsExport(ctx, req.TenantID, filters)
+		if err != nil {
+			return nil, fmt.Errorf("alerts export data: %w", err)
+		}
+		return buildAlertsPDF(data)
+	}
+
 	ts := time.Now().UTC()
 
 	pdf := fpdf.New("P", "mm", "A4", "")

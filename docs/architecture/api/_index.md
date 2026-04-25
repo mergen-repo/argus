@@ -558,12 +558,20 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 | API-314 | GET | /api/v1/alerts/{id} | Get alert by ID (tenant-scoped). FIX-209. | JWT (analyst+) | 404 `ALERT_NOT_FOUND` on missing or cross-tenant. Alert response shape expanded by FIX-210: includes `dedup_key`, `occurrence_count`, `first_seen_at`, `last_seen_at`, `cooldown_until`. |
 | API-315 | PATCH | /api/v1/alerts/{id} | Transition alert state (`open`→`acknowledged`, `open`/`ack`→`resolved`). FIX-209. | JWT (sim_manager+) | `suppressed` NOT settable via this endpoint — managed by dedup state machine (FIX-210). |
 | API-316 | GET | /api/v1/events/catalog | Read-only canonical event catalog. Returns list of all 14 in-scope NATS subjects with `type`, `source`, `default_severity`, `entity_type`, `meta_schema`. FIX-212 AC-5. | JWT (any authenticated) | No FE consumer until FIX-240 (Notification Preferences). Implementation: `internal/api/events/catalog_handler.go`. |
+| API-319 | POST | /api/v1/alerts/suppressions | Create an alert suppression (ad-hoc mute or saved rule). FIX-229 AC-1 + AC-5. | JWT (sim_manager+) | Body: `{scope_type, scope_value, duration\|expires_at, reason, rule_name?}`. 201 `{data: suppression, applied_count}`. 409 `DUPLICATE` on duplicate `rule_name`. 503 when suppression store unavailable. |
+| API-320 | GET | /api/v1/alerts/suppressions | List active suppressions for tenant (cursor-paginated). FIX-229 AC-5. | JWT (sim_manager+) | Filters: `rule_name`, `scope_type`, `active_only` (default true). Returns suppression rows incl. `rule_name`, `expires_at`, `applied_count`. |
+| API-321 | DELETE | /api/v1/alerts/suppressions/{id} | Delete (unmute) a suppression by ID. FIX-229 AC-1 + AC-5. | JWT (sim_manager+) | 204 on success. 404 `SUPPRESSION_NOT_FOUND` on missing or cross-tenant. |
+| API-322 | GET | /api/v1/alerts/{id}/similar | List alerts similar to the given anchor alert. FIX-229 AC-3. | JWT (analyst+) | Query: `limit=20` (1..50). Match: same `dedup_key` (all states) OR same `type`+`source` fallback. Excludes anchor. 404 `ALERT_NOT_FOUND` if anchor missing. Returns `{data: [], strategy: "dedup_key"\|"type_source"}`. |
+| API-323 | GET | /api/v1/alerts/export.csv | Export alerts as CSV (inline download). FIX-229 AC-2. | JWT (analyst+) | Same filters as `GET /alerts`. Server cap: 10 000 rows. `Content-Disposition: attachment; filename=alerts.csv`. 404 `ALERT_NO_DATA` when 0 rows match. |
+| API-324 | GET | /api/v1/alerts/export.json | Export alerts as JSON (inline download). FIX-229 AC-2. | JWT (analyst+) | Same filters as `GET /alerts`. Server cap: 10 000 rows. `Content-Disposition: attachment; filename=alerts.json`. 404 `ALERT_NO_DATA` when 0 rows match. |
+| API-325 | GET | /api/v1/alerts/export.pdf | Export alerts as PDF via report engine. FIX-229 AC-2. | JWT (analyst+) | Same filters as `GET /alerts`. Server cap: 10 000 rows. `Content-Disposition: attachment; filename=alerts.pdf`. 404 `ALERT_NO_DATA` when 0 rows match. 503 when report engine unavailable. |
 
 ---
 
-**Total: 249 REST endpoints + 11 WebSocket event types**
+**Total: 256 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
 > Index updated 2026-04-21 by FIX-212 review — 1 row addition (API-316) for event catalog endpoint shipped by FIX-212 AC-5.
 > Index updated 2026-04-25 by FIX-228 Wave 5 docs — 2 row additions (API-317..318) for password reset request + confirm endpoints. Auth & Users count updated 20→22.
+> Index updated 2026-04-25 by FIX-229 review — 7 row additions (API-319..325) for alert suppressions CRUD, similar-alerts, and tri-format export (CSV/JSON/PDF). Total updated 249→256.

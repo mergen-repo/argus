@@ -691,8 +691,14 @@ func runServe(cfg *config.Config) {
 	)
 
 	// FIX-209 Task 4 — unified alerts table + API + retention job.
+	// FIX-229 Task 8 — alert suppressions store, chained onto both
+	// alertStore (for trigger-time mute matching, DEV-334) and alertHandler
+	// (for AC-1 + AC-5 CRUD endpoints).
 	alertStore := store.NewAlertStore(pg.Pool)
-	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger, cfg.AlertCooldownMinutes)
+	alertSuppressionStore := store.NewAlertSuppressionStore(pg.Pool)
+	alertStore.WithSuppressionStore(alertSuppressionStore)
+	alertHandler := alertapi.NewHandler(alertStore, auditSvc, log.Logger, cfg.AlertCooldownMinutes).
+		WithSuppressionStore(alertSuppressionStore)
 	eventsCatalogHandler := eventsapi.NewHandler(log.Logger)
 
 	// FIX-212 AC-6: shared name resolver for non-hot-path publishers that
@@ -779,8 +785,10 @@ func runServe(cfg *config.Config) {
 	storageMonitorProc := job.NewStorageMonitorProcessor(jobStore, storageMonitorStore, eventBus, cfg.StorageAlertPct, log.Logger)
 	jobRunner.Register(storageMonitorProc)
 
-	// FIX-209 Task 4 — purge alerts older than ALERTS_RETENTION_DAYS (default 180).
-	alertsRetentionProc := job.NewAlertsRetentionProcessor(jobStore, alertStore, eventBus, cfg.AlertsRetentionDays, log.Logger)
+	// FIX-209 Task 4 / FIX-229 DEV-336 — per-tenant purge of alerts older than
+	// tenants.settings.alert_retention_days (DEV-335), falling back to
+	// cfg.AlertsRetentionDays (default 180) when a tenant has no override.
+	alertsRetentionProc := job.NewAlertsRetentionProcessor(jobStore, alertStore, tenantStore, eventBus, cfg.AlertsRetentionDays, log.Logger)
 	jobRunner.Register(alertsRetentionProc)
 
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
@@ -1252,8 +1260,17 @@ func runServe(cfg *config.Config) {
 
 	metricsHandler := metricsapi.NewHandler(metricsCollector, log.Logger)
 
-	slaReportEngine := report.NewEngine(report.NewStoreProvider(complianceStore, cdrStore, auditStore, simStore, slaReportStore))
+	// FIX-229 Task 7: extend the report provider with alert + operator stores
+	// so ReportAlertsExport can hydrate operator names and SIM ICCIDs through
+	// the unified Engine.Build path. The same engine drives the SLA monthly
+	// PDF (its original consumer).
+	slaReportEngine := report.NewEngine(
+		report.NewStoreProvider(complianceStore, cdrStore, auditStore, simStore, slaReportStore).
+			WithAlertStore(alertStore).
+			WithOperatorStore(operatorStore),
+	)
 	slaHandler := slaapi.NewHandler(slaReportStore, operatorStore, slaReportEngine, log.Logger)
+	alertHandler.WithReportEngine(slaReportEngine)
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, auditSvc, log.Logger)
 	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger,
 		complianceapi.WithJobStore(jobStore),

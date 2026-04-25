@@ -4266,3 +4266,48 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 2. Yeni bir reset istegi gonder → email `To:` alani dogru adrese gitmeli.
 3. E-posta icerigi: reset linki (`/auth/reset?token=...`), gecerlilik suresi (1 saat), "ignore if not you" notu.
 4. Identity karti her durumda gorunur kalmali (hata olsa bile).
+
+## FIX-229: Alert Feature Enhancements (Mute UX, Export, Similar Clustering, Retention)
+
+### 1. Uyarı Susturma — Ad-hoc Mute (AC-1)
+
+1. `make up` → `http://localhost:8084/login` → admin@argus.io / admin ile giris yap.
+2. `/alerts` sayfasina git → herhangi bir uyarı satırında "Mute" butonunu tikla.
+3. MutePanel SlidePanel acilmali: Scope radio (this/type/operator/dedup_key), Duration radio (1h/24h/7d/Custom), Reason textarea, "Save as rule" toggle.
+4. Scope = "this", Duration = "1h" sec → Reason gir → **Mute** butonuna tikla.
+5. 201 yaniti gelmeli; uyarı satirinin state'i "suppressed" olarak guncellenmeli veya liste yenilenmeli.
+6. Ayni uyarı satirinda "Unmute" seçeneği gorunmeli → tikla → UnmuteDialog confirm paneli acilmali.
+7. Confirm → uyarı listede tekrar "open" olarak gorunmeli.
+
+### 2. Uyarı Dışa Aktarma — Tri-Format Export (AC-2)
+
+1. `/alerts` sayfasina git → Export dropdown'i tikla (3 seçenek: CSV, JSON, PDF).
+2. **CSV**: "Export as CSV" tikla → `alerts.csv` indirilmeli; dosya içinde tablo basliklari ve uyari satırlari olmali.
+3. **JSON**: "Export as JSON" tikla → `alerts.json` indirilmeli; JSON dizi yapisinda olmali.
+4. **PDF**: "Export as PDF" tikla → `alerts.pdf` indirilmeli; PDF dosyası acilabilmeli.
+5. Filtre uygula (örn. severity=critical) → export yeniden yapilinca sadece kritik uyarilari icermeli.
+6. Sifir sonuc veren filtre ile export yap → 404 `ALERT_NO_DATA` hatasi inline gorunmeli (indirme olmamali).
+
+### 3. Benzer Uyarılar — Similar Clustering (AC-3)
+
+1. `/alerts` sayfasinda herhangi bir uyarı satirina tikla → row-expand acilmali.
+2. "Details" ve "Similar(N)" olmak uzere iki sekme gorunmeli.
+3. "Similar(N)" sekmesini tikla → dedup_key veya type+source eslesmesine gore benzer uyarilarin listesi gorunmeli.
+4. "View all similar" baglantisi varsa tikla → `/alerts?dedup_key=<k>` veya `?type=<t>&source=<s>` URL'ine yonlendirmeli; sayfa dogru filtrelenmiş listeyi gostermeli.
+5. Benzer uyari yok ise bos durum metni gorunmeli (nil yerine bos liste — hata degil).
+
+### 4. Uyarı Saklama Suresi — Retention Setting (AC-4)
+
+1. `/settings/alert-rules` sayfasina git → "Retention" bolumunu bul.
+2. Alan bos birakilirsa "Required" hata mesaji gorunmeli.
+3. 30'dan kucuk veya 365'ten buyuk deger girilirse "Must be between 30 and 365" mesaji gorunmeli.
+4. Gecerli deger (örn. 90) girilip kaydedilirse 200 yaniti gelmeli; sayfa yenilenmesinde deger korunmali.
+5. Tenant UPDATE endpoint'i (`PATCH /api/v1/tenants/{id}`) `alert_retention_days` key'ini `settings` JSONB icinde guncelledigini dogrulamak icin DevTools → Network sekmesinde istek body'sini incele.
+
+### 5. Kaydedilmiş Kural Yönetimi — Saved Alert Rules (AC-5)
+
+1. `/settings/alert-rules` sayfasina git → mevcut kural listesi gorunmeli (bos olabilir).
+2. MutePanel'de "Save as rule" toggle'i ac → `rule_name` input alani acilmali → benzersiz bir isim gir.
+3. Kaydedilince kural `/settings/alert-rules` listesinde gorunmeli; scope_type, expires_at, reason sutunlari olmali.
+4. Ayni `rule_name` ile tekrar kaydetmeye calis → 409 `DUPLICATE` hatasi inline gorunmeli.
+5. Kural satirinda "Delete" / Unmute Dialog → onayla → kural listeden kaldirilmali.

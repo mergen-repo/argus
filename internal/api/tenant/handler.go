@@ -339,6 +339,26 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Settings != nil {
+		var settingsMap map[string]any
+		if err := json.Unmarshal(*req.Settings, &settingsMap); err == nil {
+			if rawVal, ok := settingsMap["alert_retention_days"]; ok {
+				floatVal, isFloat := rawVal.(float64)
+				if !isFloat {
+					apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+						"alert_retention_days must be an integer between 30 and 365")
+					return
+				}
+				intVal := int(floatVal)
+				if float64(intVal) != floatVal || intVal < 30 || intVal > 365 {
+					apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+						"alert_retention_days must be an integer between 30 and 365")
+					return
+				}
+			}
+		}
+	}
+
 	userID := userIDFromContext(r)
 
 	updated, err := h.tenantStore.Update(r.Context(), id, store.UpdateTenantParams{

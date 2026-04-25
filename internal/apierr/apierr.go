@@ -34,8 +34,17 @@ const (
 	CodeValidationError    = "VALIDATION_ERROR"
 	CodeNotFound           = "NOT_FOUND"
 	CodeAlertNotFound      = "ALERT_NOT_FOUND"
+	CodeAlertNoData        = "ALERT_NO_DATA"
+	CodeSuppressionNotFound = "SUPPRESSION_NOT_FOUND"
+	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
 	CodeConflict           = "CONFLICT"
 	CodeAlreadyExists      = "ALREADY_EXISTS"
+	// CodeDuplicate is the wire code returned for tenant-scoped uniqueness
+	// conflicts that the spec calls out as DUPLICATE (e.g. duplicate
+	// suppression rule_name — FIX-229 plan §API Spec). Distinct from the
+	// generic ALREADY_EXISTS to keep spec/code consistency on documented
+	// duplicate-name violations.
+	CodeDuplicate          = "DUPLICATE"
 	CodeInvalidReference   = "INVALID_REFERENCE"
 	CodeInvalidIMSIFormat  = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
 	CodeInvalidSeverity    = "INVALID_SEVERITY"
