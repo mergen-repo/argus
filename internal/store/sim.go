@@ -417,7 +417,8 @@ func (s *SIMStore) ListStateHistory(ctx context.Context, simID uuid.UUID, cursor
 	return results, nextCursor, nil
 }
 
-func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID uuid.UUID, userID *uuid.UUID) (*SIM, error) {
+// FIX-253 DEV-393: ipAddressID is nullable; nil → no ip_address_id assignment in UPDATE (defensive against caller passing uuid.Nil; closes FIX-252 H1 path).
+func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID *uuid.UUID, userID *uuid.UUID) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin tx for activate: %w", err)
@@ -441,12 +442,22 @@ func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAd
 		return nil, err
 	}
 
-	row := tx.QueryRow(ctx, `
-		UPDATE sims SET state = 'active', ip_address_id = $3, activated_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2
-		RETURNING `+simColumns,
-		simID, tenantID, ipAddressID,
-	)
+	var row pgx.Row
+	if ipAddressID != nil {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', ip_address_id = $3, activated_at = NOW(), updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID, *ipAddressID,
+		)
+	} else {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', activated_at = NOW(), updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID,
+		)
+	}
 	sim, err := scanSIM(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: update sim activate: %w", err)
@@ -464,6 +475,8 @@ func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAd
 	return sim, nil
 }
 
+// Suspend transitions a SIM to the suspended state.
+// Releases the SIM's allocated dynamic IP atomically; static IPs preserved.
 func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID, reason *string) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -472,10 +485,11 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 	defer tx.Rollback(ctx)
 
 	var currentState string
+	var ipAddressID *uuid.UUID
 	err = tx.QueryRow(ctx,
-		`SELECT state FROM sims WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		`SELECT state, ip_address_id FROM sims WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
 		simID, tenantID,
-	).Scan(&currentState)
+	).Scan(&currentState, &ipAddressID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSIMNotFound
 	}
@@ -498,6 +512,57 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 		return nil, fmt.Errorf("store: update sim suspend: %w", err)
 	}
 
+	// DEV-391 (FIX-253): atomic IP release on suspend; static IPs preserved.
+	if ipAddressID != nil {
+		var poolID uuid.UUID
+		var allocType string
+		err = tx.QueryRow(ctx, `
+			SELECT pool_id, allocation_type FROM ip_addresses
+			WHERE id = $1 AND state IN ('allocated', 'reserved')
+			FOR UPDATE`,
+			*ipAddressID,
+		).Scan(&poolID, &allocType)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Orphaned ip_address_id reference — null it defensively, don't fail the suspend.
+			_, _ = tx.Exec(ctx,
+				`UPDATE sims SET ip_address_id = NULL WHERE id = $1 AND tenant_id = $2`,
+				simID, tenantID,
+			)
+		} else if err != nil {
+			return nil, fmt.Errorf("store: look up ip for suspend release: %w", err)
+		} else if allocType != "static" {
+			// Dynamic IP: release immediately back to available.
+			_, err = tx.Exec(ctx, `
+				UPDATE ip_addresses SET state = 'available', sim_id = NULL,
+					allocated_at = NULL, reclaim_at = NULL
+				WHERE id = $1`,
+				*ipAddressID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: release ip on suspend: %w", err)
+			}
+			_, err = tx.Exec(ctx,
+				`UPDATE ip_pools SET used_addresses = GREATEST(used_addresses - 1, 0) WHERE id = $1`,
+				poolID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: decrement pool on suspend: %w", err)
+			}
+			_, _ = tx.Exec(ctx,
+				`UPDATE ip_pools SET state = 'active' WHERE id = $1 AND state = 'exhausted'`,
+				poolID,
+			)
+			_, err = tx.Exec(ctx,
+				`UPDATE sims SET ip_address_id = NULL WHERE id = $1 AND tenant_id = $2`,
+				simID, tenantID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: null ip_address_id on suspend: %w", err)
+			}
+		}
+		// Static: leave ip_addresses row and sims.ip_address_id untouched (per user decision 2026-04-26).
+	}
+
 	if err := insertStateHistory(ctx, tx, simID, &currentState, "suspended", "user", userID, reason); err != nil {
 		return nil, err
 	}
@@ -509,7 +574,9 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 	return sim, nil
 }
 
-func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID) (*SIM, error) {
+// FIX-253 DEV-392: Resume accepts ipAddressID (*uuid.UUID) — nil for static SIMs whose IP was
+// preserved by Suspend (T1), non-nil for dynamic SIMs that need a fresh allocation.
+func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID *uuid.UUID, userID *uuid.UUID) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin tx for resume: %w", err)
@@ -536,12 +603,22 @@ func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID
 		return nil, err
 	}
 
-	row := tx.QueryRow(ctx, `
-		UPDATE sims SET state = 'active', suspended_at = NULL, updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2
-		RETURNING `+simColumns,
-		simID, tenantID,
-	)
+	var row pgx.Row
+	if ipAddressID != nil {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', ip_address_id = $3, suspended_at = NULL, updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID, *ipAddressID,
+		)
+	} else {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', suspended_at = NULL, updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID,
+		)
+	}
 	sim, err := scanSIM(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: update sim resume: %w", err)

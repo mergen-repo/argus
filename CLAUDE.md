@@ -117,10 +117,10 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-253 (Suspend IP release + activate empty-pool guard + audit-on-failure — FIX-252 spinoff)
+- Story: FIX-241 (Global API nil-slice fix — `WriteList` helper normalize nil → `[]` — Wave 8 P0)
 - Step: Plan
-- Last closed: FIX-251 [x] DONE 2026-04-26 (plan pivot — backend root-cause fix not silentPaths; PAT-006 RECURRENCE #3 from FIX-215 inline-scan drift; DEV-389)
-- Prior closure: FIX-252 [x] DONE 2026-04-26 (zero-code; PAT-023 schema drift; defensive code → FIX-253)
+- Last closed: FIX-253 [x] DONE 2026-04-26 (FIX-252 spinoff; Suspend atomic IP release + Activate empty-pool 422 + 7-branch audit + Resume re-alloc + 11 regression tests; DEV-390..393)
+- Prior closures: FIX-251 [x] DONE 2026-04-26 (PAT-006 RECURRENCE #3 backend fix; DEV-389), FIX-252 [x] DONE 2026-04-26 (zero-code PAT-023 schema drift; DEV-386..388)
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
 - ROUTEMAP: `docs/ROUTEMAP.md` "UI Review Remediation [IN PROGRESS]" track (10 waves)

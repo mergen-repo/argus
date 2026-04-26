@@ -985,6 +985,8 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := userIDFromCtx(r)
+
 	existing, err := h.simStore.GetByID(r.Context(), tenantID, simID)
 	if err != nil {
 		if errors.Is(err, store.ErrSIMNotFound) {
@@ -992,11 +994,19 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for activate")
+		h.createAuditEntry(r, "sim.activate.failed", simID.String(), nil, map[string]interface{}{
+			"reason":          "get_sim_failed",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
 
 	if existing.APNID == nil {
+		h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+			"reason":          "validate_apn_missing",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "SIM has no APN assigned")
 		return
 	}
@@ -1004,7 +1014,21 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 	pools, _, err := h.ippoolStore.List(r.Context(), tenantID, "", 1, existing.APNID)
 	if err != nil {
 		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("list ip pools for activate")
+		h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+			"reason":          "list_pools_failed",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	// FIX-253 DEV-390: explicit empty-pool guard returns 422 POOL_EXHAUSTED instead of falling through to FK violation 500. AC-2 + AC-3 audit.
+	if len(pools) == 0 {
+		h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+			"reason":          "no_pool_for_apn",
+			"attempted_state": "active",
+		}, userID)
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePoolExhausted, "No IP pool configured for this APN")
 		return
 	}
 
@@ -1013,22 +1037,28 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 		allocatedIP, err = h.ippoolStore.AllocateIP(r.Context(), pools[0].ID, simID)
 		if err != nil {
 			if errors.Is(err, store.ErrPoolExhausted) {
+				h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+					"reason":          "pool_exhausted",
+					"attempted_state": "active",
+				}, userID)
 				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePoolExhausted,
 					"No IP addresses available in the pool")
 				return
 			}
 			h.logger.Error().Err(err).Str("sim_id", idStr).Msg("allocate ip for activate")
+			h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "allocate_failed",
+				"attempted_state": "active",
+			}, userID)
 			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 			return
 		}
 	}
 
-	var ipAddressID uuid.UUID
+	var ipAddressID *uuid.UUID
 	if allocatedIP != nil {
-		ipAddressID = allocatedIP.ID
+		ipAddressID = &allocatedIP.ID
 	}
-
-	userID := userIDFromCtx(r)
 
 	sim, err := h.simStore.Activate(r.Context(), tenantID, simID, ipAddressID, userID)
 	if err != nil {
@@ -1038,15 +1068,27 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if errors.Is(err, store.ErrSIMNotFound) {
+			h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "state_transition_failed",
+				"attempted_state": "active",
+			}, userID)
 			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
 			return
 		}
 		if errors.Is(err, store.ErrInvalidStateTransition) {
+			h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "state_transition_failed",
+				"attempted_state": "active",
+			}, userID)
 			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidStateTransition,
 				fmt.Sprintf("Cannot activate SIM in '%s' state", existing.State))
 			return
 		}
 		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("activate sim")
+		h.createAuditEntry(r, "sim.activate.failed", simID.String(), existing, map[string]interface{}{
+			"reason":          "state_transition_failed",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
@@ -1136,6 +1178,8 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
 }
 
+// FIX-253 DEV-392: Resume re-allocates IP via handler-side flow (mirrors Activate post-FIX-253).
+// Static IPs preserved per T1 — skip allocate when allocation_type='static'.
 func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	if !ok || tenantID == uuid.Nil {
@@ -1150,6 +1194,8 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := userIDFromCtx(r)
+
 	existing, err := h.simStore.GetByID(r.Context(), tenantID, simID)
 	if err != nil {
 		if errors.Is(err, store.ErrSIMNotFound) {
@@ -1157,20 +1203,123 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("get sim for resume")
+		h.createAuditEntry(r, "sim.resume.failed", simID.String(), nil, map[string]interface{}{
+			"reason":          "get_sim_failed",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}
 
-	userID := userIDFromCtx(r)
+	// Detect static IP: T1 Suspend preserves ip_address_id for static SIMs.
+	// If existing.IPAddressID is set, look up allocation_type to confirm static — skip alloc if so.
+	var ipAddressID *uuid.UUID
+	var allocatedPoolID uuid.UUID
+	var allocatedIP *store.IPAddress
 
-	sim, err := h.simStore.Resume(r.Context(), tenantID, simID, userID)
+	if existing.IPAddressID != nil && h.ippoolStore != nil {
+		addr, addrErr := h.ippoolStore.GetAddressByID(r.Context(), *existing.IPAddressID)
+		if addrErr != nil {
+			h.logger.Error().Err(addrErr).Str("sim_id", idStr).Msg("look up static ip for resume")
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "static_ip_lookup_failed",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+		if addr.AllocationType == "static" {
+			// Static IP preserved by Suspend — pass nil to store so ip_address_id is not overwritten.
+			ipAddressID = nil
+		} else {
+			// Orphaned dynamic reference (shouldn't happen post-T1, but handle defensively): fall through to alloc.
+			existing.IPAddressID = nil
+		}
+	}
+
+	if existing.IPAddressID == nil {
+		// Dynamic path: APN check → pool list → allocate.
+		if existing.APNID == nil {
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "validate_apn_missing",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "SIM has no APN assigned")
+			return
+		}
+
+		pools, _, listErr := h.ippoolStore.List(r.Context(), tenantID, "", 1, existing.APNID)
+		if listErr != nil {
+			h.logger.Error().Err(listErr).Str("sim_id", idStr).Msg("list ip pools for resume")
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "list_pools_failed",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+
+		if len(pools) == 0 {
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "no_pool_for_apn",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePoolExhausted, "No IP pool configured for this APN")
+			return
+		}
+
+		allocatedPoolID = pools[0].ID
+		allocatedIP, err = h.ippoolStore.AllocateIP(r.Context(), allocatedPoolID, simID)
+		if err != nil {
+			if errors.Is(err, store.ErrPoolExhausted) {
+				h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+					"reason":          "pool_exhausted",
+					"attempted_state": "active",
+				}, userID)
+				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePoolExhausted,
+					"No IP addresses available in the pool")
+				return
+			}
+			h.logger.Error().Err(err).Str("sim_id", idStr).Msg("allocate ip for resume")
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "allocate_failed",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+			return
+		}
+		ipAddressID = &allocatedIP.ID
+	}
+
+	sim, err := h.simStore.Resume(r.Context(), tenantID, simID, ipAddressID, userID)
 	if err != nil {
+		if allocatedIP != nil {
+			if releaseErr := h.ippoolStore.ReleaseIP(r.Context(), allocatedPoolID, simID); releaseErr != nil {
+				h.logger.Error().Err(releaseErr).Str("sim_id", idStr).Msg("rollback ip allocation on resume failure")
+			}
+		}
+		if errors.Is(err, store.ErrSIMNotFound) {
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "state_transition_failed",
+				"attempted_state": "active",
+			}, userID)
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
 		if errors.Is(err, store.ErrInvalidStateTransition) {
+			h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+				"reason":          "state_transition_failed",
+				"attempted_state": "active",
+			}, userID)
 			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidStateTransition,
 				fmt.Sprintf("Cannot resume SIM in '%s' state", existing.State))
 			return
 		}
 		h.logger.Error().Err(err).Str("sim_id", idStr).Msg("resume sim")
+		h.createAuditEntry(r, "sim.resume.failed", simID.String(), existing, map[string]interface{}{
+			"reason":          "state_transition_failed",
+			"attempted_state": "active",
+		}, userID)
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
 		return
 	}

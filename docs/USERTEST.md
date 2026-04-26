@@ -4769,3 +4769,72 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    ```
 2. **Beklenen:** 3 test PASS (TestOperatorColumnsAndScanCountConsistency, TestOperatorStore_List_..., TestOperatorStore_ListActive_...). DATABASE_URL set DEĞİLSE son ikisi SKIP, ilki PASS.
 3. **Geliştirici uyarısı:** Bu testler PAT-006 RECURRENCE'a karşı koruma sağlar. `operatorColumns` constant'ına yeni bir kolon eklenirse `TestOperatorColumnsAndScanCountConsistency` FAIL eder ve geliştiriciyi `List` + `ListActive` inline scan'lerini güncellemesi için zorlar.
+
+## FIX-253: Suspend IP Release + Activate Empty-Pool Guard + Audit-on-Failure (FIX-252 spinoff)
+
+> **Backend hardening.** `SIMStore.Suspend` artık dynamic IP'leri atomik olarak serbest bırakır (static IP'ler kullanıcı kararı per değişmez). `Handler.Activate` empty-pool durumda 422 POOL_EXHAUSTED döner (önceden bare 500). Her başarısız Activate/Resume branch'inde `sim.{activate,resume}.failed` audit log entry yazılır (after=`{reason, attempted_state}`). DEV-390/391/392/393 logged. Plan: `docs/stories/fix-ui-review/FIX-253-plan.md`.
+
+### Senaryo 1 — Suspend → IP release atomik (AC-1)
+
+1. Login: admin@argus.io / admin
+2. Aktif SIM seç (admin tenant, dynamic IP allocated):
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT s.id, s.ip_address_id, i.allocation_type FROM sims s LEFT JOIN ip_addresses i ON i.id=s.ip_address_id WHERE s.tenant_id='00000000-0000-0000-0000-000000000001' AND s.state='active' AND s.ip_address_id IS NOT NULL AND i.allocation_type='dynamic' LIMIT 1;"
+   ```
+3. SIM detay sayfasından "Suspend" → curl ile de OK: `POST /sims/{id}/suspend`
+4. **Beklenen DB doğrulaması:**
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT s.id, s.ip_address_id, i.state, i.sim_id FROM sims s LEFT JOIN ip_addresses i ON i.sim_id=s.id WHERE s.id='<suspended-sim-id>';"
+   ```
+   - `sims.ip_address_id` = NULL ✓
+   - LEFT JOIN sıfır row döner (yani ip_addresses tablosunda `sim_id=<sim-id>` olan row YOK) ✓
+   - Pool counter: `SELECT used_addresses FROM ip_pools WHERE id='<pool-id>'` — 1 azalmış ✓
+
+### Senaryo 2 — Suspend → STATIC IP korunur (AC-1, kullanıcı kararı 2026-04-26)
+
+1. Static IP'li bir SIM seç (`allocation_type='static'`).
+2. Suspend.
+3. **Beklenen:** `sims.ip_address_id` UNCHANGED (NULL OLMAMALI), ip_addresses row UNCHANGED (`state='allocated'`, `sim_id=<sim-id>` korunur), pool counter UNCHANGED. Test referansı: `TestSIMStore_Suspend_PreservesStaticIP`.
+
+### Senaryo 3 — Activate empty-pool guard 422 (AC-2)
+
+1. APN'i hiç IP pool'u olmayan bir SIM oluştur (test fixture):
+   ```sql
+   INSERT INTO apns (id, tenant_id, name, mcc, mnc) VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001', 'test-no-pool', '286', '01') RETURNING id;
+   -- assign a SIM to this APN (or modify an existing test SIM's apn_id)
+   ```
+2. POST `/sims/{id}/activate` → **Beklenen:** HTTP **422** (NOT 500), envelope `{"status":"error","error":{"code":"POOL_EXHAUSTED","message":"No IP pool configured for this APN"}}`.
+3. Audit log doğrulama: `SELECT action, after FROM audit_logs WHERE entity_id='<sim-id>' AND action='sim.activate.failed' ORDER BY created_at DESC LIMIT 1;` → `after = {"reason":"no_pool_for_apn","attempted_state":"active"}`.
+
+### Senaryo 4 — Resume static IP allocation skip (AC-5, DEV-392)
+
+1. Static IP'li SIM'i suspend et (Senaryo 2'deki gibi).
+2. POST `/sims/{id}/resume` → **Beklenen:** HTTP 200, sim state→`active`, `ip_address_id` UNCHANGED (yeni allocate YAPILMAZ).
+3. Audit log: `sim.resume` (success) yazılı; `sim.resume.failed` YOK.
+
+### Senaryo 5 — Resume dynamic IP re-allocation (AC-5, DEV-392)
+
+1. Dynamic IP'li SIM'i suspend et (Senaryo 1'deki gibi). Suspend sonrası `sims.ip_address_id IS NULL`.
+2. POST `/sims/{id}/resume` → **Beklenen:** HTTP 200, sim state→`active`, `ip_address_id` YENİ bir IP ile DOLDURULUR (re-allocate via handler-side flow per DEV-392).
+3. Pool counter: `+1` (yeniden allocate).
+
+### Senaryo 6 — Round-trip suspend → activate dynamic (regression)
+
+1. Dynamic IP'li SIM → Suspend → Activate (Resume yerine `/activate`).
+2. **Beklenen:** Suspend sonrası ip_address_id NULL, Activate sonrası YENİ IP allocated. Test: `TestActivate_PoolEmpty_Returns422` benzer mock yoluyla regression coverage.
+
+### Senaryo 7 — Audit log her başarısız branch'de yazılı (AC-3, DEV-393)
+
+1. Her Activate failure branch'i için audit log doğrulama (test referansı: `TestActivate_AuditOnFailure_AllBranches` 4 sub-test):
+   - `validate_apn_missing` (SIM'in apn_id'si NULL ise)
+   - `no_pool_for_apn` (APN'in pool'u yok)
+   - `pool_exhausted` (mevcut pool dolu)
+   - `state_transition_failed` (örn. terminated SIM activate edilmek istenirse)
+2. Her durumda audit log: `action='sim.activate.failed'`, `after.reason=<branch>`, `after.attempted_state='active'`.
+
+### Senaryo 8 — Regression test suite (AC-4)
+
+1. ```
+   DATABASE_URL='postgresql://argus:argus_secret@localhost:5450/argus?sslmode=disable' go test -v -count=1 -run 'SIMStore_Suspend|SIMStore_Activate|SIMStore_Resume|Activate_PoolEmpty|Activate_AuditOn|Resume_StaticIP' ./internal/store/... ./internal/api/sim/...
+   ```
+2. **Beklenen:** 11 test PASS (8 store + 3 handler). DATABASE_URL set DEĞİLSE testler SKIP eder (existing pattern).
