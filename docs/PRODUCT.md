@@ -367,3 +367,21 @@ APIKey ──N:1──▶ Tenant
 | Job | id, tenant_id, type, state, progress_pct, error_report, created_at | NATS-backed |
 | Notification | id, tenant_id, user_id, channel, scope, event_type, state (UNREAD/READ), created_at | Multi-channel |
 | APIKey | id, tenant_id, key_hash, scopes, rate_limit, expires_at, revoked_at | Never store plaintext |
+
+## Policy Model Doctrine — 1 SIM = 1 Policy
+
+Argus enforces a single canonical policy assignment per SIM. The doctrine has three parts:
+
+1. **Single canonical assignment**: Every SIM has at most one active `policy_version_id` at any moment. The `policy_assignments` table is the canonical source of truth — guaranteed by `idx_policy_assignments_sim` (UNIQUE on `sim_id`).
+
+2. **Read-optimised denorm pointer**: `sims.policy_version_id` is a trigger-synced denormalised copy of `policy_assignments.policy_version_id` for the RADIUS hot path. Trigger `trg_sims_policy_version_sync` (FIX-231) is the single writer. Application code MUST NOT write `sims.policy_version_id` directly — go through `policy_assignments`.
+
+3. **Multi-layer policies (base + override) are out of scope**. The current architecture intentionally rejects layered policies. Revisit only when a product driver (e.g. tenant-wide default + per-SIM override) lands. See `docs/FUTURE.md` if/when that arrives.
+
+### Invariants enforced
+- At most one in-flight `policy_rollouts` per `policy_id` (`policy_active_rollout` partial unique index).
+- At most one `state='active'` `policy_versions` per `policy_id` (`policy_active_version` partial unique index).
+- `policy_assignments.sim_id` is unique (existing).
+
+### Reference
+FIX-231 — Policy Version State Machine + Dual-Source Fix. Plan: `docs/stories/fix-ui-review/FIX-231-plan.md`.

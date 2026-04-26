@@ -160,6 +160,7 @@ func (s *Service) StartRollout(ctx context.Context, tenantID, versionID uuid.UUI
 	}
 
 	rollout, err := s.policyStore.CreateRollout(ctx, tenantID, store.CreateRolloutParams{
+		PolicyID:          version.PolicyID,
 		PolicyVersionID:   versionID,
 		PreviousVersionID: previousVersionID,
 		Strategy:          "canary",

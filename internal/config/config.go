@@ -141,6 +141,11 @@ type Config struct {
 	// at 0 and clamped to 1440 (24h) for sanity.
 	AlertCooldownMinutes int `envconfig:"ALERT_COOLDOWN_MINUTES" default:"5"`
 
+	// StuckRolloutGraceMinutes is the grace period (minutes) the stuck-rollout reaper
+	// waits before force-completing a rollout that appears stuck.
+	// PAT-017 wiring: env ARGUS_STUCK_ROLLOUT_GRACE_MINUTES → cfg.StuckRolloutGraceMinutes → NewStuckRolloutReaperProcessor → ListStuckRollouts SQL.
+	StuckRolloutGraceMinutes int `envconfig:"ARGUS_STUCK_ROLLOUT_GRACE_MINUTES" default:"10"`
+
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
 	GOGC         int    `envconfig:"GOGC" default:"100"`
@@ -320,6 +325,14 @@ func (c *Config) Validate() error {
 	}
 	if c.AlertCooldownMinutes > 1440 {
 		c.AlertCooldownMinutes = 1440
+	}
+
+	// FIX-231 — PAT-017: clamp ARGUS_STUCK_ROLLOUT_GRACE_MINUTES to [5, 120].
+	if c.StuckRolloutGraceMinutes < 5 {
+		c.StuckRolloutGraceMinutes = 5
+	}
+	if c.StuckRolloutGraceMinutes > 120 {
+		c.StuckRolloutGraceMinutes = 120
 	}
 
 	if c.PprofEnabled && !c.IsDev() && len(c.PprofToken) < 32 {

@@ -21,9 +21,9 @@
 | TBL-11 | sim_state_history | SIM/APN | → TBL-10 | By created_at |
 | TBL-12 | esim_profiles | eSIM | → TBL-10 | No |
 | TBL-13 | policies | Policy | → TBL-01 | No |
-| TBL-14 | policy_versions | Policy | → TBL-13 | No |
-| TBL-15 | policy_assignments | Policy | → TBL-10, → TBL-14 | No |
-| TBL-16 | policy_rollouts | Policy | → TBL-14 | No |
+| TBL-14 | policy_versions | Policy | → TBL-13. FIX-231: `policy_active_version` partial unique (policy_id) WHERE state='active' — at most one active version per policy. | No |
+| TBL-15 | policy_assignments | Policy | → TBL-10, → TBL-14. FIX-231: **canonical source of truth** for active policy per SIM; trigger `trg_sims_policy_version_sync` propagates changes to `sims.policy_version_id` (sole writer). | No |
+| TBL-16 | policy_rollouts | Policy | → TBL-13 (policy_id added FIX-231), → TBL-14. FIX-231: `policy_active_rollout` partial unique (policy_id) WHERE state IN ('pending','in_progress') — at most one active rollout per policy; INSERT violation maps to 422 `ROLLOUT_IN_PROGRESS`. | No |
 | TBL-17 | sessions | AAA | → TBL-10, → TBL-05 | By started_at (TimescaleDB) |
 | TBL-18 | cdrs | Analytics | → TBL-17 | By timestamp (TimescaleDB) |
 | TBL-19 | audit_logs | Audit | → TBL-01 | By created_at |

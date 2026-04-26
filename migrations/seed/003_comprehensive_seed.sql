@@ -546,11 +546,11 @@ ON CONFLICT DO NOTHING;
 -- ============================================================
 -- POLICY ROLLOUTS
 -- ============================================================
-INSERT INTO policy_rollouts (id, policy_version_id, previous_version_id, strategy, stages, current_stage, total_sims, migrated_sims, state, started_at, created_by) VALUES
-('90000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000001', 'canary',
+INSERT INTO policy_rollouts (id, policy_id, policy_version_id, previous_version_id, strategy, stages, current_stage, total_sims, migrated_sims, state, started_at, created_by) VALUES
+('90000000-0000-0000-0000-000000000001', (SELECT policy_id FROM policy_versions WHERE id = '51000000-0000-0000-0000-000000000002'), '51000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000001', 'canary',
  '[{"percentage":1,"target_count":1,"migrated":1,"started_at":"2026-03-20T10:00:00Z"},{"percentage":10,"target_count":5,"migrated":5,"started_at":"2026-03-21T10:00:00Z"},{"percentage":100,"target_count":45,"migrated":0}]',
  2, 45, 6, 'in_progress', NOW() - INTERVAL '3 days', '40000000-0000-0000-0000-000000000003'),
-('90000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000005', '51000000-0000-0000-0000-000000000004', 'canary',
+('90000000-0000-0000-0000-000000000002', (SELECT policy_id FROM policy_versions WHERE id = '51000000-0000-0000-0000-000000000005'), '51000000-0000-0000-0000-000000000005', '51000000-0000-0000-0000-000000000004', 'canary',
  '[{"percentage":1,"target_count":1,"migrated":1},{"percentage":10,"target_count":2,"migrated":2},{"percentage":100,"target_count":15,"migrated":15}]',
  3, 15, 15, 'completed', NOW() - INTERVAL '12 days', '40000000-0000-0000-0000-000000000003')
 ON CONFLICT DO NOTHING;

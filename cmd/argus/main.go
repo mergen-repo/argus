@@ -791,6 +791,11 @@ func runServe(cfg *config.Config) {
 	alertsRetentionProc := job.NewAlertsRetentionProcessor(jobStore, alertStore, tenantStore, eventBus, cfg.AlertsRetentionDays, log.Logger)
 	jobRunner.Register(alertsRetentionProc)
 
+	// FIX-231 PAT-017 — stuck-rollout reaper: force-completes rollouts that have
+	// been stuck longer than cfg.StuckRolloutGraceMinutes (env ARGUS_STUCK_ROLLOUT_GRACE_MINUTES, default 10).
+	stuckRolloutProc := job.NewStuckRolloutReaperProcessor(jobStore, policyStore, eventBus, cfg.StuckRolloutGraceMinutes, log.Logger)
+	jobRunner.Register(stuckRolloutProc)
+
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
 
@@ -915,6 +920,12 @@ func runServe(cfg *config.Config) {
 			Name:     "alerts_retention",
 			Schedule: "15 3 * * *",
 			JobType:  job.JobTypeAlertsRetention,
+		})
+		// FIX-231 PAT-017 — stuck-rollout reaper: runs every 5 minutes.
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "stuck_rollout_reaper",
+			Schedule: "*/5 * * * *",
+			JobType:  job.JobTypeStuckRolloutReaper,
 		})
 		cronScheduler.AddEntry(job.CronEntry{
 			Name:     "data_retention",

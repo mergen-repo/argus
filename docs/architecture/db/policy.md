@@ -43,10 +43,16 @@ Indexes:
 Indexes:
 - `idx_policy_versions_policy_ver` UNIQUE on (policy_id, version)
 - `idx_policy_versions_policy_state` on (policy_id, state)
+- `policy_active_version` UNIQUE PARTIAL on (policy_id) WHERE state = 'active' — FIX-231 AC-6; enforces at most one active version per policy at the DB level. Created after a guard that raises exception if two active versions already exist.
+
+Constraints:
+- `chk_policy_versions_state` CHECK (state IN ('draft','active','rolling_out','superseded','archived')) — added in migration `20260412000003`.
 
 ---
 
 ## TBL-15: policy_assignments
+
+**Canonical source of truth** for "active policy per SIM" (FIX-231). `sims.policy_version_id` is a read-optimised denorm pointer maintained by trigger `trg_sims_policy_version_sync` — do not write it directly.
 
 Tracks which policy version each SIM is currently using (especially during staged rollout).
 
@@ -61,10 +67,13 @@ Tracks which policy version each SIM is currently using (especially during stage
 | coa_status | VARCHAR(20) | DEFAULT 'pending' | pending, sent, acked, failed |
 
 Indexes:
-- `idx_policy_assignments_sim` UNIQUE on (sim_id)
+- `idx_policy_assignments_sim` UNIQUE on (sim_id) — enforces 1 SIM = 1 policy (DEV-353)
 - `idx_policy_assignments_version` on (policy_version_id)
 - `idx_policy_assignments_rollout` on (rollout_id)
 - `idx_policy_assignments_coa` on (coa_status) WHERE coa_status != 'acked'
+
+Triggers:
+- `trg_sims_policy_version_sync` AFTER INSERT OR UPDATE OF policy_version_id OR DELETE ON policy_assignments FOR EACH ROW EXECUTE FUNCTION sims_policy_version_sync() — FIX-231 AC-2; propagates changes to `sims.policy_version_id`; **sole writer** to that column (DEV-346).
 
 ---
 
@@ -73,6 +82,7 @@ Indexes:
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
 | id | UUID | PK, DEFAULT gen_random_uuid() | Rollout identifier |
+| policy_id | UUID | FK → policies.id, NOT NULL | Parent policy — added FIX-231 (DEV-345); backfilled from policy_versions.policy_id |
 | policy_version_id | UUID | FK → policy_versions.id, NOT NULL | Version being rolled out |
 | previous_version_id | UUID | FK → policy_versions.id | Version being replaced |
 | strategy | VARCHAR(20) | NOT NULL, DEFAULT 'canary' | canary, immediate |
@@ -90,6 +100,8 @@ Indexes:
 Indexes:
 - `idx_policy_rollouts_version` on (policy_version_id)
 - `idx_policy_rollouts_state` on (state)
+- `idx_policy_rollouts_policy` on (policy_id) — FIX-231 AC-5; regular index for policy-scoped rollout queries
+- `policy_active_rollout` UNIQUE PARTIAL on (policy_id) WHERE state IN ('pending','in_progress') — FIX-231 AC-5; enforces at most one active rollout per policy. INSERT raises 23505 (`policy_active_rollout`) when violated; service layer maps to `ErrRolloutInProgress` (422).
 
 ## Policy DSL Example
 

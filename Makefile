@@ -5,7 +5,7 @@ export
 
 .PHONY: help up down restart status logs build build-fresh deploy-dev deploy-prod \
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
-        test test-watch test-coverage typecheck lint lint-fix lint-sql \
+        test test-db test-watch test-coverage typecheck lint lint-fix lint-sql \
         clean docker-clean dev start stop backup web-dev web-build \
         vuln-check web-audit \
         test-web security-scan deploy-staging rollback ops-status build-ctl \
@@ -49,6 +49,7 @@ help:
 	@echo ""
 	@echo "  Kalite:"
 	@echo "    make test            Go testlerini calistir"
+	@echo "    make test-db         DB-gated testleri DATABASE_URL ile calistir"
 	@echo "    make test-coverage   Test coverage raporu"
 	@echo "    make typecheck       Go + TypeScript tip kontrolu"
 	@echo "    make lint            Go lint kontrolu"
@@ -214,6 +215,35 @@ test:
 	@echo "Testler calistiriliyor..."
 	@go test ./... -v -race -short
 	@echo "Testler tamamlandi."
+
+# FIX-231 F-B1 (Gate): Run the full test suite WITH DATABASE_URL exported so
+# DB-gated story tests (policy state machine triggers, partial unique
+# indexes, stuck-rollout reaper) actually execute instead of t.Skip()-ing
+# silently. Auto-detects the argus-postgres container; falls back to
+# DATABASE_URL from the environment if the container is not running.
+# Use this target before merging any change that touches:
+#   - migrations/*policy_state_machine*
+#   - internal/store/policy.go (rollout/version state transitions)
+#   - internal/job/stuck_rollout_reaper*.go
+test-db:
+	@echo "DB-gated testler calistiriliyor (DATABASE_URL ile)..."
+	@# .env's DATABASE_URL points at the docker hostname `postgres` which is
+	@# not reachable from the host shell. Auto-detect argus-postgres and use
+	@# the host-side mapped port so go test (running on the host) can connect.
+	@if docker ps --filter name=argus-postgres --format "{{.Names}}" | grep -q argus-postgres; then \
+		PG_USER=$${POSTGRES_USER:-argus} ; \
+		PG_PASS=$${POSTGRES_PASSWORD:-argus_secret} ; \
+		PG_DB=$${POSTGRES_DB:-argus} ; \
+		PG_PORT=$$(docker port argus-postgres 5432 2>/dev/null | head -1 | awk -F: '{print $$NF}') ; \
+		[ -z "$$PG_PORT" ] && PG_PORT=5432 ; \
+		HOST_DB_URL="postgres://$$PG_USER:$$PG_PASS@localhost:$$PG_PORT/$$PG_DB?sslmode=disable" ; \
+		echo "  argus-postgres bulundu (port $$PG_PORT), DATABASE_URL otomatik ayarlandi." ; \
+		DATABASE_URL="$$HOST_DB_URL" go test ./... -race ; \
+	else \
+		echo "  HATA: argus-postgres calismyor. Once 'make infra-up' calistirin." ; \
+		exit 1 ; \
+	fi
+	@echo "DB-gated testler tamamlandi."
 
 test-coverage:
 	@echo "Coverage raporu olusturuluyor..."

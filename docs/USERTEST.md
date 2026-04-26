@@ -4311,3 +4311,27 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 3. Kaydedilince kural `/settings/alert-rules` listesinde gorunmeli; scope_type, expires_at, reason sutunlari olmali.
 4. Ayni `rule_name` ile tekrar kaydetmeye calis → 409 `DUPLICATE` hatasi inline gorunmeli.
 5. Kural satirinda "Delete" / Unmute Dialog → onayla → kural listeden kaldirilmali.
+
+---
+
+## FIX-231: Policy Version State Machine + Dual-Source Fix
+
+> **AC-1..9 ve AC-11 (backend/infra):** Bu acceptance criteria'lar veritabani kısıtları, trigger mekanizması, store katmanı ve arka plan job'larını kapsar. Doğrulama için `make test` (3581 test PASS) ve `make db-seed` PASS yeterlidir. Özel DB doğrulama: `docker exec argus-postgres psql -U argus -c "\di policy_active*"` — `policy_active_version` ve `policy_active_rollout` partial unique index'leri görünmeli. Trigger: `\df sims_policy_version_sync` sonucu dolu olmalı.
+
+### 1. Policy Versiyonu Durum Çizelgesi — Versions Tab Timeline (AC-10)
+
+1. `make up` → `http://localhost:8084/login` → admin@argus.io / admin ile giriş yap.
+2. Sol menüden **Policies** sayfasına git → herhangi bir policy satırına tıkla → policy detay görünümü açılmalı.
+3. **Versions** sekmesine tıkla → sekme içinde "Version Lifecycle" bölümü görünmeli.
+4. Her versiyon için bir düğüm (node) olmalı: sol baştan sağa `created_at` ASC sıralamasıyla dizilmeli.
+5. Durum renk kodları doğru olmalı:
+   - `draft` → ikincil metin rengi + yükseltilmiş arkaplan (gri ton) — hiçbir `text-gray-NNN` sınıfı kullanılmamalı.
+   - `rolling_out` → uyarı rengi + nabız animasyonu (`animate-pulse` veya benzeri) — sarı/amber hardcoded değil.
+   - `active` → başarı rengi + kenar halkası (ring) — yeşil hardcoded değil.
+   - `superseded` → üçüncül metin rengi + üstü çizili — gri hardcoded değil.
+   - `rolled_back` → tehlike rengi — kırmızı hardcoded değil.
+6. Aktif versiyon düğümünün üzerine fareyi getir → tooltip açılmalı; içinde `activated_at` tarihi görünmeli.
+7. `rolled_back_at` dolu olan bir versiyonun üzerine fareyle gel → tooltip'te `rolled_back_at` tarihi de görünmeli.
+8. Hiç versiyon yoksa "Version Lifecycle" bölümü tamamen gizlenmeli (boş durum render edilmemeli).
+9. **Klavye erişilebilirliği:** Tab tuşuyla her versiyona odaklanılabilmeli; Enter/Space ile tooltip açılabilmeli (ya da tooltip focus ile de tetiklenmeli). Ekran okuyucu: her düğümde `aria-label="v2 — active, activated 22 April 2026"` formatında anlamlı etiket olmalı.
+10. **Tasarım token doğrulaması:** DevTools → Elements → herhangi bir versiyon düğümü chip'ini seç → `class` listesinde `text-[#...]` veya `text-green-NNN`, `text-yellow-NNN` vb. hardcoded Tailwind palet sınıfı bulunmamalı; yalnızca `text-success`, `text-warning`, `text-danger`, `text-text-secondary`, `bg-bg-elevated` gibi CSS değişken tabanlı token sınıfları olmalı (PAT-018).

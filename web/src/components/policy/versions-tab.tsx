@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, GitCompare, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip } from '@/components/ui/tooltip'
 import { useVersionDiff } from '@/hooks/use-policies'
 import type { PolicyVersion, DiffLine } from '@/types/policy'
 
@@ -65,6 +66,80 @@ function DiffViewer({ id1, id2 }: { id1: string; id2: string }) {
   )
 }
 
+interface VersionWithRollback extends PolicyVersion {
+  rolled_back_at?: string
+}
+
+function buildTooltipContent(v: VersionWithRollback): string {
+  const parts: string[] = []
+  parts.push(`Created: ${new Date(v.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
+  if (v.activated_at) {
+    parts.push(`Activated: ${new Date(v.activated_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
+  }
+  if (v.rolled_back_at) {
+    parts.push(`Rolled back: ${new Date(v.rolled_back_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
+  }
+  return parts.join(' · ')
+}
+
+function VersionTimeline({ versions }: { versions: PolicyVersion[] }) {
+  if (versions.length === 0) return null
+
+  const chronological = [...versions].sort((a, b) => a.version - b.version)
+
+  return (
+    <div className="mb-4">
+      <h3 className="text-sm font-semibold text-text-primary mb-3">Version timeline</h3>
+      <div className="flex items-center gap-2 flex-wrap">
+        {chronological.map((v, idx) => {
+          const isActive = v.state === 'active'
+          const isRollingOut = v.state === 'rolling_out'
+          const vWithRollback = v as VersionWithRollback
+
+          const stateLabel = v.state.charAt(0).toUpperCase() + v.state.slice(1).replace('_', ' ')
+          const dateLabel = v.activated_at
+            ? new Date(v.activated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+            : new Date(v.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+          const ariaSummary = [`Version ${v.version}`, stateLabel, dateLabel]
+            .filter(Boolean).join(', ')
+
+          return (
+            <div key={v.id} className="flex items-center gap-2">
+              <Tooltip content={buildTooltipContent(vWithRollback)} side="top">
+                <div
+                  tabIndex={0}
+                  role="group"
+                  aria-label={ariaSummary}
+                  className="flex flex-col items-center gap-1 rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                  <Badge
+                    variant={versionStateVariant(v.state)}
+                    className={[
+                      'cursor-default select-none',
+                      isActive ? 'ring-1 ring-success' : '',
+                      isRollingOut ? 'animate-pulse' : '',
+                    ].filter(Boolean).join(' ')}
+                  >
+                    v{v.version}
+                  </Badge>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[10px] font-medium text-text-secondary leading-none">{stateLabel}</span>
+                    <span className="text-[10px] text-text-tertiary leading-none">{dateLabel}</span>
+                  </div>
+                </div>
+              </Tooltip>
+              {idx < chronological.length - 1 && (
+                <div className="h-px bg-border flex-1 min-w-[16px]" aria-hidden="true" />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function VersionsTab({ versions, currentVersionId, onSelectVersion, onCreateVersion, isCreating }: VersionsTabProps) {
   const [diffPair, setDiffPair] = useState<[string, string] | null>(null)
 
@@ -89,6 +164,8 @@ export function VersionsTab({ versions, currentVersionId, onSelectVersion, onCre
           New Version
         </Button>
       </div>
+
+      <VersionTimeline versions={versions} />
 
       <div className="space-y-2">
         {sorted.map((version, idx) => {

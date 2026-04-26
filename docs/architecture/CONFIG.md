@@ -241,6 +241,7 @@ Self-service password reset flow: user submits email → receives tokenized link
 | `webhook_retry_sweep` | `*/1 * * * *` | `webhook_retry` | Re-sends due `webhook_deliveries` rows; backoff 30s/2m/10m/30m/60m; after 5 attempts marks `dead_letter` and emits `webhook.dead_letter` notification. |
 | `scheduled_report_sweeper` | `*/1 * * * *` | `scheduled_report_sweeper` | Scans `scheduled_reports.next_run_at <= now()` and enqueues a `scheduled_report_run` per due row. |
 | `alerts_retention` | `15 3 * * *` | `alerts_retention` | FIX-209 — purges rows from the unified `alerts` table older than `ALERTS_RETENTION_DAYS` (default 180). |
+| `stuck_rollout_reaper` | `*/5 * * * *` | `stuck_rollout_reaper` | FIX-231 — finds rollouts where `migrated_sims >= total_sims AND age > ARGUS_STUCK_ROLLOUT_GRACE_MINUTES` and calls `CompleteRollout` for each. Emits `policy.rollout_progress` event per reaped rollout. |
 
 ### Redis Key Patterns (Job System)
 
@@ -378,6 +379,7 @@ These values are used when creating new tenants. They can be overridden per-tena
 | `DEFAULT_CDR_RETENTION_DAYS` | int | `180` | No | Days to retain CDR records in TimescaleDB before compression/archiving. |
 | `ALERTS_RETENTION_DAYS` | int | `180` | No | FIX-209 — days to retain rows in the unified `alerts` table. Minimum enforced: `30`. Older rows are purged daily at 03:15 UTC by the `alerts_retention` job. |
 | `ALERT_COOLDOWN_MINUTES` | int | `5` | No | FIX-210 — minutes an alert stays in cooldown after resolve. Repeat events with the same `dedup_key` are dropped (metric: `argus_alerts_cooldown_dropped_total`) during the window. Range: `0..1440` (0 disables cooldown; values above 1440 are clamped). |
+| `ARGUS_STUCK_ROLLOUT_GRACE_MINUTES` | int | `10` | No | FIX-231 — minutes a rollout that has `migrated_sims >= total_sims` is allowed to remain `in_progress` before the stuck-rollout reaper auto-completes it. Config-time clamped to `[5, 120]`. PAT-017 wiring: env → config struct → constructor → `StuckRolloutReaperProcessor` field → SQL `make_interval(mins => $grace)`. |
 
 ---
 
