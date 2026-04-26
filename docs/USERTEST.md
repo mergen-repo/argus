@@ -4534,3 +4534,47 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `psql $DATABASE_URL -c "\d policy_assignments"` → `stage_pct integer` sütunu görünmeli.
 2. `psql $DATABASE_URL -c "\di policy_assignments*"` → `idx_policy_assignments_rollout_stage` index'i listelenmiş olmalı.
 3. `psql $DATABASE_URL -c "SELECT migration_name FROM schema_migrations ORDER BY migration_name DESC LIMIT 5"` → `20260429000001_policy_assignments_stage_pct` en son migration'lardan biri olmalı.
+
+---
+
+## FIX-249: Global React #185 crash — useFilteredEventsSelector yeniden render döngüsü
+
+> **Kapsam:** `web/src/components/event-stream/event-stream-drawer.tsx` — `useShallow` wrap ile Zustand v5 selector referans kararlılığı sağlandı.
+> **Bağımlılık:** Bu story FE-only hotfix'tir; backend değişikliği yok.
+
+### Senaryo 1 — Konsol temiz kontrolü (AC-2 keystone)
+
+1. Tarayıcıyı aç, `http://localhost:8084/login` → `admin@argus.io` / `admin` ile giriş yap.
+2. DevTools → Console sekmesini aç; "Errors" ve "Warnings" filtrelerini etkin bırak.
+3. `/dashboard` rotasına geç. Console'da `React Minified Error #185` veya `Maximum update depth exceeded` hatası OLMAMALI.
+4. Aynı kontrolü şu rotalarda tekrarla: `/sims`, `/policies`, `/sessions`, `/policies/<herhangi-bir-policy-id>`.
+5. **Beklenen:** Tüm 5 rotada console tamamen temiz — sıfır React #185 hatası. (Pre-FIX-249 baseline'da her koruyuculu rotada çökme vardı.)
+
+### Senaryo 2 — Olay akışı drawer UX kontrolü (AC-3)
+
+1. Sağ üstteki Activity / Bell ikonuna tıkla → "Canlı Olay Akışı" drawer sağdan açılmalı.
+2. Severity chip'leri (CRI / HIG / MED / LOW / INF) görünmeli ve tıklanabilir.
+3. Bir chip'e tıkla → aktif/pasif toggle çalışmalı; filtreli olay sayısı güncellenmeli.
+4. "Duraklat" düğmesine tıkla → yeni olay akışı durur, kuyruk sayacı artar. "Devam Et" → akış yeniden başlar.
+5. Drawer'ı kapat (X veya dışarı tıkla) → kapanmalı. Tekrar aç → filtre durumu korunmayabilir (state sıfırlanır) — bu beklenen davranış.
+6. **Beklenen:** Tüm işlemler süresince console temiz kalır.
+
+### Senaryo 3 — Canlı olay testi (AC-3 live smoke)
+
+1. Drawer açıkken `/sims` sayfasına git (drawer overlay olarak açık kalır).
+2. Herhangi bir aktif SIM seç → "Suspend" aksiyon butonuna tıkla ve onayla.
+3. **Beklenen:** Drawer'da 1-2 saniye içinde yeni "SIM active → suspended" olay satırı görünmeli; olay sayacı güncellenmeli (örn: "2/2 olay · 1 filtre aktif").
+4. Console'da hata yok.
+
+### Senaryo 4 — Idle gözlem (AC-1 referans kararlılığı)
+
+1. `/sims` rotasında drawer KAPALI iken 5 saniye boyunca herhangi bir etkileşim yapma.
+2. DevTools → Console'u gözlemle.
+3. **Beklenen:** Sürekli warning/error spam'i OLMAMALI. Pre-FIX-249 baseline'da her saniye onlarca React re-render uyarısı üretiliyordu; şimdi sessiz olmalı.
+
+### Senaryo 5 — Navigasyon stabilitesi (AC-2 multi-route)
+
+1. `/sims` → `/policies` → `/sessions` → `/sims` rotaları arasında sırayla gez (her geçişte ~1 saniye bekle).
+2. Her rota geçişinde console temiz kalmalı.
+3. Son olarak drawer'ı aç → filter chips çalışmalı, console temiz.
+4. **Beklenen:** 0 React #185 hatası; navigasyon boyunca uygulama kararlı kalır.

@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useShallow } from 'zustand/react/shallow'
 import {
   useEventStore,
   useFilteredEventsSelector,
@@ -37,7 +38,8 @@ export function EventStreamDrawer() {
   const filters = useEventStore((s) => s.filters)
   const queuedCount = useEventStore((s) => s.queuedEvents.length)
   const totalEvents = useEventStore((s) => s.events.length)
-  const filteredEvents = useEventStore(useFilteredEventsSelector)
+  // FIX-249: useShallow stabilizes the filtered-events array reference (React 19 + useSyncExternalStore re-render loop fix)
+  const filteredEvents = useEventStore(useShallow(useFilteredEventsSelector))
 
   // 15s tick forces relative-time re-render. Scoped to drawer-open so CPU
   // is silent when drawer is closed. StrictMode double-mount safe.

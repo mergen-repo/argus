@@ -117,7 +117,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-249 (Global React #185 crash — `useFilteredEventsSelector` re-render loop in event-stream-drawer)
+- Story: FIX-250 (Vite-native env access in info-tooltip — replace `process.env` with `import.meta.env.PROD`)
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
