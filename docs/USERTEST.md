@@ -4730,3 +4730,42 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    ```
 2. **Beklenen (FIX-253 sonrası):** HTTP 422 + envelope `{"status":"error","error":{"code":"POOL_EXHAUSTED","message":"No IP pool configured for this APN"}}`. **Bare 500 ASLA dönmemeli.**
 3. **NOT:** FIX-252 kapsamında bu davranış GARANTILI DEĞİL — sadece sembolik olarak FIX-253 hedefi belirleniyor. Ön-shadow scenario; FIX-253 USERTEST'inde detaylanacak.
+
+## FIX-251: Stale "An unexpected error occurred" toast on /sims — Backend Root-Cause Fix
+
+> **NOT:** Plan pivot — Discovery (FIX-251 W1 T1) revealed the toast originated from a **real backend 500** (`GET /api/v1/operators` returning 500 due to `OperatorStore.List` inline scan missing `sla_latency_threshold_ms` field added by FIX-215). silentPaths cosmetic patch REJECTED; backend bug fixed instead. PAT-006 RECURRENCE #3 dosyalandı. DEV-389 decisions.md'de.
+
+### Senaryo 1 — /operators endpoint canlı doğrulama (AC-1, AC-2)
+
+1. Login: admin@argus.io / admin
+2. Curl ile doğrudan endpoint testi:
+   ```
+   TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"admin@argus.io","password":"admin"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["token"])')
+   curl -i -X GET "http://localhost:8084/api/v1/operators?limit=100" -H "Authorization: Bearer $TOKEN"
+   ```
+3. **Beklenen:** HTTP 200; `data` array minimum 4 operator döner (Turkcell, Vodafone, Türk Telekom, BiP). Her operator nesnesinde `sla_latency_threshold_ms` field POPULATED (default 500).
+4. **Anti-regression:** HTTP 500 ASLA dönmemeli. `argus log | grep 'scan operator'` ZERO `got 20 and 19` mismatch error içermeli.
+
+### Senaryo 2 — /sims sayfası cold load — toast yokluğu (AC-1, AC-3)
+
+1. Browser'da DevTools Console + Network panellerini aç.
+2. `/login` üzerinden auth ol → `/sims` sayfasına navigate et (cold load — hard reload Ctrl+Shift+R).
+3. **Beklenen:**
+   - SIM list sayfası yüklenir (boş veya dolu, herhangi bir state).
+   - Toast NOTIFICATION area'da "An unexpected error occurred" mesajı SHOWN OLMAMALI.
+   - Network panel: `/api/v1/operators?limit=100` HTTP 200 (yeşil); 500 (kırmızı) yok.
+   - Console: error log yok (warn olabilir, error yok).
+
+### Senaryo 3 — Health checker startup (boot-time AC-3)
+
+1. `docker logs argus-app --since 1m | grep -iE 'health checker'`
+2. **Beklenen:** `health checker started component=health_checker operator_count=4` (veya seed'deki operator sayısı). 
+3. **Anti-regression:** `failed to start health checker — continuing without health checks` mesajı YOK.
+
+### Senaryo 4 — Regression test suite (AC-4)
+
+1. ```
+   DATABASE_URL='postgresql://argus:argus_secret@localhost:5450/argus?sslmode=disable' go test -v -count=1 -run 'OperatorColumnsAndScan|OperatorStore_List' ./internal/store/
+   ```
+2. **Beklenen:** 3 test PASS (TestOperatorColumnsAndScanCountConsistency, TestOperatorStore_List_..., TestOperatorStore_ListActive_...). DATABASE_URL set DEĞİLSE son ikisi SKIP, ilki PASS.
+3. **Geliştirici uyarısı:** Bu testler PAT-006 RECURRENCE'a karşı koruma sağlar. `operatorColumns` constant'ına yeni bir kolon eklenirse `TestOperatorColumnsAndScanCountConsistency` FAIL eder ve geliştiriciyi `List` + `ListActive` inline scan'lerini güncellemesi için zorlar.

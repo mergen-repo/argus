@@ -345,7 +345,7 @@ func (s *OperatorStore) List(ctx context.Context, cursor string, limit int, stat
 			&o.HealthStatus, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,
 			&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
-			&o.SLAUptimeTarget, &o.State, &o.CreatedAt, &o.UpdatedAt,
+			&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("store: scan operator: %w", err)
 		}
@@ -474,7 +474,7 @@ func (s *OperatorStore) ListActive(ctx context.Context) ([]Operator, error) {
 			&o.HealthStatus, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,
 			&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
-			&o.SLAUptimeTarget, &o.State, &o.CreatedAt, &o.UpdatedAt,
+			&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("store: scan active operator: %w", err)
 		}
