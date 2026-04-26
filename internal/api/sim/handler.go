@@ -167,6 +167,10 @@ type simResponse struct {
 	PolicyVersionID       *string         `json:"policy_version_id,omitempty"`
 	PolicyName            string          `json:"policy_name,omitempty"`
 	PolicyVersionNumber   int             `json:"policy_version_number,omitempty"`
+	PolicyID              *string         `json:"policy_id,omitempty"`         // FIX-233: OQ-1 drill-down to /policies/<id>
+	RolloutID             *string         `json:"rollout_id,omitempty"`         // FIX-233: policy_assignments.rollout_id
+	RolloutStagePct       *int            `json:"rollout_stage_pct,omitempty"`  // FIX-233: policy_assignments.stage_pct
+	CoaStatus             string          `json:"coa_status,omitempty"`         // FIX-233: policy_assignments.coa_status
 	ESimProfileID         *string         `json:"esim_profile_id,omitempty"`
 	SimType               string          `json:"sim_type"`
 	State                 string          `json:"state"`
@@ -279,6 +283,20 @@ func toSIMResponse(s *store.SIMWithNames) simResponse {
 	}
 	if s.PolicyVersionNumber != nil {
 		resp.PolicyVersionNumber = *s.PolicyVersionNumber
+	}
+	if s.PolicyID != nil {
+		v := s.PolicyID.String()
+		resp.PolicyID = &v
+	}
+	if s.RolloutID != nil {
+		v := s.RolloutID.String()
+		resp.RolloutID = &v
+	}
+	if s.RolloutStagePct != nil {
+		resp.RolloutStagePct = s.RolloutStagePct
+	}
+	if s.CoaStatus != nil {
+		resp.CoaStatus = *s.CoaStatus
 	}
 	return resp
 }
@@ -557,18 +575,71 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		apnID = &parsed
 	}
 
+	var policyVersionID *uuid.UUID
+	if v := q.Get("policy_version_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "policy_version_id: invalid uuid")
+			return
+		}
+		policyVersionID = &parsed
+	}
+
+	var policyID *uuid.UUID
+	if v := q.Get("policy_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "policy_id: invalid uuid")
+			return
+		}
+		policyID = &parsed
+	}
+
+	var rolloutID *uuid.UUID
+	if v := q.Get("rollout_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "rollout_id: invalid uuid")
+			return
+		}
+		rolloutID = &parsed
+	}
+
+	var rolloutStagePct *int
+	if v := q.Get("rollout_stage_pct"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "rollout_stage_pct: invalid integer")
+			return
+		}
+		if n < 1 || n > 100 {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidParam, "rollout_stage_pct must be in [1,100]")
+			return
+		}
+		rolloutStagePct = &n
+	}
+
+	if rolloutStagePct != nil && rolloutID == nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidParam, "rollout_stage_pct requires rollout_id")
+		return
+	}
+
 	params := store.ListSIMsParams{
-		Cursor:     q.Get("cursor"),
-		Limit:      limit,
-		ICCID:      q.Get("iccid"),
-		IMSI:       q.Get("imsi"),
-		MSISDN:     q.Get("msisdn"),
-		IPAddress:  q.Get("ip"),
-		OperatorID: operatorID,
-		APNID:      apnID,
-		State:      q.Get("state"),
-		RATType:    q.Get("rat_type"),
-		Q:          q.Get("q"),
+		Cursor:          q.Get("cursor"),
+		Limit:           limit,
+		ICCID:           q.Get("iccid"),
+		IMSI:            q.Get("imsi"),
+		MSISDN:          q.Get("msisdn"),
+		IPAddress:       q.Get("ip"),
+		OperatorID:      operatorID,
+		APNID:           apnID,
+		State:           q.Get("state"),
+		RATType:         q.Get("rat_type"),
+		Q:               q.Get("q"),
+		PolicyVersionID: policyVersionID,
+		PolicyID:        policyID,
+		RolloutID:       rolloutID,
+		RolloutStagePct: rolloutStagePct,
 	}
 
 	sims, nextCursor, err := h.simStore.ListEnriched(r.Context(), tenantID, params)

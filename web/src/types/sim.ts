@@ -12,9 +12,13 @@ export interface SIM {
   ip_address_id?: string
   ip_address?: string
   ip_pool_name?: string
+  policy_id?: string | null
   policy_version_id?: string
   policy_name?: string
   policy_version_number?: number
+  rollout_id?: string | null
+  rollout_stage_pct?: number | null
+  coa_status?: string | null
   esim_profile_id?: string
   sim_type: 'physical' | 'esim'
   state: SIMState
@@ -97,6 +101,9 @@ export interface SIMListFilters {
   operator_id?: string
   apn_id?: string
   policy_version_id?: string
+  policy_id?: string
+  rollout_id?: string
+  rollout_stage_pct?: number
   rat_type?: string
   q?: string
   iccid?: string

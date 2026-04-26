@@ -582,6 +582,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/policy-versions/{id}/dry-run", deps.PolicyHandler.DryRun)
 				r.Post("/api/v1/policy-versions/{id}/rollout", deps.PolicyHandler.StartRollout)
 				r.Get("/api/v1/policy-versions/{id1}/diff/{id2}", deps.PolicyHandler.DiffVersions)
+				r.Get("/api/v1/policy-rollouts", deps.PolicyHandler.ListRollouts)
 				r.Post("/api/v1/policy-rollouts/{id}/advance", deps.PolicyHandler.AdvanceRollout)
 				r.Post("/api/v1/policy-rollouts/{id}/rollback", deps.PolicyHandler.RollbackRollout)
 				r.Post("/api/v1/policy-rollouts/{id}/abort", deps.PolicyHandler.AbortRollout)

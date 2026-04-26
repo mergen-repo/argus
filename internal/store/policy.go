@@ -1089,7 +1089,7 @@ func (s *PolicyStore) SelectSIMsForStage(
 	return ids, nil
 }
 
-func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUID, versionID, rolloutID uuid.UUID) (int, error) {
+func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUID, versionID, rolloutID uuid.UUID, stagePct int) (int, error) {
 	if len(simIDs) == 0 {
 		return 0, nil
 	}
@@ -1110,10 +1110,10 @@ func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUI
 		batch := simIDs[i:end]
 
 		valueStrings := make([]string, len(batch))
-		args := []interface{}{versionID, rolloutID}
+		args := []interface{}{versionID, rolloutID, stagePct}
 		for j, simID := range batch {
-			argIdx := j + 3
-			valueStrings[j] = fmt.Sprintf("($%d, $1, $2, NOW(), 'pending')", argIdx)
+			argIdx := j + 4
+			valueStrings[j] = fmt.Sprintf("($%d, $1, $2, NOW(), 'pending', $3)", argIdx)
 			args = append(args, simID)
 		}
 
@@ -1124,14 +1124,16 @@ func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUI
 		// policy_assignments on partial failures. The upsert's RowsAffected()
 		// counts every inserted-or-updated assignment row, which is what callers
 		// expect from "assigned".
+		// FIX-233: stage_pct persisted so cohort queries can pinpoint migration stage.
 		tag, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status)
+			INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status, stage_pct)
 			VALUES %s
 			ON CONFLICT (sim_id) DO UPDATE SET
 				policy_version_id = EXCLUDED.policy_version_id,
 				rollout_id = EXCLUDED.rollout_id,
 				assigned_at = NOW(),
-				coa_status = 'pending'`,
+				coa_status = 'pending',
+				stage_pct = EXCLUDED.stage_pct`,
 			strings.Join(valueStrings, ", ")),
 			args...,
 		)
@@ -1377,4 +1379,80 @@ func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID
 	}
 
 	return policies, nextCursor, nil
+}
+
+// ListRolloutsParams holds optional filters for ListRollouts.
+// States is a whitelist of rollout state strings; defaults to ["in_progress","paused"] when empty.
+// Limit is capped at 100; defaults to 50.
+type ListRolloutsParams struct {
+	States []string
+	Limit  int
+}
+
+// RolloutSummary is a lightweight rollout view joining policy name + version number.
+// It is used exclusively by the GET /api/v1/policy-rollouts list endpoint (FIX-233 Task 5).
+// No cursor pagination — active rollouts are bounded (default cap 50, max 100).
+type RolloutSummary struct {
+	ID                  uuid.UUID  `json:"id"`
+	PolicyID            uuid.UUID  `json:"policy_id"`
+	PolicyVersionID     uuid.UUID  `json:"policy_version_id"`
+	PolicyName          string     `json:"policy_name"`
+	PolicyVersionNumber int        `json:"policy_version"`
+	State               string     `json:"state"`
+	CurrentStage        int        `json:"current_stage"`
+	TotalSIMs           int        `json:"total_sims"`
+	MigratedSIMs        int        `json:"migrated_sims"`
+	StartedAt           *time.Time `json:"started_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
+
+// ListRollouts returns at most p.Limit rollouts matching p.States, scoped to tenantID.
+// If p.States is empty, defaults to ["in_progress","paused"]. Limit is clamped to [1,100].
+func (s *PolicyStore) ListRollouts(ctx context.Context, tenantID uuid.UUID, p ListRolloutsParams) ([]RolloutSummary, error) {
+	states := p.States
+	if len(states) == 0 {
+		states = []string{"in_progress", "paused"}
+	}
+	limit := p.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT r.id, r.policy_id, r.policy_version_id, pol.name,
+		       pv.version, r.state, r.current_stage, r.total_sims,
+		       r.migrated_sims, r.started_at, r.created_at
+		  FROM policy_rollouts r
+		  JOIN policy_versions pv ON pv.id = r.policy_version_id
+		  JOIN policies pol ON pol.id = r.policy_id
+		 WHERE pol.tenant_id = $1
+		   AND r.state = ANY($2::text[])
+		 ORDER BY r.started_at DESC NULLS LAST, r.created_at DESC
+		 LIMIT $3`,
+		tenantID, states, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list rollouts: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]RolloutSummary, 0, 8)
+	for rows.Next() {
+		var rs RolloutSummary
+		if err := rows.Scan(
+			&rs.ID, &rs.PolicyID, &rs.PolicyVersionID, &rs.PolicyName,
+			&rs.PolicyVersionNumber, &rs.State, &rs.CurrentStage, &rs.TotalSIMs,
+			&rs.MigratedSIMs, &rs.StartedAt, &rs.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan rollout summary: %w", err)
+		}
+		results = append(results, rs)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list rollouts rows: %w", err)
+	}
+	return results, nil
 }

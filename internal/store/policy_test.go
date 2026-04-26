@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -875,5 +876,112 @@ func TestCompleteRollout_RejectsAborted(t *testing.T) {
 	err := st.CompleteRollout(ctx, f.rolloutID)
 	if !errors.Is(err, ErrRolloutAborted) {
 		t.Errorf("CompleteRollout after abort: err = %v, want ErrRolloutAborted", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FIX-233 T8 — AssignSIMsToVersion persists stage_pct (upsert)
+// ---------------------------------------------------------------------------
+
+// TestPolicyStore_AssignSIMsToVersion_StagePct verifies that AssignSIMsToVersion
+// writes stage_pct to policy_assignments and that a second call with a different
+// stagePct updates (upserts) the existing row rather than inserting a duplicate.
+func TestPolicyStore_AssignSIMsToVersion_StagePct(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "stage-pct")
+
+	// We need an operator and a SIM to assign.
+	var operatorID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM operators LIMIT 1`).Scan(&operatorID); err != nil {
+		t.Fatalf("no operator row available: %v", err)
+	}
+
+	// Insert a minimal APN to satisfy the SIM FK (may be nil; use apn_id=NULL variant).
+	var apnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO apns (tenant_id, operator_id, name, apn_type, state)
+		VALUES ($1, $2, 'test-apn-stg-'||gen_random_uuid()::text, 'iot', 'active')
+		RETURNING id`, f.tenantID, operatorID).Scan(&apnID); err != nil {
+		t.Fatalf("seed apn: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM apns WHERE id = $1`, apnID)
+	})
+
+	// Insert a SIM (policy_version_id starts NULL; the trigger will set it after assignment).
+	var simID uuid.UUID
+	nonce := uuid.New().ID() % 1_000_000_000
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, sim_type, state)
+		VALUES ($1, $2, $3, $4, $5, 'physical', 'ordered')
+		RETURNING id`,
+		f.tenantID, operatorID, apnID,
+		fmt.Sprintf("89933%09d", nonce),
+		fmt.Sprintf("28633%08d", nonce%100_000_000),
+	).Scan(&simID); err != nil {
+		t.Fatalf("seed sim: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM policy_assignments WHERE sim_id = $1`, simID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sims WHERE id = $1`, simID)
+	})
+
+	// First assignment: stagePct=10
+	n, err := st.AssignSIMsToVersion(ctx, []uuid.UUID{simID}, f.versionID, f.rolloutID, 10)
+	if err != nil {
+		t.Fatalf("AssignSIMsToVersion(stagePct=10): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("assigned = %d, want 1", n)
+	}
+
+	// Verify stage_pct=10 was persisted and exactly one row exists.
+	var stagePct int
+	var rowCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT stage_pct FROM policy_assignments WHERE rollout_id = $1 AND sim_id = $2`,
+		f.rolloutID, simID).Scan(&stagePct); err != nil {
+		t.Fatalf("read stage_pct after first assign: %v", err)
+	}
+	if stagePct != 10 {
+		t.Errorf("stage_pct = %d, want 10", stagePct)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM policy_assignments WHERE sim_id = $1`, simID).Scan(&rowCount); err != nil {
+		t.Fatalf("count rows after first assign: %v", err)
+	}
+	if rowCount != 1 {
+		t.Errorf("row count after first assign = %d, want 1", rowCount)
+	}
+
+	// Second assignment: same simID, stagePct=100 → ON CONFLICT must UPDATE.
+	n2, err := st.AssignSIMsToVersion(ctx, []uuid.UUID{simID}, f.versionID, f.rolloutID, 100)
+	if err != nil {
+		t.Fatalf("AssignSIMsToVersion(stagePct=100): %v", err)
+	}
+	if n2 != 1 {
+		t.Errorf("assigned (upsert) = %d, want 1", n2)
+	}
+
+	// Verify stage_pct updated to 100 and still exactly one row.
+	if err := pool.QueryRow(ctx,
+		`SELECT stage_pct FROM policy_assignments WHERE rollout_id = $1 AND sim_id = $2`,
+		f.rolloutID, simID).Scan(&stagePct); err != nil {
+		t.Fatalf("read stage_pct after upsert: %v", err)
+	}
+	if stagePct != 100 {
+		t.Errorf("stage_pct after upsert = %d, want 100", stagePct)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM policy_assignments WHERE sim_id = $1`, simID).Scan(&rowCount); err != nil {
+		t.Fatalf("count rows after upsert: %v", err)
+	}
+	if rowCount != 1 {
+		t.Errorf("row count after upsert = %d, want 1 (must be upsert, not double-insert)", rowCount)
 	}
 }

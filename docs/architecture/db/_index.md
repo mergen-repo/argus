@@ -22,7 +22,7 @@
 | TBL-12 | esim_profiles | eSIM | → TBL-10 | No |
 | TBL-13 | policies | Policy | → TBL-01 | No |
 | TBL-14 | policy_versions | Policy | → TBL-13. FIX-231: `policy_active_version` partial unique (policy_id) WHERE state='active' — at most one active version per policy. | No |
-| TBL-15 | policy_assignments | Policy | → TBL-10, → TBL-14. FIX-231: **canonical source of truth** for active policy per SIM; trigger `trg_sims_policy_version_sync` propagates changes to `sims.policy_version_id` (sole writer). | No |
+| TBL-15 | policy_assignments | Policy | → TBL-10, → TBL-14. FIX-231: **canonical source of truth** for active policy per SIM; trigger `trg_sims_policy_version_sync` propagates changes to `sims.policy_version_id` (sole writer). FIX-233: `stage_pct INT NULL` column added (migration `20260429000001`); NULL for legacy rows; composite index `idx_policy_assignments_rollout_stage` on `(rollout_id, stage_pct)` supports SIM list cohort filter. | No |
 | TBL-16 | policy_rollouts | Policy | → TBL-13 (policy_id added FIX-231), → TBL-14. FIX-231: `policy_active_rollout` partial unique (policy_id) WHERE state IN ('pending','in_progress') — at most one active rollout per policy; INSERT violation maps to 422 `ROLLOUT_IN_PROGRESS`. FIX-232: `aborted_at TIMESTAMPTZ` column (migration 20260428000001) — set when admin aborts an in-progress rollout via `POST /policy-rollouts/{id}/abort`; does NOT revert assignments. Partial index `idx_policy_rollouts_aborted_at WHERE aborted_at IS NOT NULL`. | No |
 | TBL-17 | sessions | AAA | → TBL-10, → TBL-05 | By started_at (TimescaleDB) |
 | TBL-18 | cdrs | Analytics | → TBL-17 | By timestamp (TimescaleDB) |

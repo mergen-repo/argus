@@ -7,6 +7,7 @@ import type {
   DryRunResult,
   DiffResponse,
   PolicyRollout,
+  RolloutSummary,
   ListResponse,
   ApiResponse,
 } from '@/types/policy'
@@ -207,6 +208,20 @@ export function useRollbackRollout() {
       queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout'] })
       queryClient.invalidateQueries({ queryKey: POLICIES_KEY })
     },
+  })
+}
+
+export function useRolloutList(state = 'in_progress,paused') {
+  return useQuery({
+    queryKey: [...POLICIES_KEY, 'rollout-list', state],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('state', state)
+      params.set('limit', '50')
+      const res = await api.get<{ status: string; data: RolloutSummary[] }>(`/policy-rollouts?${params.toString()}`)
+      return res.data.data ?? []
+    },
+    staleTime: 15_000,
   })
 }
 

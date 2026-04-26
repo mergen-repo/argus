@@ -366,15 +366,15 @@ export function RolloutActivePanel({
           </Button>
         )}
         <Link
-          to={`/sims?rollout_id=${rollout.id}`}
+          to={currentStage?.pct ? `/sims?rollout_id=${rollout.id}&rollout_stage_pct=${currentStage.pct}` : `/sims?rollout_id=${rollout.id}`}
           className={cn(
             buttonVariants({ variant: 'outline', size: 'sm' }),
             'no-underline',
           )}
-          aria-label={`View migrated SIMs for rollout ${idChip}`}
+          aria-label={`View SIM cohort for rollout ${idChip}`}
         >
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          View Migrated SIMs
+          View cohort
         </Link>
       </div>
 

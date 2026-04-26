@@ -130,3 +130,17 @@ export interface ApiResponse<T> {
   status: string
   data: T
 }
+
+export interface RolloutSummary {
+  id: string
+  policy_id: string
+  policy_version_id: string
+  policy_name: string
+  policy_version_number: number
+  state: string
+  current_stage: number
+  started_at?: string
+  total_sims: number
+  migrated_sims: number
+  created_at: string
+}

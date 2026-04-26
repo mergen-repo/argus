@@ -463,3 +463,190 @@ func TestSIMStore_GetManyByIDsEnriched_Chunk500_Boundary(t *testing.T) {
 		t.Errorf("len(result) = %d, want %d", len(result), count)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// FIX-233 T8 — cohort filter + nullable projection store tests
+// ---------------------------------------------------------------------------
+
+// insertEnrichedSIMWithAssignment inserts a SIM and a policy_assignments row
+// tying it to the given rolloutID with stage_pct. Returns the SIM's ID.
+func insertEnrichedSIMWithAssignment(t *testing.T, pool *pgxpool.Pool, f enrichedFixture, rolloutID uuid.UUID, stagePct int, idx int) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	simID := insertEnrichedSIM(t, pool, f.tenantID, f.operatorID, &f.apnID, &f.policyVersionID, idx)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status, stage_pct)
+		VALUES ($1, $2, $3, NOW(), 'pending', $4)
+		ON CONFLICT (sim_id) DO UPDATE SET rollout_id = EXCLUDED.rollout_id, stage_pct = EXCLUDED.stage_pct`,
+		simID, f.policyVersionID, rolloutID, stagePct,
+	); err != nil {
+		t.Fatalf("seed policy_assignment for sim %d: %v", idx, err)
+	}
+	return simID
+}
+
+// TestSIMStore_CohortFilter_RolloutAndStagePct is the DB-gated integration
+// test for the cohort filter added by FIX-233.
+//
+// Scenario:
+//   - 2 SIMs assigned to rollout R1 at stage_pct=1
+//   - 3 SIMs assigned to rollout R1 at stage_pct=10
+//   - 5 SIMs with no policy_assignment (LEFT JOIN → NULL)
+//   - 1 SIM assigned to rollout R2 (tenant B) — must NOT appear in tenant A results
+//
+// Assertions:
+//   - Filter by RolloutID=R1, RolloutStagePct=1 → 2 rows
+//   - Filter by RolloutID=R1 (no stage) → 5 rows
+//   - Tenant-scope: R2 SIM from tenant B not returned when querying tenant A
+func TestSIMStore_CohortFilter_RolloutAndStagePct(t *testing.T) {
+	pool := testSIMEnrichedPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	s := NewSIMStore(pool)
+
+	// Fixture for tenant A
+	fA := seedEnrichedFixture(t, pool)
+
+	// Fixture for tenant B (cross-tenant isolation check)
+	fB := seedEnrichedFixture(t, pool)
+
+	// Seed rollouts. policy_assignments.rollout_id has FK fk_policy_assignments_rollout
+	// → policy_rollouts(id), so the parent rollout rows must exist before the
+	// assignments loop. Each rollout is scoped to its tenant via the policy
+	// version (fA.policyVersionID for r1, fB.policyVersionID for r2).
+	r1ID := uuid.New()
+	r2ID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO policy_rollouts (id, policy_id, policy_version_id, strategy, stages, current_stage, total_sims, state, started_at)
+		VALUES ($1, $2, $3, 'canary', '[]'::jsonb, 0, 0, 'in_progress', NOW())`,
+		r1ID, fA.policyID, fA.policyVersionID,
+	); err != nil {
+		t.Fatalf("seed policy_rollouts r1: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO policy_rollouts (id, policy_id, policy_version_id, strategy, stages, current_stage, total_sims, state, started_at)
+		VALUES ($1, $2, $3, 'canary', '[]'::jsonb, 0, 0, 'in_progress', NOW())`,
+		r2ID, fB.policyID, fB.policyVersionID,
+	); err != nil {
+		t.Fatalf("seed policy_rollouts r2: %v", err)
+	}
+	t.Cleanup(func() {
+		cctx := context.Background()
+		_, _ = pool.Exec(cctx, `DELETE FROM policy_assignments WHERE rollout_id IN ($1, $2)`, r1ID, r2ID)
+		_, _ = pool.Exec(cctx, `DELETE FROM policy_rollouts WHERE id IN ($1, $2)`, r1ID, r2ID)
+	})
+
+	// Seed 2 SIMs at stage 1, 3 SIMs at stage 10 for tenant A / rollout R1
+	var stage1IDs []uuid.UUID
+	for i := 0; i < 2; i++ {
+		id := insertEnrichedSIMWithAssignment(t, pool, fA, r1ID, 1, i)
+		stage1IDs = append(stage1IDs, id)
+	}
+	for i := 2; i < 5; i++ {
+		insertEnrichedSIMWithAssignment(t, pool, fA, r1ID, 10, i)
+	}
+
+	// 5 SIMs without any policy_assignment (LEFT JOIN → NULL)
+	for i := 5; i < 10; i++ {
+		insertEnrichedSIM(t, pool, fA.tenantID, fA.operatorID, &fA.apnID, &fA.policyVersionID, i)
+	}
+
+	// Tenant B — SIM with rollout R2 (different tenant, must not appear in tenant A results)
+	insertEnrichedSIMWithAssignment(t, pool, fB, r2ID, 1, 0)
+
+	// --- filter by rollout R1 + stage 1 ---
+	res1, _, err := s.ListEnriched(ctx, fA.tenantID, ListSIMsParams{Limit: 100, RolloutID: &r1ID, RolloutStagePct: intPtr(1)})
+	if err != nil {
+		t.Fatalf("ListEnriched(R1,stage=1): %v", err)
+	}
+	if len(res1) != 2 {
+		t.Errorf("R1+stage1 count = %d, want 2", len(res1))
+	}
+	// Verify DTO fields are populated
+	for i, sim := range res1 {
+		if sim.RolloutID == nil {
+			t.Errorf("row %d: RolloutID nil, want %v", i, r1ID)
+		} else if *sim.RolloutID != r1ID {
+			t.Errorf("row %d: RolloutID = %v, want %v", i, *sim.RolloutID, r1ID)
+		}
+		if sim.RolloutStagePct == nil {
+			t.Errorf("row %d: RolloutStagePct nil, want 1", i)
+		} else if *sim.RolloutStagePct != 1 {
+			t.Errorf("row %d: RolloutStagePct = %d, want 1", i, *sim.RolloutStagePct)
+		}
+		// Verify these are the exact SIMs from stage1
+		found := false
+		for _, id := range stage1IDs {
+			if sim.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("row %d: SIM %v not in seeded stage-1 IDs", i, sim.ID)
+		}
+	}
+
+	// --- filter by rollout R1 only (all stages) ---
+	res2, _, err := s.ListEnriched(ctx, fA.tenantID, ListSIMsParams{Limit: 100, RolloutID: &r1ID})
+	if err != nil {
+		t.Fatalf("ListEnriched(R1,no-stage): %v", err)
+	}
+	if len(res2) != 5 {
+		t.Errorf("R1 only count = %d, want 5", len(res2))
+	}
+
+	// --- cross-tenant: R2 SIM from tenant B must NOT be returned for tenant A ---
+	resA, _, err := s.ListEnriched(ctx, fA.tenantID, ListSIMsParams{Limit: 100, RolloutID: &r2ID})
+	if err != nil {
+		t.Fatalf("ListEnriched(R2, tenantA): %v", err)
+	}
+	if len(resA) != 0 {
+		t.Errorf("cross-tenant: got %d SIMs from tenant B's rollout in tenant A results, want 0", len(resA))
+	}
+}
+
+// TestSIMStore_NullablePolicyAssignment verifies that a SIM with no
+// policy_assignments row scans with nil RolloutID, RolloutStagePct, CoaStatus
+// (PAT-009: LEFT JOIN nullable scan).
+func TestSIMStore_NullablePolicyAssignment(t *testing.T) {
+	pool := testSIMEnrichedPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	s := NewSIMStore(pool)
+	f := seedEnrichedFixture(t, pool)
+
+	simID := insertEnrichedSIM(t, pool, f.tenantID, f.operatorID, &f.apnID, &f.policyVersionID, 0)
+
+	results, _, err := s.ListEnriched(ctx, f.tenantID, ListSIMsParams{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListEnriched: %v", err)
+	}
+
+	var found *SIMWithNames
+	for i := range results {
+		if results[i].ID == simID {
+			found = &results[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("seeded SIM %v not found in results", simID)
+	}
+
+	if found.RolloutID != nil {
+		t.Errorf("RolloutID = %v, want nil (no policy_assignment row)", found.RolloutID)
+	}
+	if found.RolloutStagePct != nil {
+		t.Errorf("RolloutStagePct = %v, want nil (no policy_assignment row)", found.RolloutStagePct)
+	}
+	if found.CoaStatus != nil {
+		t.Errorf("CoaStatus = %v, want nil (no policy_assignment row)", found.CoaStatus)
+	}
+}
+

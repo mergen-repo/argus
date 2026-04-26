@@ -53,7 +53,9 @@ import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import { useSIMList, useSegments, useSegmentCount, useBulkStateChange, useBulkPolicyAssign, useImportSIMs } from '@/hooks/use-sims'
 import { useJobPolling } from '@/hooks/use-jobs'
-import { usePolicyList } from '@/hooks/use-policies'
+import { usePolicyList, useRolloutList } from '@/hooks/use-policies'
+import { Link } from 'react-router-dom'
+import { wsClient } from '@/lib/ws'
 import {
   Dialog,
   DialogContent,
@@ -106,6 +108,10 @@ export default function SimListPage() {
     state: searchParams.get('state') ?? undefined,
     operator_id: searchParams.get('operator_id') ?? undefined,
     apn_id: searchParams.get('apn_id') ?? undefined,
+    policy_version_id: searchParams.get('policy_version_id') ?? undefined,
+    policy_id: searchParams.get('policy_id') ?? undefined,
+    rollout_id: searchParams.get('rollout_id') ?? undefined,
+    rollout_stage_pct: Number(searchParams.get('rollout_stage_pct')) || undefined,
     rat_type: searchParams.get('rat_type') ?? undefined,
     q: searchParams.get('q') ?? undefined,
     iccid: searchParams.get('iccid') ?? undefined,
@@ -117,10 +123,10 @@ export default function SimListPage() {
     const next = typeof updater === 'function' ? updater(filters) : updater
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev)
-      const keys: (keyof SIMListFilters)[] = ['state', 'operator_id', 'apn_id', 'rat_type', 'q', 'iccid', 'imsi', 'msisdn', 'ip']
+      const keys: (keyof SIMListFilters)[] = ['state', 'operator_id', 'apn_id', 'policy_version_id', 'policy_id', 'rollout_id', 'rollout_stage_pct', 'rat_type', 'q', 'iccid', 'imsi', 'msisdn', 'ip']
       keys.forEach((k) => {
         const v = next[k]
-        if (v) { p.set(k, v) } else { p.delete(k) }
+        if (v !== undefined && v !== null && v !== '') { p.set(k, String(v)) } else { p.delete(k) }
       })
       return p
     }, { replace: false })
@@ -141,6 +147,7 @@ export default function SimListPage() {
   const { data: operators } = useOperatorList()
   const { data: apns } = useAPNList({})
   const { data: policiesData } = usePolicyList(undefined, 'active')
+  const { data: activeRollouts = [] } = useRolloutList('in_progress,paused')
 
   const activePolicies = useMemo(() => {
     if (!policiesData?.pages) return []
@@ -223,8 +230,22 @@ export default function SimListPage() {
     if (filters.ip) {
       applied.push({ key: 'ip', label: 'IP', value: filters.ip })
     }
+    if (filters.policy_id) {
+      const pol = activePolicies.find((p) => p.id === filters.policy_id)
+      applied.push({ key: 'policy_id', label: 'Policy', value: pol?.name ?? filters.policy_id.slice(0, 8) })
+    } else if (filters.policy_version_id) {
+      applied.push({ key: 'policy_version_id', label: 'Policy', value: `v${filters.policy_version_id.slice(0, 8)}` })
+    }
+    if (filters.rollout_id) {
+      const rollout = activeRollouts.find((r) => r.id === filters.rollout_id)
+      const rolloutLabel = rollout
+        ? `${rollout.policy_name} v${rollout.policy_version_number}`
+        : filters.rollout_id.slice(0, 8)
+      const stageSuffix = filters.rollout_stage_pct ? ` stage ${filters.rollout_stage_pct}%` : ' (all migrated)'
+      applied.push({ key: 'rollout_id', label: 'Cohort', value: `${rolloutLabel}${stageSuffix}` })
+    }
     return applied
-  }, [filters, selectedStates])
+  }, [filters, selectedStates, activePolicies, activeRollouts])
 
   const handleSearch = useCallback(() => {
     const trimmed = searchInput.trim()
@@ -283,6 +304,17 @@ export default function SimListPage() {
     if (data) setLastUpdated(new Date())
   }, [data])
 
+  useEffect(() => {
+    if (!filters.rollout_id) return
+    const unsub = wsClient.on('policy.rollout_progress', (payload: unknown) => {
+      const typed = payload as { rollout_id?: string }
+      if (typed.rollout_id === filters.rollout_id) {
+        queryClient.invalidateQueries({ queryKey: ['sims'] })
+      }
+    })
+    return unsub
+  }, [filters.rollout_id, queryClient])
+
   const allSims = useMemo(() => {
     if (!data?.pages) return []
     const raw = data.pages.flatMap((page) => page.data)
@@ -330,6 +362,8 @@ export default function SimListPage() {
         const tokens = (f.state ?? '').split(',').filter((t) => t && t !== stateToken)
         return { ...f, state: tokens.length > 0 ? tokens.join(',') : undefined }
       })
+    } else if (key === 'rollout_id') {
+      setFilters((f) => ({ ...f, rollout_id: undefined, rollout_stage_pct: undefined }))
     } else {
       setFilters((f) => ({ ...f, [key]: undefined }))
     }
@@ -617,6 +651,86 @@ export default function SimListPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Policy Filter */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.policy_id || filters.policy_version_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <span>
+              {filters.policy_id
+                ? `Policy: ${activePolicies.find((p) => p.id === filters.policy_id)?.name ?? filters.policy_id.slice(0, 8)}`
+                : filters.policy_version_id
+                  ? `Policy: v${filters.policy_version_id.slice(0, 8)}`
+                  : 'Policy'}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, policy_id: undefined, policy_version_id: undefined }))}>
+              <span className="flex-1">All Policies</span>
+              {!filters.policy_id && !filters.policy_version_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {activePolicies.map((pol) => (
+              <DropdownMenuItem key={pol.id} onClick={() => setFilters((f) => ({ ...f, policy_id: pol.id, policy_version_id: undefined }))}>
+                <span className="flex-1">{pol.name}</span>
+                {filters.policy_id === pol.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Cohort Filter */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.rollout_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <span>
+              {filters.rollout_id
+                ? (() => {
+                    const r = activeRollouts.find((x) => x.id === filters.rollout_id)
+                    const name = r ? `${r.policy_name} v${r.policy_version_number}` : filters.rollout_id.slice(0, 8)
+                    return filters.rollout_stage_pct ? `Cohort: ${name} stage ${filters.rollout_stage_pct}%` : `Cohort: ${name}`
+                  })()
+                : 'Cohort'}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, rollout_id: undefined, rollout_stage_pct: undefined }))}>
+              <span className="flex-1">No cohort filter</span>
+              {!filters.rollout_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {activeRollouts.map((rollout) => (
+              <DropdownMenuItem key={rollout.id} onClick={() => setFilters((f) => ({ ...f, rollout_id: rollout.id, rollout_stage_pct: undefined }))}>
+                <span className="flex-1">{rollout.policy_name} v{rollout.policy_version_number}</span>
+                {filters.rollout_id === rollout.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+            {filters.rollout_id && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1 text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Stage</div>
+                <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, rollout_stage_pct: undefined }))}>
+                  <span className="flex-1">All migrated</span>
+                  {!filters.rollout_stage_pct && <Check className="h-3.5 w-3.5 text-accent" />}
+                </DropdownMenuItem>
+                {[1, 10, 100].map((pct) => (
+                  <DropdownMenuItem key={pct} onClick={() => setFilters((f) => ({ ...f, rollout_stage_pct: pct }))}>
+                    <span className="flex-1">{pct}%</span>
+                    {filters.rollout_stage_pct === pct && <Check className="h-3.5 w-3.5 text-accent" />}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Applied filter chips */}
         {activeFilters.map((af) => (
           <span
@@ -697,6 +811,7 @@ export default function SimListPage() {
                 <TableHead>State</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>APN</TableHead>
+                <TableHead>Policy</TableHead>
                 <TableHead>IP Pool</TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead>Created</TableHead>
@@ -715,6 +830,7 @@ export default function SimListPage() {
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -724,7 +840,7 @@ export default function SimListPage() {
 
               {!isLoading && allSims.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={12}>
+                  <TableCell colSpan={13}>
                     {activeFilters.length > 0 ? (
                       <EmptyState
                         icon={Search}
@@ -816,6 +932,20 @@ export default function SimListPage() {
                     {sim.apn_name
                       ? <span className="text-xs text-text-secondary">{sim.apn_name}</span>
                       : <span className="text-xs italic text-text-tertiary">(Unknown)</span>
+                    }
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    {sim.policy_name && sim.policy_id
+                      ? (
+                        <Link
+                          to={`/policies/${sim.policy_id}`}
+                          className="text-xs text-accent hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {sim.policy_name}{sim.policy_version_number ? ` v${sim.policy_version_number}` : ''}
+                        </Link>
+                      )
+                      : <span className="text-text-tertiary">—</span>
                     }
                   </TableCell>
                   <TableCell>

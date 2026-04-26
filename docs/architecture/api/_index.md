@@ -76,8 +76,8 @@
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
-| API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged). DTO includes enriched fields: `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via single LEFT JOIN; null for orphan rows). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
-| API-041 | GET | /api/v1/sims/:id | Get SIM detail (full). Same enriched DTO fields as API-040 (`operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number`). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
+| API-040 | GET | /api/v1/sims | List/search SIMs (cursor paged). DTO includes enriched fields: `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via single LEFT JOIN; null for orphan rows). FIX-233: added filter params `policy_version_id`, `policy_id`, `rollout_id`, `rollout_stage_pct` (all optional UUID/int, invalid UUID → 400 `INVALID_PARAM`); DTO extended with `policy_id`, `rollout_id?`, `rollout_stage_pct?`, `coa_status?`. | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md); filter+DTO extended [FIX-233](../../stories/fix-ui-review/FIX-233-sim-list-policy-cohort-filter.md) |
+| API-041 | GET | /api/v1/sims/:id | Get SIM detail (full). Same enriched DTO fields as API-040 including FIX-233 additions (`policy_id`, `rollout_id?`, `rollout_stage_pct?`, `coa_status?`). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md); DTO extended [FIX-233](../../stories/fix-ui-review/FIX-233-sim-list-policy-cohort-filter.md) |
 | API-041b | GET | /api/v1/sims?ids=uuid1,uuid2,… | Batch SIM lookup by comma-separated UUIDs (max 100). Returns `{iccid, imsi, msisdn?}` summary DTOs used for CDR Explorer MSISDN column resolution. Tenant-scoped. Added FIX-214. | JWT (sim_manager+) | See [FIX-214](../../stories/fix-ui-review/FIX-214-cdr-explorer-page.md) |
 | API-042 | POST | /api/v1/sims | Create single SIM (required body: `iccid`, `imsi`, `msisdn`, `apn_id`, `sim_type` ∈ {`physical`,`esim`}). Returns 400 `INVALID_REFERENCE` if `operator_id` / `apn_id` / `ip_address_id` fails FK check (defensive; primary path is 404 `NOT_FOUND` from handler-layer `GetByID` validation — FIX-206). | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md); FK error path added [FIX-206](../../stories/fix-ui-review/FIX-206-orphan-operator-cleanup.md) |
 | API-043 | PATCH | /api/v1/sims/:id | Update SIM metadata | JWT (sim_manager+) | See [STORY-057](../../stories/phase-10/STORY-057-data-accuracy-endpoints.md) |
@@ -131,7 +131,7 @@
 | API-084 | GET | /api/v1/ip-pools/:id/addresses | List addresses in pool. `?q=<≤64>` server-side search across address_v4/iccid/imsi/msisdn (FIX-223). DTO includes `sim_iccid`, `sim_imsi`, `sim_msisdn`, `last_seen_at` (omitempty). | JWT (operator_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 | API-085 | POST | /api/v1/ip-pools/:id/addresses/reserve | Reserve static IP for SIM | JWT (sim_manager+) | See [STORY-010](../../stories/phase-2/STORY-010-apn-crud.md) (IP pool section) |
 
-## Policies (11 endpoints)
+## Policies (12 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -147,6 +147,7 @@
 | API-098b | POST | /api/v1/policy-rollouts/{id}/abort | Abort an in-progress rollout (state→aborted; does NOT revert assignments) | JWT (policy_editor+) | FIX-232 |
 | API-099 | GET | /api/v1/policy-rollouts/:id | Get rollout status | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-099b | GET | /api/v1/policy-versions/{id1}/diff/{id2} | Diff two policy versions (unified text diff of DSL) | JWT (policy_editor+) | See [STORY-023](../../stories/phase-4/STORY-023-policy-crud.md) |
+| API-326 | GET | /api/v1/policy-rollouts | List active rollouts (filtered by state CSV). Query params: `state` (CSV of `pending,in_progress,completed,aborted,rolled_back`; default `pending,in_progress`), `limit` (1..100, default 20). Returns `RolloutSummary[]` with `id`, `policy_id`, `policy_version_id`, `state`, `current_stage`, `started_at`. 400 `INVALID_PARAM` on out-of-range limit. FIX-233. | JWT (policy_editor+) | `internal/api/policy/handler.go ListRollouts`; used by FE SIM list Cohort chip dropdown |
 
 ## Sessions (5 endpoints)
 
@@ -569,10 +570,11 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
-**Total: 256 REST endpoints + 11 WebSocket event types**
+**Total: 257 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
 > Index updated 2026-04-21 by FIX-212 review — 1 row addition (API-316) for event catalog endpoint shipped by FIX-212 AC-5.
 > Index updated 2026-04-25 by FIX-228 Wave 5 docs — 2 row additions (API-317..318) for password reset request + confirm endpoints. Auth & Users count updated 20→22.
 > Index updated 2026-04-25 by FIX-229 review — 7 row additions (API-319..325) for alert suppressions CRUD, similar-alerts, and tri-format export (CSV/JSON/PDF). Total updated 249→256.
+> Index updated 2026-04-26 by FIX-233 review — 1 row addition (API-326) for `GET /policy-rollouts` list active rollouts; API-040/041 updated with new filter params + DTO additions (`policy_id`, `rollout_id?`, `rollout_stage_pct?`, `coa_status?`); Policies count 11→12. Total updated 256→257.

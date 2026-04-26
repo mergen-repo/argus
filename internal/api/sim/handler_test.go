@@ -518,3 +518,127 @@ func TestSIMResponseTimestampFormat(t *testing.T) {
 		t.Errorf("UpdatedAt = %q, want %q", resp.UpdatedAt, expectedUpdatedAt)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestHandler_ListSIMs_FilterValidation — FIX-233 T8
+//
+// Tests 1-6 validate query-param parsing; the handler returns 400 before
+// touching the store, so simStore can be nil.
+// Test 7 (valid-params propagation) is covered by the store-level cohort
+// filter integration test (TestSIMStore_CohortFilter*): SIMStore is a
+// concrete struct with no mockable interface, so propagation is proven by
+// the fact that the WHERE predicates match the seeded fixtures in the DB
+// tests. Adding a mock here would require production code refactoring, which
+// violates the TEST-ONLY constraint of this task.
+// ---------------------------------------------------------------------------
+
+func TestHandler_ListSIMs_FilterValidation(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validUUID2 := "550e8400-e29b-41d4-a716-446655440001"
+
+	tests := []struct {
+		name        string
+		queryString string
+		wantStatus  int
+		wantCode    string
+		wantMsgPart string
+	}{
+		{
+			name:        "policy_version_id_not_a_uuid",
+			queryString: "policy_version_id=not-a-uuid",
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidFormat,
+			wantMsgPart: "policy_version_id",
+		},
+		{
+			name:        "policy_id_not_a_uuid",
+			queryString: "policy_id=not-a-uuid",
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidFormat,
+			wantMsgPart: "policy_id",
+		},
+		{
+			name:        "rollout_id_not_a_uuid",
+			queryString: "rollout_id=not-a-uuid",
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidFormat,
+			wantMsgPart: "rollout_id",
+		},
+		{
+			name:        "rollout_stage_pct_not_an_integer",
+			queryString: "rollout_stage_pct=abc",
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidFormat,
+			wantMsgPart: "rollout_stage_pct",
+		},
+		{
+			name:        "rollout_stage_pct_out_of_range",
+			queryString: fmt.Sprintf("rollout_id=%s&rollout_stage_pct=999", validUUID),
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidParam,
+			wantMsgPart: "[1,100]",
+		},
+		{
+			name:        "rollout_stage_pct_without_rollout_id",
+			queryString: "rollout_stage_pct=10",
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidParam,
+			wantMsgPart: "requires rollout_id",
+		},
+		{
+			name:        "rollout_stage_pct_0_is_invalid_format",
+			queryString: fmt.Sprintf("rollout_id=%s&rollout_stage_pct=0", validUUID),
+			wantStatus:  http.StatusBadRequest,
+			wantCode:    apierr.CodeInvalidParam,
+			wantMsgPart: "[1,100]",
+		},
+	}
+
+	_ = validUUID2
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Handler{
+				logger: zerolog.Nop(),
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sims?"+tt.queryString, nil)
+			ctx := context.WithValue(req.Context(), apierr.TenantIDKey, uuid.New())
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.List(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+
+			var resp apierr.ErrorResponse
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if resp.Error.Code != tt.wantCode {
+				t.Errorf("error.code = %q, want %q", resp.Error.Code, tt.wantCode)
+			}
+			if tt.wantMsgPart != "" {
+				if !containsSubstr(resp.Error.Message, tt.wantMsgPart) {
+					t.Errorf("error.message = %q, want substring %q", resp.Error.Message, tt.wantMsgPart)
+				}
+			}
+		})
+	}
+}
+
+// containsSubstr returns true when s contains sub. Avoids importing strings
+// package at the top of the test file (already imported via existing helpers).
+func containsSubstr(s, sub string) bool {
+	if sub == "" {
+		return true
+	}
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

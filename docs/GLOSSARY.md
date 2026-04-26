@@ -329,6 +329,14 @@
 | Tenant Context Switch | A super_admin-only mechanism that overrides the effective tenant scope for the current access token via the optional `active_tenant` JWT claim. When set and `role='super_admin'`, every tenant-scoped middleware path (`apierr.TenantIDKey`) uses `active_tenant` instead of the admin's home tenant. The home tenant itself stays in `tenant_id` so audit logs can correlate "admin X acting as tenant Y" (`home_tenant_id` metadata). Minted by `POST /auth/switch-tenant` (API-262), cleared by `POST /auth/exit-tenant-context` (API-263). Non-super_admin tokens carrying `active_tenant` are ignored by middleware (defensive). | `internal/auth/jwt.go` (Claims.ActiveTenantID), `internal/gateway/auth_middleware.go` (applyAuthContext), `internal/api/admin/switch_tenant.go`, API-262/263 |
 | System View | The super_admin's default tenant-less mode post-login — no `active_tenant` claim, effective tenant equals home tenant. Visually indicated in the topbar chip by the globe icon and "System View" label. Cross-tenant admin screens (`/admin/kill-switches`, `/admin/maintenance`, `/admin/tenants`, etc.) are usable in both System View and an active tenant context; the distinction is surfaced solely in the UI chip. | `web/src/components/layout/tenant-switcher.tsx`, frontend auth store `activeTenantId()` selector |
 
+## Rollout Cohort & Filter Terms
+
+| Term | Definition | Context |
+|------|-----------|---------|
+| Rollout Cohort | The subset of SIMs assigned to a specific rollout at a given stage percentage (e.g., stage 10 = 10% of total SIMs). A cohort is identified by `(rollout_id, stage_pct)` and stored in `policy_assignments.rollout_id` + `policy_assignments.stage_pct`. | FIX-233, TBL-15, `idx_policy_assignments_rollout_stage` |
+| Cohort Filter | A UI filter chip on the SIM List page that narrows results to SIMs belonging to a specific rollout cohort. The chip selects a rollout by name and optionally a stage percentage from a submenu. Translates to query params `rollout_id` + `rollout_stage_pct` on `GET /api/v1/sims`. AC-7 partial: version submenu deferred to D-141 (FIX-243). | FIX-233 AC-7, `web/src/pages/sims/index.tsx` |
+| Active Rollouts Endpoint | `GET /api/v1/policy-rollouts` (API-326) — returns `RolloutSummary[]` for rollouts matching a `state` CSV filter (default `pending,in_progress`). Used by the SIM list Cohort chip dropdown to populate rollout names. Query params: `state` (CSV), `limit` (1..100). 400 `INVALID_PARAM` on out-of-range limit. | FIX-233, API-326, `internal/api/policy/handler.go ListRollouts` |
+
 ## Regulatory Terms
 
 | Term | Definition | Context |

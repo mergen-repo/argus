@@ -31,6 +31,7 @@ const (
 const (
 	CodeInternalError      = "INTERNAL_ERROR"
 	CodeInvalidFormat      = "INVALID_FORMAT"
+	CodeInvalidParam       = "INVALID_PARAM"
 	CodeValidationError    = "VALIDATION_ERROR"
 	CodeNotFound           = "NOT_FOUND"
 	CodeAlertNotFound      = "ALERT_NOT_FOUND"

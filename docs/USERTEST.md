@@ -4454,3 +4454,83 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. DevTools → Elements → `RolloutActivePanel` root element → herhangi bir child class listesinde `text-red-NNN`, `bg-blue-NNN`, `text-green-NNN` vb. hardcoded Tailwind palet utility bulunmamalı; yalnızca `text-danger`, `text-success`, `text-warning`, `bg-bg-surface`, `bg-accent-dim` vb. CSS değişken tabanlı token sınıfları olmalı.
 2. Progress bar element'ini incele → `role="progressbar"`, `aria-valuenow`, `aria-valuemin="0"`, `aria-valuemax="100"` attribute'ları mevcut olmalı.
 3. Abort ve Rollback butonlarında `aria-label` mevcut olmalı ve boş olmamalı.
+
+---
+
+## FIX-233: SIM List Policy column + Rollout Cohort filter
+
+> **UI Smoke Durumu:** F-U1 (Global React #185 crash — `useFilteredEventsSelector` re-render loop) nedeniyle SIM listesi sayfası açılırken React kilitlenebilir. Bu, FIX-249 kapsamında düzeltilecek PRE-EXISTING hatadır; FIX-233 regresyonu DEĞİLDİR.
+> **BLOCKED by FIX-249:** UI tabanlı senaryolar FIX-249 tamamlanana kadar çalışmayabilir. Network katmanı (curl) senaryoları bu süre zarfında primer doğrulama yöntemidir.
+
+### 1. Policy Sütunu Görünümü (AC-6)
+
+> BLOCKED by FIX-249 — curl ile network katmanı doğrulaması:
+
+1. `curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/sims?limit=20" | jq '.data[].policy_name'` → politika atanmış SIM'ler için `"Demo Premium v3"` vb. değer, atanmamış SIM'ler için `null` gelmeli.
+2. `curl -s ... | jq '.data[].policy_id'` → policy_id UUID değeri gelmeli (atanmış SIM'lerde).
+3. UI mevcut olduğunda: SIM listesinde 13. kolon "Policy" başlıklı olmalı; "Demo Premium v3" linki tıklanabilir → `/policies/{policy_id}` sayfasına yönlendirmeli. Politikası olmayan SIM satırında "—" gösterilmeli.
+
+### 2. Policy Filter Chip (AC-7 — PARTIAL)
+
+> AC-7 kısmi uygulama: Politika adı chip'i çalışır, ancak versiyon alt menüsü D-141 kapsamında ertelenmiştir.
+
+1. UI smoke (FIX-249 sonrası): Filter bar'da "Policy" chip'ini tıkla → mevcut politikalar dropdown olarak listelensin.
+2. Bir politika seç → URL `?policy_id={uuid}` parametresi eklenmeli.
+3. curl doğrulaması: `curl -s ... "http://localhost:8080/api/v1/sims?policy_id={geçerli-uuid}"` → yalnızca o politikaya atanmış SIM'ler gelmeli.
+4. `curl -s ... "http://localhost:8080/api/v1/sims?policy_id=gecersiz-uuid"` → `400 INVALID_PARAM` hatası gelmeli.
+5. Versiyon alt menüsü: D-141 kapsamında ertelenmiştir; `policy_version_id` URL parametresi doğrudan girilebilir ve çalışır.
+
+### 3. Cohort Filter Chip (AC-7 — Cohort kısmı PASS)
+
+1. `curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/policy-rollouts?state=pending,in_progress&limit=10" | jq '.'` → aktif rollout listesi gelmeli (boş liste de kabul edilir: `[]`).
+2. Rollout varsa: `curl -s ... "http://localhost:8080/api/v1/sims?rollout_id={rollout_uuid}"` → o rollout'a atanmış SIM'ler gelmeli.
+3. `curl -s ... "http://localhost:8080/api/v1/sims?rollout_id={rollout_uuid}&rollout_stage_pct=10"` → stage 10'a atanmış SIM'ler gelmeli.
+4. `curl -s ... "http://localhost:8080/api/v1/sims?rollout_stage_pct=150"` → `400 INVALID_PARAM` (1-100 dışı) gelmeli.
+5. UI smoke (FIX-249 sonrası): "Cohort" chip'i tıkla → rollout isimleri listesi gösterilmeli; rollout seçilince stage alt menüsü `[1, 10, 100]` görünmeli.
+
+### 4. URL Deep-Linking (AC-8)
+
+1. Tarayıcıda direkt URL gir: `/sims?policy_id={uuid}` → sayfa açıldığında Policy chip'i zaten seçili gelsin.
+2. `/sims?rollout_id={uuid}&rollout_stage_pct=10` → Cohort chip seçili + stage=10 seçili olmalı.
+3. `/sims?policy_version_id={uuid}` → policy_version_id parametresi query'ye eklenmeli ve filtreleme çalışmalı.
+4. Filtreler temizlenince URL parametreleri de temizlenmeli.
+
+### 5. View Cohort Linki — RolloutActivePanel (AC-9)
+
+1. `/policies/{id}` sayfasında aktif rollout varsa `RolloutActivePanel` render olmalı.
+2. "View cohort" linkine tıkla → `/sims?rollout_id={rolloutId}&rollout_stage_pct={currentStage}` URL'ine yönlenmeli.
+3. SIM listesi açıldığında Cohort chip'i o rollout + stage için seçili olmalı.
+4. curl ile: Link URL'ini kontrol et → hem `rollout_id` hem `rollout_stage_pct` parametreleri içermeli.
+
+### 6. WS Refetch (AC-9 — WS kısmı)
+
+1. Açık SIM listesinde (FIX-249 sonrası) terminal'den `curl -X POST .../policy-rollouts/{id}/advance` yap.
+2. Birkaç saniye içinde SIM listesi sayfasının yeniden çekildiğini gözlemle (DevTools → Network → `GET /sims` yeni isteği).
+3. DevTools → Network → WS tab → `ws://localhost:8081` → `policy.rollout_progress` mesajı tetiklendiğinde refetch.
+
+### 7. Backend Parametre Validasyonu (AC-4)
+
+1. `curl -s ... "http://localhost:8080/api/v1/sims?policy_id=not-a-uuid"` → `400 INVALID_PARAM`.
+2. `curl -s ... "http://localhost:8080/api/v1/sims?rollout_id=not-a-uuid"` → `400 INVALID_PARAM`.
+3. `curl -s ... "http://localhost:8080/api/v1/sims?rollout_stage_pct=0"` → `400 INVALID_PARAM` (0 kabul edilmez).
+4. `curl -s ... "http://localhost:8080/api/v1/sims?rollout_stage_pct=101"` → `400 INVALID_PARAM`.
+5. Geçerli kombinasyon: `?rollout_id={uuid}&rollout_stage_pct=10` → 200 ve filtreli sonuç.
+
+### 8. SIM DTO Alanları (AC-5)
+
+1. `curl -s ... "http://localhost:8080/api/v1/sims/{sim_id}" | jq '{policy_name, policy_version, policy_version_id, policy_id, rollout_id, rollout_stage_pct, coa_status}'` → politika atanmış SIM'de bu alanların varlığını kontrol et.
+2. Politika atanmamış SIM için: `policy_name`, `policy_id`, `policy_version_id` → `null` veya absent (omitempty); `rollout_id`, `rollout_stage_pct`, `coa_status` → absent.
+3. `policy_id` UUID, clickable link için kullanılır; `policy_version_id` filtre hedefi için kullanılır.
+
+### 9. Policy JOIN performansı (AC-10)
+
+1. `EXPLAIN ANALYZE` ile `SELECT ... FROM sims LEFT JOIN policy_assignments pa ON pa.sim_id = sims.id WHERE sims.tenant_id = $1` çalıştır.
+2. `idx_policy_assignments_sim` index scan kullanıldığını doğrula (Seq Scan olmamalı).
+3. Cohort filtreli sorgu: WHERE koşuluna `pa.rollout_id = $X AND pa.stage_pct = $Y` eklendiğinde `idx_policy_assignments_rollout_stage` composite index kullanıldığını doğrula.
+4. Referans: `docs/stories/fix-ui-review/FIX-233-perf.md` — dev-scale p95 = 9.82ms, AC-10 PASS. Staging-scale (10K+ SIM) validasyonu D-143 kapsamında ertelenmiştir.
+
+### 10. Migration ve Index Kontrolü
+
+1. `psql $DATABASE_URL -c "\d policy_assignments"` → `stage_pct integer` sütunu görünmeli.
+2. `psql $DATABASE_URL -c "\di policy_assignments*"` → `idx_policy_assignments_rollout_stage` index'i listelenmiş olmalı.
+3. `psql $DATABASE_URL -c "SELECT migration_name FROM schema_migrations ORDER BY migration_name DESC LIMIT 5"` → `20260429000001_policy_assignments_stage_pct` en son migration'lardan biri olmalı.

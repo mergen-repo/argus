@@ -80,6 +80,7 @@ For `ACCOUNT_LOCKED`, the `details` array includes retry information:
 | `INVALID_REFERENCE` | 400 | A foreign-key reference in the request body points at a non-existent record. Defensive duplicate of handler-layer NOT_FOUND checks — emitted only when the FK would otherwise violate at DB (SQLSTATE 23503). `details[0].field` names the offending column (`operator_id`, `apn_id`, `ip_address_id`); `details[0].constraint` names the DB constraint. Added FIX-206. | `{"status":"error","error":{"code":"INVALID_REFERENCE","message":"operator_id does not reference an existing operator","details":[{"field":"operator_id","constraint":"fk_sims_operator"}]}}` |
 | `INVALID_IMSI_FORMAT` | 400 | IMSI does not conform to PLMN format (`^\d{14,15}$`). Emitted when `IMSI_STRICT_VALIDATION=true` (default) and the IMSI fails the regex at API or AAA ingestion boundary. Added FIX-207. | See below |
 | `INVALID_SEVERITY` | 400 | Severity value is not in the canonical taxonomy (`critical`, `high`, `medium`, `low`, `info`). Sent by every endpoint that accepts a severity filter or severity payload field. Added FIX-211. | `{"status":"error","error":{"code":"INVALID_SEVERITY","message":"severity must be one of: critical, high, medium, low, info; got 'warning'"}}` |
+| `INVALID_PARAM` | 400 | A query parameter value is syntactically valid but out of accepted range or semantics (e.g. `rollout_stage_pct` out of 1–100 range, `limit` > max). Distinct from `INVALID_FORMAT` (malformed body) and `VALIDATION_ERROR` (422 body field errors). Added FIX-233. | `{"status":"error","error":{"code":"INVALID_PARAM","message":"rollout_stage_pct must be between 1 and 100"}}` |
 
 ### INVALID_IMSI_FORMAT Details
 
@@ -316,6 +317,7 @@ const (
     CodeInvalidReference  = "INVALID_REFERENCE"  // FIX-206 (FK violation translation)
     CodeInvalidIMSIFormat = "INVALID_IMSI_FORMAT" // FIX-207 (malformed IMSI rejected at API/AAA)
     CodeInvalidSeverity   = "INVALID_SEVERITY"    // FIX-211 (non-canonical severity value)
+    CodeInvalidParam      = "INVALID_PARAM"        // FIX-233 (query param out of range/semantics)
 
     // Resource
     CodeNotFound      = "NOT_FOUND"

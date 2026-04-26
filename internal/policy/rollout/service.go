@@ -304,7 +304,7 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 			break
 		}
 
-		assigned, err := s.policyStore.AssignSIMsToVersion(ctx, simIDs, rollout.PolicyVersionID, rollout.ID)
+		assigned, err := s.policyStore.AssignSIMsToVersion(ctx, simIDs, rollout.PolicyVersionID, rollout.ID, stage.Pct)
 		if err != nil {
 			return fmt.Errorf("assign sims to version: %w", err)
 		}

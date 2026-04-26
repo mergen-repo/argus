@@ -70,17 +70,21 @@ type CreateSIMParams struct {
 }
 
 type ListSIMsParams struct {
-	Cursor     string
-	Limit      int
-	ICCID      string
-	IMSI       string
-	MSISDN     string
-	IPAddress  string
-	OperatorID *uuid.UUID
-	APNID      *uuid.UUID
-	State      string
-	RATType    string
-	Q          string
+	Cursor          string
+	Limit           int
+	ICCID           string
+	IMSI            string
+	MSISDN          string
+	IPAddress       string
+	OperatorID      *uuid.UUID
+	APNID           *uuid.UUID
+	State           string
+	RATType         string
+	Q               string
+	PolicyVersionID *uuid.UUID
+	PolicyID        *uuid.UUID
+	RolloutID       *uuid.UUID
+	RolloutStagePct *int
 }
 
 var validTransitions = map[string][]string{
@@ -1379,7 +1383,11 @@ type SIMWithNames struct {
 	OperatorCode        *string
 	APNName             *string
 	PolicyName          *string
+	PolicyID            *uuid.UUID // pol.id (NULL when SIM has no policy assigned) // FIX-233
 	PolicyVersionNumber *int
+	RolloutID           *uuid.UUID // policy_assignments.rollout_id (NULL if SIM not in any rollout) // FIX-233
+	RolloutStagePct     *int       // policy_assignments.stage_pct // FIX-233
+	CoaStatus           *string    // policy_assignments.coa_status (pending/queued/acked/failed) // FIX-233
 }
 
 // PAT-006: scanSIMWithNames is the ONLY scan helper for SIMWithNames.
@@ -1393,7 +1401,8 @@ func scanSIMWithNames(row pgx.Row) (*SIMWithNames, error) {
 		&s.MaxConcurrentSessions, &s.SessionIdleTimeoutSec, &s.SessionHardTimeoutSec,
 		&s.Metadata, &s.ActivatedAt, &s.SuspendedAt, &s.TerminatedAt, &s.PurgeAt,
 		&s.CreatedAt, &s.UpdatedAt,
-		&s.OperatorName, &s.OperatorCode, &s.APNName, &s.PolicyName, &s.PolicyVersionNumber,
+		&s.OperatorName, &s.OperatorCode, &s.APNName, &s.PolicyName, &s.PolicyID, &s.PolicyVersionNumber,
+		&s.RolloutID, &s.RolloutStagePct, &s.CoaStatus, // FIX-233: nullable pointer scan (PAT-009)
 	)
 	return &s, err
 }
@@ -1405,7 +1414,8 @@ const simEnrichedJoin = `
 LEFT JOIN operators o ON s.operator_id = o.id
 LEFT JOIN apns a ON s.apn_id = a.id AND a.tenant_id = $1
 LEFT JOIN policy_versions pv ON s.policy_version_id = pv.id
-LEFT JOIN policies pol ON pv.policy_id = pol.id AND pol.tenant_id = $1`
+LEFT JOIN policies pol ON pv.policy_id = pol.id AND pol.tenant_id = $1
+LEFT JOIN policy_assignments pa ON pa.sim_id = s.id` // FIX-233: UNIQUE idx_policy_assignments_sim guarantees at most one row per SIM (no row multiplication)
 
 // simEnrichedColumns is the SELECT list for enriched queries (after simColumns with s. prefix).
 const simEnrichedSelect = `s.id, s.tenant_id, s.operator_id, s.apn_id, s.iccid, s.imsi, s.msisdn,
@@ -1416,7 +1426,9 @@ const simEnrichedSelect = `s.id, s.tenant_id, s.operator_id, s.apn_id, s.iccid, 
 	o.name AS operator_name, o.code AS operator_code,
 	COALESCE(NULLIF(a.display_name, ''), a.name) AS apn_name,
 	pol.name AS policy_name,
-	pv.version AS policy_version_number`
+	pol.id AS policy_id,
+	pv.version AS policy_version_number,
+	pa.rollout_id, pa.stage_pct, pa.coa_status` // FIX-233: nullable — NULL when SIM has no policy_assignment row
 
 // buildSIMWhereClause builds WHERE predicates and args for SIM list queries.
 // tableAlias is the table alias prefix (e.g. "s." for enriched queries, "" for plain queries).
@@ -1496,6 +1508,34 @@ func buildSIMWhereClause(p ListSIMsParams, tableAlias string, args []interface{}
 			args = append(args, cursorID)
 			argIdx++
 		}
+	}
+
+	// FIX-233: new filter predicates — policy_version_id, policy_id, rollout_id, rollout_stage_pct
+	if p.PolicyVersionID != nil {
+		// PAT-012: canonical source — sims.policy_version_id, kept in sync by trg_sims_policy_version_sync (FIX-231)
+		// Do NOT filter on policy_assignments.policy_version_id — that would re-introduce dual-source drift (F-148).
+		conditions = append(conditions, fmt.Sprintf("%spolicy_version_id = $%d /* PAT-012: canonical, trg_sims_policy_version_sync */", ta, argIdx))
+		args = append(args, *p.PolicyVersionID)
+		argIdx++
+	}
+
+	if p.PolicyID != nil {
+		// Subquery scoped by $1 (tenantID) to prevent cross-tenant leakage.
+		conditions = append(conditions, fmt.Sprintf("%spolicy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $%d AND tenant_id = $1)", ta, argIdx))
+		args = append(args, *p.PolicyID)
+		argIdx++
+	}
+
+	if p.RolloutID != nil {
+		conditions = append(conditions, fmt.Sprintf("pa.rollout_id = $%d", argIdx))
+		args = append(args, *p.RolloutID)
+		argIdx++
+	}
+
+	if p.RolloutStagePct != nil {
+		conditions = append(conditions, fmt.Sprintf("pa.stage_pct = $%d", argIdx))
+		args = append(args, *p.RolloutStagePct)
+		argIdx++
 	}
 
 	return conditions, args, argIdx

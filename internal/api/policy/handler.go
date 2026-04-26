@@ -1420,3 +1420,103 @@ func (h *Handler) GetRollout(w http.ResponseWriter, r *http.Request) {
 	}
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
+
+// rolloutSummaryDTO is the wire shape returned by ListRollouts.
+type rolloutSummaryDTO struct {
+	ID                  string  `json:"id"`
+	PolicyID            string  `json:"policy_id"`
+	PolicyVersionID     string  `json:"policy_version_id"`
+	PolicyName          string  `json:"policy_name"`
+	PolicyVersionNumber int     `json:"policy_version"`
+	State               string  `json:"state"`
+	CurrentStage        int     `json:"current_stage"`
+	TotalSIMs           int     `json:"total_sims"`
+	MigratedSIMs        int     `json:"migrated_sims"`
+	StartedAt           *string `json:"started_at"`
+	CreatedAt           string  `json:"created_at"`
+}
+
+var validRolloutStates = map[string]bool{
+	"pending":      true,
+	"in_progress":  true,
+	"paused":       true,
+	"completed":    true,
+	"rolled_back":  true,
+	"aborted":      true,
+}
+
+// ListRollouts handles GET /api/v1/policy-rollouts.
+//
+// Query params:
+//   - state: optional CSV of rollout states (whitelist: pending, in_progress, paused, completed, rolled_back, aborted); default "in_progress,paused"
+//   - limit: optional int in [1,100]; default 50
+//
+// No cursor pagination — active rollouts are bounded (cap 100 per request).
+// Returns a standard success envelope with a JSON array (never null — FIX-241 PAT-018).
+func (h *Handler) ListRollouts(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	var states []string
+	if raw := r.URL.Query().Get("state"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			if !validRolloutStates[s] {
+				apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidParam,
+					fmt.Sprintf("state contains invalid value %q", s))
+				return
+			}
+			states = append(states, s)
+		}
+	}
+
+	limit := 50
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		n, err := strconv.Atoi(rawLimit)
+		if err != nil || n < 1 || n > 100 {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "limit must be an integer in [1,100]")
+			return
+		}
+		limit = n
+	}
+
+	if h.policyStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Policy store not available")
+		return
+	}
+
+	rs, err := h.policyStore.ListRollouts(r.Context(), tenantID, store.ListRolloutsParams{
+		States: states,
+		Limit:  limit,
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list rollouts")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	dtos := make([]rolloutSummaryDTO, 0, len(rs))
+	for _, row := range rs {
+		dto := rolloutSummaryDTO{
+			ID:                  row.ID.String(),
+			PolicyID:            row.PolicyID.String(),
+			PolicyVersionID:     row.PolicyVersionID.String(),
+			PolicyName:          row.PolicyName,
+			PolicyVersionNumber: row.PolicyVersionNumber,
+			State:               row.State,
+			CurrentStage:        row.CurrentStage,
+			TotalSIMs:           row.TotalSIMs,
+			MigratedSIMs:        row.MigratedSIMs,
+			CreatedAt:           row.CreatedAt.Format(time.RFC3339Nano),
+		}
+		if row.StartedAt != nil {
+			s := row.StartedAt.Format(time.RFC3339Nano)
+			dto.StartedAt = &s
+		}
+		dtos = append(dtos, dto)
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
