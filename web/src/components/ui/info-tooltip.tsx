@@ -44,7 +44,8 @@ export const InfoTooltip = React.memo(function InfoTooltip({
   }, [])
 
   if (!content) {
-    if (process.env.NODE_ENV !== 'production') {
+    // FIX-250: Vite-native env (process.env unavailable in browser bundle)
+    if (import.meta.env.DEV) {
       console.warn(`[InfoTooltip] Unknown term: "${term}". Add it to glossary-tooltips.ts.`)
     }
     return <span className={className}>{children}</span>

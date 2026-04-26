@@ -4578,3 +4578,26 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 2. Her rota geçişinde console temiz kalmalı.
 3. Son olarak drawer'ı aç → filter chips çalışmalı, console temiz.
 4. **Beklenen:** 0 React #185 hatası; navigasyon boyunca uygulama kararlı kalır.
+
+## FIX-250: Vite-native env access in info-tooltip
+
+> `web/src/components/ui/info-tooltip.tsx` satır 47-48 — `process.env.NODE_ENV !== 'production'` yerine `import.meta.env.DEV` kullanılıyor. Build-time boolean; Vite prod bundle'da tree-shake edilir.
+
+### Senaryo 1 — Container build temizliği (AC-4 keystone)
+
+1. Proje kökünde `make build` komutunu çalıştır.
+2. **Beklenen:** Komut hatasız tamamlanmalı. Önceden `Cannot find name 'process'` hatası ile düşüyordu (FIX-222 kalıntısı); FIX-250 sonrası bu hata ortadan kalkar.
+3. Docker image `argus-argus:latest` başarıyla oluşturulmalı.
+
+### Senaryo 2 — Dev mode davranışı korundu (AC-5)
+
+1. `make web-dev` ile dev server'ı başlat.
+2. InfoTooltip kullanan bir sayfaya git (örn. policy editor side panel veya IP pool detail sayfasındaki tooltip'li başlıklar).
+3. Sözlük terimi tanımlı olmayan bir InfoTooltip görüntülenirse DevTools → Console'da `[InfoTooltip] unknown term:` içeren `console.warn` mesajı gözüklü olmalı.
+4. **Beklenen:** Dev modda uyarı mesajı baskılanmıyor; önceki davranış korunmuş.
+
+### Senaryo 3 — Prod bundle temiz (AC-5 prod tarafı)
+
+1. `cd web && pnpm build` komutunu çalıştır.
+2. **Beklenen:** Build hatasız tamamlanmalı.
+3. Doğrulama: `grep -r "console\.warn" web/dist/assets/*.js | grep -i "infoTooltip\|unknown term"` → çıktı yok bekleniyor. Vite prod modunda `import.meta.env.DEV === false` olduğu için dev-only `console.warn` bloğu tree-shake ile bundle'dan çıkar.
