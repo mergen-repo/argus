@@ -117,10 +117,10 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-237 (M2M-centric Event Taxonomy + Notification Redesign — aggregate/digest events, per-SIM spam removal — Wave 8 P0 last; XL effort)
-- Step: Commit
-- Last closed: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; SoR JSONB plumbing + coa_failure_reason migration + GetAssignmentDetailBySIM helper + Handler enricher + session-entity audit publisher + FE polish; DEV-398..407; D-147 + D-148 deferred)
-- Prior closures: FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)
+- Story: — (FIX-237 closed; next FIX-243 in Wave 9 PENDING)
+- Step: —
+- Last closed: FIX-237 [x] DONE 2026-04-27 (Wave 8 P0 last — M2M Event Taxonomy + Notification Redesign; 3-tier classification, digest worker, env-gated migration, NATS retention 168h, FE Preferences tier filter, 12 USERTEST scenarios; DEV-501..509; D-150..D-156 routed; commit 8c5553c, 43 files +4120/-142)
+- Prior closures: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; DEV-398..407; D-147 + D-148 deferred), FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)
 - Prior closures: FIX-253 [x] DONE 2026-04-26 (Suspend atomic IP release + Activate 422 + audit; DEV-390..393), FIX-251 [x] DONE 2026-04-26 (PAT-006 RECURRENCE #3; DEV-389), FIX-252 [x] DONE 2026-04-26 (zero-code PAT-023 schema drift; DEV-386..388)
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)

@@ -443,7 +443,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 |---|-------|------|--------|--------|-------------|
 | FIX-241 | Global API nil-slice fix — `WriteList` helper normalize nil → `[]` (global crash root cause) | P0 | XS | [x] DONE (2026-04-26) | — (unblocks many) |
 | FIX-242 | Session Detail extended DTO populate — SoR/Policy/Quota fields backend kod | P0 | M | [x] DONE (2026-04-26) | FIX-231 |
-| FIX-237 | M2M-centric Event Taxonomy + Notification Redesign — aggregate/digest events, per-SIM spam kaldır | P0 | XL | [~] IN PROGRESS — Review | FIX-212 |
+| FIX-237 | M2M-centric Event Taxonomy + Notification Redesign — aggregate/digest events, per-SIM spam kaldır | P0 | XL | [x] DONE (2026-04-27) | FIX-212 |
 
 ### Wave 9 — Phase 2 P1 Feature Completion
 
