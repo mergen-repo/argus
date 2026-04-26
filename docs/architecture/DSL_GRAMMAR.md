@@ -368,3 +368,33 @@ The parser provides precise error locations for syntax and semantic errors:
 6. **Time range format**: Must be HH:MM-HH:MM in 24-hour format. Range wrapping past midnight is allowed (e.g., `22:00-06:00`).
 7. **RAT type values**: Must be one of `nb_iot`, `lte_m`, `lte`, `nr_5g`.
 8. **Action parameter types**: Each action has a fixed parameter signature; mismatched types are errors.
+
+## Predicate Execution (SQL Backend)
+
+`dsl.ToSQLPredicate` is the canonical builder that translates a compiled MATCH block into a parameterized SQL WHERE fragment. It is the **only** permitted way to produce SQL from DSL — callers must never construct predicates manually.
+
+### Whitelisted Fields
+
+| Field | SQL Fragment | Notes |
+|-------|-------------|-------|
+| `apn` | `s.apn_id = (SELECT id FROM apns WHERE tenant_id = $T AND name = $N)` | Tenant-scoped sub-select |
+| `operator` | `s.operator_id = (SELECT id FROM operators WHERE code = $N)` | Global — no tenant_id on operators |
+| `imsi_prefix` | `s.imsi LIKE $N` | Value appended with `%` before binding |
+| `rat_type` | `s.rat_type = $N` | Direct string column |
+| `sim_type` | `s.sim_type = $N` | Direct string column |
+
+### Rules
+
+- **Unknown field** → `err = fmt.Errorf("dsl: field %q not allowed in MATCH→SQL", field)`. The API handler returns HTTP 422 INVALID_DSL. The field name is NEVER concatenated into SQL.
+- **All values** bound via `$N` pgx placeholders — never via `fmt.Sprintf` string interpolation. This makes SQL injection structurally impossible through this path.
+- **Empty MATCH** (`match == nil` or zero conditions) → returns `("TRUE", nil, nextArgIdx, nil)`. AND-joined with the base query predicate; effectively no SIM narrowing.
+- **Multiple conditions** → joined with ` AND `.
+- **Fail-closed**: if `dsl.CompileSource` returns error-severity diagnostics, `compiledMatchFromVersion` returns a non-nil error rather than falling back to `TRUE` (which would migrate ALL active tenant SIMs).
+
+### Usage Pattern
+
+```go
+predicate, args, _, err := dsl.ToSQLPredicate(&compiled.Match, tenantArgIdx, startArgIdx)
+// predicate is safe to embed in WHERE clause; args bound by pgx
+count, err := simStore.CountWithPredicate(ctx, tenantID, predicate, args)
+```

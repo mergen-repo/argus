@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -102,6 +104,40 @@ func (s *Service) SetCoADispatcher(cd CoADispatcher) {
 	s.coaDispatcher = cd
 }
 
+// compiledMatchFromVersion extracts the CompiledMatch from a stored policy
+// version by re-compiling its DSL source. Returns (nil, nil) when DSLContent
+// is empty — `dsl.ToSQLPredicate` already maps a nil match to "TRUE".
+//
+// Re-compiling from DSLContent (rather than deserializing CompiledRules JSONB)
+// keeps a single source of truth and avoids JSON-shape drift risk.
+// The version was already validated at CreateVersion time, so any compile
+// error here indicates corruption and MUST fail closed: surface the error to
+// the caller so the rollout aborts instead of silently degrading to "TRUE"
+// (which would migrate ALL active tenant SIMs — see FIX-230 Gate F-A6).
+//
+// dsl.CompileSource returns (nil, errs, nil) when the parser produces any
+// "error"-severity diagnostic. We must inspect both return paths: the err
+// channel for compiler-stage failures, AND the errs slice for parse-stage
+// failures.
+func compiledMatchFromVersion(version *store.PolicyVersion) (*dsl.CompiledMatch, error) {
+	if version == nil || strings.TrimSpace(version.DSLContent) == "" {
+		return nil, nil
+	}
+	compiled, errs, err := dsl.CompileSource(version.DSLContent)
+	if err != nil {
+		return nil, fmt.Errorf("rollout: re-compile dsl for version %s: %w", version.ID, err)
+	}
+	for _, e := range errs {
+		if e.Severity == "error" {
+			return nil, fmt.Errorf("rollout: stored dsl for version %s has parse error at line %d: %s", version.ID, e.Line, e.Message)
+		}
+	}
+	if compiled == nil {
+		return nil, fmt.Errorf("rollout: stored dsl for version %s did not compile (no error returned)", version.ID)
+	}
+	return &compiled.Match, nil
+}
+
 func (s *Service) StartRollout(ctx context.Context, tenantID, versionID uuid.UUID, stagePcts []int, createdBy *uuid.UUID) (*store.PolicyRollout, error) {
 	if len(stagePcts) == 0 {
 		stagePcts = []int{1, 10, 100}
@@ -124,14 +160,30 @@ func (s *Service) StartRollout(ctx context.Context, tenantID, versionID uuid.UUI
 		return nil, store.ErrRolloutInProgress
 	}
 
-	totalSIMs := 0
+	// FIX-230 AC-3 + Gate F-A1: prefer the cached affected_sim_count when it
+	// has been computed (CreateVersion populates it; a non-nil pointer is
+	// authoritative — including an explicit zero meaning "no SIMs match").
+	// Only fall back to a live predicate count when the cache is unset
+	// (nil pointer) — this avoids a redundant count for tenants whose policy
+	// legitimately matches zero SIMs.
+	var totalSIMs int
 	if version.AffectedSIMCount != nil {
 		totalSIMs = *version.AffectedSIMCount
-	}
-	if totalSIMs == 0 {
-		count, countErr := s.simStore.CountByFilters(ctx, tenantID, store.SIMFleetFilters{})
+	} else {
+		// Cache miss: translate the version's DSL MATCH into a parameterized
+		// SQL predicate and count active SIMs that satisfy it. Empty MATCH →
+		// predicate "TRUE" (counts ALL active tenant SIMs — preserves AC-5).
+		match, mErr := compiledMatchFromVersion(version)
+		if mErr != nil {
+			return nil, fmt.Errorf("rollout: compile match for version %s: %w", version.ID, mErr)
+		}
+		predicate, predArgs, _, predErr := dsl.ToSQLPredicate(match, 1, 2)
+		if predErr != nil {
+			return nil, fmt.Errorf("rollout: translate dsl predicate: %w", predErr)
+		}
+		count, countErr := s.simStore.CountWithPredicate(ctx, tenantID, predicate, predArgs)
 		if countErr != nil {
-			return nil, fmt.Errorf("count affected sims: %w", countErr)
+			return nil, fmt.Errorf("rollout: count sims with predicate: %w", countErr)
 		}
 		totalSIMs = count
 	}
@@ -211,6 +263,29 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 		return s.policyStore.UpdateRolloutProgress(ctx, rollout.ID, rollout.MigratedSIMs, stageIndex, stagesJSON)
 	}
 
+	// FIX-230 AC-2/AC-6: compute the DSL→SQL predicate ONCE per ExecuteStage
+	// invocation — it is identical for every batch of the rollout.
+	//
+	// Argument numbering note: SelectSIMsForStage binds $1=tenant, $2=rolloutID
+	// unconditionally, then conditionally binds $3=previousVersionID when it is
+	// non-nil. So the DSL args start at $3 (no prevVer) or $4 (with prevVer).
+	version, vErr := s.policyStore.GetVersionWithTenant(ctx, rollout.PolicyVersionID, tenantID)
+	if vErr != nil {
+		return fmt.Errorf("rollout: load version for stage: %w", vErr)
+	}
+	match, mErr := compiledMatchFromVersion(version)
+	if mErr != nil {
+		return fmt.Errorf("rollout: compile match for version %s: %w", version.ID, mErr)
+	}
+	startArgIdx := 3
+	if rollout.PreviousVersionID != nil {
+		startArgIdx = 4
+	}
+	predicate, predArgs, _, predErr := dsl.ToSQLPredicate(match, 1, startArgIdx)
+	if predErr != nil {
+		return fmt.Errorf("rollout: translate dsl predicate: %w", predErr)
+	}
+
 	totalMigrated := rollout.MigratedSIMs
 	targetReached := false
 
@@ -220,7 +295,7 @@ func (s *Service) ExecuteStage(ctx context.Context, rollout *store.PolicyRollout
 			batchCount = remaining
 		}
 
-		simIDs, err := s.policyStore.SelectSIMsForStage(ctx, tenantID, rollout.ID, rollout.PreviousVersionID, batchCount)
+		simIDs, err := s.policyStore.SelectSIMsForStage(ctx, tenantID, rollout.ID, rollout.PreviousVersionID, predicate, predArgs, batchCount)
 		if err != nil {
 			return fmt.Errorf("select sims for stage: %w", err)
 		}

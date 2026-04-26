@@ -4314,6 +4314,24 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 
 ---
 
+## FIX-230: Rollout DSL Match Integration
+
+> **Backend-only story — no UI scenario.** All acceptance criteria are backend/store/DSL layer changes. Doğrulama için `make test` (3662 test PASS) yeterlidir.
+
+### API-Level Test Scenario (AC-1..9)
+
+1. `make up` → sistem ayakta olmalı.
+2. `POST /api/v1/policies/{id}/versions` isteği gönder; body'de `MATCH { apn = "data.demo" }` içeren DSL kullan.
+   - Beklenen: `data.affected_sim_count` alanı yanıtta dolu olmalı (örn. `7`); `meta.warnings` alanı YOK olmalı.
+3. Aynı isteği DSL'siz (boş MATCH `{}`) yap → `affected_sim_count` tüm tenant SIM sayısını yansıtmalı (örn. `153`).
+4. `POST /api/v1/policies/{id}/versions/{vid}/rollout` ile rollout başlat (`stages: [1, 50, 100]`).
+   - Beklenen: `data.total_sims = 7` (NOT 153) — DSL eşleşen kohort.
+5. Stage 0 çalıştır → `ceil(7 * 1 / 100) = 1` SIM migrate edilmeli; migrate edilen SIM'in `apn = "data.demo"` olmalı.
+6. Bilinmeyen alan testi: `MATCH { iccid = "x" }` içeren DSL ile version oluşturmaya çalış → HTTP 422 `INVALID_DSL` hatası gelmeli.
+7. SQL enjeksiyon testi: `MATCH { apn = "x' OR 1=1 --" }` içeren DSL ile version oluştur → istek başarılı olmalı (değer parametre olarak işlenir, SQL'e eklenmez); `affected_sim_count = 0` gelmeli (eşleşme yok).
+
+---
+
 ## FIX-231: Policy Version State Machine + Dual-Source Fix
 
 > **AC-1..9 ve AC-11 (backend/infra):** Bu acceptance criteria'lar veritabani kısıtları, trigger mekanizması, store katmanı ve arka plan job'larını kapsar. Doğrulama için `make test` (3581 test PASS) ve `make db-seed` PASS yeterlidir. Özel DB doğrulama: `docker exec argus-postgres psql -U argus -c "\di policy_active*"` — `policy_active_version` ve `policy_active_rollout` partial unique index'leri görünmeli. Trigger: `\df sims_policy_version_sync` sonucu dolu olmalı.

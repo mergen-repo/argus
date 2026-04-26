@@ -1608,3 +1608,38 @@ func (s *SIMStore) GetManyByIDsEnriched(ctx context.Context, tenantID uuid.UUID,
 
 	return result, nil
 }
+
+// CountWithPredicate returns the count of active SIMs in a tenant matching
+// a parameterized DSL-derived SQL predicate. The caller assembles the predicate
+// (and its args) via dsl.ToSQLPredicate; this helper composes the full WHERE.
+//
+// The predicate string is appended into the WHERE clause AS-IS — caller is
+// responsible for ensuring it is parameterized + whitelisted (PAT-016, AC-9).
+//
+// Empty predicate ("" or "TRUE") → counts all active SIMs in the tenant.
+func (s *SIMStore) CountWithPredicate(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	dslPredicate string,
+	dslArgs []interface{},
+) (int, error) {
+	if dslPredicate == "" {
+		dslPredicate = "TRUE"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM sims s
+		WHERE s.tenant_id = $1
+		  AND s.state = 'active'
+		  AND (%s)
+	`, dslPredicate)
+
+	args := append([]interface{}{tenantID}, dslArgs...)
+
+	var count int
+	if err := s.db.QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count sims with predicate: %w", err)
+	}
+	return count, nil
+}

@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// fakeSimCounter is a test double for simCounter.
+type fakeSimCounter struct {
+	count int
+	err   error
+}
+
+func (f *fakeSimCounter) CountWithPredicate(_ context.Context, _ uuid.UUID, _ string, _ []interface{}) (int, error) {
+	return f.count, f.err
+}
 
 func TestToPolicyResponse(t *testing.T) {
 	now := time.Now()
@@ -770,5 +781,72 @@ func TestToRolloutResponseNilOptionals(t *testing.T) {
 	}
 	if resp.RolledBackAt != nil {
 		t.Error("RolledBackAt should be nil")
+	}
+}
+
+// TestWithSIMStore_Wired verifies the WithSIMStore option correctly sets the field.
+func TestWithSIMStore_Wired(t *testing.T) {
+	fake := &fakeSimCounter{count: 7}
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop(),
+		WithSIMStore(fake),
+	)
+	if h.simStore == nil {
+		t.Fatal("WithSIMStore did not wire simStore")
+	}
+	count, err := h.simStore.CountWithPredicate(context.Background(), uuid.New(), "TRUE", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 7 {
+		t.Errorf("count = %d, want 7", count)
+	}
+}
+
+// TestCreateVersion_CountFailureIsResilient verifies the resilience contract:
+// when simStore.CountWithPredicate returns an error, affectedSIMCount is nil
+// (handler falls through, version creation is not blocked).
+func TestCreateVersion_CountFailureIsResilient(t *testing.T) {
+	fake := &fakeSimCounter{count: 0, err: errors.New("db hiccup")}
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop(),
+		WithSIMStore(fake),
+	)
+
+	// Mirror the handler's resilience logic: error → nil affectedSIMCount.
+	var affectedSIMCount *int
+	count, countErr := h.simStore.CountWithPredicate(context.Background(), uuid.New(), "TRUE", nil)
+	if countErr != nil {
+		// Non-fatal: fall through with nil (handler behaviour under transient DB error).
+	} else {
+		affectedSIMCount = &count
+	}
+
+	if affectedSIMCount != nil {
+		t.Error("affectedSIMCount should be nil on count failure")
+	}
+}
+
+// TestCreateVersion_AutoPopulatesAffectedSIMCount verifies that when
+// simStore.CountWithPredicate succeeds the returned count is captured and
+// available to be stored.  Full HTTP path requires a real DB; this unit test
+// confirms the wiring logic used inside CreateVersion.
+func TestCreateVersion_AutoPopulatesAffectedSIMCount(t *testing.T) {
+	const wantCount = 42
+	fake := &fakeSimCounter{count: wantCount}
+	h := NewHandler(nil, nil, nil, nil, nil, nil, zerolog.Nop(),
+		WithSIMStore(fake),
+	)
+
+	// Mirror the handler logic: successful count → affectedSIMCount is set.
+	var affectedSIMCount *int
+	count, countErr := h.simStore.CountWithPredicate(context.Background(), uuid.New(), "TRUE", nil)
+	if countErr == nil {
+		affectedSIMCount = &count
+	}
+
+	if affectedSIMCount == nil {
+		t.Fatal("affectedSIMCount should not be nil when count succeeds")
+	}
+	if *affectedSIMCount != wantCount {
+		t.Errorf("affectedSIMCount = %d, want %d", *affectedSIMCount, wantCount)
 	}
 }

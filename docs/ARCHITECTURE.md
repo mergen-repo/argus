@@ -159,7 +159,7 @@ argus/
 │   │   ├── rattype/              # RAT type canonical enum & mapping
 │   │   └── session/              # Session management
 │   ├── policy/                   # SVC-05: Policy engine
-│   │   ├── dsl/                  # DSL parser
+│   │   ├── dsl/                  # DSL parser + compiler + evaluator + sql_predicate.go (ToSQLPredicate — FIX-230)
 │   │   ├── evaluator/            # Rule evaluation
 │   │   └── rollout/              # Staged rollout
 │   ├── operator/                 # SVC-06: Operator routing

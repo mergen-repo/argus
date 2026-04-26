@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// simCounter is the subset of store.SIMStore needed by this handler.
+// Defined as an interface to allow mock substitution in tests.
+type simCounter interface {
+	CountWithPredicate(ctx context.Context, tenantID uuid.UUID, dslPredicate string, dslArgs []interface{}) (int, error)
+}
+
 var validScopes = map[string]bool{
 	"global":   true,
 	"operator": true,
@@ -37,21 +44,26 @@ var validPolicyStates = map[string]bool{
 }
 
 type Handler struct {
-	policyStore *store.PolicyStore
-	dryRunSvc   *dryrun.Service
-	rolloutSvc  *rollout.Service
-	jobStore    *store.JobStore
-	eventBus    *bus.EventBus
-	auditSvc    audit.Auditor
+	policyStore  *store.PolicyStore
+	dryRunSvc    *dryrun.Service
+	rolloutSvc   *rollout.Service
+	jobStore     *store.JobStore
+	eventBus     *bus.EventBus
+	auditSvc     audit.Auditor
 	undoRegistry *undopkg.Registry
-	agg         aggregates.Aggregates
-	logger      zerolog.Logger
+	agg          aggregates.Aggregates
+	simStore     simCounter
+	logger       zerolog.Logger
 }
 
 type HandlerOption func(*Handler)
 
 func WithAggregates(a aggregates.Aggregates) HandlerOption {
 	return func(h *Handler) { h.agg = a }
+}
+
+func WithSIMStore(s simCounter) HandlerOption {
+	return func(h *Handler) { h.simStore = s }
 }
 
 func NewHandler(
@@ -565,13 +577,40 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIX-230 AC-4: auto-populate affected_sim_count via DSL predicate.
+	// Empty match → predicate="TRUE" → counts all active tenant SIMs (AC-5).
+	predicate, predArgs, _, predErr := dsl.ToSQLPredicate(&compiled.Match, 1, 2)
+	if predErr != nil {
+		h.logger.Error().Err(predErr).Msg("dsl predicate translation failed")
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"policy match clause: "+predErr.Error())
+		return
+	}
+
+	var affectedSIMCount *int
+	countWarning := false
+	if h.simStore != nil {
+		count, countErr := h.simStore.CountWithPredicate(r.Context(), tenantID, predicate, predArgs)
+		if countErr != nil {
+			h.logger.Error().Err(countErr).Msg("count sims with predicate failed")
+			// FIX-230 Gate F-A2: non-fatal — version created with nil
+			// affected_sim_count; rollout will recompute. Surface a warning
+			// in the response meta so callers can distinguish "count pending"
+			// from "MATCH genuinely matches zero SIMs".
+			countWarning = true
+		} else {
+			affectedSIMCount = &count
+		}
+	}
+
 	userID := userIDFromContext(r)
 
 	version, err := h.policyStore.CreateVersion(r.Context(), store.CreateVersionParams{
-		PolicyID:      policyID,
-		DSLContent:    dslSource,
-		CompiledRules: compiledJSON,
-		CreatedBy:     userID,
+		PolicyID:         policyID,
+		DSLContent:       dslSource,
+		CompiledRules:    compiledJSON,
+		CreatedBy:        userID,
+		AffectedSIMCount: affectedSIMCount,
 	})
 	if err != nil {
 		h.logger.Error().Err(err).Str("policy_id", idStr).Msg("create version")
@@ -581,6 +620,16 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "policy_version.create", version.ID.String(), nil, version)
 
+	if countWarning {
+		apierr.WriteJSON(w, http.StatusCreated, apierr.SuccessResponse{
+			Status: "success",
+			Data:   toVersionResponse(version),
+			Meta: map[string]interface{}{
+				"warnings": []string{"affected_sim_count_pending"},
+			},
+		})
+		return
+	}
 	apierr.WriteSuccess(w, http.StatusCreated, toVersionResponse(version))
 }
 

@@ -74,10 +74,11 @@ type UpdatePolicyParams struct {
 }
 
 type CreateVersionParams struct {
-	PolicyID      uuid.UUID
-	DSLContent    string
-	CompiledRules json.RawMessage
-	CreatedBy     *uuid.UUID
+	PolicyID         uuid.UUID
+	DSLContent       string
+	CompiledRules    json.RawMessage
+	CreatedBy        *uuid.UUID
+	AffectedSIMCount *int
 }
 
 type PolicyStore struct {
@@ -326,10 +327,10 @@ func (s *PolicyStore) RestoreState(ctx context.Context, tenantID, id uuid.UUID, 
 
 func (s *PolicyStore) CreateVersion(ctx context.Context, p CreateVersionParams) (*PolicyVersion, error) {
 	row := s.db.QueryRow(ctx, `
-		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, created_by)
-		VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM policy_versions WHERE policy_id = $1), $2, $3, $4)
+		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, created_by, affected_sim_count)
+		VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM policy_versions WHERE policy_id = $1), $2, $3, $4, $5)
 		RETURNING `+policyVersionColumns,
-		p.PolicyID, p.DSLContent, p.CompiledRules, p.CreatedBy,
+		p.PolicyID, p.DSLContent, p.CompiledRules, p.CreatedBy, p.AffectedSIMCount,
 	)
 
 	v, err := scanPolicyVersion(row)
@@ -955,17 +956,34 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 	return nil
 }
 
-func (s *PolicyStore) SelectSIMsForStage(ctx context.Context, tenantID, rolloutID uuid.UUID, previousVersionID *uuid.UUID, targetCount int) ([]uuid.UUID, error) {
+func (s *PolicyStore) SelectSIMsForStage(
+	ctx context.Context,
+	tenantID, rolloutID uuid.UUID,
+	previousVersionID *uuid.UUID,
+	dslPredicate string,
+	dslArgs []interface{},
+	targetCount int,
+) ([]uuid.UUID, error) {
 	args := []interface{}{tenantID, rolloutID}
 	conditions := []string{"s.tenant_id = $1", "s.state = 'active'"}
 	argIdx := 3
 
-	conditions = append(conditions, fmt.Sprintf(`s.id NOT IN (
-		SELECT sim_id FROM policy_assignments WHERE rollout_id = $2)`))
+	conditions = append(conditions, `s.id NOT IN (
+		SELECT sim_id FROM policy_assignments WHERE rollout_id = $2)`)
 
 	if previousVersionID != nil {
 		conditions = append(conditions, fmt.Sprintf("s.policy_version_id = $%d", argIdx))
 		args = append(args, *previousVersionID)
+		argIdx++
+	}
+
+	predicate := dslPredicate
+	if predicate == "" {
+		predicate = "TRUE"
+	}
+	conditions = append(conditions, "("+predicate+")")
+	for _, a := range dslArgs {
+		args = append(args, a)
 		argIdx++
 	}
 

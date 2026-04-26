@@ -622,6 +622,7 @@ func runServe(cfg *config.Config) {
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger,
 		policyapi.WithAggregates(aggSvc),
+		policyapi.WithSIMStore(simStore),
 	)
 	bulkHandler := simapi.NewBulkHandler(jobStore, segmentStore, eventBus, log.Logger)
 	bulkHandler.SetSIMStore(simStore)
