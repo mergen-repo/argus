@@ -4,13 +4,14 @@ import {
   ArrowLeft,
   Wifi,
   WifiOff,
-  Timer,
   Activity,
   Shield,
   Zap,
   BarChart3,
   AlertCircle,
   FileBarChart,
+  Clock,
+  BookOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,6 +30,7 @@ import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { InfoRow } from '@/components/ui/info-row'
 import { RATBadge } from '@/components/ui/rat-badge'
 import { EntityLink, CopyableId, RelatedAuditTab, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
+import { Tooltip } from '@/components/ui/tooltip'
 import { useSession, useDisconnectSession } from '@/hooks/use-sessions'
 import { formatBytes, timeAgo } from '@/lib/format'
 import { toast } from 'sonner'
@@ -111,7 +113,7 @@ export default function SessionDetailPage() {
   }
 
   const isActive = session.state === 'active'
-  const quotaPct = session.quota_usage?.pct ?? 0
+  const quotaPct = session.quota_usage?.pct_used ?? 0
 
   return (
     <div className="p-6 space-y-6">
@@ -240,42 +242,111 @@ export default function SessionDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
-              <CardHeader className="py-3 px-4 border-b border-border-subtle">
-                <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
-                  <Wifi className="h-4 w-4 text-text-tertiary" />
-                  Connection Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4 space-y-2">
-                <InfoRow label="NAS IP" value={session.nas_ip ? <CopyableId value={session.nas_ip} mono /> : '-'} />
-                {session.rat_type && (
-                  <InfoRow label="RAT Type" value={<RATBadge ratType={session.rat_type} />} />
-                )}
-                <InfoRow label="Framed IP" value={session.framed_ip ? <CopyableId value={session.framed_ip} mono /> : '-'} />
-                <InfoRow label="IMSI" value={session.imsi ? <CopyableId value={session.imsi} mono masked /> : '-'} />
-                {session.msisdn && (
-                  <InfoRow label="MSISDN" value={<CopyableId value={session.msisdn} mono />} />
-                )}
-                <InfoRow label="Started" value={<span className="text-[12px] text-text-secondary" title={session.started_at}>{timeAgo(session.started_at)}</span>} />
-              </CardContent>
-            </Card>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
+                <CardHeader className="py-3 px-4 border-b border-border-subtle">
+                  <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
+                    <Wifi className="h-4 w-4 text-text-tertiary" />
+                    Connection Details
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-2">
+                  <InfoRow label="NAS IP" value={session.nas_ip ? <CopyableId value={session.nas_ip} mono /> : '-'} />
+                  {session.rat_type && (
+                    <InfoRow label="RAT Type" value={<RATBadge ratType={session.rat_type} />} />
+                  )}
+                  <InfoRow label="Framed IP" value={session.framed_ip ? <CopyableId value={session.framed_ip} mono /> : '-'} />
+                  <InfoRow label="IMSI" value={session.imsi ? <CopyableId value={session.imsi} mono masked /> : '-'} />
+                  {session.msisdn && (
+                    <InfoRow label="MSISDN" value={<CopyableId value={session.msisdn} mono />} />
+                  )}
+                  <InfoRow label="Started" value={<span className="text-[12px] text-text-secondary" title={session.started_at}>{timeAgo(session.started_at)}</span>} />
+                </CardContent>
+              </Card>
 
-            <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
-              <CardHeader className="py-3 px-4 border-b border-border-subtle">
-                <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-text-tertiary" />
-                  Data Transfer
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4 space-y-2">
-                <InfoRow label="Bytes In" value={<span className="text-[12px] font-mono text-success">{formatBytes(session.bytes_in)}</span>} />
-                <InfoRow label="Bytes Out" value={<span className="text-[12px] font-mono text-accent">{formatBytes(session.bytes_out)}</span>} />
-                <InfoRow label="Duration" value={<span className="text-[12px] font-mono text-text-primary">{isActive ? liveDuration : `${Math.round(session.duration_sec)}s`}</span>} />
-                <InfoRow label="Acct Session ID" value={session.acct_session_id ? <CopyableId value={session.acct_session_id} mono /> : '-'} />
-              </CardContent>
-            </Card>
+              <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
+                <CardHeader className="py-3 px-4 border-b border-border-subtle">
+                  <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-text-tertiary" />
+                    Data Transfer
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-2">
+                  <InfoRow label="Bytes In" value={<span className="text-[12px] font-mono text-success">{formatBytes(session.bytes_in)}</span>} />
+                  <InfoRow label="Bytes Out" value={<span className="text-[12px] font-mono text-accent">{formatBytes(session.bytes_out)}</span>} />
+                  <InfoRow label="Duration" value={<span className="text-[12px] font-mono text-text-primary">{isActive ? liveDuration : `${Math.round(session.duration_sec)}s`}</span>} />
+                  <InfoRow label="Acct Session ID" value={session.acct_session_id ? <CopyableId value={session.acct_session_id} mono /> : '-'} />
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
+                <CardHeader className="py-3 px-4 border-b border-border-subtle">
+                  <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-text-tertiary" />
+                    Session Timeline
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-2">
+                  <InfoRow label="Started" value={<span className="text-[12px] text-text-secondary" title={session.started_at}>{timeAgo(session.started_at)}</span>} />
+                  <InfoRow label="Duration" value={<span className="text-[12px] font-mono text-text-primary">{isActive ? liveDuration : `${Math.round(session.duration_sec)}s`}</span>} />
+                  {session.coa_history && session.coa_history.length > 0 ? (
+                    <InfoRow
+                      label="Last CoA"
+                      value={
+                        <span className="text-[12px] text-text-secondary" title={session.coa_history[0].at}>
+                          {timeAgo(session.coa_history[0].at)}
+                          {session.coa_history[0].status && (
+                            <Badge
+                              variant={session.coa_history[0].status === 'acked' ? 'success' : session.coa_history[0].status === 'failed' ? 'danger' : 'secondary'}
+                              className="ml-2 text-[10px]"
+                            >
+                              {session.coa_history[0].status}
+                            </Badge>
+                          )}
+                        </span>
+                      }
+                    />
+                  ) : (
+                    <InfoRow label="Last CoA" value={<span className="text-[12px] text-text-tertiary">No CoA events</span>} />
+                  )}
+                  <InfoRow label="CoA Events" value={<span className="text-[12px] font-mono text-text-secondary">{session.coa_history?.length ?? 0}</span>} />
+                </CardContent>
+              </Card>
+
+              <Card className="bg-bg-surface border-border shadow-card rounded-[10px]">
+                <CardHeader className="py-3 px-4 border-b border-border-subtle">
+                  <CardTitle className="text-[13px] font-medium text-text-primary flex items-center gap-2">
+                    <BookOpen className="h-4 w-4 text-text-tertiary" />
+                    Policy Context
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-2">
+                  {session.policy_applied?.policy_id ? (
+                    <>
+                      <InfoRow
+                        label="Policy"
+                        value={
+                          <EntityLink
+                            entityType="policy"
+                            entityId={session.policy_applied.policy_id}
+                            label={session.policy_applied.policy_name}
+                          />
+                        }
+                      />
+                      {session.policy_applied.version_number != null && (
+                        <InfoRow label="Version" value={<span className="text-[12px] font-mono text-text-secondary">v{session.policy_applied.version_number}</span>} />
+                      )}
+                      <InfoRow label="CoA Status" value={<span className={`text-[12px] ${session.policy_applied.coa_status === 'failed' ? 'text-danger' : session.policy_applied.coa_status === 'acked' ? 'text-success' : 'text-text-secondary'}`}>{session.policy_applied.coa_status || '—'}</span>} />
+                    </>
+                  ) : (
+                    <p className="text-[13px] text-text-secondary py-2">No policy applied to this session</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </TabsContent>
 
@@ -320,8 +391,8 @@ export default function SessionDetailPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Zap className="h-8 w-8 text-text-tertiary mx-auto mb-3 opacity-40" />
-                  <p className="text-[13px] text-text-secondary">SoR decision data not available for this session</p>
-                  <p className="text-[11px] text-text-tertiary mt-1">Available for sessions created after STORY-065</p>
+                  <p className="text-[13px] text-text-secondary">SoR scoring not yet persisted for this session</p>
+                  <p className="text-[11px] text-text-tertiary mt-1">Engine wiring planned in FIX-24x — no data recorded for sessions before that release</p>
                 </div>
               )}
             </CardContent>
@@ -338,11 +409,39 @@ export default function SessionDetailPage() {
             <CardContent className="p-4">
               {session.policy_applied?.policy_id ? (
                 <div className="space-y-3">
-                  <InfoRow label="Policy" value={<EntityLink entityType="policy" entityId={session.policy_applied.policy_id} />} />
-                  {session.policy_applied.version_id && (
-                    <InfoRow label="Version" value={<span className="text-[12px] font-mono text-text-secondary">{session.policy_applied.version_id}</span>} />
+                  <InfoRow
+                    label="Policy"
+                    value={
+                      <EntityLink
+                        entityType="policy"
+                        entityId={session.policy_applied.policy_id}
+                        label={session.policy_applied.policy_name}
+                      />
+                    }
+                  />
+                  {session.policy_applied.version_number != null && (
+                    <InfoRow label="Version" value={<span className="text-[12px] font-mono text-text-secondary">v{session.policy_applied.version_number}</span>} />
                   )}
-                  {session.policy_applied.matched_rules && session.policy_applied.matched_rules.length > 0 && (
+                  {session.policy_applied.coa_status && (
+                    <InfoRow
+                      label="CoA Status"
+                      value={
+                        session.policy_applied.coa_status === 'failed' && session.policy_applied.coa_failure_reason ? (
+                          <Tooltip content={session.policy_applied.coa_failure_reason} side="top">
+                            <span className="text-[12px] text-danger cursor-help underline decoration-dotted">Failed</span>
+                          </Tooltip>
+                        ) : (
+                          <span className={`text-[12px] ${session.policy_applied.coa_status === 'acked' ? 'text-success' : session.policy_applied.coa_status === 'pending' ? 'text-warning' : 'text-text-secondary'}`}>
+                            {session.policy_applied.coa_status}
+                          </span>
+                        )
+                      }
+                    />
+                  )}
+                  {session.policy_applied.coa_sent_at && (
+                    <InfoRow label="CoA Sent" value={<span className="text-[12px] text-text-secondary" title={session.policy_applied.coa_sent_at}>{timeAgo(session.policy_applied.coa_sent_at)}</span>} />
+                  )}
+                  {session.policy_applied.matched_rules && session.policy_applied.matched_rules.length > 0 ? (
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-2">
                         Matched Rules
@@ -355,6 +454,8 @@ export default function SessionDetailPage() {
                         ))}
                       </div>
                     </div>
+                  ) : (
+                    <p className="text-[12px] text-text-tertiary">No matched rules recorded for this session</p>
                   )}
                 </div>
               ) : (
@@ -389,20 +490,25 @@ export default function SessionDetailPage() {
                     <div className="w-full bg-bg-primary rounded-full h-3 overflow-hidden">
                       <div
                         className={`h-3 rounded-full transition-all duration-500 ${
-                          quotaPct >= 90 ? 'bg-danger' : quotaPct >= 70 ? 'bg-warning' : 'bg-success'
+                          quotaPct >= 95 ? 'bg-danger' : quotaPct >= 80 ? 'bg-warning' : 'bg-success'
                         }`}
                         style={{ width: `${Math.min(quotaPct, 100)}%` }}
                       />
                     </div>
-                    <p className={`text-[13px] font-bold mt-2 ${quotaPct >= 90 ? 'text-danger' : quotaPct >= 70 ? 'text-warning' : 'text-success'}`}>
+                    <p className={`text-[13px] font-bold mt-2 ${quotaPct >= 95 ? 'text-danger' : quotaPct >= 80 ? 'text-warning' : 'text-success'}`}>
                       {quotaPct.toFixed(1)}% used
                     </p>
+                    {session.quota_usage.reset_at && (
+                      <p className="text-[11px] text-text-tertiary mt-1">
+                        Resets {timeAgo(session.quota_usage.reset_at)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <BarChart3 className="h-8 w-8 text-text-tertiary mx-auto mb-3 opacity-40" />
-                  <p className="text-[13px] text-text-secondary">No quota configured for this session</p>
+                  <p className="text-[13px] text-text-secondary">No quota rule defined in applied policy</p>
                 </div>
               )}
             </CardContent>

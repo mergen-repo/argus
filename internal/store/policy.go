@@ -27,6 +27,7 @@ var (
 	ErrRolloutAborted        = errors.New("store: rollout already aborted")
 	ErrStageInProgress       = errors.New("store: current stage is still processing")
 	ErrVersionNotActivatable = errors.New("store: version is not in an activatable state")
+	ErrAssignmentNotFound    = errors.New("store: policy assignment not found for sim")
 )
 
 type Policy struct {
@@ -580,6 +581,16 @@ type PolicyAssignment struct {
 	AssignedAt      time.Time  `json:"assigned_at"`
 	CoASentAt       *time.Time `json:"coa_sent_at"`
 	CoAStatus       string     `json:"coa_status"`
+}
+
+type AssignmentDetail struct {
+	PolicyID         uuid.UUID  `json:"policy_id"`
+	PolicyName       string     `json:"policy_name"`
+	PolicyVersionID  uuid.UUID  `json:"policy_version_id"`
+	VersionNumber    int        `json:"version_number"`
+	CoAStatus        string     `json:"coa_status"`
+	CoASentAt        *time.Time `json:"coa_sent_at"`
+	CoAFailureReason *string    `json:"coa_failure_reason"`
 }
 
 type CreateRolloutParams struct {
@@ -1214,6 +1225,41 @@ func (s *PolicyStore) UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.
 		return fmt.Errorf("store: update coa status: %w", err)
 	}
 	return nil
+}
+
+func (s *PolicyStore) UpdateAssignmentCoAStatusWithReason(ctx context.Context, simID uuid.UUID, status string, failureReason *string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE policy_assignments
+		SET coa_status = $2, coa_sent_at = NOW(), coa_failure_reason = $3
+		WHERE sim_id = $1`,
+		simID, status, failureReason,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update coa status with reason: %w", err)
+	}
+	return nil
+}
+
+func (s *PolicyStore) GetAssignmentDetailBySIM(ctx context.Context, tenantID, simID uuid.UUID) (*AssignmentDetail, error) {
+	var d AssignmentDetail
+	err := s.db.QueryRow(ctx, `
+		SELECT p.id, p.name, pv.id, pv.version,
+		       pa.coa_status, pa.coa_sent_at, pa.coa_failure_reason
+		FROM policy_assignments pa
+		JOIN policy_versions pv ON pv.id = pa.policy_version_id
+		JOIN policies p ON p.id = pv.policy_id
+		WHERE pa.sim_id = $1 AND p.tenant_id = $2
+		LIMIT 1`,
+		simID, tenantID,
+	).Scan(&d.PolicyID, &d.PolicyName, &d.PolicyVersionID, &d.VersionNumber,
+		&d.CoAStatus, &d.CoASentAt, &d.CoAFailureReason)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAssignmentNotFound
+		}
+		return nil, fmt.Errorf("store: get assignment detail by sim: %w", err)
+	}
+	return &d, nil
 }
 
 func (s *PolicyStore) GetAssignmentsByRollout(ctx context.Context, rolloutID uuid.UUID) ([]PolicyAssignment, error) {

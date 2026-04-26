@@ -298,3 +298,164 @@ func TestHandler_BulkDisconnect_MissingSimIDs(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// FIX-242 T7 handler enricher tests (#6-#10)
+// ---------------------------------------------------------------------------
+
+// TestSessionGet_EnrichesSorDecision_FromJSONB seeds a session with SorDecision
+// JSONB containing a scoring array, calls Get, and asserts the response
+// sor_decision.scoring length matches. (FIX-242 T7 #6)
+func TestSessionGet_EnrichesSorDecision_FromJSONB(t *testing.T) {
+	h, mgr := newTestHandler(t)
+
+	ctx := context.Background()
+	sorPayload := json.RawMessage(`{"chosen_operator_id":"op-a","scoring":[{"operator_id":"op-a","score":0.9,"reason":"latency"},{"operator_id":"op-b","score":0.6,"reason":"cost"}]}`)
+	sess := &sessModel.Session{
+		ID:            "sor-enrich-001",
+		SimID:         "sim-sor-001",
+		TenantID:      "tenant-001",
+		OperatorID:    "op-a",
+		IMSI:          "286010800000001",
+		AcctSessionID: "acct-sor-001",
+		NASIP:         "10.0.0.1",
+		SessionState:  "active",
+		SorDecision:   sorPayload,
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := mgr.Create(ctx, sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/sor-enrich-001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string           `json:"status"`
+		Data   sessionDetailDTO `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.SorDecision == nil {
+		t.Fatal("SorDecision is nil, want non-nil")
+	}
+	if len(resp.Data.SorDecision.Scoring) != 2 {
+		t.Errorf("SorDecision.Scoring length = %d, want 2", len(resp.Data.SorDecision.Scoring))
+	}
+	if resp.Data.SorDecision.ChosenOperatorID != "op-a" {
+		t.Errorf("ChosenOperatorID = %q, want op-a", resp.Data.SorDecision.ChosenOperatorID)
+	}
+}
+
+// TestSessionGet_EnrichesSorDecision_NilWhenAbsent verifies that when
+// sor_decision is absent the response field is omitted (nil). (FIX-242 T7 #7)
+func TestSessionGet_EnrichesSorDecision_NilWhenAbsent(t *testing.T) {
+	h, mgr := newTestHandler(t)
+
+	ctx := context.Background()
+	sess := &sessModel.Session{
+		ID:            "sor-nil-001",
+		SimID:         "sim-sor-nil-001",
+		TenantID:      "tenant-001",
+		OperatorID:    "op-001",
+		IMSI:          "286010900000001",
+		AcctSessionID: "acct-sor-nil-001",
+		NASIP:         "10.0.0.1",
+		SessionState:  "active",
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := mgr.Create(ctx, sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/sor-nil-001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string           `json:"status"`
+		Data   sessionDetailDTO `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.SorDecision != nil {
+		t.Errorf("SorDecision = %+v, want nil (should be omitted when absent)", resp.Data.SorDecision)
+	}
+}
+
+// TestSessionGet_EnrichesPolicyApplied_NilWhenNoPolicyStore verifies that when
+// policyStore is nil (test harness default), policy_applied is nil and the
+// response is still 200. (FIX-242 T7 #8 — policyStore=nil variant)
+func TestSessionGet_EnrichesPolicyApplied_NilWhenNoPolicyStore(t *testing.T) {
+	h, mgr := newTestHandler(t)
+
+	ctx := context.Background()
+	sess := &sessModel.Session{
+		ID:            "policy-nil-store-001",
+		SimID:         "sim-policy-nil-001",
+		TenantID:      "tenant-001",
+		OperatorID:    "op-001",
+		IMSI:          "286011000000001",
+		AcctSessionID: "acct-policy-nil-001",
+		NASIP:         "10.0.0.1",
+		SessionState:  "active",
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := mgr.Create(ctx, sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sessions/{id}", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/policy-nil-store-001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status string           `json:"status"`
+		Data   sessionDetailDTO `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.PolicyApplied != nil {
+		t.Errorf("PolicyApplied = %+v, want nil (no policyStore wired)", resp.Data.PolicyApplied)
+	}
+	if resp.Data.QuotaUsage != nil {
+		t.Errorf("QuotaUsage = %+v, want nil (no policyStore wired)", resp.Data.QuotaUsage)
+	}
+}
+
+// TestSessionGet_DefensiveOnEnricherError is skipped: injecting corrupt
+// SorDecision JSONB via Manager.Create causes json.Marshal to embed the
+// invalid bytes into the Redis blob so that the subsequent json.Unmarshal
+// inside Manager.Get also fails — the session is never retrieved. The
+// defensive swallowing path (enrichSorDecision returning nil on unmarshal
+// error) can only be exercised with a DB-backed session store + a raw SQL
+// insert of corrupt JSONB, which requires extensive infra beyond the current
+// test harness. See T7 step-log for rationale.
+func TestSessionGet_DefensiveOnEnricherError(t *testing.T) {
+	t.Skip("infrastructure refactor required — see T7 step-log: corrupt JSONB prevents Redis round-trip; DB-backed integration test needed")
+}

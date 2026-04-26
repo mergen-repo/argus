@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -72,6 +73,22 @@ type Session struct {
 	TerminateCause string          `json:"terminate_cause,omitempty"`
 	ProtocolType   string          `json:"protocol_type,omitempty"`
 	SliceInfo      json.RawMessage `json:"slice_info,omitempty"`
+	// SorDecision holds the JSONB payload written by the SoR engine when it
+	// selects an operator for this session. Engine wiring is deferred to D-148
+	// (FIX-24x); until then this field is nil and the sessions.sor_decision DB
+	// column is NULL. The expected shape once the engine is wired:
+	//
+	//   {
+	//     "chosen_operator_id": "<uuid>",
+	//     "scoring": [
+	//       {"operator_id": "<uuid>", "score": 0.95, "reason": "best latency"},
+	//       {"operator_id": "<uuid>", "score": 0.78, "reason": "lowest cost"}
+	//     ],
+	//     "decided_at": "<iso8601>"
+	//   }
+	//
+	// The handler's sorDecisionDTO must match this shape exactly (DEV-405).
+	SorDecision json.RawMessage `json:"sor_decision,omitempty"`
 }
 
 type SessionFilter struct {
@@ -106,6 +123,7 @@ type Manager struct {
 	metricsReg   *metrics.Registry
 	redisClient  *redis.Client
 	logger       zerolog.Logger
+	auditService audit.Auditor
 }
 
 func NewManager(sessionStore *store.RadiusSessionStore, redisClient *redis.Client, logger zerolog.Logger, opts ...ManagerOption) *Manager {
@@ -137,6 +155,12 @@ func WithIPPoolStore(s *store.IPPoolStore) ManagerOption {
 func WithMetrics(reg *metrics.Registry) ManagerOption {
 	return func(m *Manager) {
 		m.metricsReg = reg
+	}
+}
+
+func WithAuditService(svc audit.Auditor) ManagerOption {
+	return func(m *Manager) {
+		m.auditService = svc
 	}
 }
 
@@ -262,6 +286,7 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			RATType:       ratType,
 			ProtocolType:  sess.ProtocolType,
 			SliceInfo:     sess.SliceInfo,
+			SoRDecision:   sess.SorDecision, // D-148: nil until SoR engine is wired (FIX-24x)
 		})
 		if err != nil {
 			return fmt.Errorf("session manager: create: %w", err)
@@ -269,6 +294,24 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 
 		sess.ID = dbSess.ID.String()
 		sess.StartedAt = dbSess.StartedAt
+
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil {
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"sim_id":      sess.SimID,
+				"operator_id": sess.OperatorID,
+				"apn_id":      sess.APNID,
+				"ip_address":  sess.FramedIP,
+				"rat_type":    sess.RATType,
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.started",
+				EntityType: "session",
+				EntityID:   sess.ID,
+				AfterData:  afterData,
+			})
+		}
 
 		if sess.RATType != "" && m.simStore != nil && simID != uuid.Nil {
 			if err := m.simStore.UpdateLastRATType(ctx, simID, operatorID, sess.RATType); err != nil {
@@ -664,6 +707,24 @@ func (m *Manager) TerminateWithCounters(ctx context.Context, id string, cause st
 			}
 		}
 
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil && sess.TenantID != "" {
+			tenantID, _ := uuid.Parse(sess.TenantID)
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"bytes_in":           bytesIn,
+				"bytes_out":          bytesOut,
+				"termination_reason": cause,
+				"duration_sec":       int64(time.Since(sess.StartedAt).Seconds()),
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.ended",
+				EntityType: "session",
+				EntityID:   id,
+				AfterData:  afterData,
+			})
+		}
+
 		m.redisClient.Del(ctx, key)
 		if acctSessionID != "" {
 			m.redisClient.Del(ctx, sessionAcctKeyPrefix+acctSessionID)
@@ -696,6 +757,24 @@ func (m *Manager) Terminate(ctx context.Context, id string, cause string) error 
 			if err := json.Unmarshal(data, &sess); err == nil {
 				acctSessionID = sess.AcctSessionID
 			}
+		}
+
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil && sess.TenantID != "" {
+			tenantID, _ := uuid.Parse(sess.TenantID)
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"bytes_in":           sess.BytesIn,
+				"bytes_out":          sess.BytesOut,
+				"termination_reason": cause,
+				"duration_sec":       int64(time.Since(sess.StartedAt).Seconds()),
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.ended",
+				EntityType: "session",
+				EntityID:   id,
+				AfterData:  afterData,
+			})
 		}
 
 		m.redisClient.Del(ctx, key)

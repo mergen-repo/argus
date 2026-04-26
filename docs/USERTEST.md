@@ -4909,3 +4909,68 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    go test -count=1 -run 'TestActivity_EmptyUserReturnsEmptyArray_ShapeContract' ./internal/api/user/...
    ```
 2. **Beklenen:** PASS — `data!=nil`, `data` is `[]interface{}` of length 0.
+
+## FIX-242: Session Detail Extended DTO Populate (SoR / Policy / Quota / CoA history / Audit)
+
+> **Wave 8 P0.** `Handler.Get` artık `sessionDetailDTO`'yu 4 extended pointer field ile dolduruyor: `sor_decision` (JSONB unmarshal), `policy_applied` (D-145 CoA fields fold-in), `quota_usage` (policy compiled rules + live session bytes), `coa_history` (audit_logs lookup). Session lifecycle artık `audit_logs`'a yazıyor (Manager.Create/Terminate). FE Session Detail tüm tab'lar gerçek veri render ediyor + AC-12 layout grid-cols-2. SoR engine wiring D-148 (FIX-24x) deferred. Plan: `docs/stories/fix-ui-review/FIX-242-plan.md`.
+
+### Senaryo 1 — Session Detail tüm tabs gerçek veri (AC-1+AC-3+AC-4+AC-7)
+
+1. Login: admin@argus.io / admin
+2. Aktif session bul:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT id, sim_id FROM sessions WHERE state='active' AND tenant_id='00000000-0000-0000-0000-000000000001' LIMIT 1;"
+   ```
+3. Curl: `curl -s "http://localhost:8084/api/v1/sessions/<id>" -H "Authorization: Bearer $TOKEN" | jq '{policy_applied, quota_usage, coa_history, sor_decision}'`
+4. **Beklenen:** `policy_applied` non-null (policy_name + version_number + coa_status doldur), `quota_usage` non-null (limit_bytes + used_bytes + pct_used), `coa_history` array (boş veya entries — `[]` ASLA `null` per FIX-241), `sor_decision` null veya doldur (engine wiring D-148 sonrası dolu).
+
+### Senaryo 2 — `coa_failure_reason` tooltip (D-145 fold-in, AC-9, DEV-406)
+
+1. Test fixture: bir SIM için `coa_status='failed'` ve `coa_failure_reason='diameter timeout'` set et:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "UPDATE policy_assignments SET coa_status='failed', coa_failure_reason='diameter timeout', coa_sent_at=NOW() WHERE sim_id=(SELECT sim_id FROM sessions WHERE state='active' LIMIT 1);"
+   ```
+2. Browser: o SIM'in aktif session'ının detayına git → Policy tab → CoA status badge üzerine hover et.
+3. **Beklenen:** Tooltip görünür, içeriği `"diameter timeout"`. Pre-FIX-242: tooltip yoktu (D-145 OPEN).
+
+### Senaryo 3 — Session lifecycle audit log (AC-5, F-161, DEV-402)
+
+1. Bir session start olduktan sonra (RADIUS Access-Request veya test fixture):
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT action, after_data FROM audit_logs WHERE entity_type='session' AND entity_id='<session-id>' ORDER BY created_at DESC LIMIT 5;"
+   ```
+2. **Beklenen:** En az 1 row, `action='session.started'`, `after_data` içinde `sim_id`, `operator_id`, `apn_id`, `ip_address`, `rat_type` keys. Session terminate olunca: `action='session.ended'`, `after_data` içinde `bytes_in/bytes_out/duration_sec/termination_reason`.
+
+### Senaryo 4 — Quota progress bar warning thresholds (AC-8)
+
+1. FE Browser: Session detail → Quota tab.
+2. Aktif session'ın quota'sı %0-79 ise: progress bar normal renkte. %80-94 ise: yellow/warning. %95+ ise: red/danger.
+3. **Beklenen:** Threshold renkleri PAT-018 disiplin ile semantic CSS-var class'ları kullanıyor (`text-warning`, `text-danger`).
+
+### Senaryo 5 — AC-12 layout fix (F-162)
+
+1. Browser: Session detail page açık.
+2. **Beklenen:** Top section iki eşit kart (Connection Details + Data Transfer) `grid-cols-2`. Alt section: Session Timeline kart + Policy Context kart eşit genişlik. Pre-FIX-242: alt yarı boştu.
+
+### Senaryo 6 — Empty-state UX (AC-11)
+
+1. SoR scoring olmayan bir session için (eski session, henüz engine wired değil): SoR tab "SoR scoring not yet persisted for this session — Engine wiring planned in FIX-24x" mesajını göstermeli (NOT "unavailable" veya "broken").
+2. Quota policy yoksa: "No quota rule defined in applied policy" empty-state.
+3. matched_rules boş ise: "No matched rules logged yet (engine instrumentation pending)" (D-147 evaluator instrumentation deferred).
+
+### Senaryo 7 — Defensive enricher (handler asla 500)
+
+1. Test fixture: bir session'a corrupt `sor_decision` JSONB enjekte et (örn. `'{"invalid":'`):
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "UPDATE sessions SET sor_decision='\"corrupt-json'::jsonb WHERE id='<id>';"
+   ```
+   (Postgres invalid jsonb'yi reddeder — bu zor; alternatif: integration test ile mock store'da zorla.)
+2. Curl session detail.
+3. **Beklenen:** HTTP 200 (ASLA 500), `sor_decision` field null/omitted, base `dto` döner.
+
+### Senaryo 8 — Regression test suite (AC verification)
+
+1. ```
+   DATABASE_URL='postgresql://argus:argus_secret@localhost:5450/argus?sslmode=disable' go test -count=1 -run 'PolicyStore_GetAssignment|UpdateAssignmentCoAStatusWithReason|SessionGet_Enrich|Manager_Create_Publishes' ./internal/store/... ./internal/api/session/... ./internal/aaa/session/...
+   ```
+2. **Beklenen:** 9 test PASS + 1 SKIP (defensive corrupt-JSONB test infeasible without DB-backed integration harness — documented).

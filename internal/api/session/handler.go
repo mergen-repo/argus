@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
+	dsljson "github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -26,10 +28,12 @@ type Handler struct {
 	dmSender      *session.DMSender
 	eventBus      *bus.EventBus
 	auditSvc      audit.Auditor
+	auditStore    *store.AuditStore
 	jobStore      *store.JobStore
 	simStore      *store.SIMStore
 	operatorStore *store.OperatorStore
 	apnStore      *store.APNStore
+	policyStore   *store.PolicyStore
 	logger        zerolog.Logger
 }
 
@@ -40,6 +44,12 @@ func WithOperatorStore(s *store.OperatorStore) HandlerOption {
 	return func(h *Handler) { h.operatorStore = s }
 }
 func WithAPNStore(s *store.APNStore) HandlerOption { return func(h *Handler) { h.apnStore = s } }
+func WithPolicyStore(s *store.PolicyStore) HandlerOption {
+	return func(h *Handler) { h.policyStore = s }
+}
+func WithAuditStore(s *store.AuditStore) HandlerOption {
+	return func(h *Handler) { h.auditStore = s }
+}
 
 func NewHandler(
 	sessionMgr *session.Manager,
@@ -102,15 +112,28 @@ type sorScoreEntry struct {
 }
 
 type policyAppliedDTO struct {
-	PolicyID     string `json:"policy_id,omitempty"`
-	VersionID    string `json:"version_id,omitempty"`
-	MatchedRules []int  `json:"matched_rules,omitempty"`
+	PolicyID         string  `json:"policy_id,omitempty"`
+	PolicyName       string  `json:"policy_name,omitempty"`
+	VersionID        string  `json:"version_id,omitempty"`
+	VersionNumber    int     `json:"version_number,omitempty"`
+	MatchedRules     []int   `json:"matched_rules"`
+	CoAStatus        string  `json:"coa_status,omitempty"`
+	CoASentAt        *string `json:"coa_sent_at,omitempty"`
+	CoAFailureReason *string `json:"coa_failure_reason,omitempty"`
 }
 
 type quotaUsageDTO struct {
 	LimitBytes uint64  `json:"limit_bytes"`
 	UsedBytes  uint64  `json:"used_bytes"`
 	Pct        float64 `json:"pct"`
+	ResetAt    *string `json:"reset_at,omitempty"`
+}
+
+type coaEntry struct {
+	At              string  `json:"at"`
+	Action          string  `json:"action,omitempty"`
+	PolicyVersionID *string `json:"policy_version_id,omitempty"`
+	Status          *string `json:"status,omitempty"`
 }
 
 type sessionDetailDTO struct {
@@ -118,6 +141,7 @@ type sessionDetailDTO struct {
 	SorDecision   *sorDecisionDTO   `json:"sor_decision,omitempty"`
 	PolicyApplied *policyAppliedDTO `json:"policy_applied,omitempty"`
 	QuotaUsage    *quotaUsageDTO    `json:"quota_usage,omitempty"`
+	CoaHistory    []coaEntry        `json:"coa_history"`
 }
 
 type topOperatorDTO struct {
@@ -264,8 +288,166 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	detail := sessionDetailDTO{sessionDTO: dto}
+	detail := h.enrichSessionDetailDTO(r.Context(), dto, sess, tenantIDStr)
 	apierr.WriteSuccess(w, http.StatusOK, detail)
+}
+
+func (h *Handler) enrichSessionDetailDTO(ctx context.Context, dto sessionDTO, sess *session.Session, tenantIDStr string) sessionDetailDTO {
+	detail := sessionDetailDTO{
+		sessionDTO: dto,
+		CoaHistory: []coaEntry{},
+	}
+
+	detail.SorDecision = h.enrichSorDecision(sess)
+	detail.PolicyApplied = h.enrichPolicyApplied(ctx, sess, tenantIDStr)
+	detail.QuotaUsage = h.enrichQuotaUsage(ctx, sess, detail.PolicyApplied)
+	detail.CoaHistory = h.fetchCoaHistory(ctx, sess.ID)
+
+	return detail
+}
+
+func (h *Handler) enrichSorDecision(sess *session.Session) *sorDecisionDTO {
+	if len(sess.SorDecision) == 0 {
+		return nil
+	}
+	var sor sorDecisionDTO
+	if err := json.Unmarshal(sess.SorDecision, &sor); err != nil {
+		h.logger.Warn().Err(err).Str("session_id", sess.ID).Msg("enrich sor_decision: unmarshal failed")
+		return nil
+	}
+	return &sor
+}
+
+func (h *Handler) enrichPolicyApplied(ctx context.Context, sess *session.Session, tenantIDStr string) *policyAppliedDTO {
+	if h.policyStore == nil || sess.SimID == "" || tenantIDStr == "" {
+		return nil
+	}
+	simID, err := uuid.Parse(sess.SimID)
+	if err != nil {
+		return nil
+	}
+	tenantID, err := uuid.Parse(tenantIDStr)
+	if err != nil {
+		return nil
+	}
+	detail, err := h.policyStore.GetAssignmentDetailBySIM(ctx, tenantID, simID)
+	if err != nil {
+		if !errors.Is(err, store.ErrAssignmentNotFound) {
+			h.logger.Warn().Err(err).Str("sim_id", sess.SimID).Msg("enrich policy_applied: fetch failed")
+		}
+		return nil
+	}
+	pa := &policyAppliedDTO{
+		PolicyID:     detail.PolicyID.String(),
+		PolicyName:   detail.PolicyName,
+		VersionID:    detail.PolicyVersionID.String(),
+		VersionNumber: detail.VersionNumber,
+		MatchedRules: []int{},
+		CoAStatus:    detail.CoAStatus,
+	}
+	if detail.CoASentAt != nil {
+		s := detail.CoASentAt.Format(timeFmt)
+		pa.CoASentAt = &s
+	}
+	pa.CoAFailureReason = detail.CoAFailureReason
+	return pa
+}
+
+func (h *Handler) enrichQuotaUsage(ctx context.Context, sess *session.Session, pa *policyAppliedDTO) *quotaUsageDTO {
+	if pa == nil {
+		return nil
+	}
+	if h.policyStore == nil {
+		return nil
+	}
+
+	versionID, err := uuid.Parse(pa.VersionID)
+	if err != nil {
+		return nil
+	}
+	pv, err := h.policyStore.GetVersionByID(ctx, versionID)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("version_id", pa.VersionID).Msg("enrich quota_usage: get policy version failed")
+		return nil
+	}
+
+	if len(pv.CompiledRules) == 0 {
+		return nil
+	}
+
+	var compiled dsljson.CompiledPolicy
+	if err := json.Unmarshal(pv.CompiledRules, &compiled); err != nil {
+		h.logger.Warn().Err(err).Str("version_id", pa.VersionID).Msg("enrich quota_usage: unmarshal compiled policy failed")
+		return nil
+	}
+
+	if compiled.Charging == nil || compiled.Charging.Quota <= 0 {
+		return nil
+	}
+
+	limitBytes := uint64(compiled.Charging.Quota)
+	usedBytes := sess.BytesIn + sess.BytesOut
+
+	var pct float64
+	if limitBytes > 0 {
+		pct = float64(usedBytes) / float64(limitBytes) * 100
+		if pct > 100 {
+			pct = 100
+		}
+	}
+
+	return &quotaUsageDTO{
+		LimitBytes: limitBytes,
+		UsedBytes:  usedBytes,
+		Pct:        pct,
+	}
+}
+
+func (h *Handler) fetchCoaHistory(ctx context.Context, sessionID string) []coaEntry {
+	entries := []coaEntry{}
+	if h.auditStore == nil || sessionID == "" {
+		return entries
+	}
+
+	tenantID := uuid.Nil
+	if v, ok := ctx.Value(apierr.TenantIDKey).(uuid.UUID); ok {
+		tenantID = v
+	}
+	if tenantID == uuid.Nil {
+		return entries
+	}
+
+	results, _, err := h.auditStore.List(ctx, tenantID, store.ListAuditParams{
+		EntityType: "session",
+		EntityID:   sessionID,
+		Actions:    []string{"session.coa_sent", "session.coa_ack", "session.coa_failed"},
+		Limit:      50,
+	})
+	if err != nil {
+		h.logger.Warn().Err(err).Str("session_id", sessionID).Msg("fetch coa_history: list audit failed")
+		return entries
+	}
+
+	for _, e := range results {
+		entry := coaEntry{
+			At:     e.CreatedAt.Format(timeFmt),
+			Action: e.Action,
+		}
+		if e.AfterData != nil {
+			var meta map[string]interface{}
+			if json.Unmarshal(e.AfterData, &meta) == nil {
+				if pvid, ok := meta["policy_version_id"].(string); ok && pvid != "" {
+					entry.PolicyVersionID = &pvid
+				}
+				if status, ok := meta["status"].(string); ok && status != "" {
+					entry.Status = &status
+				}
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {

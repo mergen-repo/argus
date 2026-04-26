@@ -12,14 +12,23 @@ import (
 )
 
 type mockCoAStatusUpdater struct {
-	calls  []string
-	simIDs []uuid.UUID
-	err    error
+	calls   []string
+	simIDs  []uuid.UUID
+	reasons []*string
+	err     error
 }
 
 func (m *mockCoAStatusUpdater) UpdateAssignmentCoAStatus(_ context.Context, simID uuid.UUID, status string) error {
 	m.calls = append(m.calls, status)
 	m.simIDs = append(m.simIDs, simID)
+	m.reasons = append(m.reasons, nil)
+	return m.err
+}
+
+func (m *mockCoAStatusUpdater) UpdateAssignmentCoAStatusWithReason(_ context.Context, simID uuid.UUID, status string, reason *string) error {
+	m.calls = append(m.calls, status)
+	m.simIDs = append(m.simIDs, simID)
+	m.reasons = append(m.reasons, reason)
 	return m.err
 }
 

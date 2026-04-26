@@ -1079,6 +1079,7 @@ func runServe(cfg *config.Config) {
 			aaasession.WithSIMStore(simStore),
 			aaasession.WithIPPoolStore(ippoolStore),
 			aaasession.WithMetrics(metricsReg),
+			aaasession.WithAuditService(auditSvc),
 		)
 		coaSender := aaasession.NewCoASender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithCoAAuditor(auditSvc))
 		dmSender := aaasession.NewDMSender(cfg.RadiusSecret, cfg.RadiusCoAPort, log.Logger, aaasession.WithDMAuditor(auditSvc))
@@ -1112,6 +1113,8 @@ func runServe(cfg *config.Config) {
 			sessionapi.WithSIMStore(simStore),
 			sessionapi.WithOperatorStore(operatorStore),
 			sessionapi.WithAPNStore(apnStore),
+			sessionapi.WithPolicyStore(policyStore),
+			sessionapi.WithAuditStore(auditStore),
 		)
 
 		sessionSweeper = aaasession.NewTimeoutSweeper(sessionMgr, dmSender, eventBus, rdb.Client, log.Logger)
@@ -1154,6 +1157,7 @@ func runServe(cfg *config.Config) {
 			aaasession.WithSIMStore(simStore),
 			aaasession.WithIPPoolStore(ippoolStore),
 			aaasession.WithMetrics(metricsReg),
+			aaasession.WithAuditService(auditSvc),
 		)
 
 		diameterServer = aaadiameter.NewServer(aaadiameter.ServerConfig{
@@ -1192,6 +1196,7 @@ func runServe(cfg *config.Config) {
 			aaasession.WithSIMStore(simStore),
 			aaasession.WithIPPoolStore(ippoolStore),
 			aaasession.WithMetrics(metricsReg),
+			aaasession.WithAuditService(auditSvc),
 		)
 
 		// STORY-092 Wave 3 (D3-B): thread SIMStore + IPPoolStore + SIMCache

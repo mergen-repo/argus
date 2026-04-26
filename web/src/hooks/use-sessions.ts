@@ -2,37 +2,10 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
-import type { Session, SessionStats, SessionStartedEvent, SessionEndedEvent } from '@/types/session'
+import type { Session, SessionDetail, SessionStats, SessionStartedEvent, SessionEndedEvent } from '@/types/session'
 import type { ListResponse, ApiResponse } from '@/types/sim'
 
-export interface SorScoreEntry {
-  operator_id: string
-  score: number
-  reason?: string
-}
-
-export interface SorDecision {
-  chosen_operator_id?: string
-  scoring?: SorScoreEntry[]
-}
-
-export interface PolicyApplied {
-  policy_id?: string
-  version_id?: string
-  matched_rules?: number[]
-}
-
-export interface QuotaUsage {
-  limit_bytes: number
-  used_bytes: number
-  pct: number
-}
-
-export interface SessionDetail extends Session {
-  sor_decision?: SorDecision
-  policy_applied?: PolicyApplied
-  quota_usage?: QuotaUsage
-}
+export type { SessionDetail }
 
 export function useSession(id: string | undefined) {
   return useQuery({

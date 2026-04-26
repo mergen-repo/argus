@@ -55,6 +55,7 @@ type CoADispatcher interface {
 // Exposed as a seam so tests can inject a mock without a real DB.
 type coaStatusUpdater interface {
 	UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.UUID, status string) error
+	UpdateAssignmentCoAStatusWithReason(ctx context.Context, simID uuid.UUID, status string, failureReason *string) error
 }
 
 type RolloutProgressEvent struct {
@@ -545,7 +546,7 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 		return
 	}
 
-	s.writeCoAStatus(ctx, simID, CoAStatusQueued)
+	s.writeCoAStatusWithReason(ctx, simID, CoAStatusQueued, nil)
 
 	for _, sess := range sessions {
 		result, coaErr := s.coaDispatcher.SendCoA(ctx, CoARequest{
@@ -557,6 +558,7 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 		})
 
 		var status string
+		var reason *string
 		if coaErr != nil {
 			s.logger.Warn().Err(coaErr).
 				Str("sim_id", simID.String()).
@@ -564,13 +566,17 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 				Str("coa_status", CoAStatusFailed).
 				Msg("CoA send failed")
 			status = CoAStatusFailed
+			r := classifyCoAError(coaErr)
+			reason = &r
 		} else if result != nil && result.Status != "ack" {
 			status = CoAStatusFailed
+			r := "coa rejected: " + truncateReason(result.Status)
+			reason = &r
 		} else {
 			status = CoAStatusAcked
 		}
 
-		s.writeCoAStatus(ctx, simID, status)
+		s.writeCoAStatusWithReason(ctx, simID, status, reason)
 	}
 }
 
@@ -594,6 +600,58 @@ func (s *Service) writeCoAStatus(ctx context.Context, simID uuid.UUID, status st
 			Str("coa_status", status).
 			Msg("update CoA status")
 	}
+}
+
+// writeCoAStatusWithReason persists a coa_status transition with an optional failure reason.
+// reason is nil for non-failure states (clears any prior stale reason).
+func (s *Service) writeCoAStatusWithReason(ctx context.Context, simID uuid.UUID, status string, reason *string) {
+	if s.coaStatusUpdater == nil {
+		return
+	}
+	if err := s.coaStatusUpdater.UpdateAssignmentCoAStatusWithReason(ctx, simID, status, reason); err != nil {
+		s.logger.Warn().Err(err).
+			Str("sim_id", simID.String()).
+			Str("coa_status", status).
+			Msg("update CoA status with reason")
+	}
+}
+
+// truncateReason caps reason strings to 200 bytes to guard against oversized error messages.
+func truncateReason(s string) string {
+	if len(s) > 200 {
+		return s[:200]
+	}
+	return s
+}
+
+// classifyCoAError returns a short human-readable failure reason from a CoA dispatch error.
+func classifyCoAError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case containsAny(msg, "timeout", "timed out"):
+		return "diameter timeout"
+	case containsAny(msg, "no session", "session not found"):
+		return "no session"
+	case containsAny(msg, "unreachable", "connection refused", "connect: "):
+		return "nas unreachable"
+	case containsAny(msg, "nak", "rejected"):
+		return "coa rejected"
+	default:
+		return truncateReason(msg)
+	}
+}
+
+func containsAny(s string, substrs ...string) bool {
+	lower := strings.ToLower(s)
+	for _, sub := range substrs {
+		if strings.Contains(lower, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) publishProgress(ctx context.Context, rollout *store.PolicyRollout, stages []store.RolloutStage, migrated, currentStage int) {

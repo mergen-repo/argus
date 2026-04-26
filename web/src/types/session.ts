@@ -41,6 +41,44 @@ export interface SessionStats {
   top_operator?: TopOperator | null
 }
 
+export interface SoRDecision {
+  chosen_operator_id: string
+  scoring: Array<{ operator_id: string; score: number; reason: string }>
+  decided_at: string
+}
+
+export interface PolicyApplied {
+  policy_id: string
+  policy_name: string
+  policy_version_id: string
+  version_number: number
+  coa_status: string
+  coa_sent_at: string | null
+  coa_failure_reason: string | null
+  matched_rules: number[]
+}
+
+export interface QuotaUsage {
+  limit_bytes: number
+  used_bytes: number
+  pct_used: number
+  reset_at: string | null
+}
+
+export interface CoaEntry {
+  at: string
+  reason: string
+  policy_version_id: string | null
+  status: string
+}
+
+export interface SessionDetail extends Session {
+  sor_decision?: SoRDecision | null
+  policy_applied?: PolicyApplied | null
+  quota_usage?: QuotaUsage | null
+  coa_history: CoaEntry[]
+}
+
 export interface SessionStartedEvent {
   session_id: string
   sim_id: string

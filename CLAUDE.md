@@ -117,9 +117,10 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-242 (Session Detail extended DTO populate — SoR/Policy/Quota fields backend kod — Wave 8 P0)
+- Story: FIX-237 (M2M-centric Event Taxonomy + Notification Redesign — aggregate/digest events, per-SIM spam removal — Wave 8 P0 last; XL effort)
 - Step: Plan
-- Last closed: FIX-241 [x] DONE 2026-04-26 (Wave 8 P0; global WriteList nil-slice normalize via reflect; 0.48µs/op vs 10µs threshold; DEV-394..397; unblocks FIX-242/248 + FE crash class)
+- Last closed: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; SoR JSONB plumbing + coa_failure_reason migration + GetAssignmentDetailBySIM helper + Handler enricher + session-entity audit publisher + FE polish; DEV-398..407; D-147 + D-148 deferred)
+- Prior closures: FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)
 - Prior closures: FIX-253 [x] DONE 2026-04-26 (Suspend atomic IP release + Activate 422 + audit; DEV-390..393), FIX-251 [x] DONE 2026-04-26 (PAT-006 RECURRENCE #3; DEV-389), FIX-252 [x] DONE 2026-04-26 (zero-code PAT-023 schema drift; DEV-386..388)
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)
