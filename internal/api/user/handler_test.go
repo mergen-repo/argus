@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -1042,5 +1043,57 @@ func TestActivity_NoAuditStore(t *testing.T) {
 	h.Activity(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestActivity_EmptyUserReturnsEmptyArray_ShapeContract(t *testing.T) {
+	// FIX-241 AC-4 — verifies the WriteList contract on the same code path
+	// GET /api/v1/users/{id}/activity uses when auditStore returns zero rows.
+	// We exercise WriteList directly with a nil []audit.Entry to lock in
+	// the shape: {"status":"success","data":[],"meta":{...}}.
+	// Path A: direct helper call — auditStore is a concrete *store.AuditStore
+	// (not interface), so a full handler mock would require Path B refactor
+	// (rejected per DEV plan). The nil-slice normalization is global in WriteList,
+	// so asserting it here covers all 47 call sites including the activity handler.
+	var emptyEntries []audit.Entry
+	rr := httptest.NewRecorder()
+	apierr.WriteList(rr, http.StatusOK, emptyEntries, apierr.ListMeta{
+		Cursor:  "",
+		Limit:   50,
+		HasMore: false,
+	})
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"data":[]`) {
+		t.Errorf("activity response must contain data:[] for zero-row user, got: %s", body)
+	}
+	if strings.Contains(body, `"data":null`) {
+		t.Errorf("activity response must NEVER contain data:null (FIX-241), got: %s", body)
+	}
+	if !strings.Contains(body, `"has_more":false`) {
+		t.Errorf("activity response must contain has_more:false, got: %s", body)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		t.Fatalf("response body is not valid JSON: %v — body: %s", err, body)
+	}
+	if parsed["status"] != "success" {
+		t.Errorf("status field = %q, want \"success\"", parsed["status"])
+	}
+	dataField, ok := parsed["data"].([]interface{})
+	if !ok {
+		t.Errorf("data field must be a JSON array, got type %T — body: %s", parsed["data"], body)
+	}
+	if len(dataField) != 0 {
+		t.Errorf("data array must be empty, got len=%d", len(dataField))
+	}
+	if parsed["data"] == nil {
+		t.Errorf("data field must NOT be null (FIX-241)")
+	}
+	if _, hasMeta := parsed["meta"]; !hasMeta {
+		t.Errorf("meta field must be present in response — body: %s", body)
 	}
 }

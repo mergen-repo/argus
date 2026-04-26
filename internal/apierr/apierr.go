@@ -3,6 +3,7 @@ package apierr
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 )
 
 type contextKey string
@@ -163,7 +164,32 @@ func WriteSuccess(w http.ResponseWriter, status int, data interface{}) {
 	})
 }
 
+// normalizeListData converts a nil slice to an empty slice of the same element
+// type so JSON marshaling produces "[]" instead of "null". Non-slice values
+// (maps, structs, pointers, scalars) pass through unchanged. This is the
+// FIX-241 fix for the global "data: null" → FE TypeError crash class
+// (see PAT-006 family in docs/brainstorming/bug-patterns.md — "silent JSON
+// shape failure"). Scope is limited to WriteList per DEV-394; WriteSuccess
+// is intentionally NOT normalized so single-object responses can return
+// null for unset/optional values.
+//
+// DEV-395: pointer-to-slice (&entries) is NOT auto-dereferenced — the
+// WriteList contract requires a slice VALUE, and Planner grep confirmed
+// zero callers pass pointers. Pointer-kind data passes through unchanged.
+func normalizeListData(data interface{}) interface{} {
+	if data == nil {
+		return data
+	}
+	v := reflect.ValueOf(data)
+	if v.Kind() == reflect.Slice && v.IsNil() {
+		return reflect.MakeSlice(v.Type(), 0, 0).Interface()
+	}
+	return data
+}
+
 func WriteList(w http.ResponseWriter, status int, data interface{}, meta ListMeta) {
+	// FIX-241 DEV-394: normalize nil slices to empty arrays at the response boundary.
+	data = normalizeListData(data)
 	WriteJSON(w, status, ListResponse{
 		Status: "success",
 		Data:   data,

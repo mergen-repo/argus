@@ -7,6 +7,10 @@
 > Response format: Standard envelope `{ status, data, meta?, error? }`
 > Pagination: Cursor-based (default 50/page)
 
+### Empty List Convention (FIX-241)
+
+List endpoints (any handler invoking `apierr.WriteList`) ALWAYS return a JSON array for the `data` field — never `null`. Empty result sets are serialized as `[]`. The normalization is enforced centrally by `apierr.normalizeListData` (see `internal/apierr/apierr.go`); store-layer authors do not need to defend against nil slices when calling `WriteList`. Note: this convention applies ONLY to `WriteList` — single-object responses via `apierr.WriteSuccess` may legitimately return `null` for unset/optional values per DEV-394. (Decision recorded in DEV-396.)
+
 ## Auth & Users (20 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |

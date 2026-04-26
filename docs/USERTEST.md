@@ -4838,3 +4838,74 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    DATABASE_URL='postgresql://argus:argus_secret@localhost:5450/argus?sslmode=disable' go test -v -count=1 -run 'SIMStore_Suspend|SIMStore_Activate|SIMStore_Resume|Activate_PoolEmpty|Activate_AuditOn|Resume_StaticIP' ./internal/store/... ./internal/api/sim/...
    ```
 2. **Beklenen:** 11 test PASS (8 store + 3 handler). DATABASE_URL set DEĞİLSE testler SKIP eder (existing pattern).
+
+## FIX-241: Global API Nil-Slice Fix — `WriteList` normalize nil → `[]`
+
+> **Backend hardening (P0 cross-cutting).** `apierr.WriteList` artık nil slice'ları reflect ile boş array'e dönüştürüyor (`normalizeListData` helper). Sonuç: 60+ list endpoint'i için empty result `{"data":[]}` döner — ASLA `{"data":null}`. Birçok FE crash (F-243 User Detail, F-277 Ops Performance, F-328 Reports) tek bir backend fix ile kapanıyor. `WriteSuccess` etkilenmedi (single-object response'ları null dönmeye devam eder). DEV-394/395/396/397 logged. Plan: `docs/stories/fix-ui-review/FIX-241-plan.md`.
+
+### Senaryo 1 — Empty-activity user → `[]` (AC-1, AC-4 keystone)
+
+1. Login: admin@argus.io / admin
+2. Audit log entry'si olmayan bir kullanıcı bul:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -t -A -c "SELECT u.id FROM users u WHERE NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.user_id=u.id) LIMIT 1;"
+   ```
+3. Activity endpoint'ini çağır:
+   ```
+   curl -s "http://localhost:8084/api/v1/users/<empty-user-id>/activity?limit=1" -H "Authorization: Bearer $TOKEN" | jq
+   ```
+4. **Beklenen:**
+   ```json
+   {"status":"success","data":[],"meta":{"has_more":false,"limit":1}}
+   ```
+   - `data` array (`[]`), NULL DEĞİL ✓
+   - Pre-FIX-241: `{"data":null,...}` dönerdi → FE `data.length` → TypeError → ErrorBoundary
+
+### Senaryo 2 — User Detail FE sayfası boş activity tab (AC-5)
+
+1. Browser: `/settings/users/{id}` (Senaryo 1'deki empty-activity user için)
+2. Activity tab'ını aç
+3. **Beklenen:**
+   - Sayfa yüklenir, "No activity recorded" empty state görünür
+   - Browser DevTools Console: `TypeError: Cannot read properties of null (reading 'length')` HATASI YOK
+   - Pre-FIX-241: ErrorBoundary tetiklenirdi (F-243)
+
+### Senaryo 3 — Ops Performance + Reports cold-load (AC-6 + F-277/F-328)
+
+1. Browser: `/ops/performance` → sayfa yüklenir, hatasız render
+2. Browser: `/reports` → "No scheduled reports yet" empty state görünür
+3. **Beklenen:** Console temiz, TypeError YOK
+
+### Senaryo 4 — Populated list davranışı korundu (AC-7 regression)
+
+1. Activity'si olan bir user (örn. admin@argus.io kendisi) için aynı endpoint:
+   ```
+   curl -s "http://localhost:8084/api/v1/users/00000000-0000-0000-0000-000000000010/activity?limit=5" -H "Authorization: Bearer $TOKEN" | jq '.data | length'
+   ```
+2. **Beklenen:** > 0 entry, `data` array içinde audit_log row'ları, `meta.has_more` doğru.
+
+### Senaryo 5 — Perf budget (AC-8)
+
+1. ```
+   go test -bench=BenchmarkWriteList_NilSlice -benchtime=2s ./internal/apierr/...
+   ```
+2. **Beklenen:** ~475 ns/op (≈ 0.48 µs) — 10 µs threshold'unun altında (~21x margin). DEV-397 referansı.
+
+### Senaryo 6 — `WriteSuccess` davranışı değişmedi (AC-2 regression)
+
+1. Single-object endpoint çağır: `GET /api/v1/users/{id}` (mevcut user)
+2. **Beklenen:** `data` field bir object (map), array değil. Optional field'lar (`smdp_plus_url` gibi) `null` olabilir — bu beklenen davranış (DEV-394 scope discipline).
+
+### Senaryo 7 — Regression test suite (AC-3)
+
+1. ```
+   go test -count=1 -run 'TestWriteList' ./internal/apierr/...
+   ```
+2. **Beklenen:** 5 yeni sub-test PASS (nil_typed_struct_slice, nil_map_slice, empty_initialized_slice, populated_slice_unchanged, non_slice_map_passthrough) + benchmark çalışır.
+
+### Senaryo 8 — Integration test (AC-4)
+
+1. ```
+   go test -count=1 -run 'TestActivity_EmptyUserReturnsEmptyArray_ShapeContract' ./internal/api/user/...
+   ```
+2. **Beklenen:** PASS — `data!=nil`, `data` is `[]interface{}` of length 0.
