@@ -4353,3 +4353,104 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 8. Hiç versiyon yoksa "Version Lifecycle" bölümü tamamen gizlenmeli (boş durum render edilmemeli).
 9. **Klavye erişilebilirliği:** Tab tuşuyla her versiyona odaklanılabilmeli; Enter/Space ile tooltip açılabilmeli (ya da tooltip focus ile de tetiklenmeli). Ekran okuyucu: her düğümde `aria-label="v2 — active, activated 22 April 2026"` formatında anlamlı etiket olmalı.
 10. **Tasarım token doğrulaması:** DevTools → Elements → herhangi bir versiyon düğümü chip'ini seç → `class` listesinde `text-[#...]` veya `text-green-NNN`, `text-yellow-NNN` vb. hardcoded Tailwind palet sınıfı bulunmamalı; yalnızca `text-success`, `text-warning`, `text-danger`, `text-text-secondary`, `bg-bg-elevated` gibi CSS değişken tabanlı token sınıfları olmalı (PAT-018).
+
+---
+
+## FIX-232: Rollout UI Active State
+
+> Setup: `make up` → `http://localhost:8084/login` → admin@argus.io / admin → Sol menüden **Policies** → herhangi bir policy satırına tıkla → policy detay görünümü → **Rollout** sekmesi.
+>
+> Full test requires a seeded rollout (state=in_progress). `make db-seed` provides seed data. Alternatively create a rollout manually: `POST /api/v1/policy-versions/{versionId}/rollout`.
+
+### 1. State-Aware Render — Active vs Idle (AC-1)
+
+1. Policy'nin aktif bir rolloutu yokken Rollout sekmesini aç → Selection cards görünmeli (Direct Assign + Staged Canary); `RolloutActivePanel` **görünmemeli**.
+2. State=`in_progress` rolloutu olan bir policy'ye git → Rollout sekmesinde selection cards **görünmemeli**; bunun yerine `RolloutActivePanel` görünmeli.
+3. State=`pending` rolloutu olan bir policy'ye git → `RolloutActivePanel` görünmeli (Advance/Rollback/Abort butonları enabled; Advance only enabled when current stage is complete).
+4. Terminal state'teki rollout (completed/rolled_back/aborted) → Selection cards görünmeli + üstte terminal summary banner. Banner'da rollout terminal timestamp locale-formatted `<time>` içinde görünmeli.
+
+### 2. Active Panel İçeriği (AC-2)
+
+1. In-progress rollout olan bir policy'de Rollout sekmesine git.
+2. Panel header'da: state badge (`IN_PROGRESS`), rollout ID (ilk 8 + son 4 karakter), `started_at` göreli süre görünmeli.
+3. Strategy satırı: tek stage + %100 ise "Direct" göstermeli; birden fazla stage ise "Staged Canary" göstermeli.
+4. Per-stage cards: her stage için status icon + % + migrated count. Active stage `accent` border/bg; completed stage `success` border/bg; pending stage `border-subtle`.
+5. Progress bar: `migrated_sims / total_sims` yüzdesi; fill rengi state'e göre token class kullanmalı (in_progress → `bg-gradient-to-r from-accent to-accent/70`).
+6. ETA alanı: yeterli veri varsa `~Xm for current stage` formatında; yeterli veri yoksa "—" göstermeli.
+7. WS üzerinden veri gelince CoA counter satırı güncellenmeli: `N acked · M failed` format (font-mono).
+8. Panel `role="region" aria-label="Active rollout panel"` attribute'larına sahip olmalı.
+9. Progress bar `role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}` attribute'larına sahip olmalı.
+
+### 3. Action Buttons + Confirm Dialogs (AC-3, AC-7)
+
+#### 3a. Advance (AC-3)
+
+1. Current stage status = `completed` ise **Advance Stage** butonu görünür ve enabled olmalı; son stage ise veya stage `in_progress` ise hidden/disabled olmalı.
+2. Advance butonuna tıkla → Dialog açılmalı: "Advance to next stage. Current stage is complete. Continue?" + [Cancel] + [Advance] butonları.
+3. [Cancel] → Dialog kapanmalı; mutasyon yapılmamalı.
+4. [Advance] → `POST /api/v1/policy-rollouts/{id}/advance` çağrılmalı → 200 response → panel güncellenmeli.
+
+#### 3b. Rollback (AC-7 — Destructive)
+
+1. **Rollback** butonu görünür ve enabled olmalı (state=pending/in_progress); terminal state'de hidden olmalı.
+2. Rollback butonuna tıkla → Dialog açılmalı; "Rollback rollout? This will revert all migrated SIMs to the previous policy version and fire CoA. **Destructive.**" metni + `border-danger` styling + [Cancel] + [Confirm Rollback] butonları.
+3. [Confirm Rollback] → `POST /api/v1/policy-rollouts/{id}/rollback` çağrılmalı → 200 → Rollout tab selection cards + terminal banner ("Rolled back at X") göstermeli.
+
+#### 3c. Abort (AC-3, AC-6 — Warning, Non-Reverting)
+
+1. **Abort** butonu görünür ve enabled olmalı (state=pending/in_progress); terminal state'de hidden olmalı.
+2. Abort butonuna tıkla → Dialog açılmalı; "Abort rollout? Already-migrated SIMs WILL stay on the new policy. CoA will NOT fire." metni + `border-warning` styling (danger değil!) + [Cancel] + [Confirm Abort] butonları.
+3. [Confirm Abort] → `POST /api/v1/policy-rollouts/{id}/abort` çağrılmalı → 200 response body'de `data.state = "aborted"` ve `data.aborted_at` dolu olmalı.
+4. Abort sonrası Rollout tab selection cards + terminal banner ("Aborted at X") göstermeli.
+5. **Rollback ile görsel fark:** Rollback butonu/dialog kırmızı/danger ton; Abort sarı/warning ton — aynı görünmemeli.
+6. Zaten aborted rollout için abort isteği → 422 `ROLLOUT_ABORTED` hatası; UI toast/hata mesajı göstermeli.
+
+#### 3d. View Migrated SIMs
+
+1. "View Migrated SIMs" bağlantısına tıkla → `/sims?rollout_id={rolloutId}` URL'ine yönlenmeli (FIX-233 öncesi liste filtre çalışmayabilir; URL doğru olmalı).
+
+### 4. Abort Endpoint Doğrulaması — Backend (AC-6)
+
+1. DevTools → Network → Abort confirm → `POST /api/v1/policy-rollouts/{id}/abort` isteği gözlemlenmeli; response 200, body `{status:"success", data:{state:"aborted", aborted_at:"..."}}.
+2. Audit log: `/audit?entity_id={rolloutId}&action_prefix=policy_rollout` → `policy_rollout.abort` action'ı listelenmiş olmalı.
+3. Daha önce abort edilmiş bir rollout'a abort isteği gönder → 422 `ROLLOUT_ABORTED` hatası gelmeli (idempotent guard).
+4. Completed rollout'a abort isteği → 422 `ROLLOUT_COMPLETED` hatası gelmeli.
+5. Rolled-back rollout'a abort isteği → 422 `ROLLOUT_ROLLED_BACK` hatası gelmeli.
+
+### 5. WebSocket Live Update (AC-5)
+
+1. In-progress rollout paneli açıkken backend'den stage advance yap (başka tarayıcı veya `curl POST /advance`).
+2. Sayfayı yenilemeden birkaç saniye içinde panel'in progress bar ve stage kartları güncellenmiş olmalı (WS `policy.rollout_progress` envelope tetikler GET refetch).
+3. DevTools → Network → WS tab → `ws://localhost:8081` connection → `policy.rollout_progress` mesajlarını gözlemle.
+
+### 6. Polling Fallback — WS Disconnected (AC-8)
+
+1. In-progress rollout paneli açıkken DevTools → Network → WS bağlantısını blokla (`ws://localhost:8081`).
+2. Panel footer'da ~5s içinde "WS disconnected · polling every 5s" metni görünmeli (warning rengi).
+3. Backend'de manuel stage advance yap → 5s içinde panel GET isteği atarak güncellenmeli (Network sekmesinde `GET /policy-rollouts/{id}` isteği görünmeli).
+4. WS bloğunu kaldır → bağlantı yeniden kurulunca "WS connected" footer metni geri gelmeli; polling interval durmalı.
+
+### 7. Expanded SlidePanel — Drill-downs (AC-11)
+
+1. Active panel header'da "Open expanded view ↗" butonuna tıkla → SlidePanel (sağ drawer) açılmalı.
+2. SlidePanel içinde: header (state + strategy), expanded stage listesi (timestamps ile), 4 drill-down linki görünmeli.
+3. Drill-down linkleri:
+   - "View Migrated SIMs" → `/sims?rollout_id={id}`
+   - "CDR Explorer" → `/cdr?rollout_id={id}`
+   - "Sessions filtered to rollout cohort" → `/sessions?rollout_id={id}`
+   - "Audit log entries for this rollout" → `/audit?entity_id={id}&action_prefix=policy_rollout`
+4. Her link tıklanabilir olmalı; `<a>` değil `<Link>` (react-router) kullanılmalı (hard refresh olmadan yönlenmeli).
+5. SlidePanel kapatma (× veya dışarı tıklama) → panel kapanmalı; rollout-tab hâlâ aktif panel ile görünmeli.
+
+### 8. Terminal Summary Banner (AC-1)
+
+1. Completed rollout olan policy'de Rollout sekmesini aç → Banner görünmeli: "Last rollout (id Xyyy…) completed at 2026-04-XX" — tarih locale-formatted `<time>` tag ile.
+2. Aborted rollout → "Aborted at X" timestamp.
+3. Rolled-back rollout → "Rolled back at X" timestamp.
+4. Banner'da "View summary" linki varsa tıkla → Expanded SlidePanel açılmalı.
+
+### 9. Design Token / A11y Doğrulaması (PAT-018)
+
+1. DevTools → Elements → `RolloutActivePanel` root element → herhangi bir child class listesinde `text-red-NNN`, `bg-blue-NNN`, `text-green-NNN` vb. hardcoded Tailwind palet utility bulunmamalı; yalnızca `text-danger`, `text-success`, `text-warning`, `bg-bg-surface`, `bg-accent-dim` vb. CSS değişken tabanlı token sınıfları olmalı.
+2. Progress bar element'ini incele → `role="progressbar"`, `aria-valuenow`, `aria-valuemin="0"`, `aria-valuemax="100"` attribute'ları mevcut olmalı.
+3. Abort ve Rollback butonlarında `aria-label` mevcut olmalı ve boş olmamalı.

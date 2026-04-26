@@ -209,3 +209,19 @@ export function useRollbackRollout() {
     },
   })
 }
+
+export function useAbortRollout(rolloutID: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { reason?: string } = {}) => {
+      if (!rolloutID) throw new Error('rolloutID required')
+      const res = await api.post<ApiResponse<PolicyRollout>>(`/policy-rollouts/${rolloutID}/abort`, vars)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout', rolloutID] })
+      queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout'] })
+      queryClient.invalidateQueries({ queryKey: POLICIES_KEY })
+    },
+  })
+}

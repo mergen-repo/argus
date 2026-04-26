@@ -110,6 +110,7 @@ export interface PolicyRollout {
   started_at?: string
   completed_at?: string
   rolled_back_at?: string
+  aborted_at?: string | null
   created_at: string
 }
 

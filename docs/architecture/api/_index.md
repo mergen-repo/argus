@@ -144,6 +144,7 @@
 | API-096 | POST | /api/v1/policy-versions/:id/rollout | Start staged rollout | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-097 | POST | /api/v1/policy-rollouts/:id/advance | Advance to next rollout stage | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-098 | POST | /api/v1/policy-rollouts/:id/rollback | Rollback rollout | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
+| API-098b | POST | /api/v1/policy-rollouts/{id}/abort | Abort an in-progress rollout (state→aborted; does NOT revert assignments) | JWT (policy_editor+) | FIX-232 |
 | API-099 | GET | /api/v1/policy-rollouts/:id | Get rollout status | JWT (policy_editor+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
 | API-099b | GET | /api/v1/policy-versions/{id1}/diff/{id2} | Diff two policy versions (unified text diff of DSL) | JWT (policy_editor+) | See [STORY-023](../../stories/phase-4/STORY-023-policy-crud.md) |
 

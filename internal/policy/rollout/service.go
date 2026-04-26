@@ -369,6 +369,10 @@ func (s *Service) AdvanceRollout(ctx context.Context, tenantID, rolloutID uuid.U
 	if rollout.State == "rolled_back" {
 		return nil, store.ErrRolloutRolledBack
 	}
+	// FIX-232 DEV-357: aborted is terminal — refuse to advance an aborted rollout.
+	if rollout.State == "aborted" {
+		return nil, store.ErrRolloutAborted
+	}
 	if rollout.State != "in_progress" {
 		return nil, fmt.Errorf("rollout is in unexpected state: %s", rollout.State)
 	}
@@ -433,6 +437,11 @@ func (s *Service) RollbackRollout(ctx context.Context, tenantID, rolloutID uuid.
 	if rollout.State == "rolled_back" {
 		return nil, 0, store.ErrRolloutRolledBack
 	}
+	// FIX-232 DEV-357: aborted is terminal — refuse to rollback an already-aborted
+	// rollout (assignments were intentionally retained at abort time).
+	if rollout.State == "aborted" {
+		return nil, 0, store.ErrRolloutAborted
+	}
 
 	simIDs, err := s.policyStore.GetRolloutSimIDs(ctx, rolloutID)
 	if err != nil {
@@ -467,6 +476,41 @@ func (s *Service) RollbackRollout(ctx context.Context, tenantID, rolloutID uuid.
 		return rollout, revertedCount, nil
 	}
 	return updated, revertedCount, nil
+}
+
+// AbortRollout transitions a rollout to terminal state 'aborted' (FIX-232).
+// Tenant scoping is enforced via GetRolloutByIDWithTenant before the global-by-id
+// store call. Unlike RollbackRollout, abort does NOT revert assignments —
+// already-migrated SIMs stay on the new version and the operator must create a
+// new draft to retry. Errors propagate as typed sentinels for HTTP 422 mapping.
+//
+// reason is recorded in the audit log by the handler; the bus envelope reuses
+// the existing policy.rollout_progress shape with state='aborted' (DEV-359).
+func (s *Service) AbortRollout(ctx context.Context, tenantID, rolloutID uuid.UUID, reason string) (*store.PolicyRollout, error) {
+	rollout, err := s.policyStore.GetRolloutByIDWithTenant(ctx, rolloutID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	switch rollout.State {
+	case "completed":
+		return nil, store.ErrRolloutCompleted
+	case "rolled_back":
+		return nil, store.ErrRolloutRolledBack
+	case "aborted":
+		return nil, store.ErrRolloutAborted
+	}
+
+	aborted, err := s.policyStore.AbortRollout(ctx, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+
+	var stages []store.RolloutStage
+	_ = json.Unmarshal(aborted.Stages, &stages)
+	s.publishProgressWithState(ctx, aborted, stages, aborted.MigratedSIMs, aborted.CurrentStage, "aborted")
+
+	return aborted, nil
 }
 
 func (s *Service) GetProgress(ctx context.Context, tenantID, rolloutID uuid.UUID) (*store.PolicyRollout, error) {

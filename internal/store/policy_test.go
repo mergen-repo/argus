@@ -603,3 +603,277 @@ func TestStartRollout_ConcurrentReturns422(t *testing.T) {
 		t.Errorf("expected exactly 1 ErrRolloutInProgress, got %d", inProgress)
 	}
 }
+
+// =============================================================================
+// FIX-232 DEV-357 — AbortRollout state-machine coverage
+// =============================================================================
+//
+// These tests are DB-gated (skip cleanly when DATABASE_URL is unset). They
+// exercise the new ErrRolloutAborted sentinel, the atomic state transition,
+// and the cross-state guards (completed / rolled_back / aborted are mutually
+// exclusive terminal states).
+
+// seedAbortFixture builds the minimum graph for an AbortRollout test:
+// tenant + policy + rolling_out version + in_progress rollout. Returns a
+// cleanup-registered fixture; caller can mutate state via further SQL.
+type abortFixture struct {
+	tenantID  uuid.UUID
+	policyID  uuid.UUID
+	versionID uuid.UUID
+	rolloutID uuid.UUID
+}
+
+func seedAbortFixture(t *testing.T, pool *pgxpool.Pool, label string) abortFixture {
+	t.Helper()
+	ctx := context.Background()
+	var f abortFixture
+
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO tenants (name, contact_email)
+		VALUES ('fix232-'||$1||'-'||gen_random_uuid()::text, 'fix232@test.argus')
+		RETURNING id`, label).Scan(&f.tenantID); err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO policies (tenant_id, name, scope, state)
+		VALUES ($1, 'p-'||$2||'-'||gen_random_uuid()::text, 'global', 'active')
+		RETURNING id`, f.tenantID, label).Scan(&f.policyID); err != nil {
+		t.Fatalf("seed policy: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, state)
+		VALUES ($1, 1, 'allow all;', '{}', 'rolling_out')
+		RETURNING id`, f.policyID).Scan(&f.versionID); err != nil {
+		t.Fatalf("seed version: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO policy_rollouts (policy_id, policy_version_id, strategy, stages,
+			total_sims, migrated_sims, state, started_at)
+		VALUES ($1, $2, 'canary', '[]', 100, 50, 'in_progress', NOW())
+		RETURNING id`, f.policyID, f.versionID).Scan(&f.rolloutID); err != nil {
+		t.Fatalf("seed rollout: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cctx := context.Background()
+		_, _ = pool.Exec(cctx, `DELETE FROM policy_rollouts WHERE policy_id = $1`, f.policyID)
+		_, _ = pool.Exec(cctx, `UPDATE policies SET current_version_id = NULL WHERE id = $1`, f.policyID)
+		_, _ = pool.Exec(cctx, `DELETE FROM policy_versions WHERE policy_id = $1`, f.policyID)
+		_, _ = pool.Exec(cctx, `DELETE FROM policies WHERE id = $1`, f.policyID)
+		_, _ = pool.Exec(cctx, `DELETE FROM tenants WHERE id = $1`, f.tenantID)
+	})
+
+	return f
+}
+
+// TestAbortRollout_HappyPath verifies an in_progress rollout transitions to
+// state='aborted' with aborted_at set, and the returned struct reflects the new
+// state. Migrated counter is unchanged (no revert).
+func TestAbortRollout_HappyPath(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "happy")
+
+	got, err := st.AbortRollout(ctx, f.rolloutID)
+	if err != nil {
+		t.Fatalf("AbortRollout: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected rollout, got nil")
+	}
+	if got.State != "aborted" {
+		t.Errorf("State = %q, want aborted", got.State)
+	}
+	if got.AbortedAt == nil {
+		t.Error("AbortedAt is nil, want non-nil")
+	}
+	if got.MigratedSIMs != 50 {
+		t.Errorf("MigratedSIMs = %d, want 50 (abort must not revert)", got.MigratedSIMs)
+	}
+
+	// Re-read the row to confirm DB state matches the returned struct.
+	var dbState string
+	var dbAbortedAt *uuid.UUID // dummy — we just want non-NULL
+	_ = dbAbortedAt
+	if err := pool.QueryRow(ctx, `SELECT state FROM policy_rollouts WHERE id = $1`, f.rolloutID).Scan(&dbState); err != nil {
+		t.Fatalf("read back state: %v", err)
+	}
+	if dbState != "aborted" {
+		t.Errorf("DB state = %q, want aborted", dbState)
+	}
+}
+
+// TestAbortRollout_AlreadyCompleted_ReturnsErrCompleted verifies that calling
+// abort on a completed rollout returns ErrRolloutCompleted (terminal state
+// guard — completed wins, abort cannot override).
+func TestAbortRollout_AlreadyCompleted_ReturnsErrCompleted(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "completed")
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE policy_rollouts SET state = 'completed', completed_at = NOW()
+		WHERE id = $1`, f.rolloutID); err != nil {
+		t.Fatalf("manually set completed: %v", err)
+	}
+
+	_, err := st.AbortRollout(ctx, f.rolloutID)
+	if !errors.Is(err, ErrRolloutCompleted) {
+		t.Errorf("err = %v, want ErrRolloutCompleted", err)
+	}
+}
+
+// TestAbortRollout_AlreadyAborted_ReturnsErrAborted verifies idempotency —
+// the second abort call returns ErrRolloutAborted instead of silently
+// re-stamping aborted_at.
+func TestAbortRollout_AlreadyAborted_ReturnsErrAborted(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "twice")
+
+	if _, err := st.AbortRollout(ctx, f.rolloutID); err != nil {
+		t.Fatalf("first AbortRollout: %v", err)
+	}
+
+	_, err := st.AbortRollout(ctx, f.rolloutID)
+	if !errors.Is(err, ErrRolloutAborted) {
+		t.Errorf("second abort err = %v, want ErrRolloutAborted", err)
+	}
+}
+
+// TestAbortRollout_AlreadyRolledBack_ReturnsErrRolledBack verifies the
+// rolled_back terminal state also blocks abort.
+func TestAbortRollout_AlreadyRolledBack_ReturnsErrRolledBack(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "rolledback")
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE policy_rollouts SET state = 'rolled_back', rolled_back_at = NOW()
+		WHERE id = $1`, f.rolloutID); err != nil {
+		t.Fatalf("manually set rolled_back: %v", err)
+	}
+
+	_, err := st.AbortRollout(ctx, f.rolloutID)
+	if !errors.Is(err, ErrRolloutRolledBack) {
+		t.Errorf("err = %v, want ErrRolloutRolledBack", err)
+	}
+}
+
+// TestAbortRollout_FromPending verifies that a rollout still in 'pending'
+// state (no stage advanced yet, started_at NULL) can be aborted. This is the
+// pre-flight cancel branch — the operator clicks Stop before the first stage
+// kicks off; the abort must succeed and stamp aborted_at without regard to
+// started_at being NULL.
+func TestAbortRollout_FromPending(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "pending")
+
+	// Force state back to 'pending' and clear started_at — seedAbortFixture
+	// inserts in_progress for the dominant case, so we override here.
+	if _, err := pool.Exec(ctx, `
+		UPDATE policy_rollouts
+		   SET state = 'pending', started_at = NULL, migrated_sims = 0
+		 WHERE id = $1`, f.rolloutID); err != nil {
+		t.Fatalf("force pending: %v", err)
+	}
+
+	got, err := st.AbortRollout(ctx, f.rolloutID)
+	if err != nil {
+		t.Fatalf("AbortRollout from pending: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected rollout, got nil")
+	}
+	if got.State != "aborted" {
+		t.Errorf("State = %q, want aborted", got.State)
+	}
+	if got.AbortedAt == nil {
+		t.Error("AbortedAt is nil, want non-nil")
+	}
+	if got.MigratedSIMs != 0 {
+		t.Errorf("MigratedSIMs = %d, want 0 (no SIMs migrated yet)", got.MigratedSIMs)
+	}
+}
+
+// TestAbortRollout_NotFound_ReturnsErrNotFound verifies a non-existent
+// rollout id returns ErrRolloutNotFound (not a generic SQL error).
+func TestAbortRollout_NotFound_ReturnsErrNotFound(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+
+	_, err := st.AbortRollout(ctx, uuid.New())
+	if !errors.Is(err, ErrRolloutNotFound) {
+		t.Errorf("err = %v, want ErrRolloutNotFound", err)
+	}
+}
+
+// TestRollbackRollout_RejectsAborted verifies the new aborted-state guard in
+// RollbackRollout. After abort, rollback returns ErrRolloutAborted instead of
+// re-flipping the rollout to rolled_back (which would also revert assignments
+// — undesired since the operator already chose to keep them).
+func TestRollbackRollout_RejectsAborted(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "rb-aborted")
+
+	if _, err := st.AbortRollout(ctx, f.rolloutID); err != nil {
+		t.Fatalf("AbortRollout: %v", err)
+	}
+
+	err := st.RollbackRollout(ctx, f.rolloutID)
+	if !errors.Is(err, ErrRolloutAborted) {
+		t.Errorf("RollbackRollout after abort: err = %v, want ErrRolloutAborted", err)
+	}
+}
+
+// TestCompleteRollout_RejectsAborted verifies the new aborted-state guard in
+// CompleteRollout. After abort, complete returns ErrRolloutAborted instead of
+// activating the partially-rolled-out version.
+func TestCompleteRollout_RejectsAborted(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+	st := NewPolicyStore(pool)
+	f := seedAbortFixture(t, pool, "cm-aborted")
+
+	if _, err := st.AbortRollout(ctx, f.rolloutID); err != nil {
+		t.Fatalf("AbortRollout: %v", err)
+	}
+
+	err := st.CompleteRollout(ctx, f.rolloutID)
+	if !errors.Is(err, ErrRolloutAborted) {
+		t.Errorf("CompleteRollout after abort: err = %v, want ErrRolloutAborted", err)
+	}
+}

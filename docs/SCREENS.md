@@ -32,7 +32,7 @@
 | SCR-041 | [Operator Detail](screens/SCR-041-operator-detail.md) | Operator | /operators/:id | JWT (op_manager+) | |
 | SCR-050 | [Live Sessions](screens/SCR-050-session-list.md) | Sessions | /sessions | JWT (sim_manager+) | |
 | SCR-060 | [Policy List](screens/SCR-060-policy-list.md) | Policy | /policies | JWT (policy_editor+) | |
-| SCR-062 | [Policy Editor](screens/SCR-062-policy-editor.md) | Policy | /policies/:id | JWT (policy_editor+) | |
+| SCR-062 | [Policy Editor](screens/SCR-062-policy-editor.md) | Policy | /policies/:id | JWT (policy_editor+) | FIX-232: Rollout tab is now state-aware — when a rollout is active (state=pending/in_progress), renders `RolloutActivePanel` (progress bar, per-stage cards, CoA counter, ETA badge, 4 action buttons: Advance/Rollback/Abort/View SIMs); when idle/terminal, shows selection cards + optional terminal summary banner (with locale-formatted timestamp via `<time>`). Expanded view opens `RolloutExpandedSlidePanel` (SlidePanel right-drawer) with stage timestamps + 4 drill-down links (SIMs/CDR/Sessions/Audit). 4 confirm dialogs: Start (neutral), Advance (neutral), Rollback (destructive-danger), Abort (warning — non-reverting). WS subscription on `policy.rollout_progress`; 5s polling fallback when WS disconnected. |
 | SCR-070 | [eSIM Profiles](screens/SCR-070-esim-list.md) | eSIM | /esim | JWT (sim_manager+) | |
 | SCR-080 | [Job List](screens/SCR-080-job-list.md) | Jobs | /jobs | JWT (sim_manager+) | |
 | SCR-090 | [Audit Log](screens/SCR-090-audit-log.md) | Audit | /audit | JWT (tenant_admin+) | |

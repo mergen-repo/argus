@@ -24,6 +24,7 @@ var (
 	ErrRolloutInProgress     = errors.New("store: a rollout is already in progress for this policy")
 	ErrRolloutCompleted      = errors.New("store: rollout already completed")
 	ErrRolloutRolledBack     = errors.New("store: rollout already rolled back")
+	ErrRolloutAborted        = errors.New("store: rollout already aborted")
 	ErrStageInProgress       = errors.New("store: current stage is still processing")
 	ErrVersionNotActivatable = errors.New("store: version is not in an activatable state")
 )
@@ -561,6 +562,7 @@ type PolicyRollout struct {
 	StartedAt         *time.Time      `json:"started_at"`
 	CompletedAt       *time.Time      `json:"completed_at"`
 	RolledBackAt      *time.Time      `json:"rolled_back_at"`
+	AbortedAt         *time.Time      `json:"aborted_at,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	CreatedBy         *uuid.UUID      `json:"created_by"`
 	// PolicyID denormalises policy_versions.policy_id onto the rollout row
@@ -592,7 +594,7 @@ type CreateRolloutParams struct {
 
 var rolloutColumns = `id, policy_version_id, previous_version_id, strategy, stages,
 	current_stage, total_sims, migrated_sims, state, started_at, completed_at,
-	rolled_back_at, created_at, created_by, policy_id`
+	rolled_back_at, aborted_at, created_at, created_by, policy_id`
 
 func scanRollout(row pgx.Row) (*PolicyRollout, error) {
 	var r PolicyRollout
@@ -600,7 +602,7 @@ func scanRollout(row pgx.Row) (*PolicyRollout, error) {
 		&r.ID, &r.PolicyVersionID, &r.PreviousVersionID, &r.Strategy,
 		&r.Stages, &r.CurrentStage, &r.TotalSIMs, &r.MigratedSIMs,
 		&r.State, &r.StartedAt, &r.CompletedAt, &r.RolledBackAt,
-		&r.CreatedAt, &r.CreatedBy, &r.PolicyID,
+		&r.AbortedAt, &r.CreatedAt, &r.CreatedBy, &r.PolicyID,
 	)
 	return &r, err
 }
@@ -702,10 +704,15 @@ func (s *PolicyStore) GetRolloutByID(ctx context.Context, rolloutID uuid.UUID) (
 }
 
 func (s *PolicyStore) GetRolloutByIDWithTenant(ctx context.Context, rolloutID, tenantID uuid.UUID) (*PolicyRollout, error) {
+	// FIX-232 DEV-357: column list now matches scanRollout's 16 destinations
+	// after migration 20260428000001 added aborted_at. The prior SELECT was
+	// missing pr.aborted_at, causing pr.created_at to flow into &r.AbortedAt
+	// at scan time. Add aborted_at between rolled_back_at and created_at to
+	// align with the rolloutColumns ordering used by scanRollout.
 	row := s.db.QueryRow(ctx, `
 		SELECT pr.id, pr.policy_version_id, pr.previous_version_id, pr.strategy, pr.stages,
 			pr.current_stage, pr.total_sims, pr.migrated_sims, pr.state, pr.started_at, pr.completed_at,
-			pr.rolled_back_at, pr.created_at, pr.created_by, pr.policy_id
+			pr.rolled_back_at, pr.aborted_at, pr.created_at, pr.created_by, pr.policy_id
 		FROM policy_rollouts pr
 		JOIN policies p ON pr.policy_id = p.id
 		WHERE pr.id = $1 AND p.tenant_id = $2`,
@@ -841,6 +848,13 @@ func (s *PolicyStore) CompleteRollout(ctx context.Context, rolloutID uuid.UUID) 
 	if r.State == "rolled_back" {
 		return ErrRolloutRolledBack
 	}
+	// FIX-232 DEV-357: aborted is terminal — block completion after abort.
+	// An aborted rollout intentionally halted without finishing migration;
+	// re-flipping it to 'completed' would activate a partially-rolled-out
+	// version and contradict the abort decision.
+	if r.State == "aborted" {
+		return ErrRolloutAborted
+	}
 
 	// FIX-231 F-A1 (Gate): UPDATE order is supersede-first, then activate.
 	// The `policy_active_version` partial unique index (state='active') is
@@ -931,6 +945,12 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 	if r.State == "rolled_back" {
 		return ErrRolloutRolledBack
 	}
+	// FIX-232 DEV-357: aborted is a terminal state — block rollback after abort.
+	// The rollout has been intentionally stopped without reverting assignments;
+	// rolling back now would surprise the operator and re-walk migrated SIMs.
+	if r.State == "aborted" {
+		return ErrRolloutAborted
+	}
 
 	_, err = tx.Exec(ctx, `
 		UPDATE policy_rollouts SET state = 'rolled_back', rolled_back_at = NOW()
@@ -954,6 +974,59 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 		return fmt.Errorf("store: commit rollback: %w", err)
 	}
 	return nil
+}
+
+// AbortRollout atomically transitions a rollout to state='aborted' (FIX-232).
+// Unlike RollbackRollout it does NOT touch policy_assignments — already-migrated
+// SIMs stay on the new policy version. The associated policy_versions row stays
+// at its current 'rolling_out' state (intentionally stuck — operator must create
+// a new draft version to retry). Aborting is terminal; subsequent
+// Advance/Rollback/Complete calls return ErrRolloutAborted.
+//
+// Returns ErrRolloutNotFound if the row is missing, ErrRolloutCompleted /
+// ErrRolloutRolledBack / ErrRolloutAborted on terminal-state collisions.
+func (s *PolicyStore) AbortRollout(ctx context.Context, rolloutID uuid.UUID) (*PolicyRollout, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	row := tx.QueryRow(ctx,
+		`SELECT `+rolloutColumns+` FROM policy_rollouts WHERE id = $1 FOR UPDATE`,
+		rolloutID,
+	)
+	current, err := scanRollout(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRolloutNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get rollout for abort: %w", err)
+	}
+
+	switch current.State {
+	case "completed":
+		return nil, ErrRolloutCompleted
+	case "rolled_back":
+		return nil, ErrRolloutRolledBack
+	case "aborted":
+		return nil, ErrRolloutAborted
+	}
+
+	updated, err := scanRollout(tx.QueryRow(ctx, `
+		UPDATE policy_rollouts SET state = 'aborted', aborted_at = NOW()
+		WHERE id = $1
+		RETURNING `+rolloutColumns,
+		rolloutID,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("store: abort rollout update: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit abort: %w", err)
+	}
+	return updated, nil
 }
 
 func (s *PolicyStore) SelectSIMsForStage(

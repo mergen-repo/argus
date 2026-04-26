@@ -117,7 +117,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-232 (Rollout UI Active State — progress bar, advance/rollback/abort buttons, WS subscription, correct endpoint paths)
+- Story: FIX-233 (SIM List Policy column + Rollout Cohort filter — "Policy v{N}" column + filter chips + DTO extension)
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)

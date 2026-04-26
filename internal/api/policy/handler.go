@@ -16,7 +16,6 @@ import (
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/dsl"
-	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/store"
 	undopkg "github.com/btopcu/argus/internal/undo"
 	"github.com/go-chi/chi/v5"
@@ -28,6 +27,16 @@ import (
 // Defined as an interface to allow mock substitution in tests.
 type simCounter interface {
 	CountWithPredicate(ctx context.Context, tenantID uuid.UUID, dslPredicate string, dslArgs []interface{}) (int, error)
+}
+
+// rolloutServicer is the subset of rollout.Service methods used by this handler.
+// Defined as an interface to allow mock substitution in tests.
+type rolloutServicer interface {
+	StartRollout(ctx context.Context, tenantID, versionID uuid.UUID, stagePcts []int, createdBy *uuid.UUID) (*store.PolicyRollout, error)
+	AdvanceRollout(ctx context.Context, tenantID, rolloutID uuid.UUID) (*store.PolicyRollout, error)
+	RollbackRollout(ctx context.Context, tenantID, rolloutID uuid.UUID, reason string) (*store.PolicyRollout, int, error)
+	AbortRollout(ctx context.Context, tenantID, rolloutID uuid.UUID, reason string) (*store.PolicyRollout, error)
+	GetProgress(ctx context.Context, tenantID, rolloutID uuid.UUID) (*store.PolicyRollout, error)
 }
 
 var validScopes = map[string]bool{
@@ -46,7 +55,7 @@ var validPolicyStates = map[string]bool{
 type Handler struct {
 	policyStore  *store.PolicyStore
 	dryRunSvc    *dryrun.Service
-	rolloutSvc   *rollout.Service
+	rolloutSvc   rolloutServicer
 	jobStore     *store.JobStore
 	eventBus     *bus.EventBus
 	auditSvc     audit.Auditor
@@ -69,7 +78,7 @@ func WithSIMStore(s simCounter) HandlerOption {
 func NewHandler(
 	policyStore *store.PolicyStore,
 	dryRunSvc *dryrun.Service,
-	rolloutSvc *rollout.Service,
+	rolloutSvc rolloutServicer,
 	jobStore *store.JobStore,
 	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
@@ -1046,6 +1055,7 @@ type rolloutResponse struct {
 	StartedAt         *string         `json:"started_at,omitempty"`
 	CompletedAt       *string         `json:"completed_at,omitempty"`
 	RolledBackAt      *string         `json:"rolled_back_at,omitempty"`
+	AbortedAt         *string         `json:"aborted_at,omitempty"`
 	CreatedAt         string          `json:"created_at"`
 }
 
@@ -1066,6 +1076,15 @@ type rollbackResponse struct {
 	State        string  `json:"state"`
 	RevertedCount int    `json:"reverted_count"`
 	RolledBackAt *string `json:"rolled_back_at,omitempty"`
+}
+
+type abortRequest struct {
+	Reason *string `json:"reason,omitempty"`
+}
+
+type abortResponse struct {
+	Status string          `json:"status"`
+	Data   rolloutResponse `json:"data"`
 }
 
 func toRolloutResponse(r *store.PolicyRollout) rolloutResponse {
@@ -1095,6 +1114,10 @@ func toRolloutResponse(r *store.PolicyRollout) rolloutResponse {
 	if r.RolledBackAt != nil {
 		s := r.RolledBackAt.Format(time.RFC3339Nano)
 		resp.RolledBackAt = &s
+	}
+	if r.AbortedAt != nil {
+		s := r.AbortedAt.Format(time.RFC3339Nano)
+		resp.AbortedAt = &s
 	}
 	return resp
 }
@@ -1293,6 +1316,73 @@ func (h *Handler) RollbackRollout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "policy_rollout.rollback", ro.ID.String(), nil, resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+func (h *Handler) AbortRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	rolloutID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid rollout ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	var req abortRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+			return
+		}
+	}
+
+	reason := ""
+	if req.Reason != nil {
+		if len(*req.Reason) > 500 {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Reason must not exceed 500 characters")
+			return
+		}
+		reason = *req.Reason
+	}
+
+	ro, err := h.rolloutSvc.AbortRollout(r.Context(), tenantID, rolloutID, reason)
+	if err != nil {
+		if errors.Is(err, store.ErrRolloutNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Rollout not found")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutCompleted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_COMPLETED",
+				"Cannot abort a completed rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutRolledBack) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ROLLED_BACK",
+				"Cannot abort a rolled back rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutAborted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ABORTED",
+				"Rollout was already aborted")
+			return
+		}
+		h.logger.Error().Err(err).Str("rollout_id", idStr).Msg("abort rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	resp := toRolloutResponse(ro)
+	if h.policyStore != nil {
+		if policyID, pErr := h.policyStore.GetPolicyIDForRollout(r.Context(), ro.ID); pErr == nil {
+			resp.PolicyID = policyID.String()
+		}
+	}
+	h.createAuditEntry(r, "policy_rollout.abort", ro.ID.String(), nil, resp)
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 

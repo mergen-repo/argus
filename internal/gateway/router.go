@@ -584,6 +584,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/policy-versions/{id1}/diff/{id2}", deps.PolicyHandler.DiffVersions)
 				r.Post("/api/v1/policy-rollouts/{id}/advance", deps.PolicyHandler.AdvanceRollout)
 				r.Post("/api/v1/policy-rollouts/{id}/rollback", deps.PolicyHandler.RollbackRollout)
+				r.Post("/api/v1/policy-rollouts/{id}/abort", deps.PolicyHandler.AbortRollout)
 				r.Get("/api/v1/policy-rollouts/{id}", deps.PolicyHandler.GetRollout)
 			})
 		}
