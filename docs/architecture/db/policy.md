@@ -63,8 +63,8 @@ Tracks which policy version each SIM is currently using (especially during stage
 | policy_version_id | UUID | FK → policy_versions.id, NOT NULL | Assigned version |
 | rollout_id | UUID | FK → policy_rollouts.id | Rollout that assigned this (null if direct) |
 | assigned_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Assignment time |
-| coa_sent_at | TIMESTAMPTZ | | CoA confirmation time |
-| coa_status | VARCHAR(20) | DEFAULT 'pending' | pending, sent, acked, failed |
+| coa_sent_at | TIMESTAMPTZ | | Last CoA attempt timestamp; used by resender 60s dedup window (FIX-234 DEV-381) |
+| coa_status | VARCHAR(20) | DEFAULT 'pending', CHECK `chk_coa_status` | 6-state lifecycle (FIX-234 DEV-379): `pending` (not yet attempted) → `queued` (dispatch in-flight) → `acked` (operator confirmed) / `failed` (dispatch error or non-ack result) / `no_session` (no active session at dispatch time; re-fired on `session.started`) / `skipped` (assignment bypassed mid-rollout). Migration: `20260430000001_coa_status_enum_extension`. Go canonical const set: `internal/policy/rollout/coa_status.go`. |
 | stage_pct | INT | NULL | Rollout stage percentage at time of assignment (1, 10, 100, …). NULL for legacy rows pre-FIX-233. Written by `AssignSIMsToVersion` rollout service call. Used by SIM list cohort filter. Migration: `20260429000001_policy_assignments_stage_pct`. |
 
 Indexes:
@@ -73,6 +73,7 @@ Indexes:
 - `idx_policy_assignments_rollout` on (rollout_id)
 - `idx_policy_assignments_coa` on (coa_status) WHERE coa_status != 'acked'
 - `idx_policy_assignments_rollout_stage` on (rollout_id, stage_pct) — composite index for cohort filter `WHERE pa.rollout_id = $X AND pa.stage_pct = $Y` (FIX-233)
+- `idx_policy_assignments_coa_failed_age` on (coa_status, coa_sent_at) WHERE coa_status='failed' — partial index for alerter sweep `ListStuckCoAFailures` (FIX-234 AC-7)
 
 Triggers:
 - `trg_sims_policy_version_sync` AFTER INSERT OR UPDATE OF policy_version_id OR DELETE ON policy_assignments FOR EACH ROW EXECUTE FUNCTION sims_policy_version_sync() — FIX-231 AC-2; propagates changes to `sims.policy_version_id`; **sole writer** to that column (DEV-346).

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -106,6 +106,28 @@ function allowedActions(state: SIMState): Array<{ action: string; label: string;
   }
 }
 
+function renderCoaStatus(status?: string | null): React.ReactElement {
+  if (!status) return <span className="text-text-tertiary">—</span>
+  const mapping: Record<string, { label: string; className: string }> = {
+    pending:    { label: 'Pending',        className: 'text-warning' },
+    queued:     { label: 'Queued',         className: 'text-info' },
+    acked:      { label: 'Acknowledged',   className: 'text-success' },
+    failed:     { label: 'Failed',         className: 'text-danger' },
+    no_session: { label: 'No Session',     className: 'text-text-tertiary' },
+    skipped:    { label: 'Skipped',        className: 'text-text-tertiary' },
+  }
+  const entry = mapping[status]
+  if (!entry) return <span className="text-text-tertiary">{status}</span>
+  if (status === 'failed') {
+    return (
+      <span className={entry.className} title="Last attempt failed. See policy event log for failure reason.">
+        {entry.label}
+      </span>
+    )
+  }
+  return <span className={entry.className}>{entry.label}</span>
+}
+
 function OverviewTab({ sim }: { sim: SIM }) {
   const [reserveOpen, setReserveOpen] = useState(false)
 
@@ -169,6 +191,7 @@ function OverviewTab({ sim }: { sim: SIM }) {
             }
             mono={!sim.policy_name && !!sim.policy_version_id}
           />
+          <InfoRow label="CoA Status" value={renderCoaStatus(sim.coa_status)} />
           <InfoRow label="eSIM Profile" value={sim.esim_profile_id ?? 'N/A'} mono={!!sim.esim_profile_id} />
           <InfoRow label="Max Concurrent Sessions" value={String(sim.max_concurrent_sessions)} />
           <InfoRow label="Idle Timeout" value={formatDuration(sim.session_idle_timeout_sec)} />

@@ -123,6 +123,12 @@ type Registry struct {
 	EventsResolverHits     *prometheus.CounterVec
 	EventsResolverMisses   *prometheus.CounterVec
 
+	// FIX-234 AC-8 — CoA status distribution gauge.
+	// One series per coa_status value (6 canonical labels: pending, queued,
+	// acked, failed, no_session, skipped). Refreshed every 60 s by the
+	// coa_failure_alerter sweep job. Low-cardinality by design (no tenant_id).
+	CoAStatusByState *prometheus.GaugeVec
+
 	BuildInfo *prometheus.GaugeVec
 
 	recent5xx *errorRingBuffer
@@ -408,6 +414,15 @@ func NewRegistry() *Registry {
 		Help: "Name-resolver cache misses per entity kind and reason (FIX-212).",
 	}, []string{"kind", "reason"})
 	reg.MustRegister(r.EventsResolverMisses)
+
+	// FIX-234 AC-8 — number of policy_assignments rows by coa_status.
+	r.CoAStatusByState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "argus",
+		Subsystem: "coa",
+		Name:      "status_by_state",
+		Help:      "Number of policy_assignments rows by coa_status (FIX-234).",
+	}, []string{"state"})
+	reg.MustRegister(r.CoAStatusByState)
 
 	r.BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "argus_build_info",

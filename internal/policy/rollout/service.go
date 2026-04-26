@@ -51,6 +51,12 @@ type CoADispatcher interface {
 	SendCoA(ctx context.Context, req CoARequest) (*CoAResult, error)
 }
 
+// coaStatusUpdater is a narrow interface satisfied by *store.PolicyStore.
+// Exposed as a seam so tests can inject a mock without a real DB.
+type coaStatusUpdater interface {
+	UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.UUID, status string) error
+}
+
 type RolloutProgressEvent struct {
 	RolloutID    string               `json:"rollout_id"`
 	TenantID     string               `json:"tenant_id"`
@@ -67,13 +73,14 @@ type RolloutProgressEvent struct {
 }
 
 type Service struct {
-	policyStore     *store.PolicyStore
-	simStore        *store.SIMStore
-	sessionProvider SessionProvider
-	coaDispatcher   CoADispatcher
-	eventBus        *bus.EventBus
-	jobStore        *store.JobStore
-	logger          zerolog.Logger
+	policyStore       *store.PolicyStore
+	simStore          *store.SIMStore
+	sessionProvider   SessionProvider
+	coaDispatcher     CoADispatcher
+	coaStatusUpdater  coaStatusUpdater
+	eventBus          *bus.EventBus
+	jobStore          *store.JobStore
+	logger            zerolog.Logger
 }
 
 func NewService(
@@ -85,7 +92,7 @@ func NewService(
 	jobStore *store.JobStore,
 	logger zerolog.Logger,
 ) *Service {
-	return &Service{
+	svc := &Service{
 		policyStore:     policyStore,
 		simStore:        simStore,
 		sessionProvider: sessionProvider,
@@ -94,6 +101,10 @@ func NewService(
 		jobStore:        jobStore,
 		logger:          logger.With().Str("component", "rollout_service").Logger(),
 	}
+	if policyStore != nil {
+		svc.coaStatusUpdater = policyStore
+	}
+	return svc
 }
 
 func (s *Service) SetSessionProvider(sp SessionProvider) {
@@ -519,6 +530,7 @@ func (s *Service) GetProgress(ctx context.Context, tenantID, rolloutID uuid.UUID
 
 func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 	if s.sessionProvider == nil || s.coaDispatcher == nil {
+		s.writeCoAStatus(ctx, simID, CoAStatusNoSession)
 		return
 	}
 
@@ -527,6 +539,13 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 		s.logger.Warn().Err(err).Str("sim_id", simID.String()).Msg("get sessions for CoA")
 		return
 	}
+
+	if len(sessions) == 0 {
+		s.writeCoAStatus(ctx, simID, CoAStatusNoSession)
+		return
+	}
+
+	s.writeCoAStatus(ctx, simID, CoAStatusQueued)
 
 	for _, sess := range sessions {
 		result, coaErr := s.coaDispatcher.SendCoA(ctx, CoARequest{
@@ -537,24 +556,43 @@ func (s *Service) sendCoAForSIM(ctx context.Context, simID uuid.UUID) {
 			TenantID:      sess.TenantID,
 		})
 
-		status := "sent"
+		var status string
 		if coaErr != nil {
 			s.logger.Warn().Err(coaErr).
 				Str("sim_id", simID.String()).
 				Str("session_id", sess.ID).
+				Str("coa_status", CoAStatusFailed).
 				Msg("CoA send failed")
-			status = "failed"
+			status = CoAStatusFailed
 		} else if result != nil && result.Status != "ack" {
-			status = "failed"
+			status = CoAStatusFailed
 		} else {
-			status = "acked"
+			status = CoAStatusAcked
 		}
 
-		if s.policyStore != nil {
-			if updateErr := s.policyStore.UpdateAssignmentCoAStatus(ctx, simID, status); updateErr != nil {
-				s.logger.Warn().Err(updateErr).Str("sim_id", simID.String()).Msg("update CoA status")
-			}
-		}
+		s.writeCoAStatus(ctx, simID, status)
+	}
+}
+
+// ResendCoA re-fires CoA for a SIM whose policy_assignments row was previously marked no_session.
+// Public entry-point used by the session-started subscriber. The dedup gate (60s) is enforced
+// upstream in the resender; this wrapper is a thin pass-through to the existing unexported helper.
+func (s *Service) ResendCoA(ctx context.Context, simID uuid.UUID) error {
+	s.sendCoAForSIM(ctx, simID)
+	return nil
+}
+
+// writeCoAStatus persists a coa_status transition. Silently skips when no updater is wired
+// (e.g., integration tests that don't need DB assertions).
+func (s *Service) writeCoAStatus(ctx context.Context, simID uuid.UUID, status string) {
+	if s.coaStatusUpdater == nil {
+		return
+	}
+	if err := s.coaStatusUpdater.UpdateAssignmentCoAStatus(ctx, simID, status); err != nil {
+		s.logger.Warn().Err(err).
+			Str("sim_id", simID.String()).
+			Str("coa_status", status).
+			Msg("update CoA status")
 	}
 }
 

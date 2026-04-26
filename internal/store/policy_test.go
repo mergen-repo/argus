@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -983,5 +984,82 @@ func TestPolicyStore_AssignSIMsToVersion_StagePct(t *testing.T) {
 	}
 	if rowCount != 1 {
 		t.Errorf("row count after upsert = %d, want 1 (must be upsert, not double-insert)", rowCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FIX-234 T7 AC-2 — chk_coa_status CHECK constraint rejects invalid values
+// ---------------------------------------------------------------------------
+
+// TestPolicyStore_CoAStatusCheckConstraint_RejectsInvalid verifies that the
+// chk_coa_status CHECK constraint (migration 20260430000001) rejects any
+// coa_status value outside the canonical enum set.
+// DB-gated: skips cleanly when DATABASE_URL is unset.
+func TestPolicyStore_CoAStatusCheckConstraint_RejectsInvalid(t *testing.T) {
+	pool := testPolicyPool(t)
+	if pool == nil {
+		t.Skip("no test database available (set DATABASE_URL)")
+	}
+	ctx := context.Background()
+
+	// Seed a minimal row we can try to UPDATE.
+	// Re-use seedAbortFixture which creates tenant + policy + version + rollout.
+	f := seedAbortFixture(t, pool, "chk-coa-status")
+
+	var operatorID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM operators LIMIT 1`).Scan(&operatorID); err != nil {
+		t.Fatalf("no operator row available: %v", err)
+	}
+
+	var apnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO apns (tenant_id, operator_id, name, apn_type, state)
+		VALUES ($1, $2, 'test-apn-chk-'||gen_random_uuid()::text, 'iot', 'active')
+		RETURNING id`, f.tenantID, operatorID).Scan(&apnID); err != nil {
+		t.Fatalf("seed apn: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM apns WHERE id = $1`, apnID)
+	})
+
+	nonce := uuid.New().ID() % 1_000_000_000
+	iccid := fmt.Sprintf("8901%016d", nonce)
+	imsi := fmt.Sprintf("2340%011d", nonce)
+	var simID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO sims (tenant_id, operator_id, apn_id, iccid, imsi, sim_type, state)
+		VALUES ($1, $2, $3, $4, $5, 'physical', 'ordered')
+		RETURNING id`, f.tenantID, operatorID, apnID, iccid, imsi).Scan(&simID); err != nil {
+		t.Fatalf("seed sim: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM policy_assignments WHERE sim_id = $1`, simID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sims WHERE id = $1`, simID)
+	})
+
+	// Insert a valid policy_assignment row for this SIM.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, coa_status)
+		VALUES ($1, $2, $3, 'pending')`, simID, f.versionID, f.rolloutID); err != nil {
+		t.Fatalf("seed policy_assignment: %v", err)
+	}
+
+	// Attempt to UPDATE with an invalid coa_status value — must be rejected by chk_coa_status.
+	_, err := pool.Exec(ctx, `
+		UPDATE policy_assignments SET coa_status = 'invalid_state' WHERE sim_id = $1`, simID)
+	if err == nil {
+		t.Fatal("expected check constraint violation for coa_status='invalid_state', got nil error")
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("expected *pgconn.PgError, got: %T %v", err, err)
+	}
+	// SQLSTATE 23514 = check_violation
+	if pgErr.Code != "23514" {
+		t.Errorf("expected SQLSTATE 23514 (check_violation), got %q", pgErr.Code)
+	}
+	if pgErr.ConstraintName != "chk_coa_status" {
+		t.Errorf("expected constraint name %q, got %q", "chk_coa_status", pgErr.ConstraintName)
 	}
 }

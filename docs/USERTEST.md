@@ -4601,3 +4601,85 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `cd web && pnpm build` komutunu çalıştır.
 2. **Beklenen:** Build hatasız tamamlanmalı.
 3. Doğrulama: `grep -r "console\.warn" web/dist/assets/*.js | grep -i "infoTooltip\|unknown term"` → çıktı yok bekleniyor. Vite prod modunda `import.meta.env.DEV === false` olduğu için dev-only `console.warn` bloğu tree-shake ile bundle'dan çıkar.
+
+## FIX-234: CoA Status Enum Extension + Idle SIM Handling + UI Counters
+
+> Kapsam: 9 AC — DB enum genişletme, 6-state lifecycle, idle SIM re-fire, alerter, metrics, rollout panel breakdown, SIM detail InfoRow, PROTOCOLS.md.
+
+### Senaryo 1 — Migration etkinliği (AC-1)
+
+1. `make db-migrate` çalıştır → version `20260430000001_coa_status_enum_extension` uygulanmış olmalı.
+2. Geçersiz değer eklemeyi dene:
+   ```sql
+   psql -c "BEGIN; UPDATE policy_assignments SET coa_status='invalid' WHERE id = (SELECT id FROM policy_assignments LIMIT 1); ROLLBACK;"
+   ```
+3. **Beklenen:** `ERROR: new row for relation "policy_assignments" violates check constraint "chk_coa_status"` (SQLSTATE 23514).
+4. ROLLBACK nedeniyle veri değişmemeli.
+
+### Senaryo 2 — Geçerli 6 state değeri (AC-2)
+
+1. Aşağıdaki değerlerin her birini tek tek `coa_status`'a set et (test ortamında):
+   `pending`, `queued`, `acked`, `failed`, `no_session`, `skipped`
+2. **Beklenen:** Hiçbirinde CHECK constraint hatası yok. Constraint sadece listede olmayan değerlerde devreye girmeli.
+
+### Senaryo 3 — Idle SIM → no_session (AC-3)
+
+1. Aktif olmayan (session'ı olmayan) bir SIM'e yeni policy ata ve rollout başlat.
+2. `SELECT coa_status FROM policy_assignments WHERE sim_id = '<SIM_ID>'` sorgusunu çalıştır.
+3. **Beklenen:** `coa_status = 'no_session'` (önceki davranış: SIM sonsuz `'pending'`'de takılırdı).
+
+### Senaryo 4 — Session başlatınca re-fire (AC-4)
+
+1. `coa_status = 'no_session'` olan bir SIM'in RADIUS Access-Request isteği göndermesini simüle et (veya seed SIM'i kullan).
+2. 60 saniye bekle (dedup window dışı).
+3. `SELECT coa_status FROM policy_assignments WHERE sim_id = '<SIM_ID>'` sorgula.
+4. **Beklenen:** `coa_status` → `queued` → sonra `acked` veya `failed` olarak güncellenmeli (`coaSessionResender` NATS queue group `rollout-coa-resend` üzerinden `ResendCoA` çağırır).
+
+### Senaryo 5 — Re-fire dedup penceresi (AC-4 devamı)
+
+1. `coa_status = 'no_session'` olan bir SIM için 60 saniye içinde iki kez session started eventi tetikle.
+2. **Beklenen:** İkinci event yeni bir CoA dispatch'i tetiklemez — `coa_sent_at IS NOT NULL AND NOW() - coa_sent_at <= 60s` koşulu dedup window'u uygular.
+
+### Senaryo 6 — Rollout panel 6-state breakdown (AC-5)
+
+1. Aktif bir rollout içeren bir policy'ye git: `/policies/<id>` → Rollout sekmesi.
+2. `RolloutActivePanel` içindeki CoA breakdown bölümünü incele.
+3. **Beklenen:**
+   - `acked` ve `failed` her zaman gösterilir (high-signal states).
+   - `pending`, `queued`, `no_session`, `skipped` yalnızca 0'dan büyükse görünür.
+   - Renkler: acked→`text-success`, failed→`text-danger`, queued/no_session→`text-accent`/`text-text-tertiary`.
+   - Hexadecimal renk kodu veya Tailwind default palette kullanılmamış olmalı (PAT-018).
+
+### Senaryo 7 — SIM Detail CoA Status satırı (AC-6)
+
+1. `/sims/<id>` sayfasına git.
+2. "Policy & Session" kartında "Policy" satırının hemen altında "CoA Status" InfoRow gözükür.
+3. **Durum eşlemeleri:**
+   - `pending` → sarı `text-warning` label
+   - `queued` → mavi `text-info` chip "In Progress"
+   - `acked` → yeşil `text-success`
+   - `failed` → kırmızı `text-danger`; üstüne hover → tooltip "Last attempt failed. See policy event log for failure reason."
+   - `no_session` / `skipped` → `text-text-tertiary` (muted)
+   - Policy atanmamış SIM → `—` em-dash (`text-text-tertiary`)
+
+### Senaryo 8 — Alerter tetiklenmesi (AC-7)
+
+1. Test için bir SIM'in `policy_assignments` kaydını doğrudan güncelle:
+   ```sql
+   UPDATE policy_assignments SET coa_status='failed', coa_sent_at = NOW() - INTERVAL '6 minutes' WHERE sim_id='<SIM_ID>';
+   ```
+2. 60 saniye bekle (alerter `coa_failure_alerter` her dakika çalışır, cron `* * * * *`).
+3. `SELECT * FROM alerts WHERE type='coa_delivery_failed' AND dedup_key='coa_failed:<SIM_ID>'` sorgula.
+4. **Beklenen:** Alert oluşturulmuş; `severity` = `high`, `type` = `coa_delivery_failed`, `dedup_key` = `coa_failed:<SIM_ID>`.
+5. Aynı koşul altında 2. sweep sonrasında yeni alert oluşmamalı (dedup `UpsertWithDedup`).
+
+### Senaryo 9 — Prometheus metriği (AC-8)
+
+1. Argus çalışırken bir dakika bekle (alerter ilk sweep tamamlanır).
+2. `curl http://localhost:8080/metrics | grep argus_coa_status_by_state` çalıştır.
+3. **Beklenen:** 6 satır (state="pending", "queued", "acked", "failed", "no_session", "skipped") döner. Değerler `policy_assignments` tablosundaki her state için gerçek satır sayılarıyla eşleşmeli.
+   ```
+   argus_coa_status_by_state{state="acked"} 112
+   argus_coa_status_by_state{state="failed"} 0
+   ...
+   ```

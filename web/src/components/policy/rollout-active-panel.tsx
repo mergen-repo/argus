@@ -21,8 +21,12 @@ import { timeAgo } from '@/lib/format'
 import type { PolicyRollout, RolloutStage } from '@/types/policy'
 
 export interface RolloutCoaCounts {
+  pending: number
+  queued: number
   acked: number
   failed: number
+  no_session: number
+  skipped: number
 }
 
 export interface RolloutActivePanelProps {
@@ -278,16 +282,30 @@ export function RolloutActivePanel({
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col p-3 rounded-[var(--radius-sm)] border border-border-subtle bg-bg-surface">
           <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">
-            CoA Acks
+            CoA Status
           </span>
           {coaCounts ? (
-            <span className="font-mono text-xs text-text-primary">
-              {coaCounts.acked.toLocaleString()} acked
-              <span className="text-text-tertiary"> · </span>
-              <span className={coaCounts.failed > 0 ? 'text-danger' : 'text-text-secondary'}>
-                {coaCounts.failed.toLocaleString()} failed
-              </span>
-            </span>
+            <ul className="mt-1 space-y-0.5" aria-label="CoA status breakdown">
+              {(
+                [
+                  { key: 'pending',    label: 'pending',    count: coaCounts.pending,    cls: 'text-accent',        always: false },
+                  { key: 'queued',     label: 'queued',     count: coaCounts.queued,     cls: 'text-accent',        always: false },
+                  { key: 'acked',      label: 'acked',      count: coaCounts.acked,      cls: 'text-success',       always: true  },
+                  { key: 'failed',     label: 'failed',     count: coaCounts.failed,     cls: 'text-danger',        always: true  },
+                  { key: 'no_session', label: 'no session', count: coaCounts.no_session, cls: 'text-text-tertiary', always: false },
+                  { key: 'skipped',    label: 'skipped',    count: coaCounts.skipped,    cls: 'text-text-tertiary', always: false },
+                ] as const
+              )
+                .filter((seg) => seg.always || seg.count > 0)
+                .map((seg) => (
+                  <li key={seg.key} className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] text-text-secondary">{seg.label}</span>
+                    <span className={cn('font-mono text-[10px] font-semibold', seg.cls)}>
+                      {seg.count.toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+            </ul>
           ) : (
             <span className="font-mono text-xs text-text-tertiary">—</span>
           )}

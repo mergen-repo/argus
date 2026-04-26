@@ -797,6 +797,12 @@ func runServe(cfg *config.Config) {
 	stuckRolloutProc := job.NewStuckRolloutReaperProcessor(jobStore, policyStore, eventBus, cfg.StuckRolloutGraceMinutes, log.Logger)
 	jobRunner.Register(stuckRolloutProc)
 
+	// FIX-234 AC-7/AC-8 — CoA failure alerter: sweeps policy_assignments for
+	// long-lived coa_status='failed' rows (>5min) and raises deduplicated alerts.
+	// Also refreshes the argus_coa_status_by_state Prometheus gauge every sweep.
+	coaFailureAlerterProc := job.NewCoAFailureAlerterProcessor(jobStore, policyStore, alertStore, metricsReg, eventBus, log.Logger)
+	jobRunner.Register(coaFailureAlerterProc)
+
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
 
@@ -927,6 +933,13 @@ func runServe(cfg *config.Config) {
 			Name:     "stuck_rollout_reaper",
 			Schedule: "*/5 * * * *",
 			JobType:  job.JobTypeStuckRolloutReaper,
+		})
+		// FIX-234 AC-7 — CoA failure alerter: runs every minute to keep alert
+		// latency ≤ 60s for long-lived coa_status='failed' rows.
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "coa_failure_alerter",
+			Schedule: "* * * * *",
+			JobType:  job.JobTypeCoAFailureAlerter,
 		})
 		cronScheduler.AddEntry(job.CronEntry{
 			Name:     "data_retention",

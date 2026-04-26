@@ -30,8 +30,12 @@ const baseRollout: PolicyRollout = {
 }
 
 const baseCoaCounts: RolloutCoaCounts = {
+  pending: 5,
+  queued: 3,
   acked: 40,
   failed: 2,
+  no_session: 1,
+  skipped: 0,
 }
 
 const _propsMinimal: RolloutActivePanelProps = {

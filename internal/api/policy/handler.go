@@ -1057,6 +1057,7 @@ type rolloutResponse struct {
 	RolledBackAt      *string         `json:"rolled_back_at,omitempty"`
 	AbortedAt         *string         `json:"aborted_at,omitempty"`
 	CreatedAt         string          `json:"created_at"`
+	CoaCounts         map[string]int  `json:"coa_counts,omitempty"`
 }
 
 type advanceResponse struct {
@@ -1417,23 +1418,30 @@ func (h *Handler) GetRollout(w http.ResponseWriter, r *http.Request) {
 			s := policyID.String()
 			resp.PolicyID = s
 		}
+		counts, cErr := h.policyStore.GetCoAStatusCountsByRollout(r.Context(), rolloutID)
+		if cErr != nil {
+			h.logger.Warn().Err(cErr).Str("rollout_id", rolloutID.String()).Msg("coa counts fetch failed; defaulting to nil")
+			counts = nil
+		}
+		resp.CoaCounts = counts
 	}
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
 // rolloutSummaryDTO is the wire shape returned by ListRollouts.
 type rolloutSummaryDTO struct {
-	ID                  string  `json:"id"`
-	PolicyID            string  `json:"policy_id"`
-	PolicyVersionID     string  `json:"policy_version_id"`
-	PolicyName          string  `json:"policy_name"`
-	PolicyVersionNumber int     `json:"policy_version"`
-	State               string  `json:"state"`
-	CurrentStage        int     `json:"current_stage"`
-	TotalSIMs           int     `json:"total_sims"`
-	MigratedSIMs        int     `json:"migrated_sims"`
-	StartedAt           *string `json:"started_at"`
-	CreatedAt           string  `json:"created_at"`
+	ID                  string         `json:"id"`
+	PolicyID            string         `json:"policy_id"`
+	PolicyVersionID     string         `json:"policy_version_id"`
+	PolicyName          string         `json:"policy_name"`
+	PolicyVersionNumber int            `json:"policy_version"`
+	State               string         `json:"state"`
+	CurrentStage        int            `json:"current_stage"`
+	TotalSIMs           int            `json:"total_sims"`
+	MigratedSIMs        int            `json:"migrated_sims"`
+	StartedAt           *string        `json:"started_at"`
+	CreatedAt           string         `json:"created_at"`
+	CoaCounts           map[string]int `json:"coa_counts,omitempty"`
 }
 
 var validRolloutStates = map[string]bool{
@@ -1514,6 +1522,13 @@ func (h *Handler) ListRollouts(w http.ResponseWriter, r *http.Request) {
 		if row.StartedAt != nil {
 			s := row.StartedAt.Format(time.RFC3339Nano)
 			dto.StartedAt = &s
+		}
+		// N+1: one query per rollout — acceptable because active rollouts are bounded
+		// (default cap 50). D-XXX candidate for batched query optimisation.
+		if counts, cErr := h.policyStore.GetCoAStatusCountsByRollout(r.Context(), row.ID); cErr != nil {
+			h.logger.Warn().Err(cErr).Str("rollout_id", row.ID.String()).Msg("coa counts fetch failed; defaulting to nil")
+		} else {
+			dto.CoaCounts = counts
 		}
 		dtos = append(dtos, dto)
 	}

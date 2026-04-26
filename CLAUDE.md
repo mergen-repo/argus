@@ -117,7 +117,7 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-234 (CoA status enum extension — no_session/skipped + idle SIM handling + UI counters)
+- Story: FIX-252 (`POST /sims/{id}/activate` returns 500 — IP-pool allocation failure on reactivate; backend bug)
 - Step: Plan
 - Plan: `docs/reviews/ui-review-remediation-plan.md` (44 FIX stories, FIX-201..FIX-248)
 - Findings: `docs/reviews/ui-review-2026-04-19.md` (107 aktif finding + Phase 2 additions)

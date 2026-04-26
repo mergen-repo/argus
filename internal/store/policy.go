@@ -1291,6 +1291,44 @@ func (s *PolicyStore) GetPolicyIDForRollout(ctx context.Context, rolloutID uuid.
 	return policyID, nil
 }
 
+// GetCoAStatusCountsByRollout returns the policy_assignments coa_status distribution
+// for a single rollout. The returned map is pre-seeded with all 6 canonical states at 0,
+// so the JSON envelope always carries the full key set (no missing keys downstream).
+//
+// Canonical source: internal/policy/rollout/coa_status.go::CoAStatusAll.
+// The list is duplicated here deliberately to avoid an import cycle between store and
+// internal/policy/rollout.
+//
+// Tenant-scoping assumption: rolloutID is expected to be valid for the caller's tenant.
+// The HTTP handler layer is already tenant-scoped via JWT middleware; this method does
+// not re-validate tenant ownership.
+//
+// FIX-234 AC-5: feeds RolloutActivePanel coa_counts breakdown.
+func (s *PolicyStore) GetCoAStatusCountsByRollout(ctx context.Context, rolloutID uuid.UUID) (map[string]int, error) {
+	counts := map[string]int{
+		"pending": 0, "queued": 0, "acked": 0, "failed": 0, "no_session": 0, "skipped": 0,
+	}
+	rows, err := s.db.Query(ctx,
+		`SELECT coa_status, COUNT(*) FROM policy_assignments WHERE rollout_id = $1 GROUP BY coa_status`,
+		rolloutID)
+	if err != nil {
+		return nil, fmt.Errorf("store: get coa status counts by rollout: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("store: scan coa status count: %w", err)
+		}
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: coa status counts rows: %w", err)
+	}
+	return counts, nil
+}
+
 func (s *PolicyStore) SetVersionState(ctx context.Context, versionID uuid.UUID, state string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE policy_versions SET state = $2
@@ -1455,4 +1493,102 @@ func (s *PolicyStore) ListRollouts(ctx context.Context, tenantID uuid.UUID, p Li
 		return nil, fmt.Errorf("store: list rollouts rows: %w", err)
 	}
 	return results, nil
+}
+
+// GetAssignmentBySIMForResend returns the (coa_status, coa_sent_at) tuple for the
+// policy_assignments row of the given SIM. Returns pgx.ErrNoRows if absent.
+// Lightweight by design — does NOT join policy_versions/rollouts (resender doesn't need them).
+func (s *PolicyStore) GetAssignmentBySIMForResend(ctx context.Context, simID uuid.UUID) (string, *time.Time, error) {
+	var coaStatus string
+	var coaSentAt *time.Time
+	err := s.db.QueryRow(ctx,
+		`SELECT coa_status, coa_sent_at FROM policy_assignments WHERE sim_id = $1`,
+		simID,
+	).Scan(&coaStatus, &coaSentAt)
+	if err != nil {
+		return "", nil, fmt.Errorf("store: get assignment for resend: %w", err)
+	}
+	return coaStatus, coaSentAt, nil
+}
+
+// StuckCoAFailure is a minimal projection of a policy_assignments row that has
+// been stuck in coa_status='failed' longer than the alerter age threshold.
+type StuckCoAFailure struct {
+	TenantID uuid.UUID
+	SimID    uuid.UUID
+	FailedAt time.Time
+}
+
+// ListStuckCoAFailures returns policy_assignments rows where coa_status='failed'
+// and coa_sent_at is older than `age`. Uses the idx_policy_assignments_coa_failed_age
+// partial index (FIX-234) for an efficient scan.
+//
+// policy_assignments has no tenant_id column; the tenant is resolved via a JOIN on
+// sims.id → sims.tenant_id. Returns at most 500 rows per sweep.
+func (s *PolicyStore) ListStuckCoAFailures(ctx context.Context, age time.Duration) ([]StuckCoAFailure, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT s.tenant_id, pa.sim_id, pa.coa_sent_at
+		  FROM policy_assignments pa
+		  JOIN sims s ON s.id = pa.sim_id
+		 WHERE pa.coa_status = 'failed'
+		   AND pa.coa_sent_at IS NOT NULL
+		   AND pa.coa_sent_at < NOW() - ($1 || ' seconds')::interval
+		 ORDER BY pa.coa_sent_at
+		 LIMIT 500`,
+		int(age.Seconds()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list stuck coa failures: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]StuckCoAFailure, 0)
+	for rows.Next() {
+		var f StuckCoAFailure
+		if err := rows.Scan(&f.TenantID, &f.SimID, &f.FailedAt); err != nil {
+			return nil, fmt.Errorf("store: scan stuck coa failure: %w", err)
+		}
+		results = append(results, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate stuck coa failures: %w", err)
+	}
+	return results, nil
+}
+
+// coaStatusAllInternal is the canonical set of coa_status values (FIX-234).
+// Duplicated locally to avoid an import cycle with internal/policy/rollout
+// (rollout depends on store; store must not depend on rollout).
+// Canonical source: internal/policy/rollout/coa_status.go CoAStatusAll.
+var coaStatusAllInternal = []string{"pending", "queued", "acked", "failed", "no_session", "skipped"}
+
+// CoAStatusCounts returns a map of coa_status → row count for all policy_assignments.
+// All 6 canonical states are pre-seeded at 0 so the caller always receives a complete
+// label set (no missing keys for Prometheus gauges or JSON serialisation).
+func (s *PolicyStore) CoAStatusCounts(ctx context.Context) (map[string]int64, error) {
+	counts := make(map[string]int64, len(coaStatusAllInternal))
+	for _, st := range coaStatusAllInternal {
+		counts[st] = 0
+	}
+
+	rows, err := s.db.Query(ctx,
+		`SELECT coa_status, COUNT(*) FROM policy_assignments GROUP BY coa_status`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: coa status counts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("store: scan coa status count: %w", err)
+		}
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate coa status counts: %w", err)
+	}
+	return counts, nil
 }

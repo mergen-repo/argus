@@ -34,6 +34,7 @@ const (
 	JobTypeDataIntegrityScan         = "data_integrity_scan"
 	JobTypeAlertsRetention           = "alerts_retention"
 	JobTypeStuckRolloutReaper        = "stuck_rollout_reaper"
+	JobTypeCoAFailureAlerter         = "coa_failure_alerter"
 )
 
 var AllJobTypes = []string{
@@ -70,4 +71,5 @@ var AllJobTypes = []string{
 	JobTypeDataIntegrityScan,
 	JobTypeAlertsRetention,
 	JobTypeStuckRolloutReaper,
+	JobTypeCoAFailureAlerter,
 }

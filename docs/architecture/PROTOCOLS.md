@@ -102,6 +102,49 @@ Argus → NAS (UDP port 3799 by convention, configurable per operator)
     └─ Authenticator (signed with shared secret)
 ```
 
+### CoA Status Lifecycle (FIX-234)
+
+The `policy_assignments.coa_status` column tracks each SIM's CoA delivery state across 6 canonical values. The CHECK constraint `chk_coa_status` (migration `20260430000001`) enforces this set; the canonical Go const set lives in `internal/policy/rollout/coa_status.go`.
+
+**State definitions:**
+- `pending` — Just-inserted assignment row; transient, set by `AssignSIMsToVersion` writer.
+- `queued` — `sendCoAForSIM` has identified active sessions and is dispatching CoA.
+- `acked` — CoA delivered + ack received from RADIUS/Diameter.
+- `failed` — Dispatch attempted but failed after retries.
+- `no_session` — SIM has no active session at the time of policy assignment; nothing to push to.
+- `skipped` — Policy rule indicated CoA-skip (e.g., low-priority change with no protocol delta).
+
+**Lifecycle state machine:**
+
+```
+                  ┌──────────┐
+       insert →   │ pending  │
+                  └────┬─────┘
+                       │  sendCoAForSIM
+                       ▼
+              ┌────────────────────┐
+              │  has active session?│
+              └────┬─────────┬─────┘
+                   │ no      │ yes
+                   ▼         ▼
+            ┌──────────┐  ┌────────┐
+            │no_session│  │ queued │
+            └────┬─────┘  └────┬───┘
+                 │             │ dispatch
+       session.started        ▼
+            (re-fire)    ┌─────────────┐
+                 │       │ acked|failed│
+                 └──────►└─────────────┘
+```
+
+**Re-fire on `session.started`:** When a SIM with `coa_status='no_session'` starts a new session, the `coaSessionResender` subscriber (queue group `rollout-coa-resend`) re-invokes `sendCoAForSIM` to push the pending policy. A 60-second dedup window (via `coa_sent_at`) prevents thrashing on rapid session start/stop cycles.
+
+**Failure alerter:** The `coa_failure_alerter` background job (cron `* * * * *`, every minute) sweeps for rows with `coa_status='failed' AND coa_sent_at < NOW() - 5min` and creates a high-severity alert via `AlertStore.UpsertWithDedup` (dedup key `coa_failed:<sim_id>`).
+
+**Metric:** `argus_coa_status_by_state{state}` Prometheus gauge (registered in `metrics.CoAStatusByState`) — refreshed on each alerter sweep with the current per-state counts.
+
+**Skipped state:** Currently set explicitly by callers that determine a CoA push is unnecessary (e.g., a metadata-only policy update). Not currently auto-set by `sendCoAForSIM` — see future hardening for skip heuristics.
+
 ---
 
 ## Diameter (RFC 6733)

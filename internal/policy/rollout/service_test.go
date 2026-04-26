@@ -3,12 +3,25 @@ package rollout
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+type mockCoAStatusUpdater struct {
+	calls  []string
+	simIDs []uuid.UUID
+	err    error
+}
+
+func (m *mockCoAStatusUpdater) UpdateAssignmentCoAStatus(_ context.Context, simID uuid.UUID, status string) error {
+	m.calls = append(m.calls, status)
+	m.simIDs = append(m.simIDs, simID)
+	return m.err
+}
 
 type mockSessionProvider struct {
 	sessions []SessionInfo
@@ -60,18 +73,28 @@ func TestSetCoADispatcher(t *testing.T) {
 
 func TestSendCoAForSIM_NilProviders(t *testing.T) {
 	logger := zerolog.Nop()
+	mu := &mockCoAStatusUpdater{}
 	svc := NewService(nil, nil, nil, nil, nil, nil, logger)
+	svc.coaStatusUpdater = mu
 	svc.sendCoAForSIM(context.Background(), uuid.New())
+	if len(mu.calls) != 1 || mu.calls[0] != CoAStatusNoSession {
+		t.Errorf("expected UpdateAssignmentCoAStatus(%q), got %v", CoAStatusNoSession, mu.calls)
+	}
 }
 
 func TestSendCoAForSIM_NoSessions(t *testing.T) {
 	logger := zerolog.Nop()
 	sp := &mockSessionProvider{sessions: nil}
 	cd := &mockCoADispatcher{result: &CoAResult{Status: "ack"}}
+	mu := &mockCoAStatusUpdater{}
 	svc := NewService(nil, nil, sp, cd, nil, nil, logger)
+	svc.coaStatusUpdater = mu
 	svc.sendCoAForSIM(context.Background(), uuid.New())
 	if cd.calls != 0 {
 		t.Errorf("expected 0 CoA calls, got %d", cd.calls)
+	}
+	if len(mu.calls) != 1 || mu.calls[0] != CoAStatusNoSession {
+		t.Errorf("expected UpdateAssignmentCoAStatus(%q), got %v", CoAStatusNoSession, mu.calls)
 	}
 }
 
@@ -84,10 +107,70 @@ func TestSendCoAForSIM_WithSessions(t *testing.T) {
 		},
 	}
 	cd := &mockCoADispatcher{result: &CoAResult{Status: "ack"}}
+	mu := &mockCoAStatusUpdater{}
 	svc := NewService(nil, nil, sp, cd, nil, nil, logger)
+	svc.coaStatusUpdater = mu
 	svc.sendCoAForSIM(context.Background(), uuid.New())
 	if cd.calls != 2 {
 		t.Errorf("expected 2 CoA calls, got %d", cd.calls)
+	}
+	// expect: queued (before loop) + acked (session 1) + acked (session 2)
+	want := []string{CoAStatusQueued, CoAStatusAcked, CoAStatusAcked}
+	if len(mu.calls) != len(want) {
+		t.Fatalf("expected %d status writes, got %d: %v", len(want), len(mu.calls), mu.calls)
+	}
+	for i, w := range want {
+		if mu.calls[i] != w {
+			t.Errorf("status[%d]: want %q, got %q", i, w, mu.calls[i])
+		}
+	}
+}
+
+func TestSendCoAForSIM_DispatchError(t *testing.T) {
+	logger := zerolog.Nop()
+	sp := &mockSessionProvider{
+		sessions: []SessionInfo{
+			{ID: "s1", SimID: "sim1", NASIP: "10.0.0.1", AcctSessionID: "acct1", IMSI: "123456"},
+		},
+	}
+	cd := &mockCoADispatcher{err: errors.New("radius timeout")}
+	mu := &mockCoAStatusUpdater{}
+	svc := NewService(nil, nil, sp, cd, nil, nil, logger)
+	svc.coaStatusUpdater = mu
+	svc.sendCoAForSIM(context.Background(), uuid.New())
+	// expect: queued (before loop) + failed (dispatch returned error)
+	want := []string{CoAStatusQueued, CoAStatusFailed}
+	if len(mu.calls) != len(want) {
+		t.Fatalf("expected %d status writes, got %d: %v", len(want), len(mu.calls), mu.calls)
+	}
+	for i, w := range want {
+		if mu.calls[i] != w {
+			t.Errorf("status[%d]: want %q, got %q", i, w, mu.calls[i])
+		}
+	}
+}
+
+func TestSendCoAForSIM_NonAckResult(t *testing.T) {
+	logger := zerolog.Nop()
+	sp := &mockSessionProvider{
+		sessions: []SessionInfo{
+			{ID: "s1", SimID: "sim1", NASIP: "10.0.0.1", AcctSessionID: "acct1", IMSI: "123456"},
+		},
+	}
+	cd := &mockCoADispatcher{result: &CoAResult{Status: "nak"}}
+	mu := &mockCoAStatusUpdater{}
+	svc := NewService(nil, nil, sp, cd, nil, nil, logger)
+	svc.coaStatusUpdater = mu
+	svc.sendCoAForSIM(context.Background(), uuid.New())
+	// expect: queued (before loop) + failed (result.Status != "ack")
+	want := []string{CoAStatusQueued, CoAStatusFailed}
+	if len(mu.calls) != len(want) {
+		t.Fatalf("expected %d status writes, got %d: %v", len(want), len(mu.calls), mu.calls)
+	}
+	for i, w := range want {
+		if mu.calls[i] != w {
+			t.Errorf("status[%d]: want %q, got %q", i, w, mu.calls[i])
+		}
 	}
 }
 
