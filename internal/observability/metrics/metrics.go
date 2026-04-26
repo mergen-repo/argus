@@ -123,6 +123,12 @@ type Registry struct {
 	EventsResolverHits     *prometheus.CounterVec
 	EventsResolverMisses   *prometheus.CounterVec
 
+	// FIX-237 — notification tier-guard filtered calls.
+	// Counts notification.Service.Notify calls short-circuited by the tier guard.
+	// Labels: event_type, reason (internal | digest_no_source).
+	// Low-cardinality by design (bounded event_type set; 2 reason values).
+	EventsTierFilteredTotal *prometheus.CounterVec
+
 	// FIX-234 AC-8 — CoA status distribution gauge.
 	// One series per coa_status value (6 canonical labels: pending, queued,
 	// acked, failed, no_session, skipped). Refreshed every 60 s by the
@@ -414,6 +420,13 @@ func NewRegistry() *Registry {
 		Help: "Name-resolver cache misses per entity kind and reason (FIX-212).",
 	}, []string{"kind", "reason"})
 	reg.MustRegister(r.EventsResolverMisses)
+
+	// FIX-237 — notification tier guard filtered counter.
+	r.EventsTierFilteredTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_tier_filtered_total",
+		Help: "Notification.Notify calls short-circuited by the FIX-237 tier guard. Labels: event_type, reason (internal, digest_no_source).",
+	}, []string{"event_type", "reason"})
+	reg.MustRegister(r.EventsTierFilteredTotal)
 
 	// FIX-234 AC-8 — number of policy_assignments rows by coa_status.
 	r.CoAStatusByState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -731,6 +744,16 @@ func (r *Registry) IncResolverMiss(kind, reason string) {
 		return
 	}
 	r.EventsResolverMisses.WithLabelValues(kind, reason).Inc()
+}
+
+// IncEventsTierFiltered increments the tier-guard filtered counter (FIX-237).
+// eventType is the notification event_type; reason is "internal" or "digest_no_source".
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncEventsTierFiltered(eventType, reason string) {
+	if r == nil || r.EventsTierFilteredTotal == nil {
+		return
+	}
+	r.EventsTierFilteredTotal.WithLabelValues(eventType, reason).Inc()
 }
 
 func operatorHealthValue(status string) float64 {

@@ -28,6 +28,7 @@ import (
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/analytics/aggregates"
 	anomalysvc "github.com/btopcu/argus/internal/analytics/anomaly"
+	"github.com/btopcu/argus/internal/analytics/digest"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
@@ -1035,6 +1036,10 @@ func runServe(cfg *config.Config) {
 		bus.SubjectJobProgress,
 		bus.SubjectJobCompleted,
 		bus.SubjectNotification,
+		bus.SubjectFleetMassOffline,
+		bus.SubjectFleetTrafficSpike,
+		bus.SubjectFleetQuotaBreachCount,
+		bus.SubjectFleetViolationSurge,
 	}); err != nil {
 		log.Warn().Err(err).Msg("failed to subscribe ws hub to NATS")
 	}
@@ -1407,6 +1412,27 @@ func runServe(cfg *config.Config) {
 		cronScheduler.AddEntry(job.CronEntry{Name: "ip_grace_release", Schedule: "@hourly", JobType: job.JobTypeIPGraceRelease})
 		cronScheduler.AddEntry(job.CronEntry{Name: "webhook_retry_sweep", Schedule: "*/1 * * * *", JobType: job.JobTypeWebhookRetry})
 		cronScheduler.AddEntry(job.CronEntry{Name: "scheduled_report_sweeper", Schedule: "*/1 * * * *", JobType: job.JobTypeScheduledReportSweeper})
+	}
+
+	// FIX-237 — Fleet digest worker (Tier 2 aggregator). Runs every 15 min.
+	digestThresholds := digest.LoadThresholds()
+	digestWorker := digest.NewWorker(
+		simStore,
+		cdrStore,
+		violationStore,
+		notifSvc,
+		eventBus,
+		digestThresholds,
+		log.Logger,
+		nil,
+	)
+	jobRunner.Register(digestWorker)
+	if cronScheduler != nil {
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "fleet_digest",
+			Schedule: cfg.CronFleetDigest,
+			JobType:  digest.JobTypeFleetDigest,
+		})
 	}
 
 	// STORY-073 — Admin compliance screens

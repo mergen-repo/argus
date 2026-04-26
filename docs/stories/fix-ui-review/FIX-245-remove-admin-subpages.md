@@ -37,7 +37,7 @@ As a product owner, I want 5 admin sub-pages removed to simplify the platform an
 ### DSAR Queue removal
 - [ ] **AC-7:** Delete `web/src/pages/admin/dsar.tsx`, `web/src/hooks/use-data-portability.ts`
 - [ ] **AC-8:** Backend `GET /api/v1/admin/dsar/queue` + DSAR processor handler removed
-- [ ] **AC-9:** `data_portability.ready` event removed from taxonomy (FIX-237 coordinates)
+- [ ] **AC-9 (UPDATED by FIX-237):** `data_portability.ready` event taxonomy + template removal — implemented by **FIX-237** (event catalog + seed templates). FIX-245 retains scope: DSAR Admin sub-page UI, hooks, backend handler, store, and CLI command removal. Cross-reference: `docs/stories/fix-ui-review/FIX-237-m2m-event-taxonomy.md` Section 3 Conflict 2 + DEV-503.
 - [ ] **AC-10:** `internal/api/compliance/data_portability.go` removed
 - [ ] **AC-11:** DSAR-related notification template removed from seed
 
@@ -93,4 +93,4 @@ As a product owner, I want 5 admin sub-pages removed to simplify the platform an
 - Browser: sidebar no longer lists removed items; no broken links
 
 ## Plan Reference
-Priority: P2 · Effort: L · Wave: 10 · Depends: FIX-237 (event taxonomy — drop data_portability.ready)
+Priority: P2 · Effort: L · Wave: 10 · Depends: FIX-237 (event taxonomy — drop data_portability.ready) · Coordinates with: FIX-237 (taxonomy half — DSAR event removed there, DEV-503)

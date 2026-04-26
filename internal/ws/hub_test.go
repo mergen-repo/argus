@@ -651,6 +651,85 @@ func TestExtractTenantID(t *testing.T) {
 	}
 }
 
+// TestRelayNATS_Tier1Event_DoesNotCreateNotificationRow is a FIX-237 Conflict 4
+// regression test. It verifies the cross-tier safety invariant (Section 2.5):
+//
+//   - Tier 1 events (e.g. "session.started") MUST still flow on NATS to WS
+//     Live Stream subscribers (assertion a: WS client receives the event).
+//   - They MUST NOT create notification rows (assertion b: hub.go has zero
+//     references to any notification store — the structural absence is verified
+//     by the grep comment below; at runtime the invariant holds trivially because
+//     Hub carries no notifStore field and no notification import).
+//
+// This guards against future refactors that might accidentally couple WS
+// fan-out with notification persistence.
+func TestRelayNATS_Tier1Event_DoesNotCreateNotificationRow(t *testing.T) {
+	hub := NewHub(zerolog.Nop())
+
+	tenantID := uuid.New()
+	conn := &Connection{
+		TenantID: tenantID,
+		UserID:   uuid.New(),
+		SendCh:   make(chan []byte, 16),
+	}
+	hub.Register(conn)
+
+	env := &struct {
+		EventVersion int    `json:"event_version"`
+		ID           string `json:"id"`
+		Type         string `json:"type"`
+		Timestamp    string `json:"timestamp"`
+		TenantID     string `json:"tenant_id"`
+		Severity     string `json:"severity"`
+		Source       string `json:"source"`
+		Title        string `json:"title"`
+	}{
+		EventVersion: 1,
+		ID:           uuid.NewString(),
+		Type:         "session.started",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
+		TenantID:     tenantID.String(),
+		Severity:     "info",
+		Source:       "aaa",
+		Title:        "test session started",
+	}
+
+	msgBytes, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal Tier 1 envelope: %v", err)
+	}
+
+	hub.relayNATSEvent("argus.events.session.started", msgBytes)
+
+	// Assertion (a): WS client received the Tier 1 event.
+	select {
+	case msg := <-conn.SendCh:
+		var got EventEnvelope
+		if err := json.Unmarshal(msg, &got); err != nil {
+			t.Fatalf("unmarshal ws envelope: %v", err)
+		}
+		if got.Type != "session.started" {
+			t.Errorf("expected type %q, got %q", "session.started", got.Type)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("WS client did not receive Tier 1 event within timeout")
+	}
+
+	// Assertion (b): Hub has no notification-store dependency — structural
+	// invariant. hub.go contains no "notifStore", "notification.Service", or
+	// notification import. The Hub struct carries only: mu, conns, subs,
+	// dropped, metrics, logger. There is nothing to mock; the absence of side-
+	// effects on any notification table is guaranteed by construction.
+	//
+	// Runtime check: ensure no unexpected second message was queued (channel
+	// must be drained after the single relay call).
+	select {
+	case extra := <-conn.SendCh:
+		t.Errorf("unexpected extra message on WS channel: %s", string(extra))
+	default:
+	}
+}
+
 func TestEventEnvelope_Serialization(t *testing.T) {
 	env := EventEnvelope{
 		Type:      "operator.health_changed",

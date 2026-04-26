@@ -120,6 +120,14 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-069: TLS everywhere — HTTPS, RadSec, Diameter/TLS
 - F-070: Input validation/sanitization, CORS per-tenant
 
+#### Device Identity & Binding (Phase 11 — Enterprise Readiness Pack)
+- F-073: IMEI capture (cross-protocol) — read-only ingestion of device identity on every auth path: 3GPP-IMEISV via RADIUS VSA (vendor 10415, attr 20), Terminal-Information AVP via Diameter S6a (AVP 350), PEI via 5G SBA (Nudm/Namf). Runs before policy evaluation; null-safe (auth never blocked by missing IMEI). Per-SIM binding state lives on TBL-10 `sims` extended columns (`bound_imei`, `binding_mode`, `binding_status`, etc.); full IMEI history per SIM tracked in TBL-59 `imei_history`. Answers customer Q11 (device identity visibility), Q40 (cross-RAT consistency). Depends on: F-001 RADIUS, F-002 Diameter, F-003 5G SBA, F-026 RAT awareness. Stories: STORY-093.
+- F-074: SIM-Device Binding — per-SIM enforcement of legitimate device pairing across 6 binding modes (`strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`) plus NULL default (off). Configurable per-SIM (SIM Detail), per-segment via bulk action (SIM List), and via Policy DSL (Policy Editor) with precedence per BR-4. Binding status (`verified` / `pending` / `mismatch` / `unbound` / `disabled`) surfaced on SIM Detail and SIM List. Answers customer Q12 (anti-clone / anti-swap), Q13 (per-SIM device control), Q31 (policy-driven enforcement). Depends on: F-073 IMEI capture, F-025 Policy DSL, F-032 rule engine, F-044 segments, F-064 audit. Stories: STORY-094, STORY-096. Out-of-scope: EIR (S13/N17) integration — local enforcement only per ADR-004.
+- F-075: IMEI Pool Management — org-level White / Grey / Black lists (TBL-56 `imei_whitelist`, TBL-57 `imei_greylist`, TBL-58 `imei_blacklist`) keyed by full IMEI **or** TAC range (8-digit prefix). Bulk CSV import as async job with partial-success error report (same pattern as F-018). IMEI Lookup tool (paste IMEI → see bound SIM, list membership, history). Answers customer Q12 (stolen-device control), Q14 (vendor-model fleet rules). Depends on: F-018 bulk ops, F-068 job system, F-073 IMEI capture. Stories: STORY-095. Out-of-scope: GSMA CEIR auto-feed — manual blacklist import only per ADR-004.
+- F-076: Binding enforcement & mismatch handling — auth-path gate that rejects (or alert-only logs) authentications when a SIM's bound IMEI does not match the captured one, with reject reason code, audit entry, and deduped alert (per FIX-210). Behaviour scaled by binding_mode: `soft` = alert only, `strict` = reject, `grace-period` = accept with countdown alert until expiry, `tac-lock` = accept only if TAC matches, `allowlist` = accept only if IMEI in pool. "Unverified Devices" report aggregates `pending` + `mismatch` SIMs across the fleet. Answers customer Q13 (real-time enforcement), Q31 (granular per-SIM control). Depends on: F-074 binding modes, F-067 notifications, F-064 audit. Stories: STORY-096 (with modes from STORY-094).
+- F-077: IMEI change detection & re-pair — historical IMEI tracking per SIM (TBL-59 `imei_history`), grace-period workflow for legitimate device swaps (configurable window with countdown alert), admin re-pair UI (manual unbind + re-bind to new IMEI, audited). Alarm `imei.changed` published to NATS with severity scaled by binding_mode (`strict` = high, `grace-period` = medium, `soft` = info). Answers customer Q12 (theft/clone detection), Q13 (legitimate swap handling). Depends on: F-074 binding, F-067 notifications, FIX-210 dedup, F-064 audit. Stories: STORY-097.
+- F-078: Native Syslog forwarding — built-in RFC 3164 (BSD legacy) and RFC 5424 (modern structured) emitters with UDP / TCP / TLS transports. Configurable destinations (TBL-61 `syslog_destinations`) and per-destination filter rules (which event categories — auth/audit/alert/policy/IMEI — forward where). SIEM-ready out of the box (Splunk, QRadar, ArcSight, Elastic). Answers customer Q40 (enterprise SIEM integration without third-party shipper). Depends on: F-064 audit, F-067 notifications, F-069 TLS. Stories: STORY-098.
+
 ### Should Have (v1 but lower priority within development phases)
 - F-071: SIM comparison — side-by-side debug view
 - F-072: Roaming agreement management UI
@@ -385,3 +393,54 @@ Argus enforces a single canonical policy assignment per SIM. The doctrine has th
 
 ### Reference
 FIX-231 — Policy Version State Machine + Dual-Source Fix. Plan: `docs/stories/fix-ui-review/FIX-231-plan.md`.
+
+## Event Notification Philosophy: M2M-Centric
+
+Argus manages 10M+ IoT/M2M SIMs that reconnect, send heartbeats, and transition
+state every few minutes. A consumer-telco notification model — "your SIM was
+activated", "session started", "policy enforced" — would generate millions of
+events per hour and bury operators in noise. Argus inverts the model: per-SIM
+activity is treated as **internal metric data**, while user-facing notifications
+surface only fleet-level signals or operational events that an admin must act on.
+
+### Three-Tier Taxonomy
+
+Every event in the platform is classified into one of three tiers:
+
+- **Tier 1 — Internal/Metric.** Per-SIM, high-volume signals (`session.started`,
+  `sim.state_changed`, `heartbeat.ok`, `auth.attempt`, `usage.threshold`,
+  `ip.reclaimed`, `ip.released`, `policy.enforced`, `notification.dispatch`).
+  These flow on the NATS event bus for the WebSocket Live Event Stream and for
+  analytics, but **never** create user-facing notification rows. The Live Event
+  Stream still shows them in real time for NOC visibility.
+
+- **Tier 2 — Aggregate/Digest.** Fleet-level rollups computed every 15 minutes
+  by the digest worker. Examples: `fleet.mass_offline` (when X% of active SIMs
+  go offline in a window), `fleet.traffic_spike` (bytes vs rolling baseline),
+  `fleet.quota_breach_count`, `fleet.violation_surge`. Thresholds are
+  operator-tunable via env vars (see `docs/architecture/CONFIG.md`). When a
+  threshold crosses, ONE notification is created — not 100K per-SIM rows.
+
+- **Tier 3 — Operational.** Admin attention required: `operator_down`,
+  `operator_recovered`, `sla_violation`, `policy_violation`, `bulk_job.completed`,
+  `bulk_job.failed`, `webhook.dead_letter`, `backup.verify_failed`,
+  `report.ready`, etc. These create notification rows by default; users can
+  opt out via the Notification Preferences page.
+
+### Why This Matters
+
+- **At 10M SIMs**, even a 1% per-SIM event would be 100K notifications. The
+  digest tier folds noise into actionable signals — operators see "120 SIMs
+  went offline (6%)" as ONE alert, not 120 emails.
+- **Notification Preferences** only show Tier 2 + Tier 3 events. Users cannot
+  subscribe to Tier 1 events because doing so would be a footgun (and even if
+  legacy preference rows exist, the runtime tier guard suppresses them).
+- **The Live Event Stream** remains the channel for per-event visibility —
+  NOC analysts can still watch every `session.started` flow through in real
+  time, but those events are bytes-on-the-wire, not stored alerts.
+
+### Reclassification
+
+Moving an event between tiers requires a story-level decision (`docs/decisions.md`)
+plus updates to `internal/api/events/tiers.go`, the catalog, and a regression
+test. The canonical taxonomy lives at `docs/architecture/EVENTS.md`.

@@ -20,23 +20,23 @@ var (
 )
 
 type PolicyViolation struct {
-	ID                  uuid.UUID       `json:"id"`
-	TenantID            uuid.UUID       `json:"tenant_id"`
-	SimID               uuid.UUID       `json:"sim_id"`
-	PolicyID            uuid.UUID       `json:"policy_id"`
-	VersionID           uuid.UUID       `json:"version_id"`
-	RuleIndex           int             `json:"rule_index"`
-	ViolationType       string          `json:"violation_type"`
-	ActionTaken         string          `json:"action_taken"`
-	Details             json.RawMessage `json:"details"`
-	SessionID           *uuid.UUID      `json:"session_id,omitempty"`
-	OperatorID          *uuid.UUID      `json:"operator_id,omitempty"`
-	APNID               *uuid.UUID      `json:"apn_id,omitempty"`
-	Severity            string          `json:"severity"`
-	CreatedAt           time.Time       `json:"created_at"`
-	AcknowledgedAt      *time.Time      `json:"acknowledged_at,omitempty"`
-	AcknowledgedBy      *uuid.UUID      `json:"acknowledged_by,omitempty"`
-	AcknowledgmentNote  *string         `json:"acknowledgment_note,omitempty"`
+	ID                 uuid.UUID       `json:"id"`
+	TenantID           uuid.UUID       `json:"tenant_id"`
+	SimID              uuid.UUID       `json:"sim_id"`
+	PolicyID           uuid.UUID       `json:"policy_id"`
+	VersionID          uuid.UUID       `json:"version_id"`
+	RuleIndex          int             `json:"rule_index"`
+	ViolationType      string          `json:"violation_type"`
+	ActionTaken        string          `json:"action_taken"`
+	Details            json.RawMessage `json:"details"`
+	SessionID          *uuid.UUID      `json:"session_id,omitempty"`
+	OperatorID         *uuid.UUID      `json:"operator_id,omitempty"`
+	APNID              *uuid.UUID      `json:"apn_id,omitempty"`
+	Severity           string          `json:"severity"`
+	CreatedAt          time.Time       `json:"created_at"`
+	AcknowledgedAt     *time.Time      `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy     *uuid.UUID      `json:"acknowledged_by,omitempty"`
+	AcknowledgmentNote *string         `json:"acknowledgment_note,omitempty"`
 }
 
 type CreateViolationParams struct {
@@ -416,4 +416,20 @@ func (s *PolicyViolationStore) Acknowledge(ctx context.Context, id, tenantID, us
 		return nil, fmt.Errorf("store: acknowledge violation: %w", err)
 	}
 	return &v, nil
+}
+
+// CountInWindowAllTenants returns the global count of policy_violations rows
+// created within the [from, to) timestamp window across every tenant. Added
+// for FIX-237 fleet digest worker (violation_surge current count and rolling
+// baseline). Read-only aggregate; no tenant scoping by design.
+func (s *PolicyViolationStore) CountInWindowAllTenants(ctx context.Context, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM policy_violations WHERE created_at >= $1 AND created_at < $2`,
+		from, to,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count policy violations in window all tenants: %w", err)
+	}
+	return count, nil
 }

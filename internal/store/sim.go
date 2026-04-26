@@ -1397,6 +1397,36 @@ func (s *SIMStore) CountByAPN(ctx context.Context, tenantID uuid.UUID) (map[uuid
 	return result, nil
 }
 
+// CountActiveAllTenants returns the global count of SIMs in 'active' state
+// across every tenant. Added for FIX-237 fleet digest worker (mass_offline
+// percentage denominator). Read-only aggregate; no tenant scoping by design.
+func (s *SIMStore) CountActiveAllTenants(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM sims WHERE state = 'active'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active sims all tenants: %w", err)
+	}
+	return count, nil
+}
+
+// CountStateTransitionsToInactiveAllTenants returns the global count of
+// sim_state_history rows whose to_state moved a SIM out of the active pool
+// (suspended, stolen_lost, terminated) within the [from, to) window across
+// every tenant. Added for FIX-237 fleet digest worker (mass_offline
+// numerator). Read-only aggregate; no tenant scoping by design.
+func (s *SIMStore) CountStateTransitionsToInactiveAllTenants(ctx context.Context, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sim_state_history
+		WHERE to_state IN ('suspended', 'stolen_lost', 'terminated')
+		  AND created_at >= $1 AND created_at < $2
+	`, from, to).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count sim transitions to inactive all tenants: %w", err)
+	}
+	return count, nil
+}
+
 func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT state, COUNT(*) FROM sims

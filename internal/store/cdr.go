@@ -1137,3 +1137,22 @@ func (s *CDRStore) GetDailyKPISparklines(ctx context.Context, tenantID uuid.UUID
 	}
 	return result, nil
 }
+
+// SumBytesAllTenantsInWindow returns the global SUM(bytes_in + bytes_out) over
+// the [from, to) timestamp window across every tenant. Added for FIX-237 fleet
+// digest worker (traffic_spike numerator and rolling baseline). Read-only
+// aggregate; no tenant scoping by design. PAT-009: bytes_in/bytes_out are
+// NOT NULL DEFAULT 0 in core schema, but COALESCE the SUM result so an empty
+// window returns 0 instead of NULL.
+func (s *CDRStore) SumBytesAllTenantsInWindow(ctx context.Context, from, to time.Time) (int64, error) {
+	var total int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(bytes_in + bytes_out), 0)::bigint
+		FROM cdrs
+		WHERE timestamp >= $1 AND timestamp < $2
+	`, from, to).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("store: sum bytes all tenants in window: %w", err)
+	}
+	return total, nil
+}

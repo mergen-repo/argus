@@ -231,6 +231,7 @@ Self-service password reset flow: user submits email → receives tokenized link
 | `CRON_PURGE_SWEEP` | string | `@daily` | No | Cron schedule for the purge sweep job (KVKK/GDPR auto-purge of terminated SIMs). Supports `@daily`, `@hourly`, `@weekly`, `@monthly`, or 5-field cron expressions. |
 | `CRON_IP_RECLAIM` | string | `@hourly` | No | Cron schedule for the IP reclaim job (returns terminated SIM IPs to pool after grace period). |
 | `CRON_SLA_REPORT` | string | `@daily` | No | Cron schedule for the SLA report generation job. |
+| `CRON_FLEET_DIGEST` | string | `*/15 * * * *` | No | FIX-237 — Cron schedule for the fleet digest worker (Tier 2 aggregator). Runs every 15 min by default; tune to operator preference. |
 
 #### STORY-069 Cron Entries (hard-coded schedules — no env vars)
 
@@ -242,6 +243,22 @@ Self-service password reset flow: user submits email → receives tokenized link
 | `scheduled_report_sweeper` | `*/1 * * * *` | `scheduled_report_sweeper` | Scans `scheduled_reports.next_run_at <= now()` and enqueues a `scheduled_report_run` per due row. |
 | `alerts_retention` | `15 3 * * *` | `alerts_retention` | FIX-209 — purges rows from the unified `alerts` table older than `ALERTS_RETENTION_DAYS` (default 180). |
 | `stuck_rollout_reaper` | `*/5 * * * *` | `stuck_rollout_reaper` | FIX-231 — finds rollouts where `migrated_sims >= total_sims AND age > ARGUS_STUCK_ROLLOUT_GRACE_MINUTES` and calls `CompleteRollout` for each. Emits `policy.rollout_progress` event per reaped rollout. |
+
+### FIX-237 Digest Worker Thresholds
+
+The fleet digest worker (run every 15 min by default — see `CRON_FLEET_DIGEST`) emits Tier 2 fleet events when these thresholds are crossed. All values are operator-tunable; defaults target a 10M+ M2M fleet.
+
+| Env var | Type | Default | Required | Description |
+|---------|------|---------|----------|-------------|
+| `ARGUS_DIGEST_MASS_OFFLINE_PCT` | float | `5.0` | No | % of active SIMs offline in 15-min window that triggers `fleet.mass_offline`. Severity scales: low <5%, medium 5-15%, high 15-30%, critical >30%. |
+| `ARGUS_DIGEST_MASS_OFFLINE_FLOOR` | int | `10` | No | Absolute minimum offline-SIM count. Below this, no event regardless of percentage (prevents noise on small fleets). |
+| `ARGUS_DIGEST_TRAFFIC_SPIKE_RATIO` | float | `3.0` | No | Bytes/15-min divided by rolling baseline that triggers `fleet.traffic_spike`. |
+| `ARGUS_DIGEST_QUOTA_BREACH_COUNT` | int | `50` | No | Number of SIMs crossing quota in window that triggers `fleet.quota_breach_count`. |
+| `ARGUS_DIGEST_QUOTA_BREACH_FLOOR` | int | `10` | No | Absolute floor for quota breaches (always 10 minimum). |
+| `ARGUS_DIGEST_VIOLATION_SURGE_RATIO` | float | `2.0` | No | policy_violation events/15-min divided by baseline that triggers `fleet.violation_surge`. |
+| `ARGUS_DIGEST_VIOLATION_SURGE_FLOOR` | int | `10` | No | Absolute floor for violation surge (always 10 minimum). |
+
+See `docs/architecture/EVENTS.md` for severity-scaling table and the M2M event taxonomy these thresholds support.
 
 ### Redis Key Patterns (Job System)
 

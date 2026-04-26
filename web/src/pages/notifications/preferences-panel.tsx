@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Save, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -18,23 +18,8 @@ import {
   useUpsertNotificationPreferences,
   type NotificationPreference,
 } from '@/hooks/use-notification-preferences'
+import { useEventCatalog } from '@/hooks/use-event-catalog'
 import { SEVERITY_OPTIONS as CANONICAL_SEVERITY_OPTIONS } from '@/lib/severity'
-
-const EVENT_TYPES = [
-  'sim.activated',
-  'sim.suspended',
-  'sim.terminated',
-  'session.started',
-  'session.ended',
-  'anomaly.detected',
-  'policy.violation',
-  'operator.health_changed',
-  'job.completed',
-  'job.failed',
-  'data_portability_ready',
-  'webhook.dead_letter',
-  'report_ready',
-]
 
 const CHANNELS = ['email', 'in_app', 'webhook', 'telegram', 'sms'] as const
 
@@ -47,19 +32,30 @@ function emptyPref(eventType: string): NotificationPreference {
 export function NotificationPreferencesPanel() {
   const query = useNotificationPreferences()
   const upsert = useUpsertNotificationPreferences()
+  const { catalog, isLoading: catalogLoading } = useEventCatalog()
   const [matrix, setMatrix] = useState<Record<string, NotificationPreference>>({})
   const [dirty, setDirty] = useState(false)
+
+  const tier1Set = useMemo(() => {
+    if (!catalog) return new Set<string>()
+    return new Set(catalog.filter((e) => e.tier === 'internal').map((e) => e.type))
+  }, [catalog])
+
+  const visibleEventTypes = useMemo(() => {
+    if (!catalog) return [] as string[]
+    return catalog.map((e) => e.type).filter((t) => !tier1Set.has(t))
+  }, [catalog, tier1Set])
 
   useEffect(() => {
     if (!query.data) return
     const out: Record<string, NotificationPreference> = {}
-    for (const evt of EVENT_TYPES) {
+    for (const evt of visibleEventTypes) {
       const existing = query.data.find((p) => p.event_type === evt)
       out[evt] = existing ?? emptyPref(evt)
     }
     setMatrix(out)
     setDirty(false)
-  }, [query.data])
+  }, [query.data, visibleEventTypes])
 
   const update = (evt: string, patch: Partial<NotificationPreference>) => {
     setMatrix((prev) => ({ ...prev, [evt]: { ...prev[evt], ...patch } }))
@@ -97,9 +93,13 @@ export function NotificationPreferencesPanel() {
           Save
         </Button>
       </div>
-      {query.isLoading ? (
+      {query.isLoading || catalogLoading ? (
         <p className="text-sm text-text-tertiary">Loading preferences...</p>
       ) : (
+        <>
+          <p className="text-xs text-text-tertiary mb-2">
+            Internal/metric events are not shown — they cannot be configured for notifications.
+          </p>
         <Table>
           <TableHeader>
             <TableRow>
@@ -112,7 +112,7 @@ export function NotificationPreferencesPanel() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {EVENT_TYPES.map((evt) => {
+            {visibleEventTypes.map((evt) => {
               const p = matrix[evt] ?? emptyPref(evt)
               return (
                 <TableRow key={evt}>
@@ -144,6 +144,7 @@ export function NotificationPreferencesPanel() {
             })}
           </TableBody>
         </Table>
+        </>
       )}
     </Card>
   )

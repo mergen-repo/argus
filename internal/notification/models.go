@@ -81,6 +81,10 @@ type NotifyRequest struct {
 	TenantName  string
 	UserName    string
 	ExtraFields map[string]string
+	// Source identifies the caller. Used by the tier guard to allow the digest
+	// worker (Source="digest") to emit Tier 2 events. Empty for non-digest
+	// callers — they cannot emit Tier 2 events directly.
+	Source string
 }
 
 type WebhookSender interface {

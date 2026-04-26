@@ -8,6 +8,7 @@ import (
 
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -352,6 +353,11 @@ func (p *BulkStateChangeProcessor) completeJob(ctx context.Context, j *store.Job
 		"failed_count":    failed,
 	})
 
+	subject, env := buildBulkJobEvent(JobTypeBulkStateChange, j.ID.String(), j.TenantID.String(), processed, failed, total)
+	if err := p.eventBus.Publish(ctx, subject, env); err != nil {
+		p.logger.Warn().Err(err).Str("bulk_job_id", j.ID.String()).Msg("failed to publish bulk_job event")
+	}
+
 	return nil
 }
 
@@ -368,4 +374,36 @@ func (p *BulkStateChangeProcessor) publishProgress(ctx context.Context, j *store
 			"progress_pct":    float64(processed+failed) / float64(total) * 100.0,
 		})
 	}
+}
+
+// buildBulkJobEvent constructs the Tier 3 Envelope for a terminal bulk job
+// state. Severity and subject are chosen by outcome:
+//   - all success (failed==0) → Info + SubjectBulkJobCompleted
+//   - partial (some success, some fail) → Medium + SubjectBulkJobCompleted
+//   - total fail (processed==0, including cancelled/zero-work) → High + SubjectBulkJobFailed
+//
+// The returned subject and envelope are ready for eventBus.Publish.
+func buildBulkJobEvent(jobType, jobID, tenantID string, processed, failed, total int) (string, *bus.Envelope) {
+	subject := bus.SubjectBulkJobCompleted
+	eventType := "bulk_job.completed"
+	sev := severity.Info
+
+	if processed == 0 {
+		sev = severity.High
+		subject = bus.SubjectBulkJobFailed
+		eventType = "bulk_job.failed"
+	} else if failed > 0 {
+		sev = severity.Medium
+	}
+
+	env := bus.NewEnvelope(eventType, tenantID, sev).
+		WithSource(subject).
+		WithTitle(fmt.Sprintf("Bulk %s job completed: %d ok, %d failed", jobType, processed, failed)).
+		WithMeta("bulk_job_id", jobID).
+		WithMeta("total_count", total).
+		WithMeta("success_count", processed).
+		WithMeta("fail_count", failed).
+		WithMeta("job_type", jobType)
+
+	return subject, env
 }

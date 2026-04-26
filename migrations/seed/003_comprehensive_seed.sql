@@ -646,7 +646,7 @@ INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title
 -- Nar Teknoloji notifications
 ('B0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Camera IPv4 Pool', 'Camera IPv4 Pool havuzu %91 kapasiteye ulasti. Acil genisleme gerekli.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
 ('B0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Meter IPv4 Pool', 'Meter IPv4 Pool havuzu %85 kapasiteye ulasti.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '4 hours'),
-('B0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_state_change', 'sim', 'SIM Durumu Degisti', 'SIM 89900100000000000301 ACTIVE''den SUSPENDED''a gecti.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 hours', NOW() - INTERVAL '10 hours'),
+('B0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'policy_violation', 'sim', 'Politika Ihlali Tespit Edildi', 'SIM 89900100000000000301 aktif politika kuralini ihlal etti. Inceleme gerekli.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 hours', NOW() - INTERVAL '10 hours'),
 ('B0000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_stolen_lost', 'sim', 'SIM Calinti/Kayip Bildirimi', 'SIM 89900100000000000601 calinti/kayip olarak isaretlendi. Oturum sonlandirildi.', 'critical', ARRAY['in_app','email','webhook'], 'read', NOW() - INTERVAL '28 hours', NOW() - INTERVAL '30 hours'),
 ('B0000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_started', 'policy', 'Politika Yayilimi Basladi', 'Fleet Standart QoS v2 canary yayilimi basladi. Asamal: %1 → %10 → %100', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '2 days', NOW() - INTERVAL '3 days'),
 ('B0000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_stage', 'policy', 'Politika Yayilim Asamasi 2', 'Fleet Standart QoS v2 %10 asamasina gecti. 5 SIM guncellendi.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '1 day'),
@@ -674,7 +674,7 @@ INSERT INTO notifications (tenant_id, user_id, event_type, scope_type, title, bo
 SELECT
     '10000000-0000-0000-0000-000000000001',
     (ARRAY['40000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002','40000000-0000-0000-0000-000000000003','40000000-0000-0000-0000-000000000004','40000000-0000-0000-0000-000000000005']::uuid[])[1 + (random()*4)::int],
-    (ARRAY['session_started','session_ended','sim_state_change','usage_threshold','heartbeat_ok'])[1 + (random()*4)::int],
+    (ARRAY['operator_down','policy_violation','sla_violation','anomaly_data_spike','webhook.dead_letter'])[1 + (random()*4)::int],
     (ARRAY['sim','apn','operator','system'])[1 + (random()*3)::int],
     'Sistem Bildirimi #' || i,
     'Otomatik sistem bildirimi. Detaylar icin tiklayin.',
@@ -953,7 +953,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notification_configs (id, tenant_id, user_id, event_type, scope_type, channels, threshold_type, threshold_value, enabled) VALUES
 ('CC000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CC000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":true}', NULL, NULL, true),
-('CC000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_state_change', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true),
+('CC000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'policy_violation', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true),
 ('CC000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true),
 ('CC000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CC000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true)
@@ -1399,7 +1399,7 @@ INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title
 ('BB000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'operator_degraded', 'operator', 'Operator Status: Turk Telekom DEGRADED', 'Turk Telekom health check failed. Circuit breaker engaged.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '7 hours'),
 ('BB000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'anomaly_detected', 'sim', 'Anomaly Detected: Data Spike', 'SIM 89900100000000002003 used 30x normal data in 1 hour.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
 ('BB000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'policy_activated', 'policy', 'Policy Activated', 'Demo Standard QoS v1 successfully activated.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '27 days', NOW() - INTERVAL '28 days'),
-('BB000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'sim_state_change', 'sim', 'SIM Status Changed', '3 SIMs moved to SUSPENDED state.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '11 days', NOW() - INTERVAL '12 days'),
+('BB000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'policy_violation', 'sim', 'Policy Violation Detected', '3 SIMs breached active policy rules. Review required.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '11 days', NOW() - INTERVAL '12 days'),
 ('BB000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_stolen_lost', 'sim', 'SIM Stolen/Lost Report', 'SIM 89900100000000002601 marked as stolen. Session terminated.', 'critical', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '24 days', NOW() - INTERVAL '25 days'),
 ('BB000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'api_key_expiring', 'system', 'API Key Expiring Soon', 'Demo Analytics API key expires in 7 days.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
 ('BB000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'job_completed', 'system', 'CDR Export Ready', 'CDR export for March 2026 is ready for download.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
@@ -1448,7 +1448,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notification_configs (id, tenant_id, user_id, event_type, scope_type, channels, threshold_type, threshold_value, enabled) VALUES
 ('CD000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CD000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true),
-('CD000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_state_change', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true)
+('CD000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'policy_violation', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================

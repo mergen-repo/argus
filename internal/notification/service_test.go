@@ -1889,3 +1889,157 @@ func TestHandleAlertPersist_DedupKeyFromEnvelope_RespectsPublisherOverride(t *te
 		t.Errorf("publisher-authored dedup_key not preserved: got %q want %q", got, pubKey)
 	}
 }
+
+// -- FIX-237 B1: tier guard tests --
+
+func TestService_Notify_Tier1_Suppressed_NoNotificationRowCreated(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventType("session.started"),
+		ScopeType: ScopeSystem,
+		Title:     "Session started",
+		Body:      "internal event",
+		Severity:  "info",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 0 {
+		t.Errorf("notifStore.Create calls = %d, want 0 (tier=internal must be suppressed)", len(notifStore.items))
+	}
+}
+
+func TestService_Notify_Tier1_LegacySnakeCase_AlsoSuppressed(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventType("session_started"),
+		ScopeType: ScopeSystem,
+		Title:     "Session started (legacy)",
+		Body:      "internal event",
+		Severity:  "info",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 0 {
+		t.Errorf("notifStore.Create calls = %d, want 0 (legacy tier=internal must be suppressed)", len(notifStore.items))
+	}
+}
+
+func TestService_Notify_Tier2_RejectedWithoutDigestSource(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventType("fleet.mass_offline"),
+		ScopeType: ScopeSystem,
+		Title:     "Fleet mass offline",
+		Body:      "digest event without digest source",
+		Severity:  "warning",
+		Source:    "",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 0 {
+		t.Errorf("notifStore.Create calls = %d, want 0 (tier=digest with source!=digest must be suppressed)", len(notifStore.items))
+	}
+}
+
+func TestService_Notify_Tier2_AcceptedWithDigestSource(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventType("fleet.mass_offline"),
+		ScopeType: ScopeSystem,
+		Title:     "Fleet mass offline (digest)",
+		Body:      "digest event from digest worker",
+		Severity:  "warning",
+		Source:    "digest",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 1 {
+		t.Errorf("notifStore.Create calls = %d, want 1 (tier=digest with source=digest must proceed)", len(notifStore.items))
+	}
+}
+
+func TestService_Notify_Tier3_ReachesPreferenceLookupAndCreate(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels: []string{},
+			Enabled:  true,
+		},
+	})
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventOperatorDown,
+		ScopeType: ScopeOperator,
+		Title:     "Operator down",
+		Body:      "tier3 event",
+		Severity:  "critical",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 1 {
+		t.Errorf("notifStore.Create calls = %d, want 1 (tier=operational must reach store)", len(notifStore.items))
+	}
+}
+
+func TestService_Notify_TierGuard_PrecedesPreferenceLookup(t *testing.T) {
+	notifStore := &mockNotifStore{}
+	svc := NewService(nil, nil, nil, []Channel{}, zerolog.Nop())
+	svc.SetNotifStore(notifStore)
+	svc.SetPrefStore(&mockPrefStore{
+		pref: &Preference{
+			Channels: []string{"in_app"},
+			Enabled:  true,
+		},
+	})
+
+	err := svc.Notify(context.Background(), NotifyRequest{
+		TenantID:  uuid.New(),
+		EventType: EventType("session.started"),
+		ScopeType: ScopeSystem,
+		Title:     "Session started",
+		Body:      "internal — preference enabled but tier guard must win",
+		Severity:  "info",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	notifStore.mu.Lock()
+	defer notifStore.mu.Unlock()
+	if len(notifStore.items) != 0 {
+		t.Errorf("notifStore.Create calls = %d, want 0 (tier guard must precede preference lookup — cross-tier safety invariant FIX-237 §2.5)", len(notifStore.items))
+	}
+}

@@ -4974,3 +4974,151 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    DATABASE_URL='postgresql://argus:argus_secret@localhost:5450/argus?sslmode=disable' go test -count=1 -run 'PolicyStore_GetAssignment|UpdateAssignmentCoAStatusWithReason|SessionGet_Enrich|Manager_Create_Publishes' ./internal/store/... ./internal/api/session/... ./internal/aaa/session/...
    ```
 2. **Beklenen:** 9 test PASS + 1 SKIP (defensive corrupt-JSONB test infeasible without DB-backed integration harness — documented).
+
+## FIX-237: M2M-Centric Event Taxonomy + Notification Redesign
+
+> **Wave 8 P0.** Event kataloğu 3 tier'a ayrıldı (Tier 1 = internal/metric, Tier 2 = digest/aggregate, Tier 3 = operational). `notification.Service.Notify` Tier 1 event'leri sessizce suppress eder; Tier 2 event'ler yalnızca `Source="digest"` ile publish edilir. Fleet digest worker 15 dakikada bir aggregate event yayınlar. Notification şablonları admin/NOC voice'a dönüştürüldü (34 şablon, 17 event × 2 locale). NATS EVENTS stream retention 72h → 168h. DSAR consumer-facing event'ler (`data_portability.ready` vb.) kaldırıldı. Plan: `docs/stories/fix-ui-review/FIX-237-plan.md`.
+
+### Senaryo 1 — Tier 1 event'ler notification oluşturmuyor (AC-1, AC-2)
+
+1. Event kataloğunu kontrol et — her entry'de `tier` field bulunmalı:
+   ```
+   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/events/catalog | jq '.data.events[] | {name, tier}' | head -40
+   ```
+2. `session.started` event'ini tetikle (RADIUS Access-Request veya test fixture ile).
+3. Notifications tablosunda son 5 dakikada oluşan row sayısını kontrol et:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT count(*) FROM notifications WHERE event_type IN ('session.started','session_started') AND created_at > NOW() - INTERVAL '5 minutes';"
+   ```
+4. **Beklenen:** Sonuç `0` — Tier 1 event'ler için `notifications` tablosunda yeni row OLUŞMAMALI.
+
+### Senaryo 2 — Tier 1 event'ler WS Live Stream'de görünüyor (AC-2, Conflict 4)
+
+1. Browser: http://localhost:8084/dashboard (Live Event Stream bölümü açık).
+2. RADIUS test client ile `session.started` tetikle.
+3. **Beklenen:** Live Event Stream'de `session.started` event'i anlık görünür. AMA Senaryo 1'den `notifications` tablosunda row YOKTUR — Tier 1 suppress yalnızca kalıcı notification içindir; WS stream etkilenmez.
+
+### Senaryo 3 — Tier 3 operational event notification oluşturuyor (AC-2, AC-6)
+
+1. `operator_down` event'ini tetikle (operator simulator'ı durdur veya test endpoint üzerinden direkt `notification.Service.Notify` çağır).
+2. Notifications tablosunu sorgula:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT event_type, severity, created_at FROM notifications WHERE event_type='operator_down' ORDER BY created_at DESC LIMIT 3;"
+   ```
+3. **Beklenen:** 1 yeni row, `event_type='operator_down'`, `severity` config'e göre set edilmiş (örn. `high`).
+
+### Senaryo 4 — Tier 2 digest event source guard (AC-3)
+
+1. `fleet.mass_offline` event'ini `Source=""` (boş) ile yayınla (yanlış kullanım simülasyonu — test endpoint veya unit test).
+2. Uygulama loglarını kontrol et:
+   ```
+   docker logs argus-app 2>&1 | grep "digest_no_source" | tail -5
+   ```
+3. Prometheus counter'ı doğrula:
+   ```
+   curl -s http://localhost:8080/metrics | grep 'events_tier_filtered_total'
+   ```
+4. **Beklenen:** Log'da `"tier=digest but source!=digest"` uyarısı + `argus_events_tier_filtered_total{reason="digest_no_source"}` counter artmış. `notifications` tablosunda yeni row YOK.
+5. Aynı event'i `Source="digest"` ile yeniden yayınla.
+6. **Beklenen:** Bu sefer `notifications` tablosunda 1 yeni row oluşur.
+
+### Senaryo 5 — Fleet digest worker tick (AC-3)
+
+1. Digest worker'ı manuel tetikle (test endpoint veya job runner):
+   ```
+   docker exec argus-app /app/argus job run fleet_digest
+   ```
+2. Uygulama loglarını kontrol et:
+   ```
+   docker logs argus-app 2>&1 | grep "fleet digest" | tail -10
+   ```
+3. **Beklenen:** Loglarda `"fleet digest tick: starting"` ve `"fleet digest tick: complete"` mesajları görünür. Eğer threshold aşıldıysa NATS'ta `fleet.*` event yayınlanır ve `notifications` tablosuna 1 row eklenir.
+
+### Senaryo 6 — Notification Preferences UI'da Tier 1 event'ler gizli (AC-4)
+
+1. Browser: http://localhost:8084/notifications?tab=preferences
+2. Listede gösterilen event'leri incele.
+3. **Beklenen:** Listede SADECE Tier 2 + Tier 3 event'ler görünür. `session.started`, `sim.state_changed`, `heartbeat.ok` gibi Tier 1 event'ler listede BULUNMAMALI.
+4. "Add preference" picker'ını aç — burada da Tier 1 event'ler YOK.
+5. Sayfa footer veya helper text'te şu mesaj bulunmalı: `"Internal/metric events are not shown — they cannot be configured for notifications."`
+
+### Senaryo 7 — Şablon sayısı ve içerik doğrulaması (AC-5, AC-7)
+
+1. Şablon toplam sayısını kontrol et:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT count(*) FROM notification_templates;"
+   ```
+   **Beklenen:** `34` (17 event tipi × 2 locale: `tr` + `en`).
+2. Event tiplerini listele:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT DISTINCT event_type FROM notification_templates ORDER BY event_type;"
+   ```
+   **Beklenen:** Listede `fleet_mass_offline`, `fleet_traffic_spike`, `fleet_quota_breach_count`, `fleet_violation_surge`, `bulk_job_completed`, `bulk_job_failed`, `backup_verify_failed` VAR; `welcome`, `sim_state_change`, `session_login`, `onboarding_completed`, `data_portability_ready` YOK.
+3. Bir şablonun body içeriğini kontrol et:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT body FROM notification_templates WHERE event_type='operator_down' AND locale='en' LIMIT 1;"
+   ```
+   **Beklenen:** Admin/NOC voice içeriği (örn. `"Operator Turkcell health degraded — circuit breaker engaged at ..."`). Consumer-facing dil (`"Hello {{UserName}}, your SIM was suspended..."` tarzı) bulunmamalı.
+
+### Senaryo 8 — DSAR event'lerin taxonomy'den kaldırılması (AC-9)
+
+1. Kaynak kodda `data_portability` referansı ara:
+   ```
+   grep -ri data_portability /Users/btopcu/workspace/argus/internal/api/events/catalog.go
+   ```
+   **Beklenen:** Sonuç boş — catalog'da bu event YOK.
+2. Seed/migration dosyasında cleanup bloğunu doğrula:
+   ```
+   grep -i data_portability_ready /Users/btopcu/workspace/argus/migrations/seed/004_notification_templates.sql
+   ```
+   **Beklenen:** Yalnızca `DELETE` / cleanup bloğunda görünür (eski veriyi temizleme amacıyla), yeni ekleme olarak YOK.
+
+### Senaryo 9 — Migration env-gate davranışı (AC-10, AC-11)
+
+1. Env-gate KAPALI (default) ile migration uygula:
+   ```
+   make db-migrate
+   ```
+   Uygulama loglarını veya migration çıktısını incele.
+   **Beklenen:** NOTICE: `"FIX-237: pre-purge Tier 1 notification row count: N"` + `"argus.drop_tier1_notifications NOT set — skipping purge"` → mevcut Tier 1 notification row'ları KALIR.
+2. Env-gate AÇIK ile manuel uygula:
+   ```
+   PGPASSWORD=argus_secret psql -h localhost -p 5450 -U argus -d argus -v argus.drop_tier1_notifications=true -f /Users/btopcu/workspace/argus/migrations/20260501000002_notifications_taxonomy_migration.up.sql
+   ```
+   **Beklenen:** NOTICE: `"FIX-237: deleted N Tier 1 notification rows (env gate ON)"` — Tier 1 event'lere ait eski notification row'ları silindi.
+3. AC-10 kontrolü: Tier 1 event'lere ait `notification_preferences` row'u varsa:
+   **Beklenen:** NOTICE: `"X notification_preferences row(s) reference Tier 1 / removed event types... ineffective..."` uyarısı.
+
+### Senaryo 10 — NATS EVENTS stream retention 168h (AC-8)
+
+1. NATS JetStream yapılandırmasını sorgula:
+   ```
+   curl -s http://localhost:8222/jsz?streams=true | jq '.streams[] | select(.config.name=="EVENTS") | .config.max_age'
+   ```
+2. **Beklenen:** `604800000000000` (168 saat = 7 gün, nanosaniye cinsinden). Pre-FIX-237 değer `259200000000000` (72h) idi.
+
+### Senaryo 11 — Bulk job event publish (AC-6)
+
+1. Bulk state-change job'ı çalıştır (örn. 50 SIM ile `/api/v1/sims/bulk/state-change` POST).
+2. Job tamamlandıktan sonra notifications tablosunu sorgula:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT event_type, severity, meta FROM notifications WHERE event_type IN ('bulk_job.completed','bulk_job.failed') ORDER BY created_at DESC LIMIT 5;"
+   ```
+3. **Beklenen:** 1 yeni row:
+   - Tüm SIM'ler başarılı: `bulk_job.completed`, severity=`info`
+   - Kısmi başarısız: `bulk_job.completed`, severity=`medium`
+   - Tümü başarısız: `bulk_job.failed`, severity=`high`
+   - `meta` JSON keys: `bulk_job_id`, `total_count`, `success_count`, `fail_count`, `job_type`
+
+### Senaryo 12 — Regression test suite (AC doğrulaması)
+
+1. Tüm FIX-237 testlerini çalıştır:
+   ```
+   go test -count=1 -run 'TestNotify_Tier|TestTierFor|TestCatalog_Tier|TestRelayNATS_Tier1|TestWorker' ./...
+   ```
+2. **Beklenen:** Tüm FIX-237 adlı testler PASS:
+   - `TestTierFor_*` (4 adet) — events package tier sınıflandırması
+   - `TestCatalog_TierMatchesTierFor` (1 adet) — catalog tier annotation tutarlılığı
+   - `TestNotify_Tier1*`, `TestNotify_Tier2*`, `TestNotify_Tier3*` (6 adet) — service tier guard logic
+   - `TestWorker_*` (19 adet) — digest aggregation + emit
+   - `TestRelayNATS_Tier1Event_DoesNotCreateNotificationRow` (1 adet) — WS regression guard

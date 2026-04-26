@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/alertstate"
+	"github.com/btopcu/argus/internal/api/events"
 	"github.com/btopcu/argus/internal/bus"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/severity"
@@ -379,6 +380,37 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 		return nil
 	}
 
+	// FIX-237 — Cross-tier safety invariant: classify event_type and short-circuit
+	// before any preference lookup or persistence.
+	//
+	// Tier 1 (internal): NEVER persist a notification row, even if a misconfigured
+	//   user has a preference for it. Pure metric/WS-stream events.
+	// Tier 2 (digest): only the digest worker (Source="digest") may emit these
+	//   directly; raw publishers are rejected (digest is the aggregation gate).
+	// Tier 3 (operational): proceed to existing flow.
+	tier := events.TierFor(string(req.EventType))
+	switch tier {
+	case events.TierInternal:
+		s.logger.Debug().
+			Str("event_type", string(req.EventType)).
+			Msg("notification suppressed: tier=internal")
+		if s.metricsReg != nil {
+			s.metricsReg.IncEventsTierFiltered(string(req.EventType), "internal")
+		}
+		return nil
+	case events.TierDigest:
+		if req.Source != "digest" {
+			s.logger.Warn().
+				Str("event_type", string(req.EventType)).
+				Str("source", req.Source).
+				Msg("notification suppressed: tier=digest but source!=digest (raw publisher must route through digest worker)")
+			if s.metricsReg != nil {
+				s.metricsReg.IncEventsTierFiltered(string(req.EventType), "digest_no_source")
+			}
+			return nil
+		}
+	}
+
 	if s.delivery != nil && req.UserID != nil {
 		allowed, err := s.delivery.CheckRateLimit(ctx, req.UserID.String())
 		if err != nil {
@@ -427,6 +459,11 @@ func (s *Service) Notify(ctx context.Context, req NotifyRequest) error {
 	channelsSent := s.dispatchToActiveChannels(ctx, activeChannels, req.Severity, title, bodyText)
 
 	if s.notifStore != nil {
+		// AC-6 (FIX-237) audit: this is a valid direct insert. The tier guard
+		// above ensures only Tier 3 events (and digest-sourced Tier 2 events)
+		// reach this point, satisfying the spec's "OR kept as valid direct
+		// insert for system-initiated notifications" exception. No event-driven
+		// refactor needed for this call site.
 		created, err := s.notifStore.Create(ctx, NotifCreateParams{
 			TenantID:     req.TenantID,
 			UserID:       req.UserID,

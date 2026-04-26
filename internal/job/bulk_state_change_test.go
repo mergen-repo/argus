@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -504,6 +506,135 @@ func TestProcessorTypes(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("job type %q not found in AllJobTypes", tt.expected)
+			}
+		})
+	}
+}
+
+func TestBuildBulkJobEvent_AllSuccess(t *testing.T) {
+	jobID := uuid.New().String()
+	tenantID := uuid.New().String()
+
+	subject, env := buildBulkJobEvent(JobTypeBulkStateChange, jobID, tenantID, 10, 0, 10)
+
+	if subject != bus.SubjectBulkJobCompleted {
+		t.Errorf("subject = %q, want %q", subject, bus.SubjectBulkJobCompleted)
+	}
+	if env.Type != "bulk_job.completed" {
+		t.Errorf("event type = %q, want %q", env.Type, "bulk_job.completed")
+	}
+	if env.Severity != severity.Info {
+		t.Errorf("severity = %q, want %q", env.Severity, severity.Info)
+	}
+	if env.TenantID != tenantID {
+		t.Errorf("tenant_id = %q, want %q", env.TenantID, tenantID)
+	}
+	if env.Meta["bulk_job_id"] != jobID {
+		t.Errorf("meta.bulk_job_id = %v, want %q", env.Meta["bulk_job_id"], jobID)
+	}
+	if env.Meta["job_type"] != JobTypeBulkStateChange {
+		t.Errorf("meta.job_type = %v, want %q", env.Meta["job_type"], JobTypeBulkStateChange)
+	}
+}
+
+func TestBuildBulkJobEvent_PartialFail(t *testing.T) {
+	jobID := uuid.New().String()
+	tenantID := uuid.New().String()
+
+	subject, env := buildBulkJobEvent(JobTypeBulkPolicyAssign, jobID, tenantID, 7, 3, 10)
+
+	if subject != bus.SubjectBulkJobCompleted {
+		t.Errorf("subject = %q, want %q", subject, bus.SubjectBulkJobCompleted)
+	}
+	if env.Type != "bulk_job.completed" {
+		t.Errorf("event type = %q, want %q", env.Type, "bulk_job.completed")
+	}
+	if env.Severity != severity.Medium {
+		t.Errorf("severity = %q, want %q (partial fail)", env.Severity, severity.Medium)
+	}
+}
+
+func TestBuildBulkJobEvent_TotalFail(t *testing.T) {
+	jobID := uuid.New().String()
+	tenantID := uuid.New().String()
+
+	subject, env := buildBulkJobEvent(JobTypeBulkEsimSwitch, jobID, tenantID, 0, 10, 10)
+
+	if subject != bus.SubjectBulkJobFailed {
+		t.Errorf("subject = %q, want %q", subject, bus.SubjectBulkJobFailed)
+	}
+	if env.Type != "bulk_job.failed" {
+		t.Errorf("event type = %q, want %q", env.Type, "bulk_job.failed")
+	}
+	if env.Severity != severity.High {
+		t.Errorf("severity = %q, want %q (total fail)", env.Severity, severity.High)
+	}
+}
+
+func TestBuildBulkJobEvent_MetaFields(t *testing.T) {
+	jobID := uuid.New().String()
+	tenantID := uuid.New().String()
+
+	_, env := buildBulkJobEvent(JobTypeBulkStateChange, jobID, tenantID, 5, 2, 7)
+
+	expectedMeta := map[string]interface{}{
+		"bulk_job_id":   jobID,
+		"total_count":   7,
+		"success_count": 5,
+		"fail_count":    2,
+		"job_type":      JobTypeBulkStateChange,
+	}
+	for k, want := range expectedMeta {
+		got := env.Meta[k]
+		if got != want {
+			t.Errorf("meta[%q] = %v (%T), want %v (%T)", k, got, got, want, want)
+		}
+	}
+}
+
+func TestBuildBulkJobEvent_EnvelopeValidates(t *testing.T) {
+	cases := []struct {
+		name      string
+		processed int
+		failed    int
+		total     int
+	}{
+		{"all success", 10, 0, 10},
+		{"partial fail", 7, 3, 10},
+		{"total fail", 0, 10, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			jobID := uuid.New().String()
+			tenantID := uuid.New().String()
+			_, env := buildBulkJobEvent(JobTypeBulkStateChange, jobID, tenantID, tc.processed, tc.failed, tc.total)
+			if err := env.Validate(); err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestBuildBulkJobEvent_AllProcessorsUseCorrectSubjects(t *testing.T) {
+	tenantID := uuid.New().String()
+
+	for _, jobType := range []string{JobTypeBulkStateChange, JobTypeBulkPolicyAssign, JobTypeBulkEsimSwitch} {
+		t.Run("completed/"+jobType, func(t *testing.T) {
+			subject, env := buildBulkJobEvent(jobType, uuid.New().String(), tenantID, 5, 0, 5)
+			if subject != bus.SubjectBulkJobCompleted {
+				t.Errorf("subject = %q, want %q", subject, bus.SubjectBulkJobCompleted)
+			}
+			if env.Type != "bulk_job.completed" {
+				t.Errorf("type = %q, want bulk_job.completed", env.Type)
+			}
+		})
+		t.Run("failed/"+jobType, func(t *testing.T) {
+			subject, env := buildBulkJobEvent(jobType, uuid.New().String(), tenantID, 0, 5, 5)
+			if subject != bus.SubjectBulkJobFailed {
+				t.Errorf("subject = %q, want %q", subject, bus.SubjectBulkJobFailed)
+			}
+			if env.Type != "bulk_job.failed" {
+				t.Errorf("type = %q, want bulk_job.failed", env.Type)
 			}
 		})
 	}

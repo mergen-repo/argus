@@ -40,6 +40,15 @@ const (
 	SubjectBackupCompleted       = "argus.events.backup.completed"
 	SubjectBackupVerified        = "argus.events.backup.verified"
 
+	SubjectFleetMassOffline      = "argus.events.fleet.mass_offline"
+	SubjectFleetTrafficSpike     = "argus.events.fleet.traffic_spike"
+	SubjectFleetQuotaBreachCount = "argus.events.fleet.quota_breach_count"
+	SubjectFleetViolationSurge   = "argus.events.fleet.violation_surge"
+
+	SubjectBulkJobCompleted  = "argus.events.bulk_job.completed"
+	SubjectBulkJobFailed     = "argus.events.bulk_job.failed"
+	SubjectWebhookDeadLetter = "argus.events.webhook.dead_letter"
+
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"
 
@@ -90,7 +99,7 @@ func (n *NATS) EnsureStreams(ctx context.Context) error {
 		Name:      StreamEvents,
 		Subjects:  []string{"argus.events.>"},
 		Retention: jetstream.LimitsPolicy,
-		MaxAge:    72 * time.Hour,
+		MaxAge:    168 * time.Hour,
 		Storage:   jetstream.FileStorage,
 		Replicas:  1,
 		Discard:   jetstream.DiscardOld,

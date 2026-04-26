@@ -7,7 +7,7 @@ import (
 )
 
 func TestCatalog_HasMinimumEntries(t *testing.T) {
-	const minEntries = 14
+	const minEntries = 23
 	if len(Catalog) < minEntries {
 		t.Fatalf("Catalog has %d entries, want >= %d", len(Catalog), minEntries)
 	}
@@ -64,6 +64,28 @@ func TestCatalog_ContainsCoreSubjects(t *testing.T) {
 	for _, typ := range required {
 		if !index[typ] {
 			t.Errorf("required catalog type missing: %q", typ)
+		}
+	}
+}
+
+func TestCatalog_AllEntriesHaveTier(t *testing.T) {
+	valid := map[string]bool{"internal": true, "digest": true, "operational": true}
+	for _, e := range Catalog {
+		if e.Tier == "" {
+			t.Errorf("entry type=%q has empty Tier", e.Type)
+		}
+		if !valid[e.Tier] {
+			t.Errorf("entry type=%q has invalid Tier=%q", e.Type, e.Tier)
+		}
+	}
+}
+
+func TestCatalog_TierMatchesTierFor(t *testing.T) {
+	for _, e := range Catalog {
+		want := string(TierFor(e.Type))
+		if e.Tier != want {
+			t.Errorf("entry type=%q has Tier=%q but TierFor returns %q",
+				e.Type, e.Tier, want)
 		}
 	}
 }

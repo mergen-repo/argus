@@ -376,6 +376,11 @@ func (p *BulkEsimSwitchProcessor) completeJob(ctx context.Context, j *store.Job,
 		"failed_count":    failed,
 	})
 
+	subject, env := buildBulkJobEvent(JobTypeBulkEsimSwitch, j.ID.String(), j.TenantID.String(), processed, failed, total)
+	if err := p.eventBus.Publish(ctx, subject, env); err != nil {
+		p.logger.Warn().Err(err).Str("bulk_job_id", j.ID.String()).Msg("failed to publish bulk_job event")
+	}
+
 	return nil
 }
 

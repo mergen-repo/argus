@@ -26,6 +26,8 @@ export interface BusEnvelope<M = Record<string, unknown>> {
   meta?: M;
 }
 
+export type EventTier = 'internal' | 'digest' | 'operational';
+
 export interface EventCatalogEntry {
   type: string;
   source: string;
@@ -33,6 +35,7 @@ export interface EventCatalogEntry {
   entity_type: string;
   description: string;
   meta_schema: Record<string, string>;
+  tier: EventTier;
 }
 
 export interface EventCatalogResponse {
