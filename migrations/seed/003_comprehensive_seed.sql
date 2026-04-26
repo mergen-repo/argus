@@ -132,31 +132,31 @@ ON CONFLICT DO NOTHING;
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, affected_sim_count, activated_at, created_by) VALUES
 -- Fleet Standart QoS - v1 active
 ('51000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 1,
- 'POLICY "fleet-std-v1" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 5mbps; bandwidth_up = 2mbps; priority = 5 } }',
+ 'POLICY "fleet-std-v1" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 5mbps bandwidth_up = 2mbps priority = 5 } }',
  '{"name":"fleet-std-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.fleet"}]},"rules":{"defaults":{"bandwidth_down":5000000,"bandwidth_up":2000000,"priority":5},"when_blocks":[]}}',
  'active', 45, NOW() - INTERVAL '20 days', '40000000-0000-0000-0000-000000000003'),
 -- Fleet Standart QoS - v2 rolling_out
 ('51000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', 2,
- 'POLICY "fleet-std-v2" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 10mbps; bandwidth_up = 5mbps; priority = 4 } }',
+ 'POLICY "fleet-std-v2" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 10mbps bandwidth_up = 5mbps priority = 4 } }',
  '{"name":"fleet-std-v2","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.fleet"}]},"rules":{"defaults":{"bandwidth_down":10000000,"bandwidth_up":5000000,"priority":4},"when_blocks":[]}}',
  'rolling_out', 45, NULL, '40000000-0000-0000-0000-000000000003'),
 -- Sayac Dusuk Bant - v1 active
 ('51000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', 1,
- 'POLICY "meter-low-v1" { MATCH { apn = "m2m.meter" } RULES { bandwidth_down = 256kbps; bandwidth_up = 128kbps; max_daily_mb = 50 } }',
+ 'POLICY "meter-low-v1" { MATCH { apn = "m2m.meter" } RULES { bandwidth_down = 256kbps bandwidth_up = 128kbps max_daily_mb = 50 } }',
  '{"name":"meter-low-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"m2m.meter"}]},"rules":{"defaults":{"bandwidth_down":256000,"bandwidth_up":128000,"max_daily_mb":50},"when_blocks":[]}}',
  'active', 30, NOW() - INTERVAL '15 days', '40000000-0000-0000-0000-000000000003'),
 -- Premium IoT - v1 rolled_back, v2 active
 ('51000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000003', 1,
- 'POLICY "premium-v1" { MATCH { rat_type = "nr_5g" } RULES { bandwidth_down = 100mbps; priority = 1 } }',
+ 'POLICY "premium-v1" { MATCH { rat_type = "nr_5g" } RULES { bandwidth_down = 100mbps priority = 1 } }',
  '{"name":"premium-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nr_5g"}]},"rules":{"defaults":{"bandwidth_down":100000000,"priority":1},"when_blocks":[]}}',
  'superseded', 10, NOW() - INTERVAL '25 days', '40000000-0000-0000-0000-000000000003'),
 ('51000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000003', 2,
- 'POLICY "premium-v2" { MATCH { rat_type = "nr_5g" OR rat_type = "lte" } RULES { bandwidth_down = 50mbps; bandwidth_up = 20mbps; priority = 2 } }',
+ 'POLICY "premium-v2" { MATCH { rat_type IN ("nr_5g", "lte") } RULES { bandwidth_down = 50mbps bandwidth_up = 20mbps priority = 2 } }',
  '{"name":"premium-v2","match":{"conditions":[{"field":"rat_type","op":"in","value":["nr_5g","lte"]}]},"rules":{"defaults":{"bandwidth_down":50000000,"bandwidth_up":20000000,"priority":2},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '10 days', '40000000-0000-0000-0000-000000000003'),
 -- NB-IoT Tasarruf - v1 active
 ('51000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000004', 1,
- 'POLICY "nbiot-save-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 64kbps; bandwidth_up = 32kbps; session_timeout = 3600 } }',
+ 'POLICY "nbiot-save-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 64kbps bandwidth_up = 32kbps session_timeout = 3600s } }',
  '{"name":"nbiot-save-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nb_iot"}]},"rules":{"defaults":{"bandwidth_down":64000,"bandwidth_up":32000,"session_timeout":3600},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '12 days', '40000000-0000-0000-0000-000000000003'),
 -- Test Politikasi - v1 draft
@@ -166,15 +166,15 @@ INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules
  'draft', NULL, NULL, '40000000-0000-0000-0000-000000000003'),
 -- Bosphorus IoT policy versions
 ('51000000-0000-0000-0000-000000000011', '50000000-0000-0000-0000-000000000011', 1,
- 'POLICY "smart-city-v1" { MATCH { apn = "iot.city" } RULES { bandwidth_down = 20mbps; bandwidth_up = 10mbps; priority = 3 } }',
+ 'POLICY "smart-city-v1" { MATCH { apn = "iot.city" } RULES { bandwidth_down = 20mbps bandwidth_up = 10mbps priority = 3 } }',
  '{"name":"smart-city-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.city"}]},"rules":{"defaults":{"bandwidth_down":20000000,"bandwidth_up":10000000,"priority":3},"when_blocks":[]}}',
  'active', 25, NOW() - INTERVAL '18 days', '40000000-0000-0000-0000-000000000013'),
 ('51000000-0000-0000-0000-000000000012', '50000000-0000-0000-0000-000000000012', 1,
- 'POLICY "agri-iot-v1" { MATCH { apn = "m2m.agri" } RULES { bandwidth_down = 128kbps; bandwidth_up = 64kbps; max_daily_mb = 20 } }',
+ 'POLICY "agri-iot-v1" { MATCH { apn = "m2m.agri" } RULES { bandwidth_down = 128kbps bandwidth_up = 64kbps max_daily_mb = 20 } }',
  '{"name":"agri-iot-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"m2m.agri"}]},"rules":{"defaults":{"bandwidth_down":128000,"bandwidth_up":64000,"max_daily_mb":20},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '14 days', '40000000-0000-0000-0000-000000000013'),
 ('51000000-0000-0000-0000-000000000013', '50000000-0000-0000-0000-000000000013', 1,
- 'POLICY "industrial-m2m-v1" { MATCH { rat_type = "lte" } RULES { bandwidth_down = 30mbps; priority = 2; max_sessions = 3 } }',
+ 'POLICY "industrial-m2m-v1" { MATCH { rat_type = "lte" } RULES { bandwidth_down = 30mbps priority = 2 max_sessions = 3 } }',
  '{"name":"industrial-m2m-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"lte"}]},"rules":{"defaults":{"bandwidth_down":30000000,"priority":2,"max_sessions":3},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '10 days', '40000000-0000-0000-0000-000000000013')
 ON CONFLICT DO NOTHING;
@@ -1168,15 +1168,15 @@ ON CONFLICT DO NOTHING;
 -- Demo tenant policy versions
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, affected_sim_count, activated_at, created_by) VALUES
 ('05100000-0000-0000-0000-000000000001', '05000000-0000-0000-0000-000000000001', 1,
- 'POLICY "demo-std-v1" { MATCH { apn = "iot.demo" } RULES { bandwidth_down = 10mbps; bandwidth_up = 5mbps; priority = 5 } }',
+ 'POLICY "demo-std-v1" { MATCH { apn = "iot.demo" } RULES { bandwidth_down = 10mbps bandwidth_up = 5mbps priority = 5 } }',
  '{"name":"demo-std-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.demo"}]},"rules":{"defaults":{"bandwidth_down":10000000,"bandwidth_up":5000000,"priority":5},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '30 days', '00000000-0000-0000-0000-000000000010'),
 ('05100000-0000-0000-0000-000000000002', '05000000-0000-0000-0000-000000000002', 1,
- 'POLICY "demo-iot-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 128kbps; bandwidth_up = 64kbps; max_daily_mb = 100 } }',
+ 'POLICY "demo-iot-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 128kbps bandwidth_up = 64kbps max_daily_mb = 100 } }',
  '{"name":"demo-iot-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nb_iot"}]},"rules":{"defaults":{"bandwidth_down":128000,"bandwidth_up":64000,"max_daily_mb":100},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '25 days', '00000000-0000-0000-0000-000000000010'),
 ('05100000-0000-0000-0000-000000000003', '05000000-0000-0000-0000-000000000003', 1,
- 'POLICY "demo-premium-v1" { MATCH { apn = "data.demo" } RULES { bandwidth_down = 50mbps; bandwidth_up = 20mbps; priority = 2 } }',
+ 'POLICY "demo-premium-v1" { MATCH { apn = "data.demo" } RULES { bandwidth_down = 50mbps bandwidth_up = 20mbps priority = 2 } }',
  '{"name":"demo-premium-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"data.demo"}]},"rules":{"defaults":{"bandwidth_down":50000000,"bandwidth_up":20000000,"priority":2},"when_blocks":[]}}',
  'active', 10, NOW() - INTERVAL '20 days', '00000000-0000-0000-0000-000000000010')
 ON CONFLICT DO NOTHING;

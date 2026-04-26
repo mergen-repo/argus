@@ -30,6 +30,9 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip } from '@/components/ui/tooltip'
 import { DSLEditor } from '@/components/policy/dsl-editor'
+import { DSLErrorSummary } from '@/components/policy/dsl-error-summary'
+import type { Diagnostic } from '@codemirror/lint'
+import { validateDSL } from '@/lib/api/policies'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { PreviewTab } from '@/components/policy/preview-tab'
 import { VersionsTab } from '@/components/policy/versions-tab'
@@ -60,9 +63,28 @@ export default function PolicyEditorPage() {
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null)
   const [dividerPosition, setDividerPosition] = useState(55)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
 
-
+  const editorScrollRef = useRef<HTMLDivElement>(null)
   const dryRunTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasErrors = diagnostics.some((d) => d.severity === 'error')
+
+  const handleJumpToDiagnostic = useCallback((pos: number) => {
+    const container = editorScrollRef.current
+    if (!container) return
+    // CodeMirror line markers carry data-line; fall back to scrolling the editor
+    // pane to the top of the relevant region by approximating with character pos.
+    const cm = container.querySelector('.cm-scroller') as HTMLElement | null
+    const cmContent = container.querySelector('.cm-content') as HTMLElement | null
+    if (!cm || !cmContent) return
+    // Approximate scroll: line height * (pos / avgCharsPerLine).
+    const lineHeight = parseFloat(getComputedStyle(cmContent).lineHeight || '20') || 20
+    const docText = cmContent.textContent || ''
+    const charsBefore = docText.slice(0, pos)
+    const lineIndex = (charsBefore.match(/\n/g) || []).length
+    cm.scrollTo({ top: Math.max(0, lineIndex * lineHeight - cm.clientHeight / 3), behavior: 'smooth' })
+  }, [])
 
   const addRecentItem = useUIStore((s) => s.addRecentItem)
 
@@ -141,6 +163,33 @@ export default function PolicyEditorPage() {
     }
   }, [selectedVersionId, dryRunMutation])
 
+  // FIX-243 Wave D — Ctrl+Shift+F formats the buffer via the validate
+  // endpoint with ?format=true. On non-error response we replace the
+  // editor content with the canonicalised source. On error we silently
+  // no-op (the linter already surfaces the underlying parse error).
+  const handleFormat = useCallback(async () => {
+    if (!isDraft) return
+    if (!dslContent.trim()) return
+    try {
+      const result = await validateDSL(dslContent, { format: true })
+      if (result.formatted_source && result.formatted_source !== dslContent) {
+        setDslContent(result.formatted_source)
+        setIsDirty(true)
+        setSaveStatus('idle')
+      }
+    } catch {
+      // intentionally swallow — linter has already flagged the error
+    }
+  }, [dslContent, isDraft])
+
+  // FIX-243 Wave D — Ctrl+Enter is now "validate now". The DSLEditor
+  // also calls forceLinting() internally; this callback is mostly a
+  // no-op hook for analytics / future UX (e.g. flash the status badge).
+  const handleValidateNow = useCallback(() => {
+    // Linter is already triggered inside the editor. Future: surface a
+    // brief "validated" toast or pulse the status indicator.
+  }, [])
+
   const handleActivate = async () => {
     if (!selectedVersionId) return
     try {
@@ -190,20 +239,36 @@ export default function PolicyEditorPage() {
     URL.revokeObjectURL(jsonUrl)
   }
 
+  // FIX-243 Wave D — global page-level shortcuts. Mirrors the in-editor
+  // keymap so the bindings work even when the editor isn't focused.
+  //   Ctrl+S         → save
+  //   Ctrl+Enter     → (handled inside the editor — forceLinting)
+  //   Ctrl+Shift+Enter → dry-run
+  //   Ctrl+Shift+F   → format
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      if (e.key === 's') {
         e.preventDefault()
         handleSave()
+        return
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault()
         handleDryRun()
+        return
+      }
+      // Ctrl+Shift+F — match by lowercased key; some layouts emit 'F'.
+      if (e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        handleFormat()
+        return
       }
     }
     window.addEventListener('keydown', handleKeydown)
     return () => window.removeEventListener('keydown', handleKeydown)
-  }, [handleSave, handleDryRun])
+  }, [handleSave, handleDryRun, handleFormat])
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -316,7 +381,10 @@ export default function PolicyEditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Tooltip content="Ctrl+S: Save | Ctrl+Enter: Dry Run" side="bottom">
+          <Tooltip
+            content="Ctrl+S Save · Ctrl+Enter Validate · Ctrl+Shift+Enter Dry-run · Ctrl+Shift+F Format"
+            side="bottom"
+          >
             <Button
               variant="ghost"
               size="icon"
@@ -342,20 +410,27 @@ export default function PolicyEditorPage() {
             Dry Run
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={handleSave}
-            disabled={!isDirty || !isDraft || updateVersionMutation.isPending}
+          <Tooltip
+            content={hasErrors ? 'Fix DSL errors before saving' : 'Save the current draft (Ctrl+S) · Ctrl+Shift+F to format'}
+            side="bottom"
           >
-            {updateVersionMutation.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Save className="h-3 w-3" />
-            )}
-            Save Draft
-          </Button>
+            <span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={handleSave}
+                disabled={!isDirty || !isDraft || updateVersionMutation.isPending || hasErrors}
+              >
+                {updateVersionMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                Save Draft
+              </Button>
+            </span>
+          </Tooltip>
 
           <Button
             variant="outline"
@@ -409,18 +484,22 @@ export default function PolicyEditorPage() {
               {dslContent.split('\n').length} lines
             </span>
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div ref={editorScrollRef} className="flex-1 min-h-0 overflow-hidden">
             <ErrorBoundary>
               <DSLEditor
                 value={dslContent}
                 onChange={handleDslChange}
                 onSave={handleSave}
                 onDryRun={handleDryRun}
+                onValidateNow={handleValidateNow}
+                onFormat={handleFormat}
+                onDiagnostics={setDiagnostics}
                 readOnly={!isDraft}
                 className="h-full"
               />
             </ErrorBoundary>
           </div>
+          <DSLErrorSummary diagnostics={diagnostics} onJumpTo={handleJumpToDiagnostic} />
         </div>
 
         {/* Divider */}

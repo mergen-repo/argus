@@ -106,16 +106,16 @@ func (h *Handler) WithUndoRegistry(r *undopkg.Registry) *Handler {
 }
 
 type policyResponse struct {
-	ID               string              `json:"id"`
-	Name             string              `json:"name"`
-	Description      *string             `json:"description"`
-	Scope            string              `json:"scope"`
-	ScopeRefID       *string             `json:"scope_ref_id,omitempty"`
-	CurrentVersionID *string             `json:"current_version_id,omitempty"`
-	State            string              `json:"state"`
-	CreatedAt        string              `json:"created_at"`
-	UpdatedAt        string              `json:"updated_at"`
-	Versions         []versionResponse   `json:"versions,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Description      *string           `json:"description"`
+	Scope            string            `json:"scope"`
+	ScopeRefID       *string           `json:"scope_ref_id,omitempty"`
+	CurrentVersionID *string           `json:"current_version_id,omitempty"`
+	State            string            `json:"state"`
+	CreatedAt        string            `json:"created_at"`
+	UpdatedAt        string            `json:"updated_at"`
+	Versions         []versionResponse `json:"versions,omitempty"`
 }
 
 type versionResponse struct {
@@ -166,8 +166,8 @@ type updateVersionRequest struct {
 }
 
 type diffResponse struct {
-	Version1 int      `json:"version_1"`
-	Version2 int      `json:"version_2"`
+	Version1 int        `json:"version_1"`
+	Version2 int        `json:"version_2"`
 	Lines    []diffLine `json:"lines"`
 }
 
@@ -1061,11 +1061,11 @@ type rolloutResponse struct {
 }
 
 type advanceResponse struct {
-	RolloutID      string `json:"rollout_id"`
-	CurrentStagePct int   `json:"current_stage_pct"`
-	MigratedCount  int    `json:"migrated_count"`
-	TotalCount     int    `json:"total_count"`
-	State          string `json:"state"`
+	RolloutID       string `json:"rollout_id"`
+	CurrentStagePct int    `json:"current_stage_pct"`
+	MigratedCount   int    `json:"migrated_count"`
+	TotalCount      int    `json:"total_count"`
+	State           string `json:"state"`
 }
 
 type rollbackRequest struct {
@@ -1073,10 +1073,10 @@ type rollbackRequest struct {
 }
 
 type rollbackResponse struct {
-	RolloutID    string  `json:"rollout_id"`
-	State        string  `json:"state"`
-	RevertedCount int    `json:"reverted_count"`
-	RolledBackAt *string `json:"rolled_back_at,omitempty"`
+	RolloutID     string  `json:"rollout_id"`
+	State         string  `json:"state"`
+	RevertedCount int     `json:"reverted_count"`
+	RolledBackAt  *string `json:"rolled_back_at,omitempty"`
 }
 
 type abortRequest struct {
@@ -1445,12 +1445,12 @@ type rolloutSummaryDTO struct {
 }
 
 var validRolloutStates = map[string]bool{
-	"pending":      true,
-	"in_progress":  true,
-	"paused":       true,
-	"completed":    true,
-	"rolled_back":  true,
-	"aborted":      true,
+	"pending":     true,
+	"in_progress": true,
+	"paused":      true,
+	"completed":   true,
+	"rolled_back": true,
+	"aborted":     true,
 }
 
 // ListRollouts handles GET /api/v1/policy-rollouts.
@@ -1534,4 +1534,98 @@ func (h *Handler) ListRollouts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
+
+// Validate is a stateless DSL validator. POST /api/v1/policies/validate.
+// Returns 200 + {valid: true, compiled_rules, warnings} on success,
+// 422 + {valid: false, errors: [DSLError]} on failure.
+//
+// FIX-243 Wave A AC-1/AC-2: pure — no DB writes, no state mutation.
+// Safe at high frequency. Rate-limited 10/sec per IP at the router level
+// (see internal/gateway/router.go).
+func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DSLSource string `json:"dsl_source"`
+	}
+	formatRequested := r.URL.Query().Get("format") == "true"
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+	if strings.TrimSpace(req.DSLSource) == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "dsl_source is required")
+		return
+	}
+
+	// Parse → collect errors + warnings.
+	allDiags := dsl.Validate(req.DSLSource)
+	errSlice := make([]dsl.DSLError, 0, len(allDiags))
+	warnSlice := make([]dsl.DSLError, 0, len(allDiags))
+	for _, d := range allDiags {
+		switch d.Severity {
+		case "error":
+			errSlice = append(errSlice, d)
+		case "warning":
+			warnSlice = append(warnSlice, d)
+		}
+	}
+
+	if len(errSlice) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, "DSL_VALIDATION_FAILED",
+			"DSL validation failed", map[string]any{
+				"valid":  false,
+				"errors": errSlice,
+			})
+		return
+	}
+
+	// No errors — compile to surface compiled rules to the FE.
+	compiled, _, compileErr := dsl.CompileSource(req.DSLSource)
+	if compileErr != nil {
+		// Compile error not surfaced as a parse error — wrap as a synthetic DSLError.
+		apierr.WriteError(w, http.StatusUnprocessableEntity, "DSL_VALIDATION_FAILED",
+			"DSL compilation failed", map[string]any{
+				"valid": false,
+				"errors": []dsl.DSLError{{
+					Severity: "error",
+					Code:     "DSL_COMPILE_ERROR",
+					Message:  compileErr.Error(),
+				}},
+			})
+		return
+	}
+
+	response := map[string]any{
+		"valid":          true,
+		"compiled_rules": compiled,
+		"warnings":       warnSlice,
+	}
+
+	// AC-8 / DEV-515 — auto-format support via ?format=true.
+	// dsl.Format normalizes indentation/whitespace without changing
+	// semantics. On format failure (e.g. transient panic recovery in
+	// the lexer), fall back to echoing the source unchanged so the
+	// validate response stays useful.
+	if formatRequested {
+		formatted, ferr := dsl.Format(req.DSLSource)
+		if ferr != nil {
+			response["formatted_source"] = req.DSLSource
+		} else {
+			response["formatted_source"] = formatted
+		}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, response)
+}
+
+// Vocab returns the canonical DSL vocabulary snapshot — match fields,
+// charging models, overage actions, billing cycles, units, rule
+// keywords, and action names — sourced from the parser whitelists.
+//
+// FIX-243 Wave D — backs the FE autocomplete; replaces the FE-side
+// hard-coded fallback list. Read-only, idempotent, cacheable; no rate
+// limit needed.
+func (h *Handler) Vocab(w http.ResponseWriter, r *http.Request) {
+	apierr.WriteSuccess(w, http.StatusOK, dsl.Vocab())
 }

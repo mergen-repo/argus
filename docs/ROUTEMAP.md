@@ -449,7 +449,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [ ] PENDING | — |
+| FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [x] DONE (2026-04-27) | — |
 | FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [ ] PENDING | — |
 | FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [ ] PENDING | — |
 | FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [ ] PENDING | FIX-201 |

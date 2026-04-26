@@ -5122,3 +5122,107 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    - `TestNotify_Tier1*`, `TestNotify_Tier2*`, `TestNotify_Tier3*` (6 adet) — service tier guard logic
    - `TestWorker_*` (19 adet) — digest aggregation + emit
    - `TestRelayNATS_Tier1Event_DoesNotCreateNotificationRow` (1 adet) — WS regression guard
+
+
+## FIX-243: Policy DSL Realtime Validate Endpoint + FE Linter
+
+**Hedef:** Policy Editor — DSL yazarken anlık validation, autocomplete, auto-format, did-you-mean önerileri ve seed validation CLI'nin uçtan uca doğrulanması.
+
+**Ön koşullar:**
+- `make up` ile tüm servisler ayakta.
+- Tarayıcı: `admin@argus.io` / `admin` ile login.
+- Bir policy aç (örn. `/policies` → herhangi bir policy → DRAFT bir version seç).
+
+### Senaryo 1 — Validate endpoint smoke test (curl, AC-1/AC-3)
+
+1. Geçerli DSL ile validate endpoint'ini çağır:
+   ```
+   TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/login -H 'content-type: application/json' -d '{"email":"admin@argus.io","password":"admin"}' | jq -r .data.access_token)
+   curl -s -X POST http://localhost:8084/api/v1/policies/validate \
+     -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"dsl_source":"POLICY \"p1\" { MATCH { apn = \"internet\" } RULES { bandwidth_down = 10mbps } }"}' | jq .
+   ```
+   **Beklenen:** HTTP 200, `data.valid=true`, `data.compiled_rules` doldu, `data.warnings=[]`, hiç state mutation yok.
+2. Geçersiz DSL gönder (kapatılmamış brace):
+   ```
+   curl -s -X POST http://localhost:8084/api/v1/policies/validate \
+     -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"dsl_source":"POLICY \"broken\" {"}' | jq .
+   ```
+   **Beklenen:** HTTP 422, `error.code="DSL_VALIDATION_FAILED"`, `error.details.errors[]` en az bir kayıt içerir (line/column/severity/message).
+
+### Senaryo 2 — Rate limit (AC-2)
+
+1. Aynı IP'den 11 adet istek hızlıca gönder:
+   ```
+   for i in {1..11}; do
+     curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8084/api/v1/policies/validate \
+       -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+       -d '{"dsl_source":"POLICY \"p\" { MATCH { apn = \"x\" } RULES { bandwidth_down = 1mbps } }"}'
+   done
+   ```
+2. **Beklenen:** İlk 10 istek `200`, 11. istek `429 Too Many Requests` (httprate.LimitByIP guard'ı tetiklenir).
+
+### Senaryo 3 — FE linter, anlık squiggly (AC-4)
+
+1. Policy editor sayfasına git, DRAFT bir version seç.
+2. Editor içine geçersiz bir alan adı yaz: `MATCH { apnz = "internet" }` (doğrusu `apn`).
+3. **Beklenen:** ~600ms içinde altı çizili kırmızı squiggly görünür; hover edince `did you mean "apn"` mesajı gelir; sol kenarda lint gutter'da kırmızı işaret çıkar; alttaki "DSL Errors" özetinde `1 error` görünür.
+4. Hatayı düzelt (`apnz` → `apn`). **Beklenen:** ~600ms içinde squiggly kaybolur, özet `0 errors`.
+
+### Senaryo 4 — Autocomplete: Ctrl+Space (AC-5)
+
+1. Editor'da `MATCH {` bloğunun içine yeni satır aç, `Ctrl+Space` (Mac: `Ctrl+Space`) bas.
+2. **Beklenen:** Açılır listede `apn`, `imsi`, `tenant`, `msisdn`, `rat_type`, `sim_type`, `roaming`, `operator`, `group` görünür (vocab endpoint'inden gelir).
+3. `RULES {` bloğuna geç, `Ctrl+Space` bas.
+4. **Beklenen:** `bandwidth_down`, `bandwidth_up`, `rate_limit`, `session_timeout`, `idle_timeout`, `max_sessions`, `qos_class`, `priority` listelenir.
+
+### Senaryo 5 — Ctrl+Enter validate-now & Ctrl+Shift+F format (AC-7/AC-8)
+
+1. Editor'a deliberately düzensiz DSL yapıştır:
+   ```
+   POLICY    "p1"   {
+   MATCH{apn="internet"}
+   RULES{bandwidth_down=10mbps}
+   }
+   ```
+2. `Ctrl+Enter` (Mac: `Cmd+Enter`) bas. **Beklenen:** Linter debounce'u beklemeden hemen tetiklenir, hata yoksa squiggly kalmaz; "DSL Errors" özeti güncellenir.
+3. `Ctrl+Shift+F` (Mac: `Cmd+Shift+F`) bas. **Beklenen:** Editor içeriği canonical biçime dönüşür:
+   ```
+   POLICY "p1" {
+     MATCH {
+       apn = "internet"
+     }
+     RULES {
+       bandwidth_down = 10mbps
+     }
+   }
+   ```
+   Satırlar 2-space ile indent'lenmiş, `=` etrafında boşluk bırakılmış, `10mbps` birleşik kalmış.
+4. `Ctrl+Shift+Enter` (Mac: `Cmd+Shift+Enter`) bas. **Beklenen:** Dry-run preview tab'ına geçer, etkilenen SIM sayısı görünür (eski `Ctrl+Enter` davranışı bu kombinasyona taşındı).
+
+### Senaryo 6 — Vocab endpoint smoke test (AC-5 backing API)
+
+1. Vocab endpoint'ini doğrudan sorgula:
+   ```
+   curl -s http://localhost:8084/api/v1/policies/vocab -H "authorization: Bearer $TOKEN" | jq .
+   ```
+2. **Beklenen:** HTTP 200, `data` içinde 7 key — `match_fields`, `charging_models`, `overage_actions`, `billing_cycles`, `units`, `rule_keywords`, `actions` — her biri non-empty alfabetik sıralı array. FE artık fallback yerine bu listeyi cache'liyor.
+
+### Senaryo 7 — Seed validate CLI (AC-9/AC-10)
+
+1. CLI ile mevcut seed dosyalarını doğrula:
+   ```
+   ./bin/argusctl validate-seed-dsl
+   echo "exit=$?"
+   ```
+   **Beklenen:** `exit=0`, "All N policy DSL fragments valid" benzeri mesaj.
+2. Bilerek bozulmuş bir seed üret (kopyala + parse hatası ekle):
+   ```
+   cp migrations/003_comprehensive_seed.sql /tmp/seed_broken.sql
+   sed -i.bak 's/POLICY "iot/POLICY iot/' /tmp/seed_broken.sql
+   ./bin/argusctl validate-seed-dsl --file /tmp/seed_broken.sql
+   echo "exit=$?"
+   ```
+   **Beklenen:** `exit=1`, dosya yolu + line number + DSLError mesajı; `make db-seed-validate` aynı çıktıyı verir.
+

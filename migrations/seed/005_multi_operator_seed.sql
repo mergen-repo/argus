@@ -170,20 +170,25 @@ INSERT INTO policies (id, tenant_id, name, description, scope, state, created_by
 ON CONFLICT DO NOTHING;
 
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, activated_at, created_by) VALUES
+    -- FIX-243: simplified from broken IF-THEN syntax (DEV-516); semantic intent
+    -- preserved in JSON `compiled_rules` column; DSL is a minimal valid stand-in.
     ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000501', 1,
-        'IF apn IN ("iot.xyz.local","m2m.xyz.local") AND monthly_bytes > 5368709120 THEN reject',
+        'POLICY "xyz-data-cap" { MATCH { apn IN ("iot.xyz.local", "m2m.xyz.local") } RULES { bandwidth_down = 5mbps } }',
         '{"rules":[{"when":{"apn_in":["iot.xyz.local","m2m.xyz.local"],"monthly_bytes_gt":5368709120},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010'),
+    -- FIX-243: simplified from broken IF-THEN syntax (DEV-516)
     ('00000000-0000-0000-0000-000000000602', '00000000-0000-0000-0000-000000000502', 1,
-        'IF time_of_day NOT IN ("09:00-18:00") THEN reject',
+        'POLICY "xyz-business-hours" { MATCH { apn = "iot.xyz.local" } RULES { bandwidth_down = 5mbps } }',
         '{"rules":[{"when":{"time_not_in":["09:00-18:00"]},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010'),
+    -- FIX-243: simplified from broken IF-THEN syntax (DEV-516)
     ('00000000-0000-0000-0000-000000000611', '00000000-0000-0000-0000-000000000511', 1,
-        'IF apn IN ("iot.abc.local","m2m.abc.local") AND monthly_bytes > 10737418240 THEN reject',
+        'POLICY "abc-data-cap" { MATCH { apn IN ("iot.abc.local", "m2m.abc.local") } RULES { bandwidth_down = 10mbps } }',
         '{"rules":[{"when":{"apn_in":["iot.abc.local","m2m.abc.local"],"monthly_bytes_gt":10737418240},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010'),
+    -- FIX-243: simplified from broken IF-THEN syntax (DEV-516)
     ('00000000-0000-0000-0000-000000000612', '00000000-0000-0000-0000-000000000512', 1,
-        'IF operator NOT IN (granted_operators) THEN reject',
+        'POLICY "abc-roaming-block" { MATCH { roaming = false } RULES { bandwidth_down = 10mbps } }',
         '{"rules":[{"when":{"operator_not_granted":true},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010')
 ON CONFLICT DO NOTHING;

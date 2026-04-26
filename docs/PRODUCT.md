@@ -77,6 +77,36 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-034: Dry-run simulation — "this rule affects N SIMs" preview
 - F-035: Staged rollout — canary 1% → 10% → 100%, concurrent policy versions, CoA on each stage
 
+##### Policy DSL Editor Capabilities (FIX-243)
+
+The Policy Editor surfaces DSL errors and warnings inline as authors type:
+- **Realtime validation** — every keystroke (debounced 500ms) calls
+  `POST /api/v1/policies/validate`; errors render as squiggly underlines
+  with hover tooltips; an error summary panel below the editor shows
+  "N errors, M warnings" with click-to-line navigation. Endpoint is
+  rate-limited 10/sec per IP and is read-only (no DB writes).
+- **Did-you-mean suggestions** — typos in match fields, action names,
+  and rule keywords trigger Levenshtein-based suggestions appended to
+  the error message (e.g. `did you mean "throttle"?`).
+- **Autocomplete** — Ctrl+Space surfaces context-aware keywords (MATCH
+  context: `apn`/`imsi`/`tenant`/...; RULES context: `bandwidth_down`/
+  `rate_limit`/...) sourced from the canonical grammar via
+  `GET /api/v1/policies/vocab`. Adding a new keyword to the parser
+  whitelist auto-propagates to the FE without a code change.
+- **Auto-format** — Ctrl+Shift+F normalizes indentation (2 spaces),
+  whitespace around operators, brace placement, and trailing newlines
+  without changing semantics. The formatter is idempotent and is a
+  no-op on unparseable input (linter handles the parse error).
+- **Keyboard shortcuts** — Ctrl+S Save, Ctrl+Enter Validate-now (force
+  the linter to run immediately), Ctrl+Shift+Enter Dry-run,
+  Ctrl+Shift+F Format.
+- **Save guard** — the Save Draft button is disabled when the DSL has
+  validation errors, surfacing the issue before the API rejects the save.
+
+Migration-time enforcement: `make db-seed-validate` (run automatically
+before `make db-seed`) calls `argusctl validate-seed-dsl` to ensure no
+broken DSL ships in seed data.
+
 #### BI & Analytics
 - F-036: Real-time usage dashboards — per SIM/APN/operator/RAT-type
 - F-037: Anomaly detection — SIM cloning, abuse patterns, data spikes

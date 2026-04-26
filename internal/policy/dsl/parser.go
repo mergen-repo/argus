@@ -27,7 +27,6 @@ var unitSet = map[string]bool{
 	"s": true, "ms": true, "min": true, "h": true, "d": true,
 }
 
-
 var validMatchFields = map[string]bool{
 	"apn": true, "operator": true, "rat_type": true,
 	"sim_type": true, "roaming": true,
@@ -244,8 +243,11 @@ func (p *Parser) parseMatchClause() *MatchClause {
 	p.advance()
 
 	if !validMatchFields[clause.Field] && !strings.HasPrefix(clause.Field, "metadata.") {
-		p.addWarning(fieldTok.Line, fieldTok.Column, "DSL_UNKNOWN_FIELD",
-			fmt.Sprintf("unknown MATCH field %q", clause.Field))
+		msg := fmt.Sprintf("unknown MATCH field %q", clause.Field)
+		if sug := Suggest(clause.Field, sortedKeysBool(validMatchFields), 2); sug != "" {
+			msg += fmt.Sprintf(" — did you mean %q?", sug)
+		}
+		p.addWarning(fieldTok.Line, fieldTok.Column, "DSL_UNKNOWN_FIELD", msg)
 	}
 
 	opTok := p.current()
@@ -457,8 +459,11 @@ func (p *Parser) validateAction(ac *ActionCall) {
 				fmt.Sprintf("tag() requires 2 arguments (key, value), got %d", len(ac.Args)))
 		}
 	default:
-		p.addError(ac.Line, 0, "DSL_UNKNOWN_ACTION",
-			fmt.Sprintf("unknown action %q", ac.Name))
+		msg := fmt.Sprintf("unknown action %q", ac.Name)
+		if sug := Suggest(ac.Name, validActionList(), 2); sug != "" {
+			msg += fmt.Sprintf(" — did you mean %q?", sug)
+		}
+		p.addError(ac.Line, 0, "DSL_UNKNOWN_ACTION", msg)
 	}
 }
 

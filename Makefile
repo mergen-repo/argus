@@ -161,7 +161,12 @@ db-migrate-down:
 	@docker compose -f deploy/docker-compose.yml exec argus /app/argus migrate down 1
 	@echo "Migration geri alindi."
 
-db-seed:
+db-seed-validate:
+	@echo "Seed DSL dogrulaniyor (FIX-243)..."
+	@go run ./cmd/argusctl validate-seed-dsl --seed-dir ./migrations/seed
+	@echo "Seed DSL dogrulamasi tamamlandi."
+
+db-seed: db-seed-validate
 	@echo "Seed verileri yukleniyor..."
 	@docker compose -f deploy/docker-compose.yml exec argus /app/argus seed
 	@echo "Seed tamamlandi."

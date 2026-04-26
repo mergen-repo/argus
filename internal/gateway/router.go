@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"time"
 
 	adminapi "github.com/btopcu/argus/internal/api/admin"
 	alertapi "github.com/btopcu/argus/internal/api/alert"
@@ -47,6 +48,7 @@ import (
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -573,6 +575,12 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/policies", deps.PolicyHandler.List)
 				r.Get("/api/v1/policies/export.csv", deps.PolicyHandler.ExportCSV)
 				r.Post("/api/v1/policies", deps.PolicyHandler.Create)
+				// FIX-243 Wave A — DSL real-time validate endpoint (rate-limited 10/sec per IP).
+				// MUST register BEFORE /api/v1/policies/{id} so chi matches the literal path.
+				r.With(httprate.LimitByIP(10, time.Second)).Post("/api/v1/policies/validate", deps.PolicyHandler.Validate)
+				// FIX-243 Wave D — DSL vocabulary endpoint for FE autocomplete (read-only, no rate limit).
+				// MUST register BEFORE /api/v1/policies/{id} so chi matches the literal path.
+				r.Get("/api/v1/policies/vocab", deps.PolicyHandler.Vocab)
 				r.Get("/api/v1/policies/{id}", deps.PolicyHandler.Get)
 				r.Patch("/api/v1/policies/{id}", deps.PolicyHandler.Update)
 				r.Delete("/api/v1/policies/{id}", deps.PolicyHandler.Delete)
