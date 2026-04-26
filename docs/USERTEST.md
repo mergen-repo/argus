@@ -4683,3 +4683,50 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    argus_coa_status_by_state{state="failed"} 0
    ...
    ```
+
+## FIX-252: SIM Activate 500 — Schema Drift Recovery (Doc-Only Closure)
+
+> **NOT:** Bu story kod değişikliği içermiyor. Symptom (`POST /sims/{id}/activate` 500 — IP-pool allocation failure on reactivate) `make db-reset` ile çözüldü. Discovery, root cause'un IP-pool semantics değil **schema drift** olduğunu ortaya çıkardı (`schema_migrations.version=20260430000001 dirty=false` iken `ip_addresses.last_seen_at` kolonu live DB'de YOKTU — SQLSTATE 42703). Defansif kod (empty-pool guard, audit-on-failure, regression test, suspend-IP-release) FIX-253'e devredildi. PAT-023 schema_migrations drift'i için bug-pattern olarak dosyalandı. DEV-386/387/388 decisions.md'de.
+
+### Senaryo 1 — Round-trip suspend → activate doğrulaması (AC-1, AC-5)
+
+1. Login: admin@argus.io / admin
+2. Aktif bir SIM seç (admin tenant `00000000-0000-0000-0000-000000000001`):
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT id FROM sims WHERE tenant_id='00000000-0000-0000-0000-000000000001' AND state='active' AND apn_id IS NOT NULL LIMIT 1;"
+   ```
+3. SIM list ekranından (`/sims`) seçili SIM'in detayına git, "Suspend" butonuna bas.
+4. **Beklenen:** HTTP 200, SIM `suspended` durumuna geçer; sayfa otomatik refresh.
+5. Aynı SIM detayında "Activate" / "Resume" butonuna bas.
+6. **Beklenen:** HTTP 200, SIM tekrar `active` durumuna geçer; yeni IP allocate edilir; `ip_address_id` dolu döner. **Bare 500 ASLA dönmemeli.**
+
+### Senaryo 2 — Boot-time schema integrity check (PAT-023 ilk savunma hattı)
+
+1. Argus container'ını restart et: `docker restart argus-app`.
+2. Container loglarını izle: `docker logs argus-app --since 10s -f` (5 saniye bekle, sonra Ctrl+C).
+3. **Beklenen:** Argus normal `starting argus` + `postgres connected` + `pprof server starting` log'ları gösterir; FATAL `schemacheck: critical tables missing` HİÇBİR koşulda görünmemeli.
+4. Eğer FATAL görünürse: drift var. `make db-reset` ile schema'yı sıfırla, sonra container'ı tekrar başlat.
+
+### Senaryo 3 — `schema_migrations` doğrulaması (PAT-023 manuel kontrol)
+
+1. Versiyon kontrolü:
+   ```
+   docker exec argus-postgres psql -U argus -d argus -c "SELECT version, dirty FROM schema_migrations;"
+   ```
+2. **Beklenen:** Tek satır, `version` = `migrations/` dizinindeki en yüksek dosya versiyonu (ör. `20260430000001`), `dirty` = `f`.
+3. Spot-check (FIX-252 sonrası garanti olması gereken objeler):
+   ```
+   docker exec argus-postgres psql -U argus -d argus -t -c "
+   SELECT '20260424000003 ip_addresses.last_seen_at', EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ip_addresses' AND column_name='last_seen_at')
+   UNION ALL SELECT '20260425000001 password_reset_tokens', EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='password_reset_tokens');"
+   ```
+4. **Beklenen:** Her iki satır da `t` döner. `f` dönerse drift var → `make db-reset` çalıştır + PAT-023 prosedürünü uygula.
+
+### Senaryo 4 — FIX-253 ön-shadow (defansif kod kontrolü, FIX-253 sonrasına bırakıldı)
+
+1. FIX-253 implement edildikten sonra: APN'i hiç IP pool'u olmayan bir SIM için `/activate` çağır:
+   ```
+   curl -i -X POST http://localhost:8084/api/v1/sims/<no-pool-sim-id>/activate -H "Authorization: Bearer $TOKEN"
+   ```
+2. **Beklenen (FIX-253 sonrası):** HTTP 422 + envelope `{"status":"error","error":{"code":"POOL_EXHAUSTED","message":"No IP pool configured for this APN"}}`. **Bare 500 ASLA dönmemeli.**
+3. **NOT:** FIX-252 kapsamında bu davranış GARANTILI DEĞİL — sadece sembolik olarak FIX-253 hedefi belirleniyor. Ön-shadow scenario; FIX-253 USERTEST'inde detaylanacak.
