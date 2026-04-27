@@ -514,6 +514,9 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(RequireRole("sim_manager"))
 				r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
 				r.With(bulkRL).Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
+				// FIX-236 DEV-549: filter-based bulk variants (preview + state change).
+				r.With(bulkRL).Post("/api/v1/sims/bulk/preview-count", deps.BulkHandler.PreviewCount)
+				r.With(bulkRL).Post("/api/v1/sims/bulk/state-change-by-filter", deps.BulkHandler.StateChangeByFilter)
 			})
 
 			r.Group(func(r chi.Router) {
@@ -523,6 +526,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("policy_editor"))
 				r.With(bulkRL).Post("/api/v1/sims/bulk/policy-assign", deps.BulkHandler.PolicyAssign)
+				// FIX-236 DEV-549: filter-based policy assign.
+				r.With(bulkRL).Post("/api/v1/sims/bulk/policy-assign-by-filter", deps.BulkHandler.PolicyAssignByFilter)
 			})
 
 			r.Group(func(r chi.Router) {
@@ -532,6 +537,8 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("tenant_admin"))
 				r.With(bulkRL).Post("/api/v1/sims/bulk/operator-switch", deps.BulkHandler.OperatorSwitch)
+				// FIX-236 DEV-549: filter-based operator switch.
+				r.With(bulkRL).Post("/api/v1/sims/bulk/operator-switch-by-filter", deps.BulkHandler.OperatorSwitchByFilter)
 			})
 		}
 

@@ -286,6 +286,12 @@ func (f *fakeEventPublisher) Publish(_ context.Context, subject string, _ interf
 type fakeSimTenantFilter struct {
 	tenantIDs map[uuid.UUID]bool
 	err       error
+	// FIX-236 DEV-547: allow tests to plug fixed responses into the new
+	// ListIDsByFilter path. Both fields default to zero values and the
+	// existing FilterSIMIDsByTenant tests are unaffected.
+	idsByFilter   []uuid.UUID
+	totalByFilter int64
+	filterErr     error
 }
 
 func (f *fakeSimTenantFilter) FilterSIMIDsByTenant(_ context.Context, _ uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {
@@ -306,6 +312,13 @@ func (f *fakeSimTenantFilter) FilterSIMIDsByTenant(_ context.Context, _ uuid.UUI
 		}
 	}
 	return owned, violations, nil
+}
+
+func (f *fakeSimTenantFilter) ListIDsByFilter(_ context.Context, _ uuid.UUID, _ store.ListSIMsParams, _ int) ([]uuid.UUID, int64, error) {
+	if f.filterErr != nil {
+		return nil, 0, f.filterErr
+	}
+	return f.idsByFilter, f.totalByFilter, nil
 }
 
 type fakeSegmentCounter struct {
@@ -1304,5 +1317,111 @@ func TestBulkImportEmptyCSV(t *testing.T) {
 
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+// FIX-236 DEV-547: filter-based bulk endpoint tests.
+
+func newByFilterRequest(t *testing.T, path string, body interface{}, tenantID uuid.UUID) *http.Request {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, apierr.TenantIDKey, tenantID)
+	ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New().String())
+	ctx = context.WithValue(ctx, apierr.RoleKey, "sim_manager")
+	return req.WithContext(ctx)
+}
+
+func TestPreviewCount_ReturnsCountAndSample(t *testing.T) {
+	tenantID := uuid.New()
+	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	sims := &fakeSimTenantFilter{idsByFilter: ids, totalByFilter: 3}
+	h := newBulkHandlerWithFakes(&fakeJobCreator{}, &fakeSegmentCounter{}, sims, &fakeEventPublisher{})
+
+	w := httptest.NewRecorder()
+	body := map[string]interface{}{"filter": map[string]string{"state": "active"}}
+	req := newByFilterRequest(t, "/api/v1/sims/bulk/preview-count", body, tenantID)
+	h.PreviewCount(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"count":3`)) {
+		t.Errorf("body should contain count=3, got %s", w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"sample_ids":[`)) {
+		t.Errorf("body missing sample_ids, got %s", w.Body.String())
+	}
+}
+
+func TestStateChangeByFilter_HappyPath_Accepted_202(t *testing.T) {
+	tenantID := uuid.New()
+	ids := []uuid.UUID{uuid.New(), uuid.New()}
+	sims := &fakeSimTenantFilter{idsByFilter: ids, totalByFilter: 2}
+	h := newBulkHandlerWithFakes(&fakeJobCreator{}, &fakeSegmentCounter{}, sims, &fakeEventPublisher{})
+
+	w := httptest.NewRecorder()
+	body := map[string]interface{}{
+		"filter":       map[string]string{"state": "active"},
+		"target_state": "suspended",
+	}
+	req := newByFilterRequest(t, "/api/v1/sims/bulk/state-change-by-filter", body, tenantID)
+	h.StateChangeByFilter(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"total_sims":2`)) {
+		t.Errorf("body should contain total_sims=2, got %s", w.Body.String())
+	}
+}
+
+func TestStateChangeByFilter_CapExceeded_422(t *testing.T) {
+	tenantID := uuid.New()
+	// Cap = 100 in request; store reports total=500 → 422 limit_exceeded.
+	ids := make([]uuid.UUID, 100)
+	for i := range ids {
+		ids[i] = uuid.New()
+	}
+	sims := &fakeSimTenantFilter{idsByFilter: ids, totalByFilter: 500}
+	h := newBulkHandlerWithFakes(&fakeJobCreator{}, &fakeSegmentCounter{}, sims, &fakeEventPublisher{})
+
+	w := httptest.NewRecorder()
+	body := map[string]interface{}{
+		"filter":       map[string]string{"state": "active"},
+		"target_state": "suspended",
+		"max_affected": 100,
+	}
+	req := newByFilterRequest(t, "/api/v1/sims/bulk/state-change-by-filter", body, tenantID)
+	h.StateChangeByFilter(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"limit_exceeded"`)) {
+		t.Errorf("body should mention limit_exceeded, got %s", w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"actual_count":500`)) {
+		t.Errorf("body should expose actual_count=500, got %s", w.Body.String())
+	}
+}
+
+func TestStateChangeByFilter_ZeroMatches_400(t *testing.T) {
+	tenantID := uuid.New()
+	sims := &fakeSimTenantFilter{idsByFilter: nil, totalByFilter: 0}
+	h := newBulkHandlerWithFakes(&fakeJobCreator{}, &fakeSegmentCounter{}, sims, &fakeEventPublisher{})
+
+	w := httptest.NewRecorder()
+	body := map[string]interface{}{
+		"filter":       map[string]string{"state": "stolen_lost"},
+		"target_state": "terminated",
+	}
+	req := newByFilterRequest(t, "/api/v1/sims/bulk/state-change-by-filter", body, tenantID)
+	h.StateChangeByFilter(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
 }

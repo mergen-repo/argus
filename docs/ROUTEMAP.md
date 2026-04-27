@@ -452,7 +452,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [x] DONE (2026-04-27) | — |
 | FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [x] DONE (2026-04-27) | — |
 | FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [x] DONE (2026-04-27) | — |
-| FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [ ] PENDING | FIX-201 |
+| FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [x] DONE (2026-04-27) · Wave C deferred D-162 | FIX-201 |
 | FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [ ] PENDING | FIX-241 |
 
 ### Wave 10 — Phase 2 P2 UX Redesign + Scope Reduction
@@ -798,6 +798,9 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-159 | FIX-244 DEV-522 | Bulk endpoints emit one audit row per id in a tight loop — 100 audit inserts per max-size bulk call. Acceptable today; if it becomes a hot path, batch the audit inserts in a single multi-VALUES INSERT inside the bulk handler. | Optional perf polish | OPEN |
 | D-160 | FIX-239 plan §D1 | MDX-based content delivery for the Knowledge Base deferred. Today's section content is hand-rolled JSX. MDX adoption requires `@mdx-js/rollup` + `@mdx-js/react` + Vite plugin config + content migration. Adopt in a future "content authoring UX" story. | Future content-author UX story | OPEN |
 | D-161 | FIX-239 plan §D2 | Mermaid diagram support for the Knowledge Base deferred. Today's diagrams are hand-written SVG/CSS via three primitives (StepperFlow, SequenceDiagram, TimelineFlow). Adopt only if a future diagram exceeds the primitive shapes. | Optional diagram-richness story | OPEN |
+| D-162 | FIX-236 DEV-553 | Page adoption of FIX-236 primitives — Sessions / eSIM / Audit / Operators / APNs / Policies / Alerts each need to wire up `<VirtualTable>` + shared `<BulkActionBar>` + `*ByFilter` bulk endpoints (where applicable). Adoption is mechanical drop-in; deferred per-page so each owning future FIX can land its own behaviour parity tests. SCALE.md §6 audit table is the source-of-truth registry. | Per-page future FIX stories | OPEN |
+| D-163 | FIX-236 DEV-549 | Partition strategy refactor — `sims` is currently LIST partitioned by `operator_id`. At 10M+ SIMs spread across few operators, the per-partition row count becomes very large and re-partition benefit erodes. Revisit when 10M-seed benchmark exists; consider tenant-LIST or hash partitioning. Schema migration is non-trivial (pg_partman or manual swap-and-rename) — don't refactor without a specific p95 regression to chase. | Future perf story | OPEN |
+| D-164 | FIX-236 plan §D8 | Benchmark suite (k6 + 10M-row seed) — heavy infra (CI test env, baseline corpus). Out of scope for inline AUTOPILOT. Targets: list page p95 < 500ms; bulk enqueue < 2s; export streaming start < 1s. | Dedicated perf-benchmark story | OPEN |
 
 ---
 

@@ -363,6 +363,123 @@ func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParam
 	return results, nextCursor, nil
 }
 
+// ListIDsByFilter resolves the same filters used by List but returns only the
+// uuid set, capped at `limit`. Intended for ad-hoc bulk operations (FIX-236
+// AC-1): the caller picks a `limit` (hard-capped at 10_000 by the API layer)
+// and decides whether to proceed based on the returned `totalCount`.
+//
+// Semantics: if the underlying query returns ≤ `limit` rows, totalCount is
+// the row count. If exactly `limit+1` rows are streamed (i.e. the cap was
+// hit), a separate COUNT(*) determines the precise total. This avoids running
+// COUNT(*) on the happy path while still giving the caller honest scope.
+//
+// The Cursor field on `p` is intentionally ignored — callers that want
+// pagination must use List. p.Limit is also ignored (use the explicit `limit`
+// argument).
+func (s *SIMStore) ListIDsByFilter(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams, limit int) ([]uuid.UUID, int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 2
+
+	if p.ICCID != "" {
+		conditions = append(conditions, fmt.Sprintf("iccid = $%d", argIdx))
+		args = append(args, p.ICCID)
+		argIdx++
+	}
+	if p.IMSI != "" {
+		conditions = append(conditions, fmt.Sprintf("imsi = $%d", argIdx))
+		args = append(args, p.IMSI)
+		argIdx++
+	}
+	if p.MSISDN != "" {
+		conditions = append(conditions, fmt.Sprintf("msisdn = $%d", argIdx))
+		args = append(args, p.MSISDN)
+		argIdx++
+	}
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("state = $%d", argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+	if p.IPAddress != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"ip_address_id IN (SELECT id FROM ip_addresses WHERE address_v4::text LIKE $%d)",
+			argIdx,
+		))
+		args = append(args, "%"+p.IPAddress+"%")
+		argIdx++
+	}
+	if p.Q != "" {
+		searchTerm := "%" + p.Q + "%"
+		conditions = append(conditions, fmt.Sprintf(
+			"(iccid ILIKE $%d OR imsi ILIKE $%d OR msisdn ILIKE $%d)",
+			argIdx, argIdx, argIdx,
+		))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+	queryArgs := append([]interface{}(nil), args...)
+	queryArgs = append(queryArgs, limit+1)
+
+	query := fmt.Sprintf(`SELECT id FROM sims %s ORDER BY created_at DESC, id DESC LIMIT %s`, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("store: list sim ids by filter: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, fmt.Errorf("store: scan sim id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("store: iterate sim ids: %w", err)
+	}
+
+	if len(ids) <= limit {
+		return ids, int64(len(ids)), nil
+	}
+
+	// Cap was hit — drop the trailing peek row and run a COUNT for honesty.
+	ids = ids[:limit]
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM sims %s`, where)
+	var total int64
+	if err := s.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("store: count sims by filter: %w", err)
+	}
+	return ids, total, nil
+}
+
 func (s *SIMStore) ListStateHistory(ctx context.Context, simID uuid.UUID, cursor string, limit int) ([]SimStateHistory, string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50

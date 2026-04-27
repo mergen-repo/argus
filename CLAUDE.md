@@ -117,10 +117,11 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-239 (Wave 9 P1 — Knowledge Base Ops Runbook Redesign; 9 sections + interactive popups + Cmd+K search + decision-tree playbooks)
-- Step: Dev
-- Last closed: FIX-244 [x] DONE 2026-04-27 (Wave 9 P1 — Violations Lifecycle UI; backend SetRemediationKind + status/action_taken/date filters + bulk acknowledge/dismiss endpoints + Nginx 301 legacy export redirect; FE canonical types + consolidated hooks + StatusBadge + AcknowledgeDialog + RemediateDialog + BulkActionBar + select-all-on-page; DEV-520..532; 3 tech debt routed D-157..D-159; commit 2f4ccbd, 24 files +2671/-291; AUTOPILOT fully inline due to 1M-context billing gate blocking sub-agent dispatch)
-- Prior closure: FIX-243 [x] DONE 2026-04-27 (Wave 9 P1 — Policy DSL Realtime Validate Endpoint + FE Linter; DEV-510..519; 0 tech debt added)
+- Story: — (FIX-236 closed — Wave C SIMs adoption deferred D-162; next FIX-248 in Wave 9 PENDING)
+- Step: —
+- Last closed: FIX-239 [x] DONE 2026-04-27 (Wave 9 P1 — Knowledge Base Ops Runbook Redesign; 9-section restructure, sticky TOC + IntersectionObserver, route-scoped Cmd+K via cmdk, RequestResponsePopup with wire/curl/response tabs, persisted onboarding checklist, 3 DecisionTree playbooks, 7 OperationCards, full preservation of legacy KB content in §9, print-as-PDF; DEV-533..545; 2 tech debt routed D-160 (MDX deferred) + D-161 (Mermaid deferred); commit d1ed95d, 33 files +2960/-411; AUTOPILOT fully inline)
+- Prior closure: FIX-244 [x] DONE 2026-04-27 (Wave 9 P1 — Violations Lifecycle UI; DEV-520..532; commit 2f4ccbd, 24 files +2671/-291; D-157..D-159)
+- Earlier: FIX-243 [x] DONE 2026-04-27 (Wave 9 P1 — Policy DSL Realtime Validate Endpoint + FE Linter; DEV-510..519)
 - Prior closure: FIX-237 [x] DONE 2026-04-27 (Wave 8 P0 last — M2M Event Taxonomy + Notification Redesign; 3-tier classification, digest worker, env-gated migration, NATS retention 168h, FE Preferences tier filter, 12 USERTEST scenarios; DEV-501..509; D-150..D-156 routed; commit 8c5553c, 43 files +4120/-142)
 - Prior closures: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; DEV-398..407; D-147 + D-148 deferred), FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)
 - Prior closures: FIX-253 [x] DONE 2026-04-26 (Suspend atomic IP release + Activate 422 + audit; DEV-390..393), FIX-251 [x] DONE 2026-04-26 (PAT-006 RECURRENCE #3; DEV-389), FIX-252 [x] DONE 2026-04-26 (zero-code PAT-023 schema drift; DEV-386..388)

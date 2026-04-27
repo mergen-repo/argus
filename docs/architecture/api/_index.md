@@ -97,7 +97,7 @@ List endpoints (any handler invoking `apierr.WriteList`) ALWAYS return a JSON ar
 | API-053 | POST | /api/v1/sims/compare | Compare 2 SIMs side-by-side | JWT (sim_manager+) | See [STORY-011](../../stories/phase-2/STORY-011-sim-crud.md) |
 | API-269 | GET | /api/v1/sims/:id/ip-current | Current IP lease + pool metadata for a SIM's active session (nil when no active IP) | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); doc entry added by audit 2026-04-17 |
 
-## SIM Segments & Bulk (10 endpoints)
+## SIM Segments & Bulk (14 endpoints)
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
@@ -111,6 +111,10 @@ List endpoints (any handler invoking `apierr.WriteList`) ALWAYS return a JSON ar
 | API-064 | POST | /api/v1/sims/bulk/state-change | Bulk state change — dual-shape (sim_ids or segment_id). Async 202; rate-limited 1 req/s per tenant. | JWT (sim_manager+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); full spec: [bulk-actions.md](bulk-actions.md) |
 | API-065 | POST | /api/v1/sims/bulk/policy-assign | Bulk policy assign — dual-shape (sim_ids or segment_id). Triggers per-SIM CoA dispatch for active sessions. Job result includes CoA counters: `coa_sent_count`, `coa_acked_count`, `coa_failed_count` (omitted when 0). CoA dispatched outside distLock after release. | JWT (policy_editor+) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); CoA dispatch: [STORY-060](../../stories/phase-10/STORY-060-aaa-protocol-correctness.md); full spec: [bulk-actions.md](bulk-actions.md) |
 | API-066 | POST | /api/v1/sims/bulk/operator-switch | Bulk eSIM operator switch — dual-shape (sim_ids or segment_id). Non-eSIM SIMs reported as NOT_ESIM in job error_report. | JWT (tenant_admin) | See [STORY-030](../../stories/phase-5/STORY-030-bulk-operations.md); full spec: [bulk-actions.md](bulk-actions.md) |
+| API-341 | POST | /api/v1/sims/bulk/preview-count | Resolve a list-style filter into matching count + sample of up to 5 ids. Body: `{filter: {state, operator_id, apn_id, rat_type, ip_address, iccid, imsi, msisdn, q}, max_affected?}`. Returns `{count, sample_ids, capped, cap}`. Cap default 10000 (hard ceiling); FE gates double-confirm at >1000. | JWT (sim_manager+) | FIX-236 DEV-547 |
+| API-342 | POST | /api/v1/sims/bulk/state-change-by-filter | Filter-based bulk state change (no saved Segment required). Body: `{filter, target_state, reason?, max_affected?}`. Returns 202 + `{job_id, total_sims}` on success; 422 `limit_exceeded` with `{actual_count, cap}` when filter resolves >cap. Reuses existing job/audit/ratelimit pipeline. | JWT (sim_manager+) | FIX-236 DEV-547 |
+| API-343 | POST | /api/v1/sims/bulk/policy-assign-by-filter | Filter-based bulk policy assign. Body: `{filter, policy_id, policy_version_id?, reason?, max_affected?}`. Same response contract as API-342. | JWT (policy_editor+) | FIX-236 DEV-547 |
+| API-344 | POST | /api/v1/sims/bulk/operator-switch-by-filter | Filter-based bulk operator switch. Body: `{filter, target_operator_id, reason?, max_affected?}`. Same response contract as API-342. | JWT (tenant_admin+) | FIX-236 DEV-547 |
 
 ## eSIM (7 endpoints)
 
@@ -626,3 +630,4 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 > Index updated 2026-04-26 by FIX-233 review — 1 row addition (API-326) for `GET /policy-rollouts` list active rollouts; API-040/041 updated with new filter params + DTO additions (`policy_id`, `rollout_id?`, `rollout_stage_pct?`, `coa_status?`); Policies count 11→12. Total updated 256→257.
 > Index updated 2026-04-27 by Phase 11 architect dispatch — 12 row additions (API-327..338) covering Device Binding (4), IMEI Pool Management (5), Bulk SIM-Device Binding (1), Syslog Log Forwarding (2). New domain sections appended after the Alerts section. Total updated 257→269. See [ADR-004](../adrs/ADR-004-imei-binding-architecture.md).
 > Index updated 2026-04-27 by FIX-244 review — 2 row additions (API-339..340) for bulk violation acknowledge + bulk dismiss endpoints; API-262 amended with `status`, `action_taken`, `date_from`, `date_to` filter params; API-260 amended with reason ≥3 chars validation + `details.remediation` write; API-266 amended with Nginx 301 from legacy `/violations/export.csv`. Policy Violations count 5→7. Total updated 269→271.
+> Index updated 2026-04-27 by FIX-236 review — 4 row additions (API-341..344) for filter-based SIM bulk endpoints (preview-count + state-change-by-filter + policy-assign-by-filter + operator-switch-by-filter). SIM Segments & Bulk count 10→14. Total updated 271→275. Existing per-id bulk endpoints (API-064..066) unchanged.

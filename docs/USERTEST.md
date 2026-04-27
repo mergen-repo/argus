@@ -5331,3 +5331,37 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. Sağ üstte **Export PDF** butonu → browser print dialog.
 2. Print preview: sticky TOC, search trigger, "Wire format" butonları, "Copy link" footer'ları gizli.
 3. Tüm 9 section page-break ile ayrılmış olarak çıktı verir.
+
+## FIX-236: 10M SIM Scale Readiness — primitives + filter-based bulk
+
+> Note: Wave C SIMs page adoption deferred to D-162. The tests below exercise
+> the new endpoints + primitives directly via API tools. Page-level UAT will
+> ship with the per-page adoption stories.
+
+### AC-1 + AC-3: Filter-based bulk preview-count
+1. Authenticate as a `sim_manager` user (UI login or grab JWT).
+2. `curl -X POST -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+   http://localhost:8084/api/v1/sims/bulk/preview-count \
+   -d '{"filter":{"state":"active"}, "max_affected":10000}'`
+3. **Beklenen:** 200 `{"status":"success","data":{"count":N,"sample_ids":["uuid","uuid",...],"capped":false,"cap":10000}}`. `count` = matching SIM sayısı; `sample_ids` ≤ 5 örnek UUID; `capped=false` cap aşılmamış.
+
+### AC-1: Filter-based bulk state change
+1. Aynı JWT ile bir suspend bulk dispatch et:
+   `curl -X POST ... /api/v1/sims/bulk/state-change-by-filter \
+   -d '{"filter":{"state":"active","operator_id":"<uuid>"},"target_state":"suspended","reason":"test","max_affected":10}'`
+2. **Beklenen:** 202 `{"status":"success","data":{"job_id":"...","status":"queued","total_sims":N}}`.
+3. `/jobs` sayfasında yeni job görünür; tamamlanınca işlem audit'e yazılır.
+
+### AC-1 + AC-7: Cap-exceeded protection
+1. `max_affected:10` ile 100+ SIM eşleşen bir filter dispatch et.
+2. **Beklenen:** 422 `{"status":"error","error":{"code":"limit_exceeded","actual_count":N,"cap":10,"message":"Filter matches N SIMs but cap is 10..."}}`.
+
+### AC-8: Failed-CSV download
+1. Bir bulk job intentionally bazı SIMs'i fail eder (ör. terminated SIM'i suspend etmeye çalış).
+2. Job tamamlandıktan sonra `/api/v1/jobs/{id}/errors?format=csv`.
+3. **Beklenen:** CSV indirir; başlık `sim_id,iccid,error_code,error_message`; sadece fail eden satırlar.
+
+### Component-level smoke (FE primitives — adopt in D-162)
+1. `web/src/components/shared/bulk-action-bar.tsx` import edilebilir, `mode="matching-filter"` + `actions=[{...}]` ile sticky bar render eder.
+2. `web/src/components/shared/virtual-table.tsx` import edilebilir, 1000+ satır listesinde `useVirtualizer` ile sadece görünür penceredeki satırları render eder; Home/End/PgUp/PgDn klavye nav çalışır.
+3. `useBulkPreviewCount` hook'u herhangi bir resource için `POST /{resource}/bulk/preview-count` çağrısı yapar.
