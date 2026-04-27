@@ -54,14 +54,72 @@ type CreateViolationParams struct {
 	Severity      string
 }
 
+// ViolationStatus is the FE-derived lifecycle state of a violation. Backend
+// translates this to a WHERE clause in List/ListEnriched. Source of truth is
+// `acknowledged_at` plus `details->>'remediation'` (written by Remediate).
+//
+//   open         → acknowledged_at IS NULL  AND details.remediation IS NULL
+//   acknowledged → acknowledged_at IS NOT NULL AND details.remediation IS NULL
+//   remediated   → details.remediation = 'suspend_sim'
+//   dismissed    → details.remediation = 'dismiss'
+//   escalated    → details.remediation = 'escalate'  (still treated as Open in UX)
+type ViolationStatus string
+
+const (
+	ViolationStatusOpen         ViolationStatus = "open"
+	ViolationStatusAcknowledged ViolationStatus = "acknowledged"
+	ViolationStatusRemediated   ViolationStatus = "remediated"
+	ViolationStatusDismissed    ViolationStatus = "dismissed"
+	ViolationStatusEscalated    ViolationStatus = "escalated"
+)
+
+func IsValidViolationStatus(s string) bool {
+	switch ViolationStatus(s) {
+	case ViolationStatusOpen, ViolationStatusAcknowledged,
+		ViolationStatusRemediated, ViolationStatusDismissed, ViolationStatusEscalated:
+		return true
+	}
+	return false
+}
+
 type ListViolationsParams struct {
 	Cursor        string
 	Limit         int
 	ViolationType string
+	ActionTaken   string
 	Severity      string
 	SimID         *uuid.UUID
 	PolicyID      *uuid.UUID
 	Acknowledged  *bool
+	Status        string
+	DateFrom      *time.Time
+	DateTo        *time.Time
+}
+
+// applyViolationStatusFilter mutates the SQL conditions/args slices to express
+// `status` as a WHERE clause. `colPrefix` is the table alias prefix used in the
+// query builder ("" for List, "v." for ListEnriched). Returns the new argIdx.
+// Unknown status values are silently ignored — the handler is responsible for
+// rejecting them with a 400 BEFORE this function is called.
+func applyViolationStatusFilter(status, colPrefix string, conditions []string, args []interface{}, argIdx int) ([]string, []interface{}, int) {
+	switch ViolationStatus(status) {
+	case ViolationStatusOpen:
+		conditions = append(conditions,
+			fmt.Sprintf("%sacknowledged_at IS NULL AND (%sdetails->>'remediation') IS NULL", colPrefix, colPrefix))
+	case ViolationStatusAcknowledged:
+		conditions = append(conditions,
+			fmt.Sprintf("%sacknowledged_at IS NOT NULL AND (%sdetails->>'remediation') IS NULL", colPrefix, colPrefix))
+	case ViolationStatusRemediated:
+		conditions = append(conditions,
+			fmt.Sprintf("%sdetails->>'remediation' = 'suspend_sim'", colPrefix))
+	case ViolationStatusDismissed:
+		conditions = append(conditions,
+			fmt.Sprintf("%sdetails->>'remediation' = 'dismiss'", colPrefix))
+	case ViolationStatusEscalated:
+		conditions = append(conditions,
+			fmt.Sprintf("%sdetails->>'remediation' = 'escalate'", colPrefix))
+	}
+	return conditions, args, argIdx
 }
 
 type PolicyViolationStore struct {
@@ -125,6 +183,11 @@ func (s *PolicyViolationStore) List(ctx context.Context, tenantID uuid.UUID, par
 		args = append(args, params.ViolationType)
 		argIdx++
 	}
+	if params.ActionTaken != "" {
+		conditions = append(conditions, fmt.Sprintf("action_taken = $%d", argIdx))
+		args = append(args, params.ActionTaken)
+		argIdx++
+	}
 	if params.Severity != "" {
 		conditions = append(conditions, fmt.Sprintf("severity = $%d", argIdx))
 		args = append(args, params.Severity)
@@ -146,6 +209,19 @@ func (s *PolicyViolationStore) List(ctx context.Context, tenantID uuid.UUID, par
 		} else {
 			conditions = append(conditions, "acknowledged_at IS NULL")
 		}
+	}
+	if params.Status != "" {
+		conditions, args, argIdx = applyViolationStatusFilter(params.Status, "", conditions, args, argIdx)
+	}
+	if params.DateFrom != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
+		args = append(args, *params.DateFrom)
+		argIdx++
+	}
+	if params.DateTo != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
+		args = append(args, *params.DateTo)
+		argIdx++
 	}
 
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
@@ -304,6 +380,11 @@ func (s *PolicyViolationStore) ListEnriched(ctx context.Context, tenantID uuid.U
 		args = append(args, params.ViolationType)
 		argIdx++
 	}
+	if params.ActionTaken != "" {
+		conditions = append(conditions, fmt.Sprintf("v.action_taken = $%d", argIdx))
+		args = append(args, params.ActionTaken)
+		argIdx++
+	}
 	if params.Severity != "" {
 		conditions = append(conditions, fmt.Sprintf("v.severity = $%d", argIdx))
 		args = append(args, params.Severity)
@@ -325,6 +406,19 @@ func (s *PolicyViolationStore) ListEnriched(ctx context.Context, tenantID uuid.U
 		} else {
 			conditions = append(conditions, "v.acknowledged_at IS NULL")
 		}
+	}
+	if params.Status != "" {
+		conditions, args, argIdx = applyViolationStatusFilter(params.Status, "v.", conditions, args, argIdx)
+	}
+	if params.DateFrom != nil {
+		conditions = append(conditions, fmt.Sprintf("v.created_at >= $%d", argIdx))
+		args = append(args, *params.DateFrom)
+		argIdx++
+	}
+	if params.DateTo != nil {
+		conditions = append(conditions, fmt.Sprintf("v.created_at <= $%d", argIdx))
+		args = append(args, *params.DateTo)
+		argIdx++
 	}
 
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
@@ -416,6 +510,28 @@ func (s *PolicyViolationStore) Acknowledge(ctx context.Context, id, tenantID, us
 		return nil, fmt.Errorf("store: acknowledge violation: %w", err)
 	}
 	return &v, nil
+}
+
+// SetRemediationKind writes the chosen remediate action into
+// details->remediation so the FE can derive a durable lifecycle status
+// (open / acknowledged / remediated / dismissed) without joining audit_logs.
+// Tenant-scoped. Returns ErrViolationNotFound if no row matched. The caller
+// in handler.Remediate treats a not-found here as non-fatal — the primary
+// action (suspend / acknowledge / escalate) has already succeeded by this point.
+func (s *PolicyViolationStore) SetRemediationKind(ctx context.Context, id, tenantID uuid.UUID, kind string) error {
+	cmd, err := s.db.Exec(ctx,
+		`UPDATE policy_violations
+		 SET details = jsonb_set(coalesce(details, '{}'::jsonb), '{remediation}', to_jsonb($1::text))
+		 WHERE id = $2 AND tenant_id = $3`,
+		kind, id, tenantID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: set remediation kind: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrViolationNotFound
+	}
+	return nil
 }
 
 // CountInWindowAllTenants returns the global count of policy_violations rows

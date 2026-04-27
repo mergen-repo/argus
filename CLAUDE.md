@@ -117,8 +117,8 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: — (FIX-243 closed; next FIX-244 in Wave 9 PENDING)
-- Step: —
+- Story: FIX-244 (Wave 9 P1 — Violations Lifecycle UI; acknowledge+remediate actions, status column, filter/export fixes, SlidePanel, bulk ops, audit)
+- Step: Dev
 - Last closed: FIX-243 [x] DONE 2026-04-27 (Wave 9 P1 — Policy DSL Realtime Validate Endpoint + FE Linter; backend validate+vocab endpoints, Levenshtein suggestions, CodeMirror linter+autocomplete+error summary, DSL formatter, seed validate CLI, 16 broken seed DSL repaired, Makefile guard; DEV-510..519; 0 tech debt added; AUTOPILOT inline gate+review due to session rate-limit pressure)
 - Prior closure: FIX-237 [x] DONE 2026-04-27 (Wave 8 P0 last — M2M Event Taxonomy + Notification Redesign; 3-tier classification, digest worker, env-gated migration, NATS retention 168h, FE Preferences tier filter, 12 USERTEST scenarios; DEV-501..509; D-150..D-156 routed; commit 8c5553c, 43 files +4120/-142)
 - Prior closures: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; DEV-398..407; D-147 + D-148 deferred), FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)

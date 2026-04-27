@@ -50,7 +50,7 @@ export default function ViolationDetailPage() {
   const [reason, setReason] = React.useState('')
 
   const { data: violation, isLoading, isError } = useViolation(id)
-  const remediate = useRemediate(id)
+  const remediate = useRemediate()
   const { addRecentItem } = useUIStore()
 
   React.useEffect(() => {
@@ -62,7 +62,7 @@ export default function ViolationDetailPage() {
   function handleRemediate() {
     if (!actionOpen || !id) return
     remediate.mutate(
-      { action: actionOpen, reason },
+      { violationId: id, action: actionOpen, reason, simId: violation?.sim_id },
       {
         onSuccess: () => {
           toast.success(`Violation ${ACTION_LABELS[actionOpen].toLowerCase()} successful`)
@@ -224,7 +224,7 @@ export default function ViolationDetailPage() {
                   <InfoRow label="SIM" value={<EntityLink entityType="sim" entityId={violation.sim_id.toString()} label={violation.sim_iccid} />} />
                 )}
                 {violation.policy_id && (
-                  <InfoRow label="Policy" value={<EntityLink entityType="policy" entityId={violation.policy_id.toString()} label={violation.policy_name} />} />
+                  <InfoRow label="Policy" value={<EntityLink entityType="policy" entityId={violation.policy_id.toString()} label={violation.policy_name ?? undefined} />} />
                 )}
                 {violation.session_id && (
                   <InfoRow label="Session" value={<EntityLink entityType="session" entityId={violation.session_id.toString()} truncate />} />

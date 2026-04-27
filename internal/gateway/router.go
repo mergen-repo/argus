@@ -698,6 +698,11 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/policy-violations/{id}", deps.ViolationHandler.Get)
 				r.Post("/api/v1/policy-violations/{id}/acknowledge", deps.ViolationHandler.Acknowledge)
 				r.Post("/api/v1/policy-violations/{id}/remediate", deps.ViolationHandler.Remediate)
+				// FIX-244 DEV-522: bulk operations on violations. Same role gate
+				// (policy_editor) as the per-row endpoints. Capped to 100 ids
+				// per request inside the handler to bound server time.
+				r.Post("/api/v1/policy-violations/bulk/acknowledge", deps.ViolationHandler.BulkAcknowledge)
+				r.Post("/api/v1/policy-violations/bulk/dismiss", deps.ViolationHandler.BulkDismiss)
 			})
 		}
 

@@ -450,7 +450,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
 | FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [x] DONE (2026-04-27) | — |
-| FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [ ] PENDING | — |
+| FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [x] DONE (2026-04-27) | — |
 | FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [ ] PENDING | — |
 | FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [ ] PENDING | FIX-201 |
 | FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [ ] PENDING | FIX-241 |
@@ -793,6 +793,9 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-154 | FIX-237 DEV-501 | `backup.failed` Tier 3 distinct subject deferred — currently routed through `alert.triggered`. Optional polish if alert.triggered routing proves insufficient for backup-specific UX. | Optional polish story | OPEN |
 | D-155 | FIX-237 DEV-502 | `web/src/pages/settings/notifications.tsx` legacy hardcoded settings page is dead code w.r.t. notification_preferences table — superseded by the `/notifications?tab=preferences` flow. DELETE entirely when FIX-240 unifies settings. | FIX-240 (Wave 10 unified settings) | OPEN |
 | D-156 | FIX-237 plan §11 | `digest.Worker.checkQuotaBreachCount` ships as a documented no-op — quota_state breach signal not yet wired (per-SIM `quota_exceeded` is already covered by `violation_surge`). Flip to live aggregation when quota subsystem ships. | FIX-246 (quotas+resources merge) | OPEN |
+| D-157 | FIX-244 DEV-532 | "All matching filter" bulk select for violations deferred. Today's bulk surface is row-checkbox only (cap 100 ids per request). Filter-based selection over thousands of violations matching `severity=critical` requires a server-side cursor walker, which is FIX-236's territory. Header checkbox tooltip surfaces the limit. | FIX-236 (10M scale readiness) | OPEN |
+| D-158 | FIX-244 DEV-521 | JSONB index on `(details->>'remediation')` follow-up — `?status=remediated` and `?status=dismissed` filters scan JSONB without an index. Acceptable at current data volume; if p95 latency on these filters exceeds 500 ms in prod, add `CREATE INDEX idx_policy_violations_remediation ON policy_violations ((details->>'remediation'));`. | Optional perf polish | OPEN |
+| D-159 | FIX-244 DEV-522 | Bulk endpoints emit one audit row per id in a tight loop — 100 audit inserts per max-size bulk call. Acceptable today; if it becomes a hot path, batch the audit inserts in a single multi-VALUES INSERT inside the bulk handler. | Optional perf polish | OPEN |
 
 ---
 

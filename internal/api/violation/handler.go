@@ -3,8 +3,11 @@ package violation
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
@@ -14,6 +17,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// minRemediationReasonLen is the minimum trimmed length required for the
+// `reason` field on destructive remediate actions (`suspend_sim`, `dismiss`).
+// Discourages rubber-stamp confirmations while staying short enough not to
+// frustrate the operator. Mirrored client-side in the Remediate dialog.
+const minRemediationReasonLen = 3
 
 type Handler struct {
 	violationStore *store.PolicyViolationStore
@@ -165,6 +174,15 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	trimmedReason := strings.TrimSpace(req.Reason)
+	if (req.Action == "suspend_sim" || req.Action == "dismiss") && len(trimmedReason) < minRemediationReasonLen {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"Reason must be at least 3 characters",
+			[]map[string]interface{}{{"field": "reason", "message": "must be at least 3 characters", "code": "min_length"}})
+		return
+	}
+	req.Reason = trimmedReason
+
 	v, err := h.violationStore.GetByIDEnriched(r.Context(), id, tenantID)
 	if err != nil {
 		if errors.Is(err, store.ErrViolationNotFound) {
@@ -244,6 +262,14 @@ func (h *Handler) Remediate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Best-effort: write details->remediation so the FE can derive lifecycle
+	// status (remediated / dismissed / escalated) without joining audit_logs.
+	// A missing-row error here is non-fatal — the primary action already
+	// succeeded above, and a later refetch will simply omit the new key.
+	if setErr := h.violationStore.SetRemediationKind(r.Context(), id, tenantID, req.Action); setErr != nil && !errors.Is(setErr, store.ErrViolationNotFound) {
+		h.logger.Warn().Err(setErr).Str("action", req.Action).Msg("set remediation kind")
+	}
+
 	apierr.WriteSuccess(w, http.StatusOK, response)
 }
 
@@ -291,14 +317,54 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	statusFilter := q.Get("status")
+	if statusFilter != "" && !store.IsValidViolationStatus(statusFilter) {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"status must be one of: open, acknowledged, remediated, dismissed, escalated",
+			[]map[string]interface{}{{"field": "status", "message": "invalid lifecycle status", "code": "invalid_enum"}})
+		return
+	}
+
+	var dateFrom, dateTo *time.Time
+	if v := q.Get("date_from"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+				"date_from must be RFC3339",
+				[]map[string]interface{}{{"field": "date_from", "message": "expected RFC3339 timestamp", "code": "invalid_format"}})
+			return
+		}
+		dateFrom = &t
+	}
+	if v := q.Get("date_to"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+				"date_to must be RFC3339",
+				[]map[string]interface{}{{"field": "date_to", "message": "expected RFC3339 timestamp", "code": "invalid_format"}})
+			return
+		}
+		dateTo = &t
+	}
+	if dateFrom != nil && dateTo != nil && dateTo.Before(*dateFrom) {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"date_to must be on or after date_from",
+			[]map[string]interface{}{{"field": "date_to", "message": "must be ≥ date_from", "code": "invalid_range"}})
+		return
+	}
+
 	params := store.ListViolationsParams{
 		Cursor:        q.Get("cursor"),
 		Limit:         limit,
 		ViolationType: q.Get("violation_type"),
+		ActionTaken:   q.Get("action_taken"),
 		Severity:      sevFilter,
 		SimID:         simID,
 		PolicyID:      policyID,
 		Acknowledged:  ackFilter,
+		Status:        statusFilter,
+		DateFrom:      dateFrom,
+		DateTo:        dateTo,
 	}
 
 	enriched, nextCursor, err := h.violationStore.ListEnriched(r.Context(), tenantID, params)
@@ -388,4 +454,167 @@ func (h *Handler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 		"acknowledged_by": v.AcknowledgedBy,
 		"note":            v.AcknowledgmentNote,
 	})
+}
+
+// maxBulkIDs caps a single bulk request so iteration time stays bounded and
+// per-id audit fidelity (one row per success) does not blow up at scale.
+// Larger jobs should go through filter-based bulk in FIX-236.
+const maxBulkIDs = 100
+
+type bulkAcknowledgeRequest struct {
+	IDs  []string `json:"ids"`
+	Note string   `json:"note"`
+}
+
+type bulkDismissRequest struct {
+	IDs    []string `json:"ids"`
+	Reason string   `json:"reason"`
+}
+
+type bulkFailure struct {
+	ID        string `json:"id"`
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
+}
+
+type bulkResult struct {
+	Succeeded []string      `json:"succeeded"`
+	Failed    []bulkFailure `json:"failed"`
+}
+
+// parseBulkIDs normalises the incoming string ids and enforces 1..maxBulkIDs.
+// Duplicates are de-duplicated; malformed ids are returned as failures rather
+// than rejecting the whole request, matching the partial-success contract.
+func parseBulkIDs(rawIDs []string) (ids []uuid.UUID, failed []bulkFailure, sizeErr error) {
+	if len(rawIDs) == 0 {
+		return nil, nil, errors.New("ids must be non-empty")
+	}
+	if len(rawIDs) > maxBulkIDs {
+		return nil, nil, fmt.Errorf("ids must be ≤ %d per request", maxBulkIDs)
+	}
+	seen := make(map[uuid.UUID]struct{}, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, parseErr := uuid.Parse(strings.TrimSpace(raw))
+		if parseErr != nil {
+			failed = append(failed, bulkFailure{ID: raw, ErrorCode: "validation_error", Message: "invalid uuid"})
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, failed, nil
+}
+
+func (h *Handler) BulkAcknowledge(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+	userID, _ := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+
+	var req bulkAcknowledgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	ids, failed, sizeErr := parseBulkIDs(req.IDs)
+	if sizeErr != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, sizeErr.Error(),
+			[]map[string]interface{}{{"field": "ids", "message": sizeErr.Error(), "code": "invalid_size"}})
+		return
+	}
+
+	result := bulkResult{Succeeded: []string{}, Failed: failed}
+
+	for _, id := range ids {
+		v, err := h.violationStore.Acknowledge(r.Context(), id, tenantID, userID, req.Note)
+		if err != nil {
+			code, msg := bulkErrorMessage(err)
+			result.Failed = append(result.Failed, bulkFailure{ID: id.String(), ErrorCode: code, Message: msg})
+			continue
+		}
+		result.Succeeded = append(result.Succeeded, v.ID.String())
+		audit.Emit(r, h.logger, h.auditSvc, "violation.acknowledge", "policy_violation", v.ID.String(), nil, map[string]interface{}{
+			"acknowledged_by": userID.String(),
+			"note":            req.Note,
+			"bulk":            true,
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, result)
+}
+
+func (h *Handler) BulkDismiss(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+	userID, _ := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+
+	var req bulkDismissRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	reason := strings.TrimSpace(req.Reason)
+	if len(reason) < minRemediationReasonLen {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"Reason must be at least 3 characters",
+			[]map[string]interface{}{{"field": "reason", "message": "must be at least 3 characters", "code": "min_length"}})
+		return
+	}
+
+	ids, failed, sizeErr := parseBulkIDs(req.IDs)
+	if sizeErr != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, sizeErr.Error(),
+			[]map[string]interface{}{{"field": "ids", "message": sizeErr.Error(), "code": "invalid_size"}})
+		return
+	}
+
+	result := bulkResult{Succeeded: []string{}, Failed: failed}
+
+	for _, id := range ids {
+		v, err := h.violationStore.Acknowledge(r.Context(), id, tenantID, userID, reason)
+		if err != nil {
+			code, msg := bulkErrorMessage(err)
+			result.Failed = append(result.Failed, bulkFailure{ID: id.String(), ErrorCode: code, Message: msg})
+			continue
+		}
+		// Best-effort: tag the row as dismissed for FE-side status derivation.
+		// On failure here we keep the id as succeeded — the audit emit + ack
+		// already happened, and the only consequence is that the FE shows
+		// the row as Acknowledged rather than Dismissed until manual repair.
+		if setErr := h.violationStore.SetRemediationKind(r.Context(), id, tenantID, "dismiss"); setErr != nil && !errors.Is(setErr, store.ErrViolationNotFound) {
+			h.logger.Warn().Err(setErr).Str("id", id.String()).Msg("bulk dismiss: set remediation kind")
+		}
+		result.Succeeded = append(result.Succeeded, v.ID.String())
+		audit.Emit(r, h.logger, h.auditSvc, "violation.dismissed", "policy_violation", v.ID.String(), nil, map[string]interface{}{
+			"dismissed_by": userID.String(),
+			"reason":       reason,
+			"bulk":         true,
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, result)
+}
+
+// bulkErrorMessage maps store-level errors to the partial-success contract.
+// Unknown errors are reported as "internal_error" with a generic message so
+// stack traces never leak in the bulk response payload.
+func bulkErrorMessage(err error) (code, msg string) {
+	switch {
+	case errors.Is(err, store.ErrAlreadyAcknowledged):
+		return "already_acknowledged", "violation already acknowledged"
+	case errors.Is(err, store.ErrViolationNotFound):
+		return "not_found", "violation not found"
+	default:
+		return "internal_error", "an unexpected error occurred"
+	}
 }

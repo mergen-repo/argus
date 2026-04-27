@@ -1,0 +1,8 @@
+STEP_1 PLAN: EXECUTED | items=13 tasks across 3 waves (DEV-520..532) | evidence=FIX-244-plan.md | result=PASS
+STEP_2 DEV WAVE_A: EXECUTED | items=4 tasks (A-1..A-4) | evidence=violation handler+store+router edits, infra/nginx 301 redirect, 18 tests PASS, build clean | result=PASS
+STEP_2 DEV WAVE_B: EXECUTED | items=5 tasks (B-1..B-5; B-4 reused TimeframeSelector instead of new atom) | evidence=types/violation.ts + hooks/use-violations.ts + components/violations/status-badge.tsx + index.tsx rewrite, tsc PASS, vite build PASS | result=PASS
+STEP_2 DEV WAVE_C: EXECUTED | items=4 tasks (C-1..C-4; C-1 inline-enriched SlidePanel instead of separate detail-panel.tsx — equivalent coverage) | evidence=acknowledge-dialog + remediate-dialog + bulk-action-bar + index.tsx wire-up + select-all toolbar, tsc PASS, vite build PASS | result=PASS
+STEP_2 DEV: EXECUTED | items=13 tasks across 3 waves (A-D) | evidence=Final go vet/build + tsc/vite PASS | result=PASS
+STEP_2.5 LINT: EXECUTED | items=2 grep scans (PAT-018 + PAT-021) on 6 new/modified FE files | evidence=zero matches | result=PASS
+STEP_3 GATE: EXECUTED | items=3 inline scout passes (analysis+testbuild+ui) | evidence=FIX-244-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | items=14 doc checks (6 UPDATED, 8 NO_CHANGE) + 0 findings + 0 unresolved | evidence=FIX-244-review.md | result=PASS

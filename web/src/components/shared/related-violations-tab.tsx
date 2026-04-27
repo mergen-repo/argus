@@ -35,27 +35,12 @@ import { timeAgo } from '@/lib/format'
 import { EntityLink } from './entity-link'
 import { toast } from 'sonner'
 
-export interface PolicyViolation {
-  id: string
-  tenant_id: string
-  sim_id: string
-  sim_iccid?: string
-  policy_id: string
-  policy_name?: string
-  version_id: string
-  rule_index: number
-  violation_type: string
-  action_taken: string
-  severity: string
-  details?: Record<string, unknown>
-  session_id?: string
-  operator_id?: string
-  apn_id?: string
-  created_at: string
-  acknowledged_at?: string | null
-  acknowledged_by?: string | null
-  acknowledgment_note?: string | null
-}
+// FIX-244 DEV-524: PolicyViolation is now defined in @/types/violation
+// (single source of truth shared with pages/violations/index.tsx). The
+// re-export below keeps existing `from '@/components/shared'` consumers
+// working without changes — only the definition site moved.
+import type { PolicyViolation } from '@/types/violation'
+export type { PolicyViolation } from '@/types/violation'
 
 interface RelatedViolationsTabProps {
   entityId: string

@@ -440,15 +440,17 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 
 ---
 
-## Policy Violations (5 endpoints) — STORY-025, STORY-075
+## Policy Violations (7 endpoints) — STORY-025, STORY-075, FIX-244
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
-| API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated). DTO includes enriched fields: `iccid`, `imsi`, `msisdn`, `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via `ListEnriched` LEFT JOINs — FIX-202). | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
+| API-262 | GET | /api/v1/policy-violations | List policy violations (cursor-paginated). Filters: `cursor, limit, sim_id, policy_id, violation_type, action_taken, severity, acknowledged, status (open\|acknowledged\|remediated\|dismissed\|escalated), date_from (RFC3339), date_to (RFC3339)`. `status` translates to a WHERE clause over `acknowledged_at` + `details->>'remediation'` (FIX-244 DEV-521). DTO includes enriched fields: `iccid`, `imsi`, `msisdn`, `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (via `ListEnriched` LEFT JOINs — FIX-202). | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md); status/action_taken/date filters added [FIX-244](../../stories/fix-ui-review/FIX-244-violations-lifecycle-ui.md) |
 | API-263 | GET | /api/v1/policy-violations/counts | Violation counts grouped by type/severity | JWT (api_user+) | See [STORY-025](../../stories/phase-4/STORY-025-policy-rollout.md) |
-| API-266 | GET | /api/v1/policy-violations/export.csv | Stream policy violations as CSV (respects current filters) | JWT (api_user+) | Code already wired in `internal/gateway/router.go:622`; doc entry added by audit (2026-04-15) |
+| API-266 | GET | /api/v1/policy-violations/export.csv | Stream policy violations as CSV (respects current filters) | JWT (api_user+) | Code already wired in `internal/gateway/router.go:622`; doc entry added by audit (2026-04-15). Nginx 301 redirects legacy `/api/v1/violations/export.csv` (FIX-244 DEV-523). |
 | API-259 | GET | /api/v1/policy-violations/:id | Get violation detail with enriched SIM + policy context; cross-tenant 404 on mismatch. Enriched fields: `iccid`, `operator_name`, `operator_code`, `apn_name`, `policy_name`, `policy_version_number` (FIX-202). | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); enrichment added [FIX-202](../../stories/fix-ui-review/FIX-202-sim-dto-name-resolution.md) |
-| API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
+| API-260 | POST | /api/v1/policy-violations/:id/remediate | Remediate violation: `action ∈ {suspend_sim, escalate, dismiss}`; emits violation.remediated/escalated/dismissed audit events. Reason ≥3 chars enforced for `suspend_sim` and `dismiss` (400 on shorter). Writes `details.remediation = $action` for FE-side status derivation (FIX-244 DEV-520). | JWT (sim_manager+) | See [STORY-075](../../stories/phase-10/STORY-075-cross-entity-context.md); suspend_sim calls simStore.Suspend (409 on invalid transition) |
+| API-339 | POST | /api/v1/policy-violations/bulk/acknowledge | Bulk acknowledge: `{ids: uuid[1..100], note?: string}` → 200 `{succeeded: uuid[], failed: [{id, error_code, message}]}`. Partial-success contract; one `violation.acknowledge` audit row per success. Cap 100 ids; filter-based bulk deferred to FIX-236 (D-151). | JWT (policy_editor+) | FIX-244 DEV-522 |
+| API-340 | POST | /api/v1/policy-violations/bulk/dismiss | Bulk dismiss: `{ids: uuid[1..100], reason: string (≥3 chars)}` → 200 `{succeeded, failed}`. Each success: ack + `details.remediation = 'dismiss'` + `violation.dismissed` audit emit. | JWT (policy_editor+) | FIX-244 DEV-522 |
 
 ---
 
@@ -574,7 +576,47 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
-**Total: 257 REST endpoints + 11 WebSocket event types**
+## Device Binding (4 endpoints) — Phase 11 / STORY-094..097
+
+> See [ADR-004](../adrs/ADR-004-imei-binding-architecture.md). All endpoints tenant-scoped via the SIM's tenant_id; cross-tenant SIM access returns 404.
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-327 | GET | /api/v1/sims/{id}/device-binding | Return current device-binding state for the SIM. Response: `{bound_imei, binding_mode, binding_status, binding_verified_at, last_imei_seen_at, binding_grace_expires_at, history_count}`. `bound_imei` is null when `binding_mode IS NULL` or unverified. 404 `SIM_NOT_FOUND` cross-tenant or missing. | JWT (sim_manager+) | Phase 11 STORY-094 |
+| API-328 | PATCH | /api/v1/sims/{id}/device-binding | Set/change `binding_mode`, manually bind or unbind an IMEI. Body: `{binding_mode?, bound_imei?, binding_status_override?}`. Allowed `binding_mode` values: `null`, `strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`. 422 `INVALID_BINDING_MODE` on bad enum; 422 `INVALID_IMEI` on non-15-digit IMEI; 409 `BINDING_MODE_CONFLICT` if changing mode on an active session would orphan the SIM. Audit: `sim.binding_mode_changed`. | JWT (sim_manager+) | Phase 11 STORY-094 |
+| API-329 | POST | /api/v1/sims/{id}/device-binding/re-pair | Admin re-pair workflow: clears `bound_imei`, sets `binding_status='pending'`, retains `binding_mode`. Idempotent. Audit: `sim.imei_repaired`. Use case: device replacement (truck-roll), customer support flow. | JWT (sim_manager+) | Phase 11 STORY-097 |
+| API-330 | GET | /api/v1/sims/{id}/imei-history | Cursor-paginated history of observed IMEIs for this SIM (TBL-imei_history). Returns `{observed_imei, observed_software_version?, observed_at, capture_protocol, nas_ip_address?, was_mismatch, alarm_raised}`. Default 50/page, max 200. Filter: `since`, `protocol`. | JWT (sim_manager+) | Phase 11 STORY-094 |
+
+## IMEI Pool Management (5 endpoints) — Phase 11 / STORY-095
+
+> Pool service is a sub-component of SVC-03 (Core API) — `internal/api/imei_pool/`. All endpoints tenant-scoped; bulk imports reuse SVC-09 job infrastructure (STORY-013).
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-331 | GET | /api/v1/imei-pools/{kind} | List pool entries; `kind` ∈ {`whitelist`, `greylist`, `blacklist`}. Cursor-paginated. Filters: `tac` (8-digit prefix), `imei` (exact), `device_model` (ILIKE). Response includes total bound-SIM count per row when `?include_bound_count=1`. | JWT (sim_manager+) | Phase 11 STORY-095 |
+| API-332 | POST | /api/v1/imei-pools/{kind} | Add a single entry. Body: `{kind: "full_imei"\|"tac_range", imei_or_tac, device_model?, description?, quarantine_reason?, block_reason?, imported_from?}`. `quarantine_reason` required for greylist; `block_reason` + `imported_from` ∈ {`manual`,`gsma_ceir`,`operator_eir`} required for blacklist. 409 `IMEI_POOL_DUPLICATE` on UNIQUE (tenant_id, imei_or_tac) violation. Audit: `imei_pool.entry_added`. | JWT (tenant_admin+) | Phase 11 STORY-095 |
+| API-333 | DELETE | /api/v1/imei-pools/{kind}/{id} | Remove a pool entry. 204 on success; 404 `POOL_ENTRY_NOT_FOUND` cross-tenant. Audit: `imei_pool.entry_removed`. | JWT (tenant_admin+) | Phase 11 STORY-095 |
+| API-334 | POST | /api/v1/imei-pools/{kind}/import | Bulk CSV upload. Multipart `file` (max 10 MB / 100 000 rows). CSV columns: `imei_or_tac, kind, device_model, description, quarantine_reason, block_reason, imported_from`. Returns 202 `{job_id}` — async, reuses SVC-09 (STORY-013) progress + result endpoints. Audit: `imei_pool.bulk_imported` on each completed job. | JWT (tenant_admin+) | Phase 11 STORY-095 |
+| API-335 | GET | /api/v1/imei-pools/lookup?imei={imei} | Cross-reference an IMEI: returns `{lists: [{kind, entry_id, matched_via: "exact"\|"tac_range"}], bound_sims: [{sim_id, iccid, binding_mode, binding_status}]}`. 422 `INVALID_IMEI` on non-15-digit input. Empty lists when no match. | JWT (sim_manager+) | Phase 11 STORY-095 — drives Settings → IMEI Lookup tool |
+
+## Bulk SIM-Device Binding (1 endpoint) — Phase 11 / STORY-094
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-336 | POST | /api/v1/sims/bulk/device-bindings | Bulk assign `iccid → bound_imei → binding_mode` mappings. Multipart CSV (`iccid, bound_imei, binding_mode`). Returns 202 `{job_id}`; reuses SVC-09 bulk job infrastructure. Per-row failures (unknown ICCID, invalid IMEI, mode conflict) surfaced in job result. Audit per row: `sim.binding_mode_changed`. | JWT (sim_manager+) | Phase 11 STORY-094 |
+
+## Log Forwarding — Syslog (2 endpoints) — Phase 11 / STORY-098
+
+> Native Syslog Forwarder is a sub-component of SVC-08 (Notification Service); subscribes to canonical event bus envelopes (`bus.Envelope`) and emits RFC 3164 / RFC 5424 frames over UDP / TCP / TLS to configured destinations.
+
+| ID | Method | Path | Description | Auth | Detail |
+|----|--------|------|-------------|------|--------|
+| API-337 | GET | /api/v1/settings/log-forwarding | List configured syslog destinations for the tenant. Response includes per-destination state (last delivery success/failure, last error). Tenant-scoped. | JWT (tenant_admin+) | Phase 11 STORY-098 |
+| API-338 | POST | /api/v1/settings/log-forwarding | Add or update a syslog destination. Body: `{host, port, transport: "udp"\|"tcp"\|"tls", format: "rfc3164"\|"rfc5424", facility: 0..23, severity_floor?, filter: {event_categories: [audit,alert,session,policy,system,...], min_severity?}, tls_ca_pem?, tls_client_cert_pem?, tls_client_key_pem?}`. 422 `INVALID_TRANSPORT` / `INVALID_FORMAT` on bad enums; 422 `TLS_CONFIG_INVALID` when transport=tls but PEMs malformed. Audit: `log_forwarding.destination_added`. DELETE variant added when needed (out of v1 scope to keep endpoint count tight; managed via PATCH-to-disabled). | JWT (tenant_admin+) | Phase 11 STORY-098 |
+
+---
+
+**Total: 269 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
@@ -582,3 +624,5 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 > Index updated 2026-04-25 by FIX-228 Wave 5 docs — 2 row additions (API-317..318) for password reset request + confirm endpoints. Auth & Users count updated 20→22.
 > Index updated 2026-04-25 by FIX-229 review — 7 row additions (API-319..325) for alert suppressions CRUD, similar-alerts, and tri-format export (CSV/JSON/PDF). Total updated 249→256.
 > Index updated 2026-04-26 by FIX-233 review — 1 row addition (API-326) for `GET /policy-rollouts` list active rollouts; API-040/041 updated with new filter params + DTO additions (`policy_id`, `rollout_id?`, `rollout_stage_pct?`, `coa_status?`); Policies count 11→12. Total updated 256→257.
+> Index updated 2026-04-27 by Phase 11 architect dispatch — 12 row additions (API-327..338) covering Device Binding (4), IMEI Pool Management (5), Bulk SIM-Device Binding (1), Syslog Log Forwarding (2). New domain sections appended after the Alerts section. Total updated 257→269. See [ADR-004](../adrs/ADR-004-imei-binding-architecture.md).
+> Index updated 2026-04-27 by FIX-244 review — 2 row additions (API-339..340) for bulk violation acknowledge + bulk dismiss endpoints; API-262 amended with `status`, `action_taken`, `date_from`, `date_to` filter params; API-260 amended with reason ≥3 chars validation + `details.remediation` write; API-266 amended with Nginx 301 from legacy `/violations/export.csv`. Policy Violations count 5→7. Total updated 269→271.

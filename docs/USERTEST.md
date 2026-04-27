@@ -5226,3 +5226,62 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    ```
    **Beklenen:** `exit=1`, dosya yolu + line number + DSLError mesajı; `make db-seed-validate` aynı çıktıyı verir.
 
+
+## FIX-244: Violations Lifecycle UI — Acknowledge + Remediate Wired
+
+### AC-1: Row Acknowledge action
+1. `/violations` sayfasında bir Open violation satırının üç-noktalı menüsünden **Acknowledge** seç.
+2. Açılan dialog'da opsiyonel not yaz, **Acknowledge** bas.
+3. **Beklenen:** Toast "Violation acknowledged"; satırın StatusBadge'i sarı **Acknowledged**'a döner; `/audit-logs` sayfasında `violation.acknowledge` entry görünür.
+
+### AC-1 + AC-5: Row Remediate (Suspend SIM)
+1. Bir Open violation satırından **Suspend SIM** seç.
+2. Dialog kırmızı destructive uyarı + ICCID + zorunlu reason (≥3 char). 2 char yaz → Confirm pasif. 5 char yaz → aktif. Confirm.
+3. **Beklenen:** Toast "SIM suspended"; satır status **Remediated** (yeşil); `/sims/{id}` sayfasında SIM state = `suspended`. `audit_logs`: `violation.remediated` + `sim.suspended`.
+
+### AC-1: Dismiss (false positive)
+1. Bir satırdan **Dismiss (false positive)**.
+2. Reason "test" (3 char) → Confirm aktif → Confirm.
+3. **Beklenen:** Toast "Violation dismissed"; status **Dismissed** (gri).
+
+### AC-3: Filter mismatch fix (F-165)
+1. Toolbar'daki **Type** dropdown'unu aç. Değerler: bandwidth_exceeded / session_limit / quota_exceeded / time_restriction / geo_blocked.
+2. Bir tip seç → URL `?violation_type=bandwidth_exceeded`; backend doğru filtreyi uygular (sıfır sonuç dönmüyor).
+3. Yeni **Action** dropdown ile (block / disconnect / suspend / throttle / log / notify / tag) ayrı filtre dene.
+
+### AC-4: Export path fix (F-166)
+1. Sağ üstteki **Export** butonuna bas.
+2. **Beklenen:** DevTools Network'te request `/api/v1/policy-violations/export.csv`. CSV dosyası iner.
+3. Eski URL'yi tarayıcıdan elle vur: `/api/v1/violations/export.csv` → 301 redirect ile yeni path'e döner.
+
+### AC-6: Status / Severity / Date range filtreleri
+1. **Status** = Open + **Severity** = critical + **Date range** = last 24h seç.
+2. **Beklenen:** URL'de `?status=open&severity=critical&date_from=...&date_to=...`; sadece eşleşen satırlar.
+3. **Status** = Acknowledged → daha önce ack edilen satırlar görünür (önceden tamamen gizleniyordu).
+
+### AC-7: Empty state
+1. Tüm filtreleri temizle, Date range = last 1h (boş tenant).
+2. **Beklenen:** "No policy violations in the last 1 hours." mesajı (eski "Well done!" yok).
+
+### AC-8: Row polish
+1. Satırda ICCID artık literal "SIM" değil, gerçek ICCID + EntityLink.
+2. Policy adı + version chip görünür.
+3. `details.current_bytes` + `details.threshold_bytes` varsa satırda "180 MB / 1 GB" gibi inline metrik.
+
+### AC-9: Bulk Acknowledge
+1. 3 satırın checkbox'ını işaretle. Sticky bottom bar "3 selected" görünür.
+2. **Acknowledge** bas → AcknowledgeDialog (mode=bulk, count=3) → opsiyonel note → Confirm.
+3. **Beklenen:** Toast "3 violations acknowledged"; üçü de Acknowledged. Tek bir satır zaten ack ise toast "2 acknowledged · 1 failed" gösterir.
+
+### AC-9: Bulk Dismiss + 100-cap
+1. 5 satır seç → **Dismiss** → reason ≥3 char → Confirm.
+2. 101+ id ile direct API çağrısı: `POST /policy-violations/bulk/dismiss` → 400 "ids must be ≤ 100".
+3. Bulk select-all "select all on page" tooltip: "Selection scoped to visible page — bulk-by-filter coming with FIX-236".
+
+### AC-10: Audit trail
+1. Yukarıdaki her aksiyondan sonra `/audit-logs` filter `entity_type=policy_violation` → her aksiyon için bir satır:
+   - `violation.acknowledge` (single + bulk)
+   - `violation.remediated` (suspend_sim path)
+   - `violation.escalated`
+   - `violation.dismissed` (single + bulk)
+2. `bulk: true` flag bulk path için after JSONB'da görünür.
