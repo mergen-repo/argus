@@ -17,7 +17,7 @@
 | TBL-07 | apns | SIM/APN | → TBL-01, → TBL-05 | No |
 | TBL-08 | ip_pools | IPAM | → TBL-01, → TBL-07 | No |
 | TBL-09 | ip_addresses | IPAM | → TBL-08, → TBL-10 | No |
-| TBL-10 | sims | SIM/APN | → TBL-01, → TBL-05, → TBL-07, → TBL-15 | By operator_id |
+| TBL-10 | sims | SIM/APN | → TBL-01, → TBL-05, → TBL-07, → TBL-15. Phase 11 (STORY-094): added device-binding columns — `bound_imei VARCHAR(15) NULL`, `binding_mode VARCHAR(20) NULL CHECK (binding_mode IN ('strict','allowlist','first-use','tac-lock','grace-period','soft'))`, `binding_status VARCHAR(20) NULL CHECK (binding_status IN ('verified','pending','mismatch','unbound','disabled'))`, `binding_verified_at TIMESTAMPTZ NULL`, `last_imei_seen_at TIMESTAMPTZ NULL`, `binding_grace_expires_at TIMESTAMPTZ NULL`. Partial index `idx_sims_binding_mode` ON (binding_mode) WHERE binding_mode IS NOT NULL. Migration default: `binding_mode = NULL` for all existing rows (zero-risk opt-in per ADR-004). See ADR-004. | By operator_id |
 | TBL-11 | sim_state_history | SIM/APN | → TBL-10 | By created_at |
 | TBL-12 | esim_profiles | eSIM | → TBL-10 | No |
 | TBL-13 | policies | Policy | → TBL-01 | No |
@@ -63,6 +63,12 @@
 | TBL-53 | alerts | Analytics/Alerts | Unified alert history: operator, infra, policy, SIM-level. 3 CHECK constraints (severity 5-val, state 4-val, source 5-val), 7 indices + 2 FIX-210 indices, RLS tenant-scoped. Retention 180d via `alerts_retention` cron. FIX-209. Extended by FIX-210: +4 columns (`occurrence_count INT DEFAULT 1`, `first_seen_at TIMESTAMPTZ`, `last_seen_at TIMESTAMPTZ`, `cooldown_until TIMESTAMPTZ NULL`), partial unique index `idx_alerts_dedup_unique` on `(tenant_id, dedup_key) WHERE state IN ('open','acknowledged','suppressed')`, partial lookup index `idx_alerts_cooldown_lookup` on resolved rows with non-null `cooldown_until`. | No |
 | TBL-54 | password_reset_tokens | Auth | → TBL-02 (user_id CASCADE); platform-global (no tenant_id) | No |
 | TBL-55 | alert_suppressions | Analytics/Alerts | → TBL-01 (tenant_id CASCADE), → TBL-02 (created_by nullable); scope_type CHECK ('this','type','operator','dedup_key'); partial unique index on (tenant_id, rule_name) WHERE rule_name IS NOT NULL; RLS tenant-scoped. rule_name NULL = ad-hoc mute (AC-1); NOT NULL = saved rule (AC-5). FIX-229 (DEV-333). | No |
+| TBL-56 | imei_whitelist | Device Identity / IMEI | → TBL-01 (tenant_id CASCADE), → TBL-02 (created_by nullable). Columns: `id UUID PK`, `tenant_id UUID NOT NULL`, `kind VARCHAR(15) NOT NULL CHECK (kind IN ('full_imei','tac_range'))`, `imei_or_tac VARCHAR(15) NOT NULL`, `device_model VARCHAR(255) NULL`, `description TEXT NULL`, `created_by UUID NULL`, `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`. UNIQUE (tenant_id, imei_or_tac). Index (tenant_id, kind). RLS tenant-scoped. Phase 11 STORY-095. ADR-004. | No |
+| TBL-57 | imei_greylist | Device Identity / IMEI | Same shape as TBL-56 + additional `quarantine_reason TEXT NOT NULL`. Greylist = "allow but log/alert"; pre-check produces `device.imei_in_pool('greylist')=true` for matching auths. Phase 11 STORY-095. | No |
+| TBL-58 | imei_blacklist | Device Identity / IMEI | Same shape as TBL-56 + additional `block_reason TEXT NOT NULL`, `imported_from VARCHAR(20) NOT NULL CHECK (imported_from IN ('manual','gsma_ceir','operator_eir'))`. Hard-deny — pre-check returns Access-Reject when `device.imei_in_pool('blacklist')=true`. Phase 11 STORY-095. | No |
+| TBL-59 | imei_history | Device Identity / IMEI | → TBL-01 (tenant_id CASCADE), → TBL-10 (sim_id CASCADE). Append-only IMEI observation log per SIM. Columns: `id UUID PK`, `tenant_id UUID`, `sim_id UUID`, `observed_imei VARCHAR(15)`, `observed_software_version VARCHAR(2) NULL`, `observed_at TIMESTAMPTZ NOT NULL`, `capture_protocol VARCHAR(20) NOT NULL CHECK (capture_protocol IN ('radius','diameter_s6a','5g_sba'))`, `nas_ip_address INET NULL`, `was_mismatch BOOLEAN NOT NULL DEFAULT FALSE`, `alarm_raised BOOLEAN NOT NULL DEFAULT FALSE`. Index (sim_id, observed_at DESC). RLS tenant-scoped. Phase 11 STORY-094 — drives API-330 imei-history endpoint and forensic re-pair flow. | No |
+| TBL-60 | sim_imei_allowlist | Device Identity / IMEI | → TBL-10 (sim_id CASCADE). SIM-allowlist mode join table — list of additional IMEIs accepted for a SIM under `binding_mode='allowlist'`. Columns: `sim_id UUID NOT NULL`, `imei VARCHAR(15) NOT NULL`, `added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `added_by UUID NULL FK users`. PK (sim_id, imei). RLS via `sims` lookup (sim_id resolves tenant). Phase 11 STORY-094. | No |
+| TBL-61 | syslog_destinations | Logging / SIEM | → TBL-01 (tenant_id CASCADE), → TBL-02 (created_by nullable). Configurable RFC 3164 / 5424 forward destinations. Columns: `id UUID PK`, `tenant_id UUID NOT NULL`, `name VARCHAR(255) NOT NULL`, `host VARCHAR(255) NOT NULL`, `port INT NOT NULL`, `transport VARCHAR(10) NOT NULL CHECK (transport IN ('udp','tcp','tls'))`, `format VARCHAR(10) NOT NULL CHECK (format IN ('rfc3164','rfc5424'))`, `filter_categories TEXT[] NOT NULL` (subset of `auth,audit,alert,policy,imei,system`), `enabled BOOLEAN NOT NULL DEFAULT TRUE`, `last_delivery_at TIMESTAMPTZ NULL`, `last_error TEXT NULL`, `created_by UUID NULL`, `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`. UNIQUE (tenant_id, name). Index (tenant_id, enabled). RLS tenant-scoped. Phase 11 STORY-098. | No |
 
 ## Domain Detail Files
 
@@ -76,6 +82,8 @@
 | Audit, Jobs, Notifications, OTA | [platform-services.md](platform-services.md) | TBL-19, TBL-20, TBL-21, TBL-22, TBL-26, TBL-29, TBL-30, TBL-31 |
 | Backup | [platform-services.md](platform-services.md) | TBL-32, TBL-33 |
 | UX / Personalization (STORY-077) | (no dedicated file yet) | TBL-47, TBL-48, TBL-49, TBL-50, TBL-51 |
+| Device Identity / IMEI (Phase 11) | (no dedicated file yet) | TBL-56, TBL-57, TBL-58, TBL-59, TBL-60 |
+| Logging / SIEM (Phase 11) | (no dedicated file yet) | TBL-61 |
 
 ## Entity Relationship Diagram
 

@@ -7,3 +7,5 @@ STEP_2 DEV: EXECUTED | items=9 of 10 tasks delivered (A-1..A-4, B-1..B-3, C-2, D
 STEP_2.5 LINT: EXECUTED | items=2 grep scans (PAT-018 BE-only no Tailwind targets, PAT-021 FE no edits) | evidence=zero matches | result=PASS
 STEP_3 GATE: EXECUTED | items=3 inline scout passes (analysis+testbuild+security), 2 fixes (G-1 pointer cfg, G-2 definitions count test); 4 documented deferrals (D-165 builders, D-166 dead-code cleanup, D-167 cleanup cron, FE iconMap) | evidence=FIX-248-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | items=14 doc checks (5 UPDATED, 8 NO_CHANGE, 1 PASS-WITH-DEFERRALS) + 0 unresolved + 4 documented deferrals (D-165 builders, D-166 dead-code, D-167 cleanup cron, FE iconMap) | evidence=FIX-248-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | items=1 commit (24 files, +1537/-58) commit=4663b03 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=4 artifact files (plan/gate/review/step-log) + USERTEST + decisions + REPORTS.md (NEW) + CONFIG.md + api/_index + ROUTEMAP DONE-with-deferral + tech debt D-165/D-166/D-167 routed | result=PASS

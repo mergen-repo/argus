@@ -117,10 +117,11 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: FIX-248 (Wave 9 P1 XL — Reports Subsystem Refactor; storage abstraction + LocalFS + signed-URL download endpoint + scope reduction (remove 4) + cleanup cron + docs; 5 new builders deferred D-165)
-- Step: Dev
-- Last closed: FIX-236 [x] DONE 2026-04-27 (Wave 9 P1 XL — 10M Scale Readiness; SIMStore.ListIDsByFilter + 4 *ByFilter bulk endpoints + PreviewCount + shared BulkActionBar + VirtualTable + useBulkPreviewCount + SCALE.md audit table; reuses existing JobStore+bus+bulk_ratelimit; 422 limit_exceeded with actual_count; 1000+ double-confirm gate; +4 BE tests; DEV-546..554; 3 tech debt routed D-162 (page adoptions) + D-163 (partition refactor) + D-164 (benchmark suite); Wave C SIMs adoption deferred D-162; commit 0d91ce7, 17 files +1626/-6; AUTOPILOT fully inline)
-- Prior closures: FIX-239 [x] DONE 2026-04-27 (KB Ops Runbook Redesign; 33 files +2960/-411; D-160/D-161; commit d1ed95d), FIX-244 [x] DONE 2026-04-27 (Violations Lifecycle UI; 24 files +2671/-291; D-157..D-159; commit 2f4ccbd), FIX-243 [x] DONE 2026-04-27 (Policy DSL Realtime Validate)
+- Story: — (Wave 9 5/5 DONE — UI Review Remediation track Wave 10 PENDING; user re-issues "otopilot" to start Wave 10 P2 batch)
+- Step: —
+- Last closed: FIX-248 [x] DONE 2026-04-27 (Wave 9 P1 XL — Reports Subsystem Refactor; storage abstraction + LocalFS + HMAC signed-URL download endpoint + scope reduction 8→4 + Docker volume + 5 env vars + REPORTS.md NEW; pipeline NO LONGER BROKEN — `nullReportStorage` no-op wrapper retired; +16 BE tests; DEV-555..564; 3 tech debt routed D-165 (5 new builders) + D-166 (atomic dead-code cleanup) + D-167 (cleanup cron); commit 4663b03, 24 files +1537/-58)
+- Wave 9 P1 COMPLETE (5/5 — FIX-243, FIX-244, FIX-239, FIX-236, FIX-248)
+- Earlier: FIX-236 [x] DONE 2026-04-27 (10M Scale Readiness; commit 0d91ce7; D-162..D-164), FIX-239 [x] DONE 2026-04-27 (KB Ops Runbook; commit d1ed95d; D-160/D-161), FIX-244 [x] DONE 2026-04-27 (Violations Lifecycle UI; commit 2f4ccbd; D-157..D-159), FIX-243 [x] DONE 2026-04-27 (Policy DSL Realtime Validate)
 - Prior closure: FIX-237 [x] DONE 2026-04-27 (Wave 8 P0 last — M2M Event Taxonomy + Notification Redesign; 3-tier classification, digest worker, env-gated migration, NATS retention 168h, FE Preferences tier filter, 12 USERTEST scenarios; DEV-501..509; D-150..D-156 routed; commit 8c5553c, 43 files +4120/-142)
 - Prior closures: FIX-242 [x] DONE 2026-04-26 (Wave 8 P0 Session Detail DTO populate; DEV-398..407; D-147 + D-148 deferred), FIX-241 [x] DONE 2026-04-26 (global WriteList nil-slice; DEV-394..397), FIX-253 [x] DONE 2026-04-26 (DEV-390..393), FIX-251 [x] DONE 2026-04-26 (DEV-389), FIX-252 [x] DONE 2026-04-26 (DEV-386..388)
 - Prior closures: FIX-253 [x] DONE 2026-04-26 (Suspend atomic IP release + Activate 422 + audit; DEV-390..393), FIX-251 [x] DONE 2026-04-26 (PAT-006 RECURRENCE #3; DEV-389), FIX-252 [x] DONE 2026-04-26 (zero-code PAT-023 schema drift; DEV-386..388)

@@ -32,11 +32,28 @@ multiplier_block = "rat_type_multiplier" "{" multiplier_entry+ "}" ;
 multiplier_entry = identifier "=" number ;
 
 (* Conditions *)
-condition       = simple_condition | compound_condition ;
+condition       = simple_condition | compound_condition | device_predicate | sim_binding_predicate | pool_membership_predicate ;
 simple_condition = identifier operator value_list ;
 compound_condition = condition ("AND" | "OR") condition ;
                    | "NOT" condition
                    | "(" condition ")" ;
+
+(* Device & SIM-binding predicates — Phase 11, see ADR-004 *)
+device_predicate = device_field operator value ;
+device_field    = "device.imei"
+                | "device.tac"
+                | "device.imeisv"
+                | "device.software_version"
+                | "device.binding_status" ;
+sim_binding_predicate = sim_binding_field operator value ;
+sim_binding_field = "sim.binding_mode"
+                  | "sim.bound_imei"
+                  | "sim.binding_verified_at" ;
+binding_status_value = "verified" | "pending" | "mismatch" | "unbound" | "disabled" ;
+binding_mode_value   = "strict" | "allowlist" | "first-use" | "tac-lock" | "grace-period" | "soft" | "null" ;
+pool_membership_predicate = "device.imei_in_pool" "(" pool_kind ")" ;
+pool_kind        = '"whitelist"' | '"greylist"' | '"blacklist"' ;
+tac_function     = "tac" "(" device_field ")" ;
 
 (* Operators *)
 operator        = "IN" | ">" | ">=" | "<" | "<=" | "=" | "!=" | "BETWEEN" ;
@@ -126,6 +143,16 @@ WHEN blocks inside the RULES section define conditional behavior based on runtim
 | `bandwidth_used` | data rate | `>`, `>=`, `<`, `<=` | Number + rate unit (kbps/mbps/gbps) | Current bandwidth utilization |
 | `session_duration` | duration | `>`, `>=`, `<`, `<=` | Number + time unit (s/min/h/d) | Current session duration |
 | `day_of_week` | enum | `IN`, `=` | `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` | Current day of week |
+| `device.imei` | string | `=`, `!=`, `IN` | 15-digit IMEI | Device IMEI from current auth (RADIUS 3GPP-IMEISV / Diameter S6a Terminal-Information / 5G PEI). Empty/null when capture failed. |
+| `device.tac` | string | `=`, `!=`, `IN` | 8-digit TAC | Type Allocation Code — first 8 digits of IMEI; identifies device model. Computed by Argus, not transmitted on the wire. |
+| `device.imeisv` | string | `=`, `!=` | 16-digit IMEISV | Concatenated IMEI + Software-Version (16 digits). Phase 11. |
+| `device.software_version` | string | `=`, `!=`, `IN` | 2-digit SV | Device firmware revision sub-field (last 2 digits of IMEISV). Phase 11. |
+| `device.binding_status` | enum | `=`, `IN` | `verified`, `pending`, `mismatch`, `unbound`, `disabled` | Result of the binding pre-check — `disabled` when SIM has `binding_mode=NULL`; otherwise reflects the pre-check verdict for the current auth. Phase 11. |
+| `device.imei_in_pool('<kind>')` | predicate | (call) | `whitelist`, `greylist`, `blacklist` | Membership check against `imei_whitelist`/`imei_greylist`/`imei_blacklist`. Returns boolean. Phase 11, STORY-095. |
+| `sim.binding_mode` | enum | `=`, `IN`, `!=` | `strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`, `null` | Per-SIM binding posture (`null` = binding disabled). Phase 11, STORY-094. |
+| `sim.bound_imei` | string | `=`, `!=` | 15-digit IMEI or empty | The IMEI this SIM is currently locked to (relevant for `strict`, `first-use`, `tac-lock`, `grace-period`). |
+| `sim.binding_verified_at` | timestamp | `>`, `>=`, `<`, `<=` | ISO-8601 / relative duration | Last successful verification timestamp; useful for staleness rules in `grace-period` mode. |
+| `tac(<device-field>)` | function | (returns string) | `device.imei` only | Extracts TAC (first 8 digits) from an IMEI field, e.g., `tac(device.imei) = "35982110"`. Phase 11. |
 
 ### Compound Conditions
 
@@ -276,6 +303,59 @@ POLICY "iot-fleet-standard" {
 }
 ```
 
+## Device Binding Examples (Phase 11)
+
+> See ADR-004. The `device.*` and `sim.*` namespaces run AFTER the AAA capture pipeline has populated SessionContext but the **binding pre-check** itself is enforced in the AAA engine BEFORE policy DSL evaluation when `sim.binding_mode IS NOT NULL`. DSL rules below operate on the post-pre-check `binding_status` and are intended for **post-policy** enrichment (notify on soft mismatch, log + tag on TAC change, etc.) — they cannot weaken a hard reject already issued by the pre-check in `strict`/`allowlist`/`first-use`/`tac-lock` modes.
+
+```
+# Soft-mode tenant: never reject, but flag every device change as a high-severity audit event.
+POLICY "m2m-fleet-soft-binding" {
+    MATCH {
+        apn IN ("m2m.industrial")
+        metadata.binding_profile = "soft"
+    }
+    RULES {
+        WHEN device.binding_status = "mismatch" {
+            ACTION notify(device_mismatch, 0%)
+            ACTION log("IMEI mismatch under soft binding")
+            ACTION tag("last_mismatch_at", now())
+        }
+    }
+}
+
+# TAC-lock tenant: alert when a device of a different model is observed (different TAC).
+POLICY "m2m-meters-taclock" {
+    MATCH {
+        apn IN ("m2m.water", "m2m.electric")
+    }
+    RULES {
+        WHEN sim.binding_mode = "tac-lock" AND tac(device.imei) != tac(sim.bound_imei) {
+            ACTION notify(device_mismatch, 0%)
+            ACTION log("TAC drift — different device model on locked SIM")
+        }
+    }
+}
+
+# Defensive layer on top of pool enforcement: belt-and-suspenders block of greylisted devices.
+POLICY "iot-fleet-greylist-quarantine" {
+    MATCH {
+        apn IN ("iot.fleet")
+    }
+    RULES {
+        WHEN device.imei_in_pool("greylist") = true {
+            bandwidth_down = 64kbps
+            bandwidth_up  = 32kbps
+            ACTION notify(device_greylisted, 0%)
+            ACTION log("Greylist quarantine throttle applied")
+        }
+        WHEN device.imei_in_pool("blacklist") = true {
+            ACTION block()
+            ACTION notify(device_blacklisted, 100%)
+        }
+    }
+}
+```
+
 ## Compiled Representation
 
 The DSL parser compiles source code into a JSON rule tree stored in `policy_versions.compiled_rules` (JSONB column). This compiled form is cached in Redis for fast evaluation during AAA requests.
@@ -382,6 +462,10 @@ The parser provides precise error locations for syntax and semantic errors:
 | `imsi_prefix` | `s.imsi LIKE $N` | Value appended with `%` before binding |
 | `rat_type` | `s.rat_type = $N` | Direct string column |
 | `sim_type` | `s.sim_type = $N` | Direct string column |
+| `sim.binding_mode` | `s.binding_mode = $N` | Phase 11 — used by SIM list cohort filters; NULL never matches via `=` (use `IS NULL` form when adding to MATCH). |
+| `sim.bound_imei` | `s.bound_imei = $N` | Phase 11 — exact-match only; cohort/forensics use case. |
+
+> **Runtime-only fields**: `device.imei`, `device.tac`, `device.imeisv`, `device.software_version`, `device.binding_status`, and `device.imei_in_pool(...)` are session-context predicates evaluated by `dsl.EvaluateCompiled` at AAA time only — they are NOT permitted in MATCH→SQL and the whitelist explicitly rejects them. The `tac()` function is also runtime-only.
 
 ### Rules
 

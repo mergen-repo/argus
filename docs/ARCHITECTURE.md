@@ -494,6 +494,79 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 
 `GET /api/v1/status` — public aggregate (no auth). `GET /api/v1/status/details` — auth-gated (super_admin). Both served by `internal/api/system/status_handler.go`. `argus_build_info{version,git_sha,build_time}` Prometheus gauge emitted at startup.
 
+## IMEI Binding & Device Capture (Phase 11)
+
+> Phase 11 (Enterprise Readiness Pack) adds device-identity capture and SIM-to-device binding enforcement on the AAA hot path. Authoritative decision: [ADR-004](adrs/ADR-004-imei-binding-architecture.md). Six stories: STORY-093 (capture), STORY-094 (binding model + DSL), STORY-095 (pool management), STORY-096 (enforcement), STORY-097 (re-pair workflow), STORY-098 (native syslog forwarder).
+
+### Capture Pipeline (SVC-04 sub-component)
+
+The AAA engine reads device identity on every supported protocol and feeds a normalized SessionContext into the policy engine before evaluation:
+
+- **RADIUS** (`internal/protocol/radius`) — parses `3GPP-IMEISV` VSA (vendor 10415, attr 20) on Access-Request and Accounting-Start frames.
+- **Diameter S6a** (`internal/protocol/diameter`) — unpacks grouped `Terminal-Information` AVP 350 (sub-AVPs `IMEI` 1402, `Software-Version` 1403, `IMEI-SV` 1404) on AIR/ULR exchanges.
+- **5G SBA** (`internal/aaa/sba`) — strips and tags `PEI` (`imei-…` / `imeisv-…` / `mac-…` / `eui64-…`) from `Nudm_UEAuthentication` request bodies and `Namf_Communication` UE-context payloads.
+
+All three parsers are null-safe (auth proceeds when IMEI absent) and instrumented with `argus_imei_capture_parse_errors_total{protocol}` Prometheus counters. The normalized fields populate `SessionContext.Device {IMEI, TAC, SoftwareVersion, IMEISV, PEIRaw, CaptureProtocol, BindingStatus}`.
+
+See [architecture/PROTOCOLS.md](architecture/PROTOCOLS.md) §"IMEI Capture (Cross-Protocol)" for wire-format details.
+
+### Binding Pre-Check (SVC-04 sub-component)
+
+When `sims.binding_mode IS NOT NULL` the AAA engine runs a pre-check **before** policy DSL evaluation:
+
+| Mode | Behaviour |
+|------|-----------|
+| `NULL` (default) | Skip — `device.binding_status = "disabled"`. Existing behaviour preserved for migrated rows. |
+| `strict` (1:1) | Allow only when `device.imei = sims.bound_imei`. Else Access-Reject. |
+| `allowlist` (1:N) | Allow when IMEI is in `sim_imei_allowlist` (TBL-60). Else Access-Reject. |
+| `first-use` | Auto-bind first observed IMEI; subsequent mismatches Access-Reject. |
+| `tac-lock` | Allow any IMEI with same TAC (first 8 digits) as `sims.bound_imei`. |
+| `grace-period` | Like `first-use`, but allows IMEI changes inside the `binding_grace_expires_at` window. |
+| `soft` | Never reject — emit `imei.mismatch_detected` event, append to `imei_history`, set `binding_status='mismatch'`, then proceed to policy DSL. |
+
+Pool-level checks run regardless of `binding_mode`: blacklist hit always rejects; greylist hit always emits `imei.blacklist_hit` / `imei.captured` events with elevated severity.
+
+### Policy Engine Extensions (SVC-05)
+
+The Policy DSL gains the `device.*` / `sim.binding_*` predicate namespace consumable inside `WHEN` blocks. Predicates are runtime-only (excluded from `MATCH → SQL` whitelist). See [architecture/DSL_GRAMMAR.md](architecture/DSL_GRAMMAR.md) §"Device Binding Examples (Phase 11)" for grammar and example rules.
+
+### IMEI Pool Service (SVC-03 sub-component)
+
+A lightweight CRUD + bulk-import service over TBL-56/57/58/59/60. Lives in `internal/api/imei_pool/`. Endpoints API-331..335. Bulk imports reuse SVC-09 (Job Runner) infrastructure originally built for STORY-013 — same progress endpoints, same error-row CSV emission. The IMEI Lookup endpoint (API-335) backs the Settings → IMEI Lookup tool used for forensic cross-reference (which list/which SIMs).
+
+### Notification Service Extensions (SVC-08)
+
+New EventTypes published by SVC-04 capture pipeline + binding pre-check:
+
+| EventType | Severity | Trigger |
+|-----------|----------|---------|
+| `imei.captured` | info | First IMEI observation for a SIM (no prior history) |
+| `imei.changed` | info / warning | Subsequent change observed; severity escalates with stricter `binding_mode` |
+| `imei.mismatch_detected` | high | Strict-class mode (`strict`/`allowlist`/`first-use`/`tac-lock`) with mismatch — Access-Reject sent |
+| `imei.grace_period_expired` | warning | `grace-period` window closed without re-verification |
+| `imei.pool.exhausted_warning` | info | Pool size approaches operational threshold (capacity guard) |
+| `imei.blacklist_hit` | high | IMEI matched in `imei_blacklist` — auth blocked |
+| `device.binding_failed` | high | Generic policy reject due to `device.*` predicate |
+| `device.binding_locked` | info | `first-use` mode auto-locked SIM to its first observed IMEI |
+| `device.binding_re_paired` | info | Admin manually re-paired SIM to a new IMEI (audited workflow) |
+| `device.binding_grace_change` | warning | IMEI changed during `grace-period` window — accepted with countdown |
+| `device.binding_grace_expiring` | warning | `grace-period` countdown nearing zero (24h pre-expiry warning) |
+
+### Audit Service Extensions (SVC-10)
+
+New audit actions:
+- SIM binding state: `sim.imei_captured`, `sim.binding_mode_changed`, `sim.binding_verified`, `sim.binding_mismatch`, `sim.binding_first_use_locked`, `sim.binding_soft_mismatch`, `sim.binding_blacklist_hit`, `sim.imei_repaired`, `sim.imei_unbound`
+- IMEI pool: `imei_pool.entry_added`, `imei_pool.entry_removed`, `imei_pool.bulk_imported`
+- Log forwarding: `log_forwarding.destination_added`, `log_forwarding.destination_updated`, `log_forwarding.destination_disabled`, `log_forwarding.destination_removed`
+
+### Log Forwarding (Syslog) — SVC-08 sub-component
+
+Native RFC 3164 / RFC 5424 emitter (`internal/notification/syslog/`) subscribes to canonical `bus.Envelope` events and forwards them to per-tenant configured SIEM destinations. Transports: UDP (RFC 3164 default), TCP, TLS (mutual auth optional via `tls_client_cert_pem` + `tls_client_key_pem`). Each destination carries a filter rule: event categories whitelist (`audit | alert | session | policy | system | aaa | binding`) + optional `min_severity` floor. Per-destination state (last delivery success / failure timestamp + last error string) is persisted and surfaced via API-337. Endpoints API-337/338. STORY-098.
+
+### Out of Scope (v1)
+
+EIR integration via Diameter S13 (4G/EPC) or 5G N17 is **out of scope** for v1 per ADR-004. No EIR client, no S13 stub, no N17 SBA mock, no AVP scaffolding. All enforcement is local; operator-EIR integration is a future-track item. Migration default: `binding_mode = NULL` for all existing SIM rows — opt-in only, zero risk to in-flight tenants (DEV-410).
+
 ## Extension Points (for FUTURE.md)
 
 | Extension | Design Provision |
@@ -508,10 +581,10 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 246 | API-001 to API-312 |
-| TBL-NN | 35 | TBL-01 to TBL-35 |
+| API-NNN | 269 | API-001 to API-338 (gaps absorbed by FIX/STORY backfill) |
+| TBL-NN | 60 | TBL-01 to TBL-60 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
-| ADR-NNN | 3 | ADR-001 to ADR-003 |
+| ADR-NNN | 4 | ADR-001 to ADR-004 |
 
 ## Architecture Decision Records
 
@@ -520,6 +593,7 @@ Cobra-based binary (`cmd/argusctl/`). Auth: `--token` flag or `ARGUSCTL_TOKEN` e
 | [ADR-001](adrs/ADR-001-modular-monolith.md) | Go Modular Monolith Architecture | Accepted |
 | [ADR-002](adrs/ADR-002-database-stack.md) | PostgreSQL + TimescaleDB + Redis + NATS Data Stack | Accepted |
 | [ADR-003](adrs/ADR-003-custom-aaa-engine.md) | Custom Go AAA Engine (Not FreeRADIUS) | Accepted |
+| [ADR-004](adrs/ADR-004-imei-binding-architecture.md) | IMEI Binding Architecture — AAA-Side Local Enforcement | Accepted |
 
 ## Data Volume & Capacity Planning
 
@@ -540,8 +614,8 @@ See [flows/data-volumes.md](architecture/flows/data-volumes.md) for full analysi
 | Directory | Content |
 |-----------|---------|
 | [architecture/services/](architecture/services/_index.md) | Service definitions (SVC-01 to SVC-10) |
-| [architecture/api/](architecture/api/_index.md) | API surface (246 endpoints + story links) |
-| [architecture/db/](architecture/db/_index.md) | Database schema (51 tables) |
+| [architecture/api/](architecture/api/_index.md) | API surface (269 endpoints + story links) |
+| [architecture/db/](architecture/db/_index.md) | Database schema (60 tables) |
 | [architecture/flows/](architecture/flows/_index.md) | Data flows (FLW-01 to FLW-07) |
 | [architecture/flows/data-volumes.md](architecture/flows/data-volumes.md) | Capacity planning & data volume analysis |
 

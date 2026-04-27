@@ -7,3 +7,5 @@ STEP_2 DEV: EXECUTED | items=13 tasks across 4 waves | evidence=tsc + vite build
 STEP_2.5 LINT: EXECUTED | items=2 grep scans (PAT-018 + PAT-021) on 19 new/modified KB files | evidence=zero matches | result=PASS
 STEP_3 GATE: EXECUTED | items=3 inline scout passes (analysis+testbuild+ui), 3 fixes (G-1..G-3 type-level, all caught by tsc) | evidence=FIX-239-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | items=14 doc checks (5 UPDATED, 8 NO_CHANGE, 1 PARTIAL/no-test-infra) + 0 findings + 0 unresolved | evidence=FIX-239-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | items=1 commit (33 files, +2960/-411) commit=d1ed95d | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=4 artifact files (plan/gate/review/step-log) + USERTEST + decisions + SCREENS SCR-190 + ROUTEMAP DONE + tech debt D-160/D-161 routed | result=PASS

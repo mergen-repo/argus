@@ -515,3 +515,64 @@ NAS (Diameter) → Argus → Operator core (RADIUS)
 | NR (5G) | 9 (mapped) | 1009 | `nr_5g` |
 
 Note: NB-IoT and LTE-M are variants of E-UTRAN. Standard RADIUS/Diameter may report them as E-UTRAN. Argus uses extended attributes or operator-specific VSAs to distinguish them. The operator adapter is responsible for mapping.
+
+## IMEI Capture (Cross-Protocol) — Phase 11
+
+> Reference: ADR-004 (IMEI Binding Architecture). The Argus AAA engine reads the device identity (IMEI / IMEI-SV / PEI) presented at authentication on every supported protocol and feeds it into a normalized `device.*` SessionContext consumed by the policy engine. Capture is **read-only and null-safe**: missing IMEI never blocks authentication, only weakens enforcement strength for binding-mode-enabled SIMs.
+
+### RADIUS — 3GPP-IMEISV VSA
+
+- **Vendor-Id**: 10415 (3GPP)
+- **Vendor-Type**: 20 (`3GPP-IMEISV`)
+- **Reference**: 3GPP TS 29.061 §16.4.7
+- **Wire format**: ASCII string `"<15-digit IMEI>,<2-digit Software-Version>"` (the comma is literal). Older IEs may carry the bare 16-digit IMEISV without comma — parsers MUST handle both shapes.
+- **Parser contract** (`internal/protocol/radius`):
+  - Split on `,`. If split yields 2 parts: `imei = part[0]`, `software_version = part[1]`.
+  - If no `,` and length is 16: `imei = first15`, `software_version = last1+pad` (legacy IMEISV).
+  - Validate IMEI is exactly 15 numeric digits; validate Software-Version is 2 numeric digits. Fail-soft: malformed → leave SessionContext fields nil + emit `argus_imei_capture_parse_errors_total{protocol="radius"}` counter.
+- Captured on Access-Request (auth) AND Accounting-Start (mid-session change detection).
+
+### Diameter S6a — Terminal-Information AVP
+
+- **AVP code**: 350, grouped, M-bit set
+- **Reference**: 3GPP TS 29.272 §7.3.3 (Terminal-Information), §5.2.2.1.1 (AIR), §5.2.2.1.3 (ULR)
+- **Sub-AVPs**:
+  | Sub-AVP | Code | Type | Notes |
+  |---------|------|------|-------|
+  | IMEI | 1402 | UTF8String | 15 digits |
+  | Software-Version | 1403 | UTF8String | 2 digits |
+  | IMEI-SV | 1404 | UTF8String | 16 digits (alt to IMEI+SV pair) |
+- **Captured during**: AIR (Authentication-Information-Request) and ULR (Update-Location-Request) command exchanges (S6a interface).
+- **Parser contract** (`internal/protocol/diameter`): unpack grouped AVP 350; prefer `IMEI` + `Software-Version` pair if both present; fall back to splitting `IMEI-SV` (1404) when only it is supplied. Same fail-soft + counter behaviour as RADIUS.
+
+### 5G SBA — PEI (Permanent Equipment Identifier)
+
+- **Source**: `Nudm_UEAuthentication` request body and `Namf_Communication` UE-context fields populated upstream by the AMF.
+- **Reference**: 3GPP TS 23.003 §6.2A (PEI format), TS 29.503 (Nudm), TS 29.518 (Namf)
+- **Wire format**: PEI is a tagged URI:
+  - `imei-<15 digits>` — 4G-style identity
+  - `imeisv-<16 digits>` — IMEISV (15-digit IMEI + 2-digit SV concatenated, last 1 digit padding per spec)
+  - `mac-<12 hex>` / `eui64-<16 hex>` — non-3GPP access; Argus stores raw value but does NOT participate in IMEI binding logic.
+- **Parser contract** (`internal/aaa/sba`): strip prefix; for `imeisv-` split into 15-digit IMEI + 2-digit SV; for `imei-` keep 15-digit IMEI and leave SV nil; for non-3GPP forms, pass through to `device.peri_raw` for forensic logging only.
+
+### SessionContext Population
+
+After protocol-specific parsing the AAA engine writes a uniform structure into the policy SessionContext **before** policy DSL evaluation:
+
+```
+SessionContext.Device {
+  IMEI               string  // normalized 15 digits, or empty
+  TAC                string  // first 8 digits of IMEI, or empty
+  SoftwareVersion    string  // 2 digits, or empty
+  IMEISV             string  // 16-digit concatenated form, or empty
+  PEIRaw             string  // raw PEI string for 5G SBA only
+  CaptureProtocol    enum    // "radius" | "diameter_s6a" | "5g_sba"
+  BindingStatus      enum    // populated by binding pre-check (see ADR-004): "verified", "pending", "mismatch", "unbound", "disabled"
+}
+```
+
+`BindingStatus = "disabled"` when `sims.binding_mode IS NULL` (default for migrated rows) and the binding pre-check is skipped.
+
+### Out of Scope (v1)
+
+EIR (Equipment Identity Register) integration via Diameter S13 (4G/EPC) or 5G N17 is **OUT OF SCOPE for v1** per ADR-004. No EIR client, no S13 stub, no N17 SBA mock, no AVP scaffolding for ME-Identity-Check is implemented or stubbed. Local enforcement via the IMEI pool tables (`imei_whitelist` / `imei_greylist` / `imei_blacklist`) and per-SIM `binding_mode` is the policy decision point; integration with operator EIRs is a future-track item should a customer require it.

@@ -7,3 +7,5 @@ STEP_2 DEV: EXECUTED | items=8 of 9 tasks delivered (A-1..A-4, B-1..B-3, D-1; C-
 STEP_2.5 LINT: EXECUTED | items=2 grep scans (PAT-018 + PAT-021) on 3 new FE files | evidence=zero matches | result=PASS
 STEP_3 GATE: EXECUTED | items=3 inline scout passes (analysis+testbuild+ui), 1 fix (G-1 interface mock); 3 documented deferrals (Wave C → D-162, AC-10 → D-164, A-3 pre-existing) | evidence=FIX-236-gate.md | result=PASS
 STEP_4 REVIEW: EXECUTED | items=14 doc checks (5 UPDATED, 9 NO_CHANGE/N-A) + 0 unresolved findings + 3 documented deferrals (D-162/163/164) | evidence=FIX-236-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | items=1 commit (17 files, +1626/-6) commit=0d91ce7 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=4 artifact files (plan/gate/review/step-log) + USERTEST + decisions + SCALE.md (NEW) + api/_index + ROUTEMAP DONE-with-deferral + tech debt D-162/D-163/D-164 routed | result=PASS
