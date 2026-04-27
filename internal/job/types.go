@@ -36,6 +36,8 @@ const (
 	JobTypeStuckRolloutReaper        = "stuck_rollout_reaper"
 	JobTypeCoAFailureAlerter         = "coa_failure_alerter"
 	JobTypeQuotaBreachChecker        = "quota_breach_checker"
+	JobTypeESimOTATimeoutReaper      = "esim_ota_timeout_reaper"
+	JobTypeESimStockAlerter          = "esim_stock_alerter"
 )
 
 var AllJobTypes = []string{
@@ -74,4 +76,6 @@ var AllJobTypes = []string{
 	JobTypeStuckRolloutReaper,
 	JobTypeCoAFailureAlerter,
 	JobTypeQuotaBreachChecker,
+	JobTypeESimOTATimeoutReaper,
+	JobTypeESimStockAlerter,
 }

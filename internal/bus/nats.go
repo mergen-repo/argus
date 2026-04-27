@@ -49,6 +49,10 @@ const (
 	SubjectBulkJobFailed     = "argus.events.bulk_job.failed"
 	SubjectWebhookDeadLetter = "argus.events.webhook.dead_letter"
 
+	SubjectESimCommandIssued = "argus.events.esim.command.issued"
+	SubjectESimCommandAcked  = "argus.events.esim.command.acked"
+	SubjectESimCommandFailed = "argus.events.esim.command.failed"
+
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"
 

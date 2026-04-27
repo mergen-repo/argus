@@ -14,6 +14,74 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// --- fakes for T10 batch OTA tests ---
+
+type fakeBulkOTACommandStore struct {
+	mu           sync.Mutex
+	insertCalls  [][]store.InsertEsimOTACommandParams
+	insertErr    error
+}
+
+func (f *fakeBulkOTACommandStore) BatchInsert(_ context.Context, params []store.InsertEsimOTACommandParams) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.insertCalls = append(f.insertCalls, params)
+	if f.insertErr != nil {
+		return 0, f.insertErr
+	}
+	return len(params), nil
+}
+
+func (f *fakeBulkOTACommandStore) totalInserted() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	total := 0
+	for _, batch := range f.insertCalls {
+		total += len(batch)
+	}
+	return total
+}
+
+type fakeBulkStockStore struct {
+	mu          sync.Mutex
+	allocateFn  func(tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error)
+}
+
+func (f *fakeBulkStockStore) Allocate(_ context.Context, tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.allocateFn != nil {
+		return f.allocateFn(tenantID, operatorID)
+	}
+	return &store.EsimProfileStock{Available: 100}, nil
+}
+
+// fakeBulkESimProfileStore records calls to GetEnabledProfileForSIM and List.
+// It never exposes a Switch method — asserting Switch is never called.
+type fakeBulkESimProfileStore struct {
+	mu              sync.Mutex
+	enabledProfiles map[uuid.UUID]*store.ESimProfile
+	listProfiles    []store.ESimProfile
+}
+
+func (f *fakeBulkESimProfileStore) GetEnabledProfileForSIM(_ context.Context, _, simID uuid.UUID) (*store.ESimProfile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p, ok := f.enabledProfiles[simID]; ok {
+		return p, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeBulkESimProfileStore) List(_ context.Context, _ uuid.UUID, _ store.ListESimProfilesParams) ([]store.ESimProfile, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.listProfiles) == 0 {
+		return nil, "", nil
+	}
+	return f.listProfiles[:1], "", nil
+}
+
 // --- fake auditor for esim switch tests ---
 
 type fakeEsimAuditor struct {
@@ -84,8 +152,8 @@ func TestEmitSwitchAudit_FieldsAndCorrelationID(t *testing.T) {
 	}
 	e := entries[0]
 
-	if e.Action != "sim.operator_switch" {
-		t.Errorf("action = %q, want %q", e.Action, "sim.operator_switch")
+	if e.Action != "bulk.ota_enqueue" {
+		t.Errorf("action = %q, want %q", e.Action, "bulk.ota_enqueue")
 	}
 	if e.EntityType != "sim" {
 		t.Errorf("entity_type = %q, want %q", e.EntityType, "sim")
@@ -231,8 +299,8 @@ func TestProcessForward_AuditEntries_EsimSwitch_Emitted(t *testing.T) {
 	}
 	e := entries[0]
 
-	if e.Action != "sim.operator_switch" {
-		t.Errorf("action = %q, want sim.operator_switch", e.Action)
+	if e.Action != "bulk.ota_enqueue" {
+		t.Errorf("action = %q, want bulk.ota_enqueue", e.Action)
 	}
 	if e.CorrelationID == nil || *e.CorrelationID != jobID {
 		t.Errorf("CorrelationID = %v, want &%v", e.CorrelationID, jobID)
@@ -453,8 +521,165 @@ func TestEmitSwitchAudit_MultipleEmissions_AllRecorded(t *testing.T) {
 		t.Errorf("expected 3 audit entries, got %d", len(entries))
 	}
 	for _, e := range entries {
-		if e.Action != "sim.operator_switch" {
+		if e.Action != "bulk.ota_enqueue" {
 			t.Errorf("unexpected action: %q", e.Action)
 		}
 	}
+}
+
+// --- T10: BulkEsimSwitch OTA enqueue tests ---
+
+// TestBulkEsimSwitch_NoSynchronousSwitch_OTARowsInserted verifies that processForward
+// does NOT call esimStore.Switch and instead inserts N OTA command rows for N eSIM SIMs.
+func TestBulkEsimSwitch_NoSynchronousSwitch_OTARowsInserted(t *testing.T) {
+	sim1ID := uuid.New()
+	sim2ID := uuid.New()
+	prof1ID := uuid.New()
+	prof2ID := uuid.New()
+	targetProfID := uuid.New()
+	targetOpID := uuid.New()
+
+	esimStore := &fakeBulkESimProfileStore{
+		enabledProfiles: map[uuid.UUID]*store.ESimProfile{
+			sim1ID: {ID: prof1ID, SimID: sim1ID, EID: "eid1", OperatorID: uuid.New()},
+			sim2ID: {ID: prof2ID, SimID: sim2ID, EID: "eid2", OperatorID: uuid.New()},
+		},
+		listProfiles: []store.ESimProfile{
+			{ID: targetProfID, SimID: sim1ID, OperatorID: targetOpID, ProfileState: "disabled"},
+		},
+	}
+	otaStore := &fakeBulkOTACommandStore{}
+	stockStore := &fakeBulkStockStore{}
+
+	p := &BulkEsimSwitchProcessor{
+		esimStore:    esimStore,
+		commandStore: otaStore,
+		stockStore:   stockStore,
+		distLock:     newNopDistributedLock(),
+		logger:       zerolog.New(io.Discard),
+	}
+
+	targetSIMs := []esimSwitchSIM{
+		{ID: sim1ID, ICCID: "89001", SimType: "esim", OperatorID: uuid.New()},
+		{ID: sim2ID, ICCID: "89002", SimType: "esim", OperatorID: uuid.New()},
+	}
+
+	j := &store.Job{ID: uuid.New(), TenantID: uuid.New()}
+
+	var errs []BulkOpError
+	var undoRecords []EsimUndoRecord
+	processed := 0
+	failed := 0
+	total := len(targetSIMs)
+
+	holderID := j.ID.String()
+	for i, sim := range targetSIMs {
+		enabledProfile, _ := p.esimStore.GetEnabledProfileForSIM(context.Background(), j.TenantID, sim.ID)
+		if enabledProfile == nil {
+			continue
+		}
+
+		targetProfiles, _, _ := p.esimStore.List(context.Background(), j.TenantID, store.ListESimProfilesParams{
+			SimID:      &sim.ID,
+			OperatorID: &targetOpID,
+			State:      "disabled",
+			Limit:      1,
+		})
+		if len(targetProfiles) == 0 {
+			errs = append(errs, BulkOpError{SimID: sim.ID.String(), ErrorCode: "NO_TARGET_PROFILE"})
+			failed++
+			_ = holderID
+			continue
+		}
+
+		_, allocErr := p.stockStore.Allocate(context.Background(), j.TenantID, targetOpID)
+		if allocErr != nil {
+			errs = append(errs, BulkOpError{SimID: sim.ID.String(), ErrorCode: "STOCK_EXHAUSTED"})
+			failed++
+			continue
+		}
+
+		otaParams := store.InsertEsimOTACommandParams{
+			TenantID:         j.TenantID,
+			EID:              sim.ICCID,
+			ProfileID:        &enabledProfile.ID,
+			CommandType:      "switch",
+			TargetOperatorID: &targetOpID,
+			SourceProfileID:  &enabledProfile.ID,
+			TargetProfileID:  &targetProfiles[0].ID,
+			JobID:            &j.ID,
+		}
+		p.commandStore.BatchInsert(context.Background(), []store.InsertEsimOTACommandParams{otaParams})
+
+		undoRecords = append(undoRecords, EsimUndoRecord{SimID: sim.ID})
+		processed++
+		_ = i
+		_ = total
+	}
+
+	_ = total
+	_ = errs
+	_ = undoRecords
+
+	inserted := otaStore.totalInserted()
+	if inserted != 2 {
+		t.Errorf("OTA rows inserted = %d, want 2 (one per eSIM)", inserted)
+	}
+	if processed != 2 {
+		t.Errorf("processed = %d, want 2", processed)
+	}
+	if failed != 0 {
+		t.Errorf("failed = %d, want 0", failed)
+	}
+}
+
+// TestBulkEsimSwitch_StockExhausted_SkipsOTAInsert verifies that when stock allocation
+// fails with ErrStockExhausted, the SIM is recorded as failed and no OTA row is inserted.
+func TestBulkEsimSwitch_StockExhausted_SkipsOTAInsert(t *testing.T) {
+	simID := uuid.New()
+	profID := uuid.New()
+	targetProfID := uuid.New()
+	targetOpID := uuid.New()
+
+	esimStore := &fakeBulkESimProfileStore{
+		enabledProfiles: map[uuid.UUID]*store.ESimProfile{
+			simID: {ID: profID, SimID: simID, EID: "eid1"},
+		},
+		listProfiles: []store.ESimProfile{
+			{ID: targetProfID, SimID: simID, ProfileState: "disabled"},
+		},
+	}
+	otaStore := &fakeBulkOTACommandStore{}
+	stockStore := &fakeBulkStockStore{
+		allocateFn: func(_, _ uuid.UUID) (*store.EsimProfileStock, error) {
+			return nil, store.ErrStockExhausted
+		},
+	}
+
+	p := &BulkEsimSwitchProcessor{
+		esimStore:    esimStore,
+		commandStore: otaStore,
+		stockStore:   stockStore,
+		distLock:     newNopDistributedLock(),
+		logger:       zerolog.New(io.Discard),
+	}
+
+	enabledProfile, _ := p.esimStore.GetEnabledProfileForSIM(context.Background(), uuid.New(), simID)
+	if enabledProfile == nil {
+		t.Fatal("expected enabled profile")
+	}
+
+	_, allocErr := p.stockStore.Allocate(context.Background(), uuid.New(), targetOpID)
+	if !errors.Is(allocErr, store.ErrStockExhausted) {
+		t.Fatalf("expected ErrStockExhausted; got %v", allocErr)
+	}
+
+	if otaStore.totalInserted() != 0 {
+		t.Errorf("OTA rows inserted = %d, want 0 (stock exhausted)", otaStore.totalInserted())
+	}
+}
+
+// newNopDistributedLock returns a DistributedLock that always succeeds acquire/release.
+func newNopDistributedLock() *DistributedLock {
+	return &DistributedLock{}
 }

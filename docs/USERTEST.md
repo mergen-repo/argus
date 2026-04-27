@@ -5499,4 +5499,99 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 ### AC-8 + AC-9: Plan enum ve realistic defaults (migration)
 1. `psql -c "SELECT name, plan FROM tenants"` → `plan` değerleri `starter | standard | enterprise` (küçük harf, başka değer yok).
 2. `psql -c "INSERT INTO tenants (plan, ...) VALUES ('STANDARD', ...)"` → `23514 CHECK violation` hatası döner (plana CHECK constraint var).
+
+---
+
+## FIX-235: M2M eSIM Provisioning Pipeline (SGP.02)
+
+**Ortam:** `make up` (postgres + nats + redis + argus + nginx ayakta olmalı)
+**Ön koşul:** En az 1 operator + 10 eSIM profili (seed veya `make db-seed`) mevcut olmalı.
+
+### UT-235-01: EID Formatı — Görüntüleme ve Kopyalama
+
+1. `/esim` sayfasına gidin.
+2. Tablodaki EID sütununa bakın → değerler `89000000...123456` formatında (ilk 8 + "…" + son 6 karakter) gösterilmeli.
+3. EID hücresinin üzerine gelin → tooltip'te tam 32 karakter hex EID görünmeli.
+4. Kopyalama ikonuna tıklayın → panoya tam EID kopyalanmış olmalı (paste ile doğrulayın).
+5. **Hata durumu:** EID yerine ICCID (19-20 rakamlı sayı) veya UUID formatında değer görünüyorsa test BAŞARISIZ.
+
+### UT-235-02: eSIM Listesi — Sütun Düzeni ve Filtreler
+
+1. `/esim` sayfasını açın.
+2. Sütunlar şu sırada yer almalı: ICCID (link), EID (formatEID+tooltip), Operator (ad, UUID değil), State, Son Değişiklik.
+3. "SIM ID" sütunu tabloda görünmemeli.
+4. ICCID hücresine tıklayın → `/sims/{sim_id}` sayfasına yönlendirilmeli.
+5. State filter'ından "Failed" seçeneğini seçin → sadece failed state'deki profiller listelenmeli.
+6. Filter'ı temizleyin → tüm profiller tekrar görünmeli.
+
+### UT-235-03: Toplu Geçiş (Bulk Switch) — 202 + Job Polling
+
+1. `/esim` sayfasında 3 profil seçin (checkbox ile).
+2. Bulk action bar'ında "Bulk Switch" butonuna tıklayın → SlidePanel açılmalı.
+3. Hedef operator seçin + "Confirm" tıklayın.
+4. **Beklenen:** `POST /api/v1/esim-profiles/bulk-switch` → 202 + `job_id` döner; kullanıcı `/jobs/{job_id}` veya inline progress göstergesine yönlendirilir.
+5. `/jobs` sayfasına gidin → job running/completed görünmeli.
+6. **Hata durumu:** Stokta yeterli profil yoksa 422 + `INSUFFICIENT_STOCK` hatası toast ile gösterilmeli.
+
+### UT-235-04: Stok Yetersizliği — 422 Guard
+
+1. `psql -c "UPDATE esim_profile_stock SET available = 0 WHERE operator_id = '{target_op_id}'"` ile hedef operator stokunu sıfırla.
+2. `/esim` sayfasında profil seç + Bulk Switch ile o operator'a geçiş dene.
+3. **Beklenen:** 422 `INSUFFICIENT_STOCK` hatası — toast mesajı "Not enough profiles in stock for this operator."
+4. DB'de stock değerini geri yükle: `UPDATE esim_profile_stock SET available = 50 WHERE ...`
+
+### UT-235-05: OTA Status Callback — HMAC Doğrulaması
+
+1. Geçerli HMAC imzasız bir callback gönderin:
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/esim-profiles/callbacks/ota-status \
+     -H "Content-Type: application/json" \
+     -d '{"eid":"89000000000000000000000000001234","status":"acked"}'
+   ```
+2. **Beklenen:** 401 Unauthorized (HMAC başlık eksik veya geçersiz).
+3. Şimdi replay saldırısı simüle edin: 301 saniye öncesine ait bir timestamp ile imzalı istek gönderin.
+4. **Beklenen:** 401 + "replay window exceeded" benzeri hata (300s replay guard).
+5. Geçerli HMAC ile gönderin → 200 OK; OTA command state `acked` olarak güncellenmeli.
+
+### UT-235-06: Operator Detail — eSIM Profiles Tab
+
+1. `/operators/{id}` sayfasını açın.
+2. Tab strip'te "eSIM Profiles" tab'ına tıklayın.
+3. **Beklenen:** Stok özet kartı görünmeli (Total / Allocated / Available / Utilization %).
+4. State dağılım kartı görünmeli (Enabled / Disabled / Available / Deleted sayıları).
+5. "Allocate from Stock" CTA butonuna tıklayın → `/esim?operator_id={id}` sayfasına yönlendirilmeli.
+
+### UT-235-07: SIM Detail — eSIM Sub-Tab
+
+1. `/sims/{sim_id}` sayfasını açın (eSIM'e sahip bir SIM seçin).
+2. Tab strip'te "eSIM" tab'ına tıklayın (Diagnostics ve History arasında yer almalı).
+3. "Allocate from Stock" butonuna tıklayın → `AllocateFromStockPanel` SlidePanel açılmalı.
+4. Panel içinde: EID (formatEID + tooltip + copy), operator adı + badge, lastProvisioned, lastError alanları görünmeli.
+5. SlidePanel kapat → tekrar aç; state temiz olmalı (cache sorun yok).
+6. OTA history ikonuna tıklayın → `ProfileHistoryPanel` slide-in açılmalı, OTA komut zaman çizelgesi listelenmiş.
+
+### UT-235-08: OTA Dispatcher — Timeout ve Requeue
+
+1. `psql -c "INSERT INTO esim_ota_commands (eid, command_type, state, sent_at, ...) VALUES ('8900...', 'enable', 'sent', NOW() - INTERVAL '11 minutes', ...)"` ile 11 dakika önce gönderilmiş ve yanıt alınmamış bir komut oluşturun.
+2. Timeout reaper job'ının çalışmasını bekleyin (varsayılan interval ≤ 1 dk) veya `make reaper-trigger` (varsa).
+3. `psql -c "SELECT state FROM esim_ota_commands WHERE eid = '8900...'"` → state `queued` olmalı (timeout → requeue).
+4. **Beklenen:** Aynı EID için yeni bir `sent` kaydı birkaç saniye içinde oluşmalı (dispatcher yeniden gönderiyor).
+
+### UT-235-09: Invalid State Transition Rejection
+
+1. `psql -c "SELECT id, state FROM esim_ota_commands LIMIT 5"` → `acked` durumunda bir kayıt bulun.
+2. O OTA command'ı `failed` state'e geçirmeye çalışın (store API üzerinden veya handler test ile):
+   ```
+   store.MarkFailed(ctx, ackedCommandID)
+   ```
+3. **Beklenen:** `invalid state transition: acked → failed` hatası (CHECK constraint veya store guard).
+4. Aynı testi `sent → timeout` geçişi için yapın → geçiş başarılı olmalı.
+
+### UT-235-10: Stock Alert Threshold
+
+1. `psql -c "UPDATE esim_profile_stock SET available = 3, alert_threshold = 5 WHERE operator_id = '{op_id}'"` ile stok threshold altına düşür.
+2. `esimStockAlerterProc` cron'unun çalışmasını bekle (veya `make alerter-trigger`).
+3. `/alerts` sayfasına gidin → `esim_stock_low` tipinde alert listelenmeli; dedup_key = `esim_stock:{tenant}:{operator}`.
+4. Aynı tetikleyici tekrar çalıştırın → **ikinci alert oluşmamalı** (dedup koruması).
+5. Stok 6'ya yüksel: `UPDATE ... SET available = 6` → alert otomatik kapanmamalı (manuel ack veya zaman süresi beklemek gerekebilir — bu deferred/D-175 kapsamı dışı).
 3. `psql -c "SELECT name, max_sims, max_sessions, max_storage_bytes FROM tenants"` → M2M-realistic değerler: en az 10,000 SIM, 2,000 sessions, 10 GB (F-316 düzeltmesi — eski 50 sessions / 400 MB değil).

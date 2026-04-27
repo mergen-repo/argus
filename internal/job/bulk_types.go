@@ -46,6 +46,7 @@ type BulkEsimSwitchPayload struct {
 
 type EsimUndoRecord struct {
 	SimID              uuid.UUID `json:"sim_id"`
+	EID                string    `json:"eid"`
 	OldProfileID       uuid.UUID `json:"old_profile_id"`
 	NewProfileID       uuid.UUID `json:"new_profile_id"`
 	PreviousOperatorID uuid.UUID `json:"previous_operator_id"`

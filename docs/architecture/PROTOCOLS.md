@@ -576,3 +576,163 @@ SessionContext.Device {
 ### Out of Scope (v1)
 
 EIR (Equipment Identity Register) integration via Diameter S13 (4G/EPC) or 5G N17 is **OUT OF SCOPE for v1** per ADR-004. No EIR client, no S13 stub, no N17 SBA mock, no AVP scaffolding for ME-Identity-Check is implemented or stubbed. Local enforcement via the IMEI pool tables (`imei_whitelist` / `imei_greylist` / `imei_blacklist`) and per-SIM `binding_mode` is the policy decision point; integration with operator EIRs is a future-track item should a customer require it.
+
+## eSIM M2M (SGP.02) Provisioning
+
+> Implemented in FIX-235. Runtime packages: `internal/smsr/`, `internal/job/` (OTA dispatcher + reaper + stock alerter + bulk-switch processor), `internal/store/` (`esim_ota_commands`, `esim_profile_stock`), `internal/api/esim/`.
+
+### SGP.02 vs SGP.22 — Consumer Pull vs M2M Push
+
+| Dimension | SGP.22 (Consumer) | SGP.02 (M2M) |
+|-----------|-------------------|--------------|
+| Architecture | SM-DP+ pull (LPAd on device initiates) | SM-SR push (platform sends OTA command) |
+| Profile discovery | QR code / activation code | Platform-controlled EID registry |
+| Consent model | End-user confirmation on device | Operator / platform-driven, no UI on device |
+| Transport | HTTPS to SM-DP+ | OTA SMS / CAT-TP or HTTPS to SM-SR |
+| Target device | Consumer smartphone | IoT/M2M eUICC (no display) |
+| Argus role | Not implemented | Platform → SM-SR → eUICC |
+
+Argus implements the **M2M push model** (SGP.02). The platform acts as the EUM/operator platform: it issues OTA commands to a Subscription Manager – Secure Routing (SM-SR) which delivers them to the eUICC over air (CAT-TP / SMS-PP or HTTPS depending on the operator's SM-SR capabilities).
+
+### SM-SR Push Architecture
+
+```
+Argus Platform
+│
+│  POST /smsr/push  (internal/smsr.Client.Push)
+│  body: { command_id, eid, command_type, target_iccid, operator_id }
+│
+▼
+SM-SR (operator-managed or third-party)
+│
+│  OTA SMS-PP / CAT-TP / HTTPS Bearer
+│
+▼
+eUICC (M2M eSIM in IoT device)
+│
+│  HTTPS callback → POST /api/v1/esim/ota/callback
+│  header: X-SMSR-Signature: <hmac-sha256>
+│  body: { command_id, eid, status: "acked|failed", error_code? }
+│
+▼
+Argus Callback Handler (internal/api/esim)
+```
+
+The SM-SR client interface (`internal/smsr.Client`) is injected at boot. A mock implementation (`internal/smsr.MockClient`) provides deterministic test doubles with configurable fail-rate and latency.
+
+### State Machine
+
+Each OTA command progresses through the following states. All transitions are enforced at the store layer (`internal/store.EsimOTACommandStore`) — invalid transitions return `ErrEsimOTAInvalidTransition`.
+
+```
+         ┌──────────────────────────────────────┐
+         │                                      │
+  INSERT  ▼         dispatcher              callback
+         queued ──────────────► sent ──────────────► acked (terminal)
+                                 │                 └──────────────► failed (terminal)
+                                 │
+                         timeout reaper
+                                 │
+                                 ├─ retries < max ─► queued (re-enqueue)
+                                 └─ retries ≥ max ─► failed (terminal)
+```
+
+| State | Description |
+|-------|-------------|
+| `queued` | Command inserted; ready for dispatcher to pick up. |
+| `sent` | Push accepted by SM-SR; awaiting eUICC callback. |
+| `acked` | eUICC confirmed profile switch. Terminal — no further transitions. |
+| `failed` | Permanent failure (max retries exceeded or SM-SR rejected). Terminal. |
+
+### Retry Policy
+
+Exponential backoff with jitter, capped at 5 attempts:
+
+| Attempt | Delay before retry |
+|---------|-------------------|
+| 1 | 30 s |
+| 2 | 60 s |
+| 3 | 120 s |
+| 4 | 240 s |
+| 5 | 480 s |
+
+After attempt 5 the command transitions to `failed` (terminal). The timeout reaper (`ESimOTATimeoutReaperProcessor`) runs on a schedule (default 60 s tick) and re-queues commands stuck in `sent` past their `next_retry_at` deadline.
+
+### Rate Limiting
+
+Token-bucket rate limiting is applied per operator to avoid overloading SM-SR endpoints:
+
+- **Algorithm**: `golang.org/x/time/rate` token bucket, one limiter per `operator_id` (lazy-initialised).
+- **Default**: `SMSR_RATE_LIMIT_RPS` env var (default `100`). Per-operator overrides are not yet implemented (D-163).
+- **Behaviour when limited**: the dispatcher parks the batch and returns without error; the job scheduler retries on the next tick.
+
+### Stock Allocation
+
+eSIM profile stock (`esim_profile_stock`) tracks available profiles per `(tenant_id, operator_id)` pair. Allocation is atomic:
+
+```sql
+UPDATE esim_profile_stock
+   SET available = available - 1
+ WHERE tenant_id = $1
+   AND operator_id = $2
+   AND available > 0
+ RETURNING *
+```
+
+If no row is updated, `ErrStockExhausted` is returned and the SIM is recorded as `STOCK_EXHAUSTED` in the bulk-switch error report. The dispatcher never allocates stock — allocation is the responsibility of the bulk-switch processor before inserting into `esim_ota_commands`.
+
+### HMAC Callback Verification
+
+The SM-SR callback endpoint (`POST /api/v1/esim/ota/callback`) verifies the `X-SMSR-Signature` header before processing any payload:
+
+- **Algorithm**: HMAC-SHA-256 over the raw request body prefixed with the Unix timestamp: `<unix_ts>.<body_bytes>`
+- **Header format**: `X-SMSR-Signature: t=<unix_ts>,v1=<hex_digest>`
+- **Secret**: `SMSR_CALLBACK_SECRET` env var (required; boot-fatal if absent when `SMSR_ENABLED=true`)
+- **Replay window**: 300 seconds — requests with `|now - t| > 300` are rejected with `403 Forbidden`
+- **Failure response**: `401 Unauthorized` on signature mismatch; `403 Forbidden` on replay
+
+### Bulk Switch Flow
+
+The `BulkEsimSwitchProcessor` handles the `bulk.esim_switch` job type:
+
+```
+1. Deserialise payload (target_operator_id, sim_ids or segment filter)
+2. Acquire distributed lock (Redis SETNX, 5-minute TTL)
+3. For each eSIM in the batch:
+   a. GetEnabledProfileForSIM → current profile
+   b. List disabled profiles for target operator (at most 1)
+   c. Allocate stock (atomic UPDATE; skip SIM on ErrStockExhausted)
+   d. BatchInsert single ota_commands row (command_type="switch")
+   e. Emit bulk.ota_enqueue audit log entry
+4. Release distributed lock
+5. Publish job progress via WebSocket (bus subject: esim.bulk.progress)
+6. Write job result summary (processed_count, failed_count, error_details)
+```
+
+### Audit Log Entries
+
+| Event action | Trigger | Key fields |
+|-------------|---------|-----------|
+| `ota.dispatch` | Dispatcher sends push to SM-SR | `eid`, `command_id`, `operator_id` |
+| `ota.callback_acked` | Callback received with `status=acked` | `eid`, `command_id`, `profile_id` |
+| `ota.callback_failed` | Callback received with `status=failed` | `eid`, `command_id`, `error_code` |
+| `bulk.ota_enqueue` | Bulk-switch processor inserts ota_command | `job_id`, `sim_id`, `target_operator_id` |
+
+### NATS Bus Subjects
+
+| Subject | Published when | Payload |
+|---------|---------------|---------|
+| `esim.command.issued` | Dispatcher successfully sends push | `{ command_id, eid, operator_id, tenant_id }` |
+| `esim.command.acked` | Callback acked | `{ command_id, eid, tenant_id }` |
+| `esim.command.failed` | Callback failed or max retries exceeded | `{ command_id, eid, error_code, tenant_id }` |
+
+All events use the canonical `bus.Envelope` wire format (see `docs/architecture/WEBSOCKET_EVENTS.md`).
+
+### Integration & Load Test Scenarios
+
+| Scenario | Status | Notes |
+|----------|--------|-------|
+| 100 SIMs → 100 ota_commands, all stock allocated | Implemented (`internal/job/esim_bulkswitch_integration_test.go`, runs without -short) | In-process fakes; no external deps |
+| Stock exhaustion mid-batch — partial OTA insert | Implemented (unit test `TestBulkEsimSwitch_StockExhausted_SkipsOTAInsert`) | — |
+| Dispatcher consumes queued → sent → acked end-to-end | Covered by dispatcher unit tests + timeout-reaper unit tests | — |
+| 10K SIM bulk switch — load test | **Deferred D-168** | Requires testcontainers PostgreSQL harness for real DB throughput. Run: `go test ./internal/job/... -run Load -v -race` once harness is available |

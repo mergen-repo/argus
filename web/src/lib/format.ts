@@ -117,6 +117,11 @@ export function timeAgo(iso: string): string {
 // Used by the Live Event Stream drawer where sub-minute resolution matters
 // (just-in events should not all read "şimdi" for 59s).
 // Units — sn: saniye, dk: dakika, sa: saat, g: gün.
+export function formatEID(eid: string): string {
+  if (eid.length < 14) return eid
+  return `${eid.slice(0, 8)}...${eid.slice(-6)}`
+}
+
 export function formatRelativeTime(iso: string): string {
   const t = new Date(iso).getTime()
   if (!Number.isFinite(t)) return ''

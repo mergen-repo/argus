@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { ESimProfile, ESimSwitchResult, ESimCreateRequest } from '@/types/esim'
+import type { ESimProfile, ESimSwitchResult, ESimCreateRequest, OTACommand, StockSummaryEntry, BulkSwitchRequest, BulkSwitchResponse } from '@/types/esim'
 import type { ListResponse, ApiResponse } from '@/types/sim'
 
 const ESIM_KEY = ['esim-profiles'] as const
@@ -105,5 +105,54 @@ export function useDeleteProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ESIM_KEY })
     },
+  })
+}
+
+export function useBulkSwitchEsim() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (body: BulkSwitchRequest) => {
+      const res = await api.post<ApiResponse<BulkSwitchResponse>>('/esim-profiles/bulk-switch', body)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ESIM_KEY })
+    },
+  })
+}
+
+export function useEsimStockSummary(operatorId?: string) {
+  return useQuery({
+    queryKey: [...ESIM_KEY, 'stock-summary', operatorId],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<StockSummaryEntry[]>>('/esim-profiles/stock-summary')
+      const entries = res.data.data
+      if (operatorId) {
+        return entries.filter((e) => e.operator_id === operatorId)
+      }
+      return entries
+    },
+    staleTime: 30_000,
+  })
+}
+
+export function useEsimOTAHistory(profileId: string) {
+  return useInfiniteQuery({
+    queryKey: [...ESIM_KEY, 'ota-history', profileId],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams()
+      if (pageParam) params.set('cursor', pageParam as string)
+      params.set('limit', '50')
+      const res = await api.get<ListResponse<OTACommand>>(
+        `/esim-profiles/${profileId}/ota-history?${params.toString()}`,
+      )
+      return res.data
+    },
+    initialPageParam: '' as string,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.has_more ? lastPage.meta.cursor : undefined,
+    enabled: !!profileId,
+    staleTime: 15_000,
   })
 }

@@ -621,6 +621,17 @@ func (s *ESimProfileStore) GetByIDEnriched(ctx context.Context, tenantID, id uui
 	return p, nil
 }
 
+func (s *ESimProfileStore) MarkFailed(ctx context.Context, profileID uuid.UUID, errMsg string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE esim_profiles SET profile_state='failed', last_error=$2, updated_at=NOW() WHERE id=$1`,
+		profileID, errMsg,
+	)
+	if err != nil {
+		return fmt.Errorf("store: mark esim profile failed: %w", err)
+	}
+	return nil
+}
+
 func (s *ESimProfileStore) CountBySIM(ctx context.Context, tenantID, simID uuid.UUID) (int, error) {
 	var count int
 	err := s.db.QueryRow(ctx,

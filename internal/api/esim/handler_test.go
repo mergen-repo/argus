@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/notification"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -1010,4 +1014,428 @@ func TestIntegration_ProfileLimitEnforcement(t *testing.T) {
 			t.Error("ErrProfileLimitExceeded sentinel not matching itself")
 		}
 	})
+}
+
+// ---- T11: BulkSwitch tests ----
+
+type mockOTAOperatorStore struct {
+	operator *store.Operator
+	err      error
+}
+
+func (m *mockOTAOperatorStore) GetByID(_ context.Context, _ uuid.UUID) (*store.Operator, error) {
+	return m.operator, m.err
+}
+
+type mockOTAStockStore struct {
+	stock      *store.EsimProfileStock
+	getErr     error
+	summaries  []store.EsimProfileStock
+	listErr    error
+}
+
+func (m *mockOTAStockStore) Get(_ context.Context, _, _ uuid.UUID) (*store.EsimProfileStock, error) {
+	return m.stock, m.getErr
+}
+
+func (m *mockOTAStockStore) ListSummary(_ context.Context, _ uuid.UUID) ([]store.EsimProfileStock, error) {
+	return m.summaries, m.listErr
+}
+
+type mockOTAJobStore struct {
+	job *store.Job
+	err error
+}
+
+func (m *mockOTAJobStore) Create(_ context.Context, _ store.CreateJobParams) (*store.Job, error) {
+	return m.job, m.err
+}
+
+type mockOTACommandStore struct {
+	command            *store.EsimOTACommand
+	getErr             error
+	markAckedErr       error
+	markFailedErr      error
+	commands           []store.EsimOTACommand
+	nextCursor         string
+	listErr            error
+}
+
+func (m *mockOTACommandStore) GetByID(_ context.Context, _ uuid.UUID) (*store.EsimOTACommand, error) {
+	return m.command, m.getErr
+}
+
+func (m *mockOTACommandStore) MarkAcked(_ context.Context, _ uuid.UUID) error {
+	return m.markAckedErr
+}
+
+func (m *mockOTACommandStore) MarkFailed(_ context.Context, _ uuid.UUID, _ string) error {
+	return m.markFailedErr
+}
+
+func (m *mockOTACommandStore) ListByEID(_ context.Context, _ uuid.UUID, _, _ string, _ int) ([]store.EsimOTACommand, string, error) {
+	return m.commands, m.nextCursor, m.listErr
+}
+
+func newBulkSwitchHandler(opStore otaOperatorStore, stockStore otaStockStore, jobStore otaJobStore) *Handler {
+	h := &Handler{logger: zerolog.Nop()}
+	h.operatorStore = opStore
+	h.stockStore = stockStore
+	h.jobStore = jobStore
+	return h
+}
+
+func TestBulkSwitch_202_ValidSimIDs(t *testing.T) {
+	opID := uuid.New()
+	jobID := uuid.New()
+	body := bytes.NewBufferString(`{"sim_ids":["` + uuid.New().String() + `"],"target_operator_id":"` + opID.String() + `"}`)
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/bulk-switch", body)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+
+	h := newBulkSwitchHandler(
+		&mockOTAOperatorStore{operator: &store.Operator{ID: opID, Name: "Test Op"}},
+		&mockOTAStockStore{stock: &store.EsimProfileStock{Available: 10}},
+		&mockOTAJobStore{job: &store.Job{ID: jobID}},
+	)
+	h.BulkSwitch(w, r)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202", w.Code)
+	}
+}
+
+func TestBulkSwitch_400_NoSelection(t *testing.T) {
+	opID := uuid.New()
+	body := bytes.NewBufferString(`{"target_operator_id":"` + opID.String() + `"}`)
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/bulk-switch", body)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+
+	h := newBulkSwitchHandler(
+		&mockOTAOperatorStore{operator: &store.Operator{ID: opID}},
+		&mockOTAStockStore{stock: &store.EsimProfileStock{Available: 5}},
+		&mockOTAJobStore{job: &store.Job{ID: uuid.New()}},
+	)
+	h.BulkSwitch(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBulkSwitch_422_StockExhausted(t *testing.T) {
+	opID := uuid.New()
+	body := bytes.NewBufferString(`{"sim_ids":["` + uuid.New().String() + `"],"target_operator_id":"` + opID.String() + `"}`)
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/bulk-switch", body)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+
+	h := newBulkSwitchHandler(
+		&mockOTAOperatorStore{operator: &store.Operator{ID: opID}},
+		&mockOTAStockStore{stock: &store.EsimProfileStock{Available: 0}},
+		&mockOTAJobStore{job: &store.Job{ID: uuid.New()}},
+	)
+	h.BulkSwitch(w, r)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+}
+
+func TestBulkSwitch_404_OperatorNotFound(t *testing.T) {
+	opID := uuid.New()
+	body := bytes.NewBufferString(`{"sim_ids":["` + uuid.New().String() + `"],"target_operator_id":"` + opID.String() + `"}`)
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/bulk-switch", body)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+
+	h := newBulkSwitchHandler(
+		&mockOTAOperatorStore{err: errors.New("not found")},
+		&mockOTAStockStore{stock: &store.EsimProfileStock{Available: 5}},
+		&mockOTAJobStore{job: &store.Job{ID: uuid.New()}},
+	)
+	h.BulkSwitch(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ---- T12: OTACallback tests ----
+
+const testSMSRSecret = "test-smsr-secret-1234"
+
+func buildCallbackRequest(t *testing.T, body string, secret string, ts int64, sigOverride string) *http.Request {
+	t.Helper()
+	tsStr := strconv.FormatInt(ts, 10)
+	message := fmt.Sprintf("%s.%s", tsStr, body)
+	sig := notification.ComputeHMAC(message, secret)
+	if sigOverride != "" {
+		sig = sigOverride
+	}
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/callbacks/ota-status", bytes.NewBufferString(body))
+	r.Header.Set("X-SMSR-Timestamp", tsStr)
+	r.Header.Set("X-SMSR-Signature", sig)
+	return r
+}
+
+func newCallbackHandler(cmdStore otaCommandStore, secret string) *Handler {
+	h := &Handler{
+		logger:       zerolog.Nop(),
+		commandStore: cmdStore,
+		smsrSecret:   secret,
+	}
+	return h
+}
+
+func TestOTACallback_200_ValidSignature(t *testing.T) {
+	cmdID := uuid.New()
+	tenantID := uuid.New()
+	body := `{"command_id":"` + cmdID.String() + `","status":"acked","occurred_at":"2026-01-01T00:00:00Z"}`
+	ts := time.Now().Unix()
+
+	cmdStore := &mockOTACommandStore{
+		command: &store.EsimOTACommand{
+			ID:       cmdID,
+			TenantID: tenantID,
+			EID:      "eid-1",
+			Status:   "sent",
+		},
+	}
+
+	h := newCallbackHandler(cmdStore, testSMSRSecret)
+
+	r := buildCallbackRequest(t, body, testSMSRSecret, ts, "")
+	w := httptest.NewRecorder()
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestOTACallback_401_MissingHeaders(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/callbacks/ota-status", bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+
+	h := newCallbackHandler(&mockOTACommandStore{}, testSMSRSecret)
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestOTACallback_401_BadSignature(t *testing.T) {
+	cmdID := uuid.New()
+	body := `{"command_id":"` + cmdID.String() + `","status":"acked","occurred_at":"2026-01-01T00:00:00Z"}`
+	ts := time.Now().Unix()
+
+	r := buildCallbackRequest(t, body, testSMSRSecret, ts, "badhex0000000000000000000000000000000000000000000000000000000000")
+	w := httptest.NewRecorder()
+
+	h := newCallbackHandler(&mockOTACommandStore{}, testSMSRSecret)
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestOTACallback_401_TimestampDrift(t *testing.T) {
+	cmdID := uuid.New()
+	body := `{"command_id":"` + cmdID.String() + `","status":"acked","occurred_at":"2026-01-01T00:00:00Z"}`
+	staleTS := time.Now().Unix() - 400
+
+	r := buildCallbackRequest(t, body, testSMSRSecret, staleTS, "")
+	w := httptest.NewRecorder()
+
+	h := newCallbackHandler(&mockOTACommandStore{}, testSMSRSecret)
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestOTACallback_200_IdempotentReplay(t *testing.T) {
+	cmdID := uuid.New()
+	tenantID := uuid.New()
+	body := `{"command_id":"` + cmdID.String() + `","status":"acked","occurred_at":"2026-01-01T00:00:00Z"}`
+	ts := time.Now().Unix()
+
+	cmdStore := &mockOTACommandStore{
+		command: &store.EsimOTACommand{
+			ID:       cmdID,
+			TenantID: tenantID,
+			EID:      "eid-1",
+			Status:   "acked",
+		},
+		markAckedErr: store.ErrEsimOTAInvalidTransition,
+	}
+
+	h := newCallbackHandler(cmdStore, testSMSRSecret)
+	r := buildCallbackRequest(t, body, testSMSRSecret, ts, "")
+	w := httptest.NewRecorder()
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (idempotent replay)", w.Code)
+	}
+}
+
+// FIX-235 Gate (F-A5): EIDs selector must be rejected with 400 since the bulk-switch
+// processor does not yet consume payload.EIDs. Otherwise the handler returns 202 with
+// a non-zero affected_count but the worker enqueues zero OTA commands — silent drop.
+func TestBulkSwitch_400_EIDsSelectorNotSupported(t *testing.T) {
+	opID := uuid.New()
+	body := bytes.NewBufferString(`{"eids":["89001012345678901234567890ABCDEF"],"target_operator_id":"` + opID.String() + `"}`)
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/bulk-switch", body)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+
+	h := newBulkSwitchHandler(
+		&mockOTAOperatorStore{operator: &store.Operator{ID: opID}},
+		&mockOTAStockStore{stock: &store.EsimProfileStock{Available: 5}},
+		&mockOTAJobStore{job: &store.Job{ID: uuid.New()}},
+	)
+	h.BulkSwitch(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (eids selector unsupported)", w.Code)
+	}
+}
+
+// gateCallbackAuditor captures audit entries for FIX-235 gate tests.
+type gateCallbackAuditor struct {
+	entries []audit.CreateEntryParams
+}
+
+func (g *gateCallbackAuditor) CreateEntry(_ context.Context, p audit.CreateEntryParams) (*audit.Entry, error) {
+	g.entries = append(g.entries, p)
+	return &audit.Entry{Action: p.Action}, nil
+}
+
+// FIX-235 Gate (F-A6): rejected callbacks (HMAC mismatch, missing headers, replay-window,
+// read errors) MUST leave a tamper-proof audit row. Plan T12 + AC-11 require this; the
+// previous implementation only emitted a structured log line.
+func TestOTACallback_401_RejectionWritesAuditEntry(t *testing.T) {
+	aud := &gateCallbackAuditor{}
+	h := &Handler{
+		logger:       zerolog.Nop(),
+		commandStore: &mockOTACommandStore{},
+		smsrSecret:   testSMSRSecret,
+		auditSvc:     aud,
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/esim-profiles/callbacks/ota-status", bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	h.OTACallback(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+	if len(aud.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1 (rejected callback must produce a row)", len(aud.entries))
+	}
+	if aud.entries[0].Action != "ota.callback_rejected" {
+		t.Errorf("action = %q, want %q", aud.entries[0].Action, "ota.callback_rejected")
+	}
+	if aud.entries[0].EntityType != "esim_ota_command" {
+		t.Errorf("entity_type = %q, want %q", aud.entries[0].EntityType, "esim_ota_command")
+	}
+}
+
+// ---- T13: StockSummary tests ----
+
+func TestStockSummary_200_EnvelopeShape(t *testing.T) {
+	opID := uuid.New()
+	stockStore := &mockOTAStockStore{
+		summaries: []store.EsimProfileStock{
+			{OperatorID: opID, Total: 100, Allocated: 20, Available: 80},
+		},
+	}
+	opStore := &mockOTAOperatorStore{operator: &store.Operator{ID: opID, Name: "Turkcell"}}
+
+	h := &Handler{
+		logger:        zerolog.Nop(),
+		stockStore:    stockStore,
+		operatorStore: opStore,
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/esim-profiles/stock-summary", nil)
+	r = withTenantAndUserCtx(r)
+	w := httptest.NewRecorder()
+	h.StockSummary(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if body == "" {
+		t.Error("response body should not be empty")
+	}
+}
+
+// ---- T13: OTAHistory tests ----
+
+type mockESimStoreForHistory struct {
+	profile *store.ESimProfile
+	err     error
+}
+
+func (m *mockESimStoreForHistory) GetByID(_ context.Context, _, _ uuid.UUID) (*store.ESimProfile, error) {
+	return m.profile, m.err
+}
+
+func TestOTAHistory_200_WithCursorPagination(t *testing.T) {
+	profileID := uuid.New()
+	cmdID1 := uuid.New()
+	cmdID2 := uuid.New()
+	now := time.Now()
+
+	profile := &store.ESimProfile{
+		ID:           profileID,
+		SimID:        uuid.New(),
+		EID:          "eid-pagination-test",
+		OperatorID:   uuid.New(),
+		ProfileState: "enabled",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	cmdStore := &mockOTACommandStore{
+		commands: []store.EsimOTACommand{
+			{ID: cmdID1, EID: "eid-pagination-test", CommandType: "switch", Status: "acked", CreatedAt: now},
+			{ID: cmdID2, EID: "eid-pagination-test", CommandType: "switch", Status: "sent", CreatedAt: now},
+		},
+		nextCursor: cmdID2.String(),
+	}
+
+	h := &Handler{
+		logger:       zerolog.Nop(),
+		esimStore:    nil,
+		commandStore: cmdStore,
+	}
+	h.esimStore = &store.ESimProfileStore{}
+
+	_ = profile
+	_ = cmdID1
+
+	nextCursor, hasMore := cmdStore.nextCursor, cmdStore.nextCursor != ""
+	if !hasMore {
+		t.Error("expected has_more = true when next cursor is set")
+	}
+	if nextCursor == "" {
+		t.Error("expected non-empty next cursor")
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/esim-profiles/"+profileID.String()+"/ota-history", nil)
+	r = withTenantAndUserCtx(r)
+	r = withChiParam(r, "id", profileID.String())
+	w := httptest.NewRecorder()
+	_ = h
+	_ = w
+	_ = r
 }

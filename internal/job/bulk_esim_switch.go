@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/btopcu/argus/internal/audit"
@@ -12,34 +13,61 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// isStockExhausted returns true when err is or wraps store.ErrStockExhausted.
+func isStockExhausted(err error) bool {
+	return errors.Is(err, store.ErrStockExhausted)
+}
+
+// bulkSwitchESimProfileStore is the minimal ESimProfileStore subset needed for bulk switch (PAT-019).
+type bulkSwitchESimProfileStore interface {
+	GetEnabledProfileForSIM(ctx context.Context, tenantID, simID uuid.UUID) (*store.ESimProfile, error)
+	List(ctx context.Context, tenantID uuid.UUID, p store.ListESimProfilesParams) ([]store.ESimProfile, string, error)
+}
+
+// bulkSwitchOTACommandStore is the minimal EsimOTACommandStore subset needed for bulk switch (PAT-019).
+type bulkSwitchOTACommandStore interface {
+	BatchInsert(ctx context.Context, params []store.InsertEsimOTACommandParams) (int, error)
+}
+
+// bulkSwitchStockStore is the minimal EsimProfileStockStore subset needed for bulk switch (PAT-019).
+type bulkSwitchStockStore interface {
+	Allocate(ctx context.Context, tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error)
+}
+
 type BulkEsimSwitchProcessor struct {
-	jobs      *store.JobStore
-	sims      *store.SIMStore
-	segments  *store.SegmentStore
-	esimStore *store.ESimProfileStore
-	distLock  *DistributedLock
-	eventBus  *bus.EventBus
-	auditor   audit.Auditor
-	logger    zerolog.Logger
+	jobs         *store.JobStore
+	sims         *store.SIMStore
+	segments     *store.SegmentStore
+	esimStore    bulkSwitchESimProfileStore
+	commandStore bulkSwitchOTACommandStore
+	stockStore   bulkSwitchStockStore
+	distLock     *DistributedLock
+	eventBus     *bus.EventBus
+	auditor      audit.Auditor
+	logger       zerolog.Logger
 }
 
 func NewBulkEsimSwitchProcessor(
 	jobs *store.JobStore,
 	sims *store.SIMStore,
 	segments *store.SegmentStore,
-	esimStore *store.ESimProfileStore,
+	esimStore bulkSwitchESimProfileStore,
+	commandStore bulkSwitchOTACommandStore,
+	stockStore bulkSwitchStockStore,
 	distLock *DistributedLock,
 	eventBus *bus.EventBus,
 	logger zerolog.Logger,
 ) *BulkEsimSwitchProcessor {
 	return &BulkEsimSwitchProcessor{
-		jobs:      jobs,
-		sims:      sims,
-		segments:  segments,
-		esimStore: esimStore,
-		distLock:  distLock,
-		eventBus:  eventBus,
-		logger:    logger.With().Str("processor", JobTypeBulkEsimSwitch).Logger(),
+		jobs:         jobs,
+		sims:         sims,
+		segments:     segments,
+		esimStore:    esimStore,
+		commandStore: commandStore,
+		stockStore:   stockStore,
+		distLock:     distLock,
+		eventBus:     eventBus,
+		logger:       logger.With().Str("processor", JobTypeBulkEsimSwitch).Logger(),
 	}
 }
 
@@ -116,7 +144,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 	var (
 		processed   int
 		failed      int
-		errors      []BulkOpError
+		errs        []BulkOpError
 		undoRecords []EsimUndoRecord
 	)
 
@@ -133,7 +161,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 
 		if sim.SimType != "esim" {
 			p.logger.Debug().Str("sim_id", sim.ID.String()).Str("sim_type", sim.SimType).Msg("skipping non-eSIM")
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    "NOT_ESIM",
@@ -147,7 +175,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 		lockKey := p.distLock.SIMKey(sim.ID.String())
 		acquired, lockErr := p.distLock.Acquire(ctx, lockKey, holderID, lockTTL)
 		if lockErr != nil || !acquired {
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    "LOCK_FAILED",
@@ -161,7 +189,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 		enabledProfile, profErr := p.esimStore.GetEnabledProfileForSIM(ctx, j.TenantID, sim.ID)
 		if profErr != nil {
 			_ = p.distLock.Release(ctx, lockKey, holderID)
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    "PROFILE_LOOKUP_FAILED",
@@ -173,7 +201,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 		}
 		if enabledProfile == nil {
 			_ = p.distLock.Release(ctx, lockKey, holderID)
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    "NO_ENABLED_PROFILE",
@@ -199,7 +227,7 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 			if listErr != nil {
 				errMsg = listErr.Error()
 			}
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    "NO_TARGET_PROFILE",
@@ -212,42 +240,90 @@ func (p *BulkEsimSwitchProcessor) processForward(ctx context.Context, j *store.J
 
 		targetProfile := targetProfiles[0]
 
-		_, switchErr := p.esimStore.Switch(ctx, j.TenantID, enabledProfile.ID, targetProfile.ID, nil)
-		_ = p.distLock.Release(ctx, lockKey, holderID)
-
-		if switchErr != nil {
-			errCode := "SWITCH_FAILED"
-			if switchErr == store.ErrInvalidProfileState {
-				errCode = "INVALID_PROFILE_STATE"
+		// Allocate stock for the target operator (atomic).
+		_, allocErr := p.stockStore.Allocate(ctx, j.TenantID, payload.TargetOperatorID)
+		if allocErr != nil {
+			_ = p.distLock.Release(ctx, lockKey, holderID)
+			errCode := "STOCK_ALLOC_FAILED"
+			if isStockExhausted(allocErr) {
+				errCode = "STOCK_EXHAUSTED"
 			}
-			errors = append(errors, BulkOpError{
+			errs = append(errs, BulkOpError{
 				SimID:        sim.ID.String(),
 				ICCID:        sim.ICCID,
 				ErrorCode:    errCode,
-				ErrorMessage: switchErr.Error(),
+				ErrorMessage: allocErr.Error(),
 			})
 			failed++
 			p.publishProgress(ctx, j, processed, failed, total, i)
 			continue
 		}
 
+		// Enqueue OTA command (no synchronous Switch call).
+		// EID is the eUICC identifier from the enabled profile — NOT sim.ICCID.
+		// SM-SR Push routing, callback resolution and ListByEID/OTAHistory all key off this column.
+		otaParams := store.InsertEsimOTACommandParams{
+			TenantID:         j.TenantID,
+			EID:              enabledProfile.EID,
+			ProfileID:        &enabledProfile.ID,
+			CommandType:      "switch",
+			TargetOperatorID: &payload.TargetOperatorID,
+			SourceProfileID:  &enabledProfile.ID,
+			TargetProfileID:  &targetProfile.ID,
+			JobID:            &j.ID,
+		}
+
+		// Single-row batch insert per SIM. The BatchInsert call is inside a transaction
+		// in the store layer; future optimisation can collect a page-level slice and
+		// call BatchInsert once — but correctness is maintained either way (no N+1 reads).
+		if _, insertErr := p.commandStore.BatchInsert(ctx, []store.InsertEsimOTACommandParams{otaParams}); insertErr != nil {
+			_ = p.distLock.Release(ctx, lockKey, holderID)
+			errs = append(errs, BulkOpError{
+				SimID:        sim.ID.String(),
+				ICCID:        sim.ICCID,
+				ErrorCode:    "OTA_ENQUEUE_FAILED",
+				ErrorMessage: insertErr.Error(),
+			})
+			failed++
+			p.publishProgress(ctx, j, processed, failed, total, i)
+			continue
+		}
+
+		_ = p.distLock.Release(ctx, lockKey, holderID)
+
 		undoRecords = append(undoRecords, EsimUndoRecord{
 			SimID:              sim.ID,
+			EID:                enabledProfile.EID,
 			OldProfileID:       enabledProfile.ID,
 			NewProfileID:       targetProfile.ID,
 			PreviousOperatorID: sim.OperatorID,
 		})
 
-		p.emitSwitchAudit(ctx, j, sim.ID, previousOperatorID, previousEnabledProfileID, payload.TargetOperatorID, targetProfile.ID, payload.Reason)
+		p.emitEnqueueAudit(ctx, j, sim.ID, previousOperatorID, previousEnabledProfileID, payload.TargetOperatorID, targetProfile.ID, payload.Reason)
 
 		processed++
 		p.publishProgress(ctx, j, processed, failed, total, i)
 	}
 
-	return p.completeJob(ctx, j, processed, failed, total, errors, undoRecords)
+	return p.completeJob(ctx, j, processed, failed, total, errs, undoRecords)
 }
 
+// emitSwitchAudit is preserved as a thin alias over emitEnqueueAudit for tests
+// asserting the audit row content (action="bulk.ota_enqueue").
 func (p *BulkEsimSwitchProcessor) emitSwitchAudit(
+	ctx context.Context,
+	j *store.Job,
+	simID uuid.UUID,
+	previousOperatorID uuid.UUID,
+	previousProfileID uuid.UUID,
+	targetOperatorID uuid.UUID,
+	targetProfileID uuid.UUID,
+	reason string,
+) {
+	p.emitEnqueueAudit(ctx, j, simID, previousOperatorID, previousProfileID, targetOperatorID, targetProfileID, reason)
+}
+
+func (p *BulkEsimSwitchProcessor) emitEnqueueAudit(
 	ctx context.Context,
 	j *store.Job,
 	simID uuid.UUID,
@@ -269,6 +345,7 @@ func (p *BulkEsimSwitchProcessor) emitSwitchAudit(
 	afterMap := map[string]any{
 		"operator_id": targetOperatorID.String(),
 		"profile_id":  targetProfileID.String(),
+		"mode":        "ota_enqueue",
 	}
 	if reason != "" {
 		afterMap["reason"] = reason
@@ -279,7 +356,7 @@ func (p *BulkEsimSwitchProcessor) emitSwitchAudit(
 	_, auditErr := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
 		TenantID:      j.TenantID,
 		UserID:        j.CreatedBy,
-		Action:        "sim.operator_switch",
+		Action:        "bulk.ota_enqueue",
 		EntityType:    "sim",
 		EntityID:      simID.String(),
 		BeforeData:    beforeData,
@@ -290,7 +367,7 @@ func (p *BulkEsimSwitchProcessor) emitSwitchAudit(
 		p.logger.Warn().Err(auditErr).
 			Str("sim_id", simID.String()).
 			Str("job_id", j.ID.String()).
-			Msg("audit write failed for bulk esim switch — continuing")
+			Msg("audit write failed for bulk esim switch ota_enqueue — continuing")
 	}
 }
 
@@ -301,7 +378,7 @@ func (p *BulkEsimSwitchProcessor) processUndo(ctx context.Context, j *store.Job,
 	var (
 		processed int
 		failed    int
-		errors    []BulkOpError
+		undoErrs  []BulkOpError
 	)
 
 	holderID := j.ID.String()
@@ -317,7 +394,7 @@ func (p *BulkEsimSwitchProcessor) processUndo(ctx context.Context, j *store.Job,
 		lockKey := p.distLock.SIMKey(rec.SimID.String())
 		acquired, lockErr := p.distLock.Acquire(ctx, lockKey, holderID, lockTTL)
 		if lockErr != nil || !acquired {
-			errors = append(errors, BulkOpError{
+			undoErrs = append(undoErrs, BulkOpError{
 				SimID:        rec.SimID.String(),
 				ErrorCode:    "LOCK_FAILED",
 				ErrorMessage: "could not acquire distributed lock for SIM",
@@ -327,14 +404,25 @@ func (p *BulkEsimSwitchProcessor) processUndo(ctx context.Context, j *store.Job,
 			continue
 		}
 
-		_, switchErr := p.esimStore.Switch(ctx, j.TenantID, rec.NewProfileID, rec.OldProfileID, nil)
+		// Undo enqueues a reverse OTA command (switch from new → old profile).
+		// EID is the eUICC identifier carried over from the forward record — NOT the SIM UUID.
+		undoParams := store.InsertEsimOTACommandParams{
+			TenantID:         j.TenantID,
+			EID:              rec.EID,
+			CommandType:      "switch",
+			TargetOperatorID: &rec.PreviousOperatorID,
+			SourceProfileID:  &rec.NewProfileID,
+			TargetProfileID:  &rec.OldProfileID,
+			JobID:            &j.ID,
+		}
+		_, insertErr := p.commandStore.BatchInsert(ctx, []store.InsertEsimOTACommandParams{undoParams})
 		_ = p.distLock.Release(ctx, lockKey, holderID)
 
-		if switchErr != nil {
-			errors = append(errors, BulkOpError{
+		if insertErr != nil {
+			undoErrs = append(undoErrs, BulkOpError{
 				SimID:        rec.SimID.String(),
-				ErrorCode:    "UNDO_FAILED",
-				ErrorMessage: switchErr.Error(),
+				ErrorCode:    "UNDO_ENQUEUE_FAILED",
+				ErrorMessage: insertErr.Error(),
 			})
 			failed++
 			p.publishProgress(ctx, j, processed, failed, total, i)
@@ -345,7 +433,7 @@ func (p *BulkEsimSwitchProcessor) processUndo(ctx context.Context, j *store.Job,
 		p.publishProgress(ctx, j, processed, failed, total, i)
 	}
 
-	return p.completeJob(ctx, j, processed, failed, total, errors, nil)
+	return p.completeJob(ctx, j, processed, failed, total, undoErrs, nil)
 }
 
 func (p *BulkEsimSwitchProcessor) completeJob(ctx context.Context, j *store.Job, processed, failed, total int, errors []BulkOpError, undoRecords []EsimUndoRecord) error {

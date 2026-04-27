@@ -235,6 +235,7 @@ func TestBulkResultWithUndoRecords(t *testing.T) {
 func TestEsimUndoRecordMarshal(t *testing.T) {
 	rec := EsimUndoRecord{
 		SimID:              uuid.New(),
+		EID:                "89001012345678901234567890ABCDEF",
 		OldProfileID:       uuid.New(),
 		NewProfileID:       uuid.New(),
 		PreviousOperatorID: uuid.New(),
@@ -252,6 +253,9 @@ func TestEsimUndoRecordMarshal(t *testing.T) {
 
 	if decoded.SimID != rec.SimID {
 		t.Errorf("sim_id mismatch")
+	}
+	if decoded.EID != rec.EID {
+		t.Errorf("eid mismatch: got %q want %q", decoded.EID, rec.EID)
 	}
 	if decoded.OldProfileID != rec.OldProfileID {
 		t.Errorf("old_profile_id mismatch")

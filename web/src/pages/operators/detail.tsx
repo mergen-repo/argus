@@ -77,7 +77,7 @@ import { api } from '@/lib/api'
 import { InfoRow } from '@/components/ui/info-row'
 import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle, EmptyState } from '@/components/shared'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
-import { EsimProfilesTab } from '@/components/operators/EsimProfilesTab'
+import ESimTab from '@/pages/operators/_tabs/esim-tab'
 import { RowQuickPeek } from '@/components/shared/row-quick-peek'
 import { useSIMList } from '@/hooks/use-sims'
 import { KPICard } from '@/components/shared/kpi-card'
@@ -1449,7 +1449,7 @@ export default function OperatorDetailPage() {
           <OperatorSimsTab operatorId={operator.id} />
         </TabsContent>
         <TabsContent value="esim">
-          <EsimProfilesTab operatorId={operator.id} />
+          <ESimTab operatorId={operator.id} />
         </TabsContent>
         {/* Alerts tab — merged with Notifications (FIX-222); notifications concatenated below alerts */}
         <TabsContent value="alerts">

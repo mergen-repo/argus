@@ -97,6 +97,7 @@ import (
 	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/report"
+	"github.com/btopcu/argus/internal/smsr"
 	"github.com/btopcu/argus/internal/storage"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/btopcu/argus/internal/store/schemacheck"
@@ -381,6 +382,10 @@ func runServe(cfg *config.Config) {
 	bootID := uuid.New().String()
 
 	log.Info().Str("env", cfg.AppEnv).Int("port", cfg.AppPort).Msg("starting argus")
+	// FIX-235 T15: SMSR callback secret is required in production.
+	if cfg.AppEnv == "production" && cfg.SMSRCallbackSecret == "" {
+		log.Fatal().Msg("SMSR_CALLBACK_SECRET must be set in production environment")
+	}
 
 	// appCtx is a long-lived context for background goroutines (pool gauge,
 	// health pollers) that must outlive one-shot init timeouts. Cancelled in
@@ -765,8 +770,25 @@ func runServe(cfg *config.Config) {
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
 	bulkPolicyAssignProc.SetAuditor(auditSvc)
 	otaProcessor := job.NewOTAProcessor(jobStore, otaStore, simStore, otaRateLimiter, eventBus, log.Logger)
-	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, distLock, eventBus, log.Logger)
+	otaCommandStore := store.NewEsimOTACommandStore(pg.Pool)
+	esimStockStore := store.NewEsimProfileStockStore(pg.Pool)
+	bulkEsimSwitchProc := job.NewBulkEsimSwitchProcessor(jobStore, simStore, segmentStore, esimStore, otaCommandStore, esimStockStore, distLock, eventBus, log.Logger)
 	bulkEsimSwitchProc.SetAuditor(auditSvc)
+	smsrClient := smsr.NewMockClient()
+	// FIX-235 Gate (PAT-017): plumb cfg.ESimOTA* through to constructors (5-hop chain).
+	esimOTADispatcherProc := job.NewESimOTADispatcherProcessor(
+		jobStore, otaCommandStore, esimStore, smsrClient, auditSvc, eventBus,
+		cfg.ESimOTARateLimitPerSec, cfg.ESimOTABatchSize, cfg.ESimOTAMaxRetries,
+		log.Logger,
+	)
+	esimOTATimeoutReaperProc := job.NewESimOTATimeoutReaperProcessor(
+		jobStore, otaCommandStore, esimStore, auditSvc, eventBus,
+		cfg.ESimOTATimeoutMinutes,
+		log.Logger,
+	)
+	esimStockAlerterProc := job.NewESimStockAlerterProcessor(jobStore, esimStockStore, tenantStore, alertStore, log.Logger)
+	// FIX-235 T15: wire OTA handler deps (PAT-017 hop 3 of 5).
+	esimHandler.SetOTADeps(operatorStore, otaCommandStore, esimStockStore, jobStore, cfg.SMSRCallbackSecret)
 	jobRunner.Register(purgeSweepProc)
 	jobRunner.Register(ipReclaimProc)
 	jobRunner.Register(slaReportProc)
@@ -774,6 +796,9 @@ func runServe(cfg *config.Config) {
 	jobRunner.Register(bulkPolicyAssignProc)
 	jobRunner.Register(otaProcessor)
 	jobRunner.Register(bulkEsimSwitchProc)
+	jobRunner.Register(esimOTADispatcherProc)
+	jobRunner.Register(esimOTATimeoutReaperProc)
+	jobRunner.Register(esimStockAlerterProc)
 
 	readCDRStore := store.NewCDRStore(readPool)
 	cdrExportProc := job.NewCDRExportProcessor(jobStore, cdrStore, readCDRStore, eventBus, log.Logger)
@@ -956,6 +981,22 @@ func runServe(cfg *config.Config) {
 			Name:     "quota_breach_checker",
 			Schedule: cfg.CronQuotaBreachCheck,
 			JobType:  job.JobTypeQuotaBreachChecker,
+		})
+		// FIX-235 T15: eSIM OTA pipeline cron entries.
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "esim_ota_dispatcher",
+			Schedule: cfg.CronESimOTADispatcher,
+			JobType:  job.JobTypeOTACommand,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "esim_ota_timeout_reaper",
+			Schedule: cfg.CronESimOTATimeoutReaper,
+			JobType:  job.JobTypeESimOTATimeoutReaper,
+		})
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "esim_stock_alert",
+			Schedule: cfg.CronESimStockAlert,
+			JobType:  job.JobTypeESimStockAlerter,
 		})
 		cronScheduler.AddEntry(job.CronEntry{
 			Name:     "data_retention",

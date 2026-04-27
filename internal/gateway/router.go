@@ -490,7 +490,14 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/esim-profiles/{id}/enable", deps.ESimHandler.Enable)
 				r.Post("/api/v1/esim-profiles/{id}/disable", deps.ESimHandler.Disable)
 				r.Post("/api/v1/esim-profiles/{id}/switch", deps.ESimHandler.Switch)
+				// FIX-235 T15: OTA pipeline routes (JWT-protected, sim_manager).
+				r.Post("/api/v1/esim-profiles/bulk-switch", deps.ESimHandler.BulkSwitch)
+				r.Get("/api/v1/esim-profiles/stock-summary", deps.ESimHandler.StockSummary)
+				r.Get("/api/v1/esim-profiles/{id}/ota-history", deps.ESimHandler.OTAHistory)
 			})
+			// FIX-235 T15: OTA status callback — HMAC-authenticated, NOT JWT.
+			// Placed outside the JWT group intentionally (SMSR calls this directly).
+			r.Post("/api/v1/esim-profiles/callbacks/ota-status", deps.ESimHandler.OTACallback)
 		}
 
 		if deps.SegmentHandler != nil {

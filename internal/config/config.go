@@ -187,6 +187,20 @@ type Config struct {
 	ESIMSMDPClientCert string `envconfig:"ESIM_SMDP_CLIENT_CERT_PATH"`
 	ESIMSMDPClientKey  string `envconfig:"ESIM_SMDP_CLIENT_KEY_PATH"`
 
+	// FIX-235 T15: SMSR callback HMAC secret + OTA cron schedules.
+	// SMSRCallbackSecret is required in production (enforced at startup).
+	SMSRCallbackSecret        string  `envconfig:"SMSR_CALLBACK_SECRET"`
+	MockSMSRFailRate          float64 `envconfig:"MOCK_SMSR_FAIL_RATE"           default:"0.0"`
+	// FIX-235 Gate (PAT-017): defaults reconciled with worker constructor defaults.
+	// M2M scale defaults — 100 RPS / 200 batch / 5 retries / 10 min timeout.
+	ESimOTARateLimitPerSec    int     `envconfig:"ESIM_OTA_RATE_LIMIT_PER_SEC"  default:"100"`
+	ESimOTABatchSize          int     `envconfig:"ESIM_OTA_BATCH_SIZE"          default:"200"`
+	ESimOTAMaxRetries         int     `envconfig:"ESIM_OTA_MAX_RETRIES"         default:"5"`
+	ESimOTATimeoutMinutes     int     `envconfig:"ESIM_OTA_TIMEOUT_MINUTES"     default:"10"`
+	CronESimOTADispatcher     string  `envconfig:"CRON_ESIM_OTA_DISPATCHER"    default:"* * * * *"`
+	CronESimOTATimeoutReaper  string  `envconfig:"CRON_ESIM_OTA_TIMEOUT_REAPER" default:"*/2 * * * *"`
+	CronESimStockAlert        string  `envconfig:"CRON_ESIM_STOCK_ALERT"       default:"*/15 * * * *"`
+
 	SMSProvider          string `envconfig:"SMS_PROVIDER"              default:""`
 	SMSAccountID         string `envconfig:"SMS_ACCOUNT_ID"`
 	SMSAuthToken         string `envconfig:"SMS_AUTH_TOKEN"`

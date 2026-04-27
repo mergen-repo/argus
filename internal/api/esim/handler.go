@@ -38,15 +38,20 @@ type eventPublisher interface {
 }
 
 type Handler struct {
-	esimStore    *store.ESimProfileStore
-	simStore     *store.SIMStore
-	smdpAdapter  esimpkg.SMDPAdapter
-	auditSvc     audit.Auditor
-	sessionStore activeSessionLister
-	dmSender     dmDispatcher
-	ipPoolStore  ipPoolReleaser
-	eventBus     eventPublisher
-	logger       zerolog.Logger
+	esimStore     *store.ESimProfileStore
+	simStore      *store.SIMStore
+	smdpAdapter   esimpkg.SMDPAdapter
+	auditSvc      audit.Auditor
+	sessionStore  activeSessionLister
+	dmSender      dmDispatcher
+	ipPoolStore   ipPoolReleaser
+	eventBus      eventPublisher
+	operatorStore otaOperatorStore
+	commandStore  otaCommandStore
+	stockStore    otaStockStore
+	jobStore      otaJobStore
+	smsrSecret    string
+	logger        zerolog.Logger
 }
 
 func NewHandler(

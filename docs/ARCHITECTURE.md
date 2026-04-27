@@ -455,6 +455,19 @@ Added in STORY-065 (Phase 10 production hardening). All instrumentation is cross
 - **Alert rules** (`infra/prometheus/alerts.yml`, 9 rules): `ArgusHighErrorRate`, `ArgusAuthLatencyHigh`, `ArgusOperatorDown`, `ArgusCircuitBreakerOpen`, `ArgusDBPoolExhausted`, `ArgusNATSConsumerLag`, `ArgusJobFailureRate`, `ArgusRedisEvictionStorm`, `ArgusDiskSpaceLow`.
 - **Deployment**: Optional overlay compose file `deploy/docker-compose.obs.yml` starts Prometheus, Grafana, and OTel Collector on `argus_argus-net` (DEV-176). The core Argus binary's `/metrics` endpoint works standalone without the overlay.
 
+## eSIM M2M Provisioning (FIX-235)
+
+Argus implements the **SGP.02 M2M push model** for remote SIM profile management on IoT/M2M eUICCs. Unlike the SGP.22 consumer model (where the device pulls via LPAd), the M2M model has the platform push OTA commands through an SM-SR (Subscription Manager – Secure Routing) to the eUICC over SMS-PP / CAT-TP or HTTPS bearer.
+
+The pipeline consists of four job-scheduler workers and two new store tables:
+
+- **`esim_ota_commands`** — one row per OTA command; state machine: `queued → sent → acked|failed`. Invalid transitions (e.g. `failed → sent`) are rejected at the store layer with `ErrEsimOTAInvalidTransition`. The `ESimOTADispatcherProcessor` (SVC-09 job) picks up `queued` rows, calls `internal/smsr.Client.Push`, and marks commands `sent`. An exponential-backoff retry policy (30 s / 60 s / 120 s / 240 s / 480 s, max 5 attempts) is enforced by the `ESimOTATimeoutReaperProcessor`.
+- **`esim_profile_stock`** — tracks available eSIM profile inventory per `(tenant_id, operator_id)`. Allocation uses an atomic `UPDATE … WHERE available > 0 RETURNING *`; insufficient stock returns `ErrStockExhausted`. Low-stock alerts are raised by `ESimStockAlerterProcessor` with `Source = "system"` (PAT-024 compliance).
+- **SM-SR callback** (`POST /api/v1/esim/ota/callback`) — HMAC-SHA-256 verified (`X-SMSR-Signature`, env `SMSR_CALLBACK_SECRET`), 300 s replay window. Transitions command to `acked` or `failed` and publishes `esim.command.acked` / `esim.command.failed` NATS subjects.
+- **Bulk switch** (`BulkEsimSwitchProcessor`) — filter or explicit SIM-ID list → atomic stock allocation per SIM → batch insert into `esim_ota_commands` → async OTA dispatch. Results include processed/failed counts and per-SIM error codes (`STOCK_EXHAUSTED`, `NO_TARGET_PROFILE`).
+
+Full protocol details, state-machine diagrams, retry table, HMAC spec, and integration test scenarios: [`docs/architecture/PROTOCOLS.md § eSIM M2M (SGP.02) Provisioning`](architecture/PROTOCOLS.md).
+
 ## Backup Infrastructure (STORY-066)
 
 Automated PostgreSQL backup pipeline running inside the Argus binary via the SVC-09 job scheduler:

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Filter,
   Check,
@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
   Trash2,
   Download,
+  Copy,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
+import { Tooltip } from '@/components/ui/tooltip'
 import { Spinner } from '@/components/ui/spinner'
 import {
   useESimList,
@@ -46,25 +49,29 @@ import {
   useDisableProfile,
   useSwitchProfile,
   useDeleteProfile,
+  useBulkSwitchEsim,
 } from '@/hooks/use-esim'
 import { useOperatorList } from '@/hooks/use-operators'
 import type { ESimProfile, ESimProfileState } from '@/types/esim'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/empty-state'
-import { EntityLink } from '@/components/shared'
 import { useExport } from '@/hooks/use-export'
+import { formatEID } from '@/lib/format'
+import { useUIStore } from '@/stores/ui'
+import { toast } from 'sonner'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
   { value: 'available', label: 'Available' },
   { value: 'enabled', label: 'Enabled' },
   { value: 'disabled', label: 'Disabled' },
+  { value: 'failed', label: 'Failed' },
   { value: 'deleted', label: 'Deleted' },
 ]
 
-function stateVariant(state: ESimProfileState): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
-  switch (state) {
+function stateVariant(state: string): 'success' | 'warning' | 'danger' | 'default' | 'secondary' {
+  switch (state as ESimProfileState) {
     case 'enabled': return 'success'
     case 'disabled': return 'warning'
     case 'available': return 'default'
@@ -73,7 +80,32 @@ function stateVariant(state: ESimProfileState): 'success' | 'warning' | 'danger'
   }
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6 flex-shrink-0 text-text-tertiary hover:text-text-primary transition-colors"
+      onClick={handleCopy}
+      title="Copy EID"
+    >
+      {copied
+        ? <Check className="h-3 w-3" style={{ color: 'var(--color-success)' }} />
+        : <Copy className="h-3 w-3" />}
+    </Button>
+  )
+}
+
 export default function EsimListPage() {
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = useMemo<{ operator_id?: string; state?: string }>(() => ({
     state: searchParams.get('state') || undefined,
@@ -93,11 +125,19 @@ export default function EsimListPage() {
     },
     [searchParams, setSearchParams],
   )
+
   const [actionDialog, setActionDialog] = useState<{
     profile: ESimProfile
     action: 'enable' | 'disable' | 'switch' | 'delete'
   } | null>(null)
   const [switchTargetId, setSwitchTargetId] = useState('')
+
+  // Bulk selection state
+  const [selectedEids, setSelectedEids] = useState<Set<string>>(new Set())
+  const [bulkSwitchOpen, setBulkSwitchOpen] = useState(false)
+  const [bulkTargetOperatorId, setBulkTargetOperatorId] = useState('')
+  const [bulkReason, setBulkReason] = useState('')
+
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -118,6 +158,7 @@ export default function EsimListPage() {
   const disableMutation = useDisableProfile()
   const switchMutation = useSwitchProfile()
   const deleteMutation = useDeleteProfile()
+  const bulkSwitchMutation = useBulkSwitchEsim()
   const { exportCSV, exporting } = useExport('esim-profiles')
 
   useEffect(() => {
@@ -140,6 +181,28 @@ export default function EsimListPage() {
     return data.pages.flatMap((page) => page.data)
   }, [data])
 
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelectedEids(new Set())
+  }, [filters])
+
+  const toggleSelect = useCallback((eid: string) => {
+    setSelectedEids((prev) => {
+      const next = new Set(prev)
+      if (next.has(eid)) next.delete(eid)
+      else next.add(eid)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedEids.size === allProfiles.length && allProfiles.length > 0) {
+      setSelectedEids(new Set())
+    } else {
+      setSelectedEids(new Set(allProfiles.map((p) => p.eid)))
+    }
+  }, [selectedEids, allProfiles])
+
   const handleAction = async () => {
     if (!actionDialog) return
     try {
@@ -157,6 +220,24 @@ export default function EsimListPage() {
       }
       setActionDialog(null)
       setSwitchTargetId('')
+    } catch {
+      // handled by api interceptor
+    }
+  }
+
+  const handleBulkSwitch = async () => {
+    if (!bulkTargetOperatorId) return
+    try {
+      const result = await bulkSwitchMutation.mutateAsync({
+        eids: Array.from(selectedEids),
+        target_operator_id: bulkTargetOperatorId,
+        reason: bulkReason || undefined,
+      })
+      toast.success(`Bulk switch queued — ${result.affected_count} profile${result.affected_count !== 1 ? 's' : ''} affected (job ${result.job_id.slice(0, 8)})`)
+      setBulkSwitchOpen(false)
+      setBulkTargetOperatorId('')
+      setBulkReason('')
+      setSelectedEids(new Set())
     } catch {
       // handled by api interceptor
     }
@@ -183,11 +264,16 @@ export default function EsimListPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-[16px] font-semibold text-text-primary">eSIM Profiles</h1>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
-          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Export
-        </Button>
+        <h1 className="text-base font-semibold text-text-primary">eSIM Profiles</h1>
+        <div className="flex items-center gap-2">
+          {/* FIX-235 Gate (F-U1): list-page Allocate button removed.
+              Allocation is initiated from SIM Detail → eSIM tab where the target SIM is
+              already in scope; AC-9 explicitly anchors the flow to the SIM-detail panel. */}
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -260,14 +346,21 @@ export default function EsimListPage() {
       </div>
 
       {/* Profiles Table */}
-      <Card className="overflow-hidden density-compact">
+      <Card className={cn('overflow-hidden density-compact', selectedEids.size > 0 && 'pb-16')}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
-                <TableHead>SIM ID</TableHead>
-                <TableHead>EID</TableHead>
+                <TableHead className="w-10">
+                  <Input
+                    type="checkbox"
+                    checked={allProfiles.length > 0 && selectedEids.size === allProfiles.length}
+                    onChange={toggleSelectAll}
+                    className="h-4 w-4 rounded border-border accent-accent cursor-pointer"
+                  />
+                </TableHead>
                 <TableHead>ICCID</TableHead>
+                <TableHead>EID</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>State</TableHead>
                 <TableHead>Last Provisioned</TableHead>
@@ -298,20 +391,37 @@ export default function EsimListPage() {
               )}
 
               {allProfiles.map((profile, idx) => (
-                <TableRow key={profile.id} data-row-index={idx} data-href={`/sims/${profile.sim_id}`}>
-                  <TableCell>
-                    <EntityLink entityType="sim" entityId={profile.sim_id} label={profile.iccid_on_profile ?? undefined} truncate />
+                <TableRow
+                  key={profile.id}
+                  data-row-index={idx}
+                  data-state={selectedEids.has(profile.eid) ? 'selected' : undefined}
+                >
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Input
+                      type="checkbox"
+                      checked={selectedEids.has(profile.eid)}
+                      onChange={() => toggleSelect(profile.eid)}
+                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer"
+                    />
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs text-text-secondary">{profile.eid.slice(0, 16)}...</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs text-text-secondary">
+                    <Link
+                      to={`/sims/${profile.sim_id}`}
+                      className="font-mono text-xs text-accent hover:underline"
+                    >
                       {profile.iccid_on_profile ?? '-'}
-                    </span>
+                    </Link>
                   </TableCell>
                   <TableCell>
-                    <EntityLink entityType="operator" entityId={profile.operator_id} label={profile.operator_name} />
+                    <Tooltip content={profile.eid} side="top">
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono text-xs text-text-secondary">{formatEID(profile.eid)}</span>
+                        <CopyButton text={profile.eid} />
+                      </div>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-primary">{profile.operator_name ?? '-'}</span>
                   </TableCell>
                   <TableCell>
                     <Badge variant={stateVariant(profile.profile_state as ESimProfileState)} className="gap-1">
@@ -330,7 +440,7 @@ export default function EsimListPage() {
                   </TableCell>
                   <TableCell>
                     {profile.last_error ? (
-                      <span className="text-xs text-danger truncate max-w-[200px] block" title={profile.last_error}>
+                      <span className="text-xs text-danger truncate max-w-48 block" title={profile.last_error}>
                         {profile.last_error}
                       </span>
                     ) : (
@@ -344,7 +454,7 @@ export default function EsimListPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px] gap-1"
+                            className="h-6 px-2 text-xs gap-1"
                             onClick={() => setActionDialog({ profile, action: 'enable' })}
                           >
                             <Power className="h-3 w-3" />
@@ -353,7 +463,7 @@ export default function EsimListPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px] gap-1 border-danger/30 text-danger hover:bg-danger-dim"
+                            className="h-6 px-2 text-xs gap-1 border-danger/30 text-danger hover:bg-danger-dim"
                             onClick={() => setActionDialog({ profile, action: 'delete' })}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -366,7 +476,7 @@ export default function EsimListPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px] gap-1 border-warning/30 text-warning hover:bg-warning-dim"
+                            className="h-6 px-2 text-xs gap-1 border-warning/30 text-warning hover:bg-warning-dim"
                             onClick={() => setActionDialog({ profile, action: 'disable' })}
                           >
                             <PowerOff className="h-3 w-3" />
@@ -375,7 +485,7 @@ export default function EsimListPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[11px] gap-1 border-purple/30 text-purple hover:bg-purple/10"
+                            className="h-6 px-2 text-xs gap-1 border-purple/30 text-purple hover:bg-purple/10"
                             onClick={() => setActionDialog({ profile, action: 'switch' })}
                           >
                             <ArrowRightLeft className="h-3 w-3" />
@@ -390,6 +500,38 @@ export default function EsimListPage() {
             </TableBody>
           </Table>
         </div>
+
+        {/* Bulk Action Bar */}
+        {selectedEids.size > 0 && (
+          <div
+            className={cn(
+              'fixed bottom-0 right-0 z-30 bg-accent-dim border-t border-accent/20 shadow-[var(--shadow-card)] animate-in slide-in-from-bottom-2 duration-200 flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-2 transition-[left]',
+              sidebarCollapsed ? 'left-16' : 'left-60',
+            )}
+          >
+            <span className="text-sm font-semibold text-accent tabular-nums">
+              {selectedEids.size} profile{selectedEids.size !== 1 ? 's' : ''} selected
+            </span>
+            <div className="flex gap-2 ml-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-xs gap-1.5"
+                onClick={() => setBulkSwitchOpen(true)}
+              >
+                <ArrowRightLeft className="h-3 w-3" /> Bulk Switch Operator
+              </Button>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs gap-1.5 ml-auto text-text-tertiary hover:text-text-primary"
+              onClick={() => setSelectedEids(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+        )}
 
         <div ref={loadMoreRef} className="px-4 py-3 border-t border-border-subtle">
           {isFetchingNextPage ? (
@@ -413,7 +555,7 @@ export default function EsimListPage() {
         </div>
       </Card>
 
-      {/* Action Dialog */}
+      {/* Single-Profile Action Dialog */}
       <Dialog open={!!actionDialog} onOpenChange={() => { setActionDialog(null); setSwitchTargetId('') }}>
         <DialogContent onClose={() => { setActionDialog(null); setSwitchTargetId('') }}>
           <DialogHeader>
@@ -466,6 +608,56 @@ export default function EsimListPage() {
               {actionDialog?.action === 'disable' && 'Disable'}
               {actionDialog?.action === 'switch' && 'Switch'}
               {actionDialog?.action === 'delete' && 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Switch Operator Dialog */}
+      <Dialog open={bulkSwitchOpen} onOpenChange={(o) => !o && setBulkSwitchOpen(false)}>
+        <DialogContent onClose={() => setBulkSwitchOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>Bulk Switch Operator</DialogTitle>
+            <DialogDescription>
+              Switch {selectedEids.size} selected profile{selectedEids.size !== 1 ? 's' : ''} to a new operator via OTA. This action is queued as a background job.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-1.5">
+                Target Operator
+              </label>
+              <Select
+                value={bulkTargetOperatorId}
+                onChange={(e) => setBulkTargetOperatorId(e.target.value)}
+                options={operators.map((op) => ({ value: op.id, label: op.name }))}
+                placeholder="Select operator..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-text-secondary block mb-1.5">
+                Reason (optional)
+              </label>
+              <Input
+                value={bulkReason}
+                onChange={(e) => setBulkReason(e.target.value)}
+                placeholder="e.g. Cost optimisation, coverage improvement..."
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkSwitchOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={handleBulkSwitch}
+              disabled={!bulkTargetOperatorId || bulkSwitchMutation.isPending}
+              className="gap-2"
+            >
+              {bulkSwitchMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Switch {selectedEids.size} Profile{selectedEids.size !== 1 ? 's' : ''}
             </Button>
           </DialogFooter>
         </DialogContent>
