@@ -1,0 +1,9 @@
+STEP_1 PLAN: EXECUTED | items=13 tasks across 4 waves (DEV-533..545); MDX deferred D-160 + Mermaid deferred D-161 | evidence=FIX-239-plan.md | result=PASS
+STEP_2 DEV WAVE_A: EXECUTED | items=3 tasks (A-1..A-3 — types/registry/section-frame, KbToc + page shell, print CSS) | evidence=knowledge-base/types.ts + components/section-frame.tsx + kb-toc.tsx + knowledgebase.tsx rewrite + index.css print rules | result=PASS
+STEP_2 DEV WAVE_B: EXECUTED | items=5 tasks (B-1..B-5 — StepperFlow/TimelineFlow/SequenceDiagram/RequestResponsePopup/DecisionTree/OnboardingChecklist/OperationCard/KbSearch) | evidence=8 components in knowledge-base/components/ | result=PASS
+STEP_2 DEV WAVE_C: EXECUTED | items=4 tasks (C-1..C-4 — 9 section files with full content; preserves PORTS+LIFECYCLE+APN+Security+CoA from legacy KB; adds Onboarding stepper+checklist, AAA sequence, Policy state machine, Cookbook 7 ops, 3 DecisionTrees) | evidence=9 sections in knowledge-base/sections/ | result=PASS
+STEP_2 DEV WAVE_D: EXECUTED | items=1 task (D-1 — Cmd+K hotkey scoped to KB route, deep-link hash on mount, Export PDF wired to window.print()) | evidence=knowledgebase.tsx page shell | result=PASS
+STEP_2 DEV: EXECUTED | items=13 tasks across 4 waves | evidence=tsc + vite build clean | result=PASS
+STEP_2.5 LINT: EXECUTED | items=2 grep scans (PAT-018 + PAT-021) on 19 new/modified KB files | evidence=zero matches | result=PASS
+STEP_3 GATE: EXECUTED | items=3 inline scout passes (analysis+testbuild+ui), 3 fixes (G-1..G-3 type-level, all caught by tsc) | evidence=FIX-239-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | items=14 doc checks (5 UPDATED, 8 NO_CHANGE, 1 PARTIAL/no-test-infra) + 0 findings + 0 unresolved | evidence=FIX-239-review.md | result=PASS

@@ -5285,3 +5285,49 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    - `violation.escalated`
    - `violation.dismissed` (single + bulk)
 2. `bulk: true` flag bulk path için after JSONB'da görünür.
+
+## FIX-239: Knowledge Base — Ops Runbook Redesign
+
+### AC-1, AC-2: 9-section structure + sticky TOC + group color coding
+1. `/settings/knowledgebase` → sayfa 9 section ile açılır:
+   §1 Operator Onboarding (mavi/onboarding) · §2 AAA Business Flow (yeşil/operations) · §3 Session Lifecycle (yeşil) · §4 Policy Workflow (yeşil) · §5 IP+APN (yeşil) · §6 Operator Integration Runbook (gri/reference) · §7 Common Operations Cookbook (yeşil) · §8 Troubleshooting Playbooks (sarı/troubleshooting) · §9 Business Rules Reference (gri)
+2. Sol sticky TOC her section'ı listeler. Scroll → aktif section TOC'da highlight olur (IntersectionObserver).
+3. TOC'a tıkla → smooth scroll target section'a.
+
+### AC-3: Interactive request/response popups
+1. §6 Operator Integration Runbook → Standard ports tablosu → herhangi bir satırda **Wire format** butonu.
+2. SlidePanel açılır, 3 tab: **Wire Format** (hex/AVP), **curl**, **Expected Response**.
+3. Üst sağ "Show wire format" toggle off → Wire tab kaybolur, default curl tab açık.
+4. Copy butonu aktif tab içeriğini panoya kopyalar.
+5. Test edilen protocoller: RADIUS Access-Request, RADIUS Accounting-Request, RADIUS CoA-Request, Diameter Gy CCR-Initial, 5G Nausf Authentication.
+
+### AC-7: Onboarding checklist persistence
+1. §1 → 12-step checklist'in 3-4 maddesini işaretle.
+2. Sayfayı refresh et → işaretler kalmalı (localStorage `kb:onboarding:{userId}`).
+3. **Reset** butonuna bas → tüm işaretler temizlenir + progress bar 0%.
+
+### AC-8: Common Operations Cookbook
+1. §7 → 7 OperationCard görünür: Suspend SIM fleet, Add APN, Reduce bandwidth, Block lost SIM, Rotate API key, Investigate session drop, Operator outage failover.
+2. Block lost SIM kartı destructive tone (kırmızı header) + warning chip.
+3. Reduce bandwidth + Operator outage warning kartlarında uyarı satırları görünür.
+
+### AC-9: Troubleshooting Playbooks (decision trees)
+1. §8 → 3 playbook (sarı border): All SIMs auth failing, Policy not applying, Sessions stuck idle.
+2. **All SIMs auth failing** → "Affects only one operator" → "No — UDP 1812 timeouts" → action card açılır: 3 step + log pattern.
+3. **Policy not applying** → "Policy active for everyone, but specific SIM still old behavior" → CoA failure action card: diagnostic log grep pattern.
+4. **Sessions stuck idle** → "No interim-update for >30 min" → "NAS heartbeat unhealthy" → Force-Stop action + diagnostic SQL.
+
+### AC-10: Cmd+K search + deep-link
+1. KB sayfasında Cmd+K (veya Ctrl+K) → search modal.
+2. "iptables" yaz → §6 sonuç görünür (group chip §6).
+3. Enter → §6'ya scroll, modal kapanır.
+4. Doğrudan URL `/settings/knowledgebase#troubleshooting-playbooks` → §8'e scrollIntoView.
+5. Section header'da "Copy link to §N" → URL panoya kopyalanır.
+
+### AC-11: No content loss
+1. §9 Business Rules Reference → eski KB içeriği aynen var: PORTS tablosu (5 satır), SIM authentication flow ascii diagram, Security Mechanisms 3 kart (EAP-SIM/AKA, Concurrent Session Control, Anomaly Detection), CoA/DM 2 kart (RFC 5176 trigger listeleri).
+
+### AC-2: Print / Export PDF
+1. Sağ üstte **Export PDF** butonu → browser print dialog.
+2. Print preview: sticky TOC, search trigger, "Wire format" butonları, "Copy link" footer'ları gizli.
+3. Tüm 9 section page-break ile ayrılmış olarak çıktı verir.

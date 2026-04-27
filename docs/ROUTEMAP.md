@@ -451,7 +451,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 |---|-------|------|--------|--------|-------------|
 | FIX-243 | Policy DSL realtime validate endpoint + FE linter | P1 | M | [x] DONE (2026-04-27) | — |
 | FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [x] DONE (2026-04-27) | — |
-| FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [ ] PENDING | — |
+| FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [x] DONE (2026-04-27) | — |
 | FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [ ] PENDING | FIX-201 |
 | FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [ ] PENDING | FIX-241 |
 
@@ -796,6 +796,8 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-157 | FIX-244 DEV-532 | "All matching filter" bulk select for violations deferred. Today's bulk surface is row-checkbox only (cap 100 ids per request). Filter-based selection over thousands of violations matching `severity=critical` requires a server-side cursor walker, which is FIX-236's territory. Header checkbox tooltip surfaces the limit. | FIX-236 (10M scale readiness) | OPEN |
 | D-158 | FIX-244 DEV-521 | JSONB index on `(details->>'remediation')` follow-up — `?status=remediated` and `?status=dismissed` filters scan JSONB without an index. Acceptable at current data volume; if p95 latency on these filters exceeds 500 ms in prod, add `CREATE INDEX idx_policy_violations_remediation ON policy_violations ((details->>'remediation'));`. | Optional perf polish | OPEN |
 | D-159 | FIX-244 DEV-522 | Bulk endpoints emit one audit row per id in a tight loop — 100 audit inserts per max-size bulk call. Acceptable today; if it becomes a hot path, batch the audit inserts in a single multi-VALUES INSERT inside the bulk handler. | Optional perf polish | OPEN |
+| D-160 | FIX-239 plan §D1 | MDX-based content delivery for the Knowledge Base deferred. Today's section content is hand-rolled JSX. MDX adoption requires `@mdx-js/rollup` + `@mdx-js/react` + Vite plugin config + content migration. Adopt in a future "content authoring UX" story. | Future content-author UX story | OPEN |
+| D-161 | FIX-239 plan §D2 | Mermaid diagram support for the Knowledge Base deferred. Today's diagrams are hand-written SVG/CSS via three primitives (StepperFlow, SequenceDiagram, TimelineFlow). Adopt only if a future diagram exceeds the primitive shapes. | Optional diagram-richness story | OPEN |
 
 ---
 

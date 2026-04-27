@@ -290,3 +290,19 @@
     font-size: 14px;
   }
 }
+
+/* FIX-239 DEV-535: Knowledge Base print styles.
+   Triggered via the "Export PDF" button (window.print()). Hides interactive
+   chrome (TOC, search, action buttons) and forces sections to flow as
+   a single column on paper. */
+@media print {
+  /* Hide global app chrome — sidebar, toolbars — when printing the KB. */
+  body { background: white !important; color: black !important; }
+  /* shadcn cards / borders read best with neutral tones on paper */
+  .bg-bg-surface, .bg-bg-elevated, .bg-bg-primary { background: white !important; }
+  .text-text-primary, .text-text-secondary { color: #111 !important; }
+  .text-text-tertiary { color: #555 !important; }
+  /* Drop sidebar / topbar / unrelated nav. The KB-specific .print:hidden
+     elements are already handled by Tailwind utilities. */
+  aside[role="navigation"], header[role="banner"], nav.global-nav { display: none !important; }
+}
