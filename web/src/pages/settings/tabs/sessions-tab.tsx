@@ -1,3 +1,4 @@
+// Tab body for /settings#sessions. Parent <Tabs> only renders active <TabsContent>, so data hooks fire once when active.
 import { useState } from 'react'
 import {
   Monitor,
@@ -65,7 +66,7 @@ function parseUserAgent(ua: string | null): { browser: string; os: string } {
   return { browser, os }
 }
 
-export default function SessionsPage() {
+export default function SessionsTab() {
   const user = useAuthStore((s) => s.user)
   const currentSessionId = useAuthStore((s) => s.sessionId)
 
@@ -115,7 +116,6 @@ export default function SessionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-[16px] font-semibold text-text-primary">Active Sessions</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
             Devices and browsers currently signed in to your account
           </p>

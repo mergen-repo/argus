@@ -362,7 +362,7 @@ function BackupStatusCard() {
             variant="ghost"
             size="sm"
             className="gap-1.5 text-xs text-text-secondary hover:text-text-primary h-7"
-            onClick={() => navigate('/settings/reliability')}
+            onClick={() => navigate('/settings#reliability')}
           >
             View History
             <ChevronRight className="h-3.5 w-3.5" />

@@ -1,3 +1,4 @@
+// Tab body for /settings#security. Parent <Tabs> only renders active <TabsContent>, so data hooks fire once when active.
 import { useState, useEffect, useCallback } from 'react'
 import {
   Shield,
@@ -30,7 +31,7 @@ interface SecurityStatus {
   totp_enabled: boolean
 }
 
-export default function SecurityPage() {
+export default function SecurityTab() {
   const [status, setStatus] = useState<SecurityStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(true)
 
@@ -120,10 +121,6 @@ export default function SecurityPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-[16px] font-semibold text-text-primary">Security</h1>
-      </div>
-
       {/* 2FA Status */}
       <Card className="p-5">
         <div className="flex items-start justify-between">

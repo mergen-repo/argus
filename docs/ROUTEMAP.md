@@ -459,7 +459,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 
 | # | Story | Tier | Effort | Status | Dependencies |
 |---|-------|------|--------|--------|-------------|
-| FIX-240 | Unified Settings Page + Tabbed Reorganization | P2 | M | [ ] PENDING | — |
+| FIX-240 | Unified Settings Page + Tabbed Reorganization | P2 | M | [x] DONE 2026-04-27 | — |
 | FIX-246 | Quotas + Resources merge → "Tenant Usage" dashboard + threshold alerts | P2 | M | [ ] PENDING | FIX-209 |
 | FIX-235 | M2M eSIM Provisioning Pipeline — SGP.22 → SGP.02 refactor + SM-SR + bulk | P2 | XL | [ ] PENDING | — |
 | FIX-245 | Remove 5 Admin Sub-pages (Cost/Compliance/DSAR/Maintenance) + Kill Switches→env | P2 | L | [ ] PENDING | — |
@@ -791,7 +791,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-152 | FIX-237 DEV-501 | `auth.suspicious_login` Tier 3 catalog entry deferred — `auth.attempt` Tier 1 has the raw signal but a heuristic detector to derive "suspicious" is not implemented. | Future auth-anomaly story | OPEN |
 | D-153 | FIX-237 DEV-501 | `tenant.quota_breach` Tier 3 catalog entry deferred — billing/quota subsystem absent at story time. | FIX-246 (quotas+resources merge) | OPEN |
 | D-154 | FIX-237 DEV-501 | `backup.failed` Tier 3 distinct subject deferred — currently routed through `alert.triggered`. Optional polish if alert.triggered routing proves insufficient for backup-specific UX. | Optional polish story | OPEN |
-| D-155 | FIX-237 DEV-502 | `web/src/pages/settings/notifications.tsx` legacy hardcoded settings page is dead code w.r.t. notification_preferences table — superseded by the `/notifications?tab=preferences` flow. DELETE entirely when FIX-240 unifies settings. | FIX-240 (Wave 10 unified settings) | OPEN |
+| D-155 | FIX-237 DEV-502 | `web/src/pages/settings/notifications.tsx` legacy hardcoded settings page is dead code w.r.t. notification_preferences table — superseded by the `/notifications?tab=preferences` flow. DELETE entirely when FIX-240 unifies settings. | FIX-240 (Wave 10 unified settings) | ✓ RESOLVED (2026-04-27 — file deleted by FIX-240; gate missed marking; resolved by Reviewer) |
 | D-156 | FIX-237 plan §11 | `digest.Worker.checkQuotaBreachCount` ships as a documented no-op — quota_state breach signal not yet wired (per-SIM `quota_exceeded` is already covered by `violation_surge`). Flip to live aggregation when quota subsystem ships. | FIX-246 (quotas+resources merge) | OPEN |
 | D-157 | FIX-244 DEV-532 | "All matching filter" bulk select for violations deferred. Today's bulk surface is row-checkbox only (cap 100 ids per request). Filter-based selection over thousands of violations matching `severity=critical` requires a server-side cursor walker, which is FIX-236's territory. Header checkbox tooltip surfaces the limit. | FIX-236 (10M scale readiness) | OPEN |
 | D-158 | FIX-244 DEV-521 | JSONB index on `(details->>'remediation')` follow-up — `?status=remediated` and `?status=dismissed` filters scan JSONB without an index. Acceptable at current data volume; if p95 latency on these filters exceeds 500 ms in prod, add `CREATE INDEX idx_policy_violations_remediation ON policy_violations ((details->>'remediation'));`. | Optional perf polish | OPEN |

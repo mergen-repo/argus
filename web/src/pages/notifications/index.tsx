@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useExport } from '@/hooks/use-export'
 import { EmptyState } from '@/components/shared/empty-state'
 import {
@@ -23,7 +23,6 @@ import { severityIconClass } from '@/lib/severity'
 import { useNotificationList, useMarkAsRead, useMarkAllAsRead, useRealtimeNotifications } from '@/hooks/use-notifications'
 import type { Notification } from '@/types/notification'
 import { EntityLink } from '@/components/shared/entity-link'
-import { NotificationPreferencesPanel } from './preferences-panel'
 import { NotificationTemplatesPanel } from './templates-panel'
 
 const categoryIcons: Record<string, React.ElementType> = {
@@ -65,11 +64,18 @@ function formatTimestamp(ts: string): string {
   return date.toLocaleDateString()
 }
 
-type NotificationsTab = 'unread' | 'all' | 'preferences' | 'templates'
+type NotificationsTab = 'unread' | 'all' | 'templates'
 
 export default function NotificationsPage() {
   const [tab, setTab] = useState<NotificationsTab>('all')
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'preferences') {
+      navigate('/settings#notifications', { replace: true })
+    }
+  }, [searchParams, navigate])
 
   const inboxTab: 'unread' | 'all' = tab === 'unread' ? 'unread' : 'all'
   const { data: notifications = [] } = useNotificationList(inboxTab)
@@ -107,15 +113,9 @@ export default function NotificationsPage() {
         <TabsList>
           <TabsTrigger value="unread">Unread{unreadCount > 0 && ` (${unreadCount})`}</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
         </TabsList>
 
-        {tab === 'preferences' && (
-          <TabsContent value="preferences">
-            <NotificationPreferencesPanel />
-          </TabsContent>
-        )}
         {tab === 'templates' && (
           <TabsContent value="templates">
             <NotificationTemplatesPanel />

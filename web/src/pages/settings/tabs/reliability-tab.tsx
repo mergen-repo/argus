@@ -1,3 +1,4 @@
+// Tab body for /settings#reliability. Parent <Tabs> only renders active <TabsContent>, so data hooks fire once when active.
 import { useState } from 'react'
 import {
   AlertCircle,
@@ -419,13 +420,9 @@ function JWTRotationSection() {
   )
 }
 
-export default function ReliabilityPage() {
+export default function ReliabilityTab() {
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-[16px] font-semibold text-text-primary">Reliability</h1>
-      </div>
-
       {/* Backup Schedule & Retention */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">

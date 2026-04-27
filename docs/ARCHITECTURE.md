@@ -294,10 +294,14 @@ argus/
 | /analytics/cost | CostAnalyticsPage | JWT (analyst+) | DashboardLayout |
 | /jobs | JobListPage | JWT (sim_manager+) | DashboardLayout |
 | /audit | AuditLogPage | JWT (tenant_admin+) | DashboardLayout |
+| /settings | SettingsPage (unified tabbed) | JWT (any) | DashboardLayout — 5 tabs: Security, Sessions, Reliability (super_admin only), Notifications, Preferences; hash routing via `useHashTab`; tabs lazy-loaded; RBAC filter via `hasMinRole` (`src/lib/rbac.ts`); FIX-240 |
+| /settings/security | → redirect `/settings#security` | — | 301-replace; FIX-240 |
+| /settings/sessions | → redirect `/settings#sessions` | — | 301-replace; FIX-240 |
+| /settings/reliability | → redirect `/settings#reliability` | — | 301-replace; FIX-240 |
+| /settings/notifications | → redirect `/settings#notifications` | — | 301-replace; FIX-240 |
 | /settings/users | UserManagementPage | JWT (tenant_admin+) | DashboardLayout |
 | /settings/api-keys | ApiKeyPage | JWT (tenant_admin+) | DashboardLayout |
 | /settings/ip-pools | IpPoolPage | JWT (operator_manager+) | DashboardLayout |
-| /settings/notifications | NotificationConfigPage | JWT (any) | DashboardLayout |
 | /settings/system | SystemConfigPage | JWT (super_admin) | DashboardLayout |
 | /system/health | SystemHealthPage | JWT (super_admin) | DashboardLayout |
 | /system/tenants | TenantManagementPage | JWT (super_admin) | DashboardLayout |

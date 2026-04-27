@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { AuthLayout } from '@/components/layout/auth-layout'
 import { ProtectedRoute } from '@/components/auth/protected-route'
@@ -47,11 +47,8 @@ const UsersPage = lazy(() => import('@/pages/settings/users'))
 const ApiKeysPage = lazy(() => import('@/pages/settings/api-keys'))
 const IpPoolsPage = lazy(() => import('@/pages/settings/ip-pools'))
 const IpPoolDetailPage = lazy(() => import('@/pages/settings/ip-pool-detail'))
-const NotificationConfigPage = lazy(() => import('@/pages/settings/notifications'))
 const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
-const ReliabilityPage = lazy(() => import('@/pages/settings/reliability'))
-const SecurityPage = lazy(() => import('@/pages/settings/security'))
-const ActiveSessionsPage = lazy(() => import('@/pages/settings/sessions'))
+const SettingsPage = lazy(() => import('@/pages/settings/index'))
 const AlertRulesPage = lazy(() => import('@/pages/settings/alert-rules'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
@@ -164,11 +161,12 @@ export const router = createBrowserRouter([
           { path: '/settings/api-keys', element: lazySuspense(ApiKeysPage) },
           { path: '/settings/ip-pools', element: lazySuspense(IpPoolsPage) },
           { path: '/settings/ip-pools/:poolId', element: lazySuspense(IpPoolDetailPage) },
-          { path: '/settings/notifications', element: lazySuspense(NotificationConfigPage) },
+          { path: '/settings', element: lazySuspense(SettingsPage) },
+          { path: '/settings/security', element: <Navigate to="/settings#security" replace /> },
+          { path: '/settings/sessions', element: <Navigate to="/settings#sessions" replace /> },
+          { path: '/settings/reliability', element: <Navigate to="/settings#reliability" replace /> },
+          { path: '/settings/notifications', element: <Navigate to="/settings#notifications" replace /> },
           { path: '/settings/knowledgebase', element: lazySuspense(KnowledgeBasePage) },
-          { path: '/settings/reliability', element: lazySuspense(ReliabilityPage) },
-          { path: '/settings/security', element: lazySuspense(SecurityPage) },
-          { path: '/settings/sessions', element: lazySuspense(ActiveSessionsPage) },
           { path: '/settings/alert-rules', element: lazySuspense(AlertRulesPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
           { path: '/alerts/:id', element: lazySuspense(AlertDetailPage) },

@@ -5403,3 +5403,47 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `REPORT_SIGNING_KEY` boş bırakılarak iki argus instance ayağa kaldır.
 2. Instance A'da minted URL Instance B'de 401 (sig'lar uyuşmaz) → boot warn-log uyarmıştı zaten.
 3. Aynı `REPORT_SIGNING_KEY=<32-byte-hex>` ikiye paylaştırılınca cross-instance verify çalışır.
+
+## FIX-240: Unified Settings Page + Tabbed Reorganization
+
+### AC-3 + AC-4: Hash deep-link and tab persistence
+1. Navigate directly to `http://localhost:8084/settings#notifications` in a fresh browser tab.
+2. **Expected:** Settings page opens with the Notifications tab active immediately (no flash to Security tab).
+3. Click the Security tab → URL updates to `#security`. Press browser Back button.
+4. **Expected:** URL returns to `#notifications`, Notifications tab is active.
+
+### AC-5: Legacy redirect — four old routes
+1. Navigate to `/settings/security` → **Expected:** browser URL becomes `/settings#security`, Security tab active.
+2. Navigate to `/settings/sessions` → **Expected:** `/settings#sessions`, Sessions tab active.
+3. Navigate to `/settings/reliability` (as super_admin) → **Expected:** `/settings#reliability`, Reliability tab active.
+4. Navigate to `/settings/notifications` → **Expected:** `/settings#notifications`, Notifications tab active.
+
+### AC-5b: Notifications preferences redirect
+1. Navigate to `/notifications?tab=preferences`.
+2. **Expected:** Redirected to `/settings#notifications`; Notifications tab active; Simple/Advanced toggle visible.
+
+### AC-6: Sidebar group reduction
+1. Open sidebar as any authenticated user.
+2. **Expected:** SETTINGS group shows exactly 3 items: "Settings", "Users & Roles", "Knowledge Base". Old standalone items (security, sessions, reliability) are absent.
+
+### AC-9: Role-based tab visibility
+1. Log in as a `super_admin` user → navigate to `/settings`.
+2. **Expected:** All 5 tabs visible: Security, Sessions, Reliability, Notifications, Preferences.
+3. Log out; log in as `analyst` (or `sim_manager`).
+4. **Expected:** Reliability tab NOT visible (minRole=super_admin enforced). Remaining 4 tabs visible.
+
+### AC-11: Mobile responsive dropdown
+1. Open DevTools → set viewport width to 375px.
+2. Navigate to `/settings`.
+3. **Expected:** Tab list hidden; a `<select>` dropdown appears with all visible tab names. Changing the select switches tab content.
+
+### AC-2: Notifications Simple/Advanced modes
+1. Navigate to `/settings#notifications`.
+2. **Expected:** Simple mode (default): category-grouped boolean toggles rendered.
+3. Click "Advanced" toggle.
+4. **Expected:** Full matrix (event × channel × severity) rendered. No page reload.
+
+### AC-7: Lazy loading (no pre-fetch)
+1. Open browser Network tab (filter: Fetch/XHR).
+2. Navigate to `/settings` (defaults to Security tab).
+3. **Expected:** No API calls for Reliability or Notifications data until those tabs are clicked.

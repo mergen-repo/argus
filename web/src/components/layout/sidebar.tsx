@@ -14,7 +14,6 @@ import {
   Users,
   Key,
   Globe,
-  BellRing,
   HeartPulse,
   Building,
   ChevronLeft,
@@ -27,7 +26,6 @@ import {
   HardDrive,
   Star,
   Clock,
-  Lock,
   Handshake,
   Gauge,
   XCircle,
@@ -44,8 +42,9 @@ import {
   FileSearch,
   PackageSearch,
   MessageSquare,
-  BellOff,
+  Settings,
 } from 'lucide-react'
+import { hasMinRole } from '@/lib/rbac'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
@@ -62,16 +61,6 @@ interface NavGroup {
   title: string
   items: NavItem[]
   minRole?: string
-}
-
-const ROLE_LEVELS: Record<string, number> = {
-  api_user: 1,
-  analyst: 2,
-  policy_editor: 3,
-  sim_manager: 4,
-  operator_manager: 5,
-  tenant_admin: 6,
-  super_admin: 7,
 }
 
 const navGroups: NavGroup[] = [
@@ -109,18 +98,15 @@ const navGroups: NavGroup[] = [
       { label: 'Reports', icon: FileBarChart, path: '/reports', minRole: 'analyst' },
       { label: 'Capacity', icon: HardDrive, path: '/capacity', minRole: 'analyst' },
       { label: 'Roaming', icon: Handshake, path: '/roaming-agreements', minRole: 'operator_manager' },
-      { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },
   {
     title: 'SETTINGS',
     minRole: 'tenant_admin',
     items: [
+      { label: 'Settings', icon: Settings, path: '/settings' },
       { label: 'Users & Roles', icon: Users, path: '/settings/users' },
-      { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
-      { label: 'Notifications', icon: BellRing, path: '/settings/notifications' },
-      { label: 'Alert Rules', icon: BellOff, path: '/settings/alert-rules' },
-      { label: 'Security', icon: Lock, path: '/settings/security' },
+      { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },
   {
@@ -164,11 +150,6 @@ const navGroups: NavGroup[] = [
     ],
   },
 ]
-
-function hasMinRole(userRole: string | undefined, minRole: string): boolean {
-  if (!userRole) return false
-  return (ROLE_LEVELS[userRole] ?? 0) >= (ROLE_LEVELS[minRole] ?? 99)
-}
 
 export function Sidebar() {
   const location = useLocation()
