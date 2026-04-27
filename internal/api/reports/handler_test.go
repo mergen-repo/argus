@@ -484,13 +484,13 @@ func TestListDefinitions_ReturnsAll8Types(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(resp.Data) != 8 {
-		t.Errorf("definitions count = %d, want 8", len(resp.Data))
+	// FIX-248 DEV-560: scope reduced from 8 to 4 (compliance trio + cost removed).
+	if len(resp.Data) != 4 {
+		t.Errorf("definitions count = %d, want 4", len(resp.Data))
 	}
 
 	expectedIDs := []string{
-		"compliance_btk", "compliance_kvkk", "compliance_gdpr",
-		"sla_monthly", "usage_summary", "cost_analysis",
+		"sla_monthly", "usage_summary",
 		"audit_log_export", "sim_inventory",
 	}
 

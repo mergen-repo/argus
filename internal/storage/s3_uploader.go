@@ -29,6 +29,11 @@ type S3Uploader struct {
 	logger zerolog.Logger
 }
 
+// FIX-248 DEV-557: assert at compile time that S3Uploader satisfies the
+// Storage interface. Both backends (S3Uploader, LocalFSUploader) are
+// interchangeable wherever `storage.Storage` is required.
+var _ Storage = (*S3Uploader)(nil)
+
 func NewS3Uploader(ctx context.Context, cfg S3Config, logger zerolog.Logger) (*S3Uploader, error) {
 	if cfg.Bucket == "" {
 		return nil, errors.New("storage: s3 bucket must be configured")

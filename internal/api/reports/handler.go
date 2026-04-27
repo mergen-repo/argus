@@ -21,13 +21,16 @@ import (
 
 var cronFieldRe = regexp.MustCompile(`^[0-9/*,\-]+$`)
 
+// FIX-248 DEV-560: scope reduction. KVKK / GDPR / BTK (regulatory reports
+// removed alongside compliance page deprecation per DEV-254) and
+// CostAnalysis (cost page deprecated) are no longer accepted by the
+// generate / scheduled endpoints. Underlying builder Go code is parked
+// in tree until D-166 deletes it atomically with the 5 new builders
+// added under D-165 — one git commit per builder add/remove rather than
+// two passes through the codebase.
 var validReportTypes = map[string]bool{
-	string(report.ReportKVKK):         true,
-	string(report.ReportGDPR):         true,
-	string(report.ReportBTK):          true,
 	string(report.ReportSLAMonthly):   true,
 	string(report.ReportUsageSummary): true,
-	string(report.ReportCostAnalysis): true,
 	string(report.ReportAuditExport):  true,
 	string(report.ReportSIMInventory): true,
 }
@@ -464,28 +467,12 @@ type reportDefinition struct {
 	FormatOptions []string `json:"format_options"`
 }
 
+// FIX-248 DEV-560: scope reduction. Compliance trio (BTK/KVKK/GDPR) and
+// CostAnalysis removed. The 5 new operational reports (fleet_health,
+// policy_rollout_audit, ip_pool_forecast, coa_enforcement, traffic_trend)
+// are tracked under D-165 — when those builders ship, they'll be added
+// here in the same commit.
 var reportDefinitions = []reportDefinition{
-	{
-		ID:            string(report.ReportBTK),
-		Category:      "compliance",
-		Name:          "BTK Compliance Report",
-		Description:   "Turkish telecommunications authority (BTK) compliance report with subscriber data and traffic statistics.",
-		FormatOptions: []string{"pdf", "csv", "xlsx"},
-	},
-	{
-		ID:            string(report.ReportKVKK),
-		Category:      "compliance",
-		Name:          "KVKK Data Protection Report",
-		Description:   "Turkish Personal Data Protection Law (KVKK) compliance report for data processing activities.",
-		FormatOptions: []string{"pdf", "csv", "xlsx"},
-	},
-	{
-		ID:            string(report.ReportGDPR),
-		Category:      "compliance",
-		Name:          "GDPR Compliance Report",
-		Description:   "EU General Data Protection Regulation compliance report for cross-border data transfers.",
-		FormatOptions: []string{"pdf", "csv", "xlsx"},
-	},
 	{
 		ID:            string(report.ReportSLAMonthly),
 		Category:      "operational",
@@ -498,13 +485,6 @@ var reportDefinitions = []reportDefinition{
 		Category:      "analytics",
 		Name:          "Usage Summary",
 		Description:   "SIM activation, data consumption, and session counts aggregated by operator and APN.",
-		FormatOptions: []string{"pdf", "csv", "xlsx"},
-	},
-	{
-		ID:            string(report.ReportCostAnalysis),
-		Category:      "analytics",
-		Name:          "Cost Analysis",
-		Description:   "Carrier costs, usage costs, and per-SIM billing analysis for the selected period.",
 		FormatOptions: []string{"pdf", "csv", "xlsx"},
 	},
 	{

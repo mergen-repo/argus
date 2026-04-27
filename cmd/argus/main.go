@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1393,9 +1395,10 @@ func runServe(cfg *config.Config) {
 	ipGraceReleaseProc := job.NewIPGraceReleaseProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, metricsReg, log.Logger)
 	webhookRetryProc := job.NewWebhookRetryProcessor(webhookDeliveryStore, webhookConfigStore, jobStore, eventBus, metricsReg, log.Logger)
 	scheduledReportEngine := report.NewEngine(report.NewStoreProvider(complianceStore, cdrStore, auditStore, simStore, slaReportStore))
-	scheduledReportProc := job.NewScheduledReportProcessor(jobStore, scheduledReportStore, scheduledReportEngine, &nullReportStorage{impl: s3Impl}, eventBus, metricsReg, log.Logger)
+	reportStorage := selectReportStorage(cfg, s3Impl, log.Logger)
+	scheduledReportProc := job.NewScheduledReportProcessor(jobStore, scheduledReportStore, scheduledReportEngine, reportStorage, eventBus, metricsReg, log.Logger)
 	scheduledReportSweeper := job.NewScheduledReportSweeper(jobStore, scheduledReportStore, jobStore, eventBus, log.Logger)
-	dataPortabilityProc := job.NewDataPortabilityProcessor(jobStore, userStore, tenantStore, cdrStore, auditStore, &nullReportStorage{impl: s3Impl}, eventBus, pg.Pool, auditSvc, log.Logger)
+	dataPortabilityProc := job.NewDataPortabilityProcessor(jobStore, userStore, tenantStore, cdrStore, auditStore, reportStorage, eventBus, pg.Pool, auditSvc, log.Logger)
 	smsGatewayProc := job.NewSMSGatewayProcessor(smsOutboundStore, smsGatewaySender, rdb.Client, eventBus, log.Logger)
 
 	jobRunner.Register(kvkkPurgeProc)
@@ -1673,6 +1676,7 @@ func runServe(cfg *config.Config) {
 		DashboardHandler:     dashboardHandler,
 		SLAHandler:           slaHandler,
 		ReportsHandler:       reportsHandler,
+		ReportDownload:       buildReportDownloadDeps(reportStorage, cfg, log.Logger),
 		ReliabilityHandler:   reliabilityHandler,
 		StatusHandler:        statusHandler,
 		SystemConfigHandler:  systemConfigHandler,
@@ -2379,25 +2383,85 @@ func (a *onboardingBulkImportAdapter) EnqueueImport(ctx context.Context, tenantI
 	return j.ID.String(), nil
 }
 
-// nullReportStorage forwards to s3Impl when present; otherwise returns no-op
-// behaviour. Used so the scheduled-report and data-portability processors can
-// run in dev environments without S3 configured.
-type nullReportStorage struct {
-	impl *storage.S3Uploader
+// FIX-248 DEV-558: backend selector for report storage. Reads `REPORT_STORAGE`
+// env (set via `cfg.ReportStorage`) and instantiates either the LocalFS or
+// S3 backend. Both implement `storage.Storage` so downstream consumers
+// (scheduled_report, data_portability) accept the interface and don't care
+// which backend is wired.
+//
+// Defaults to LocalFS for Docker dev environments without S3 access; the
+// pre-FIX-248 `nullReportStorage` no-op wrapper is gone — silent no-ops
+// were the root cause of "report generation appears to succeed but no file
+// exists" reports.
+//
+// If REPORT_SIGNING_KEY is empty, a 32-byte random key is auto-generated on
+// boot and a warning is logged — multi-instance deploys MUST configure a
+// stable signing key (otherwise each instance mints incompatible URLs).
+func selectReportStorage(cfg *config.Config, s3Impl *storage.S3Uploader, logger zerolog.Logger) storage.Storage {
+	backend := strings.ToLower(strings.TrimSpace(cfg.ReportStorage))
+	if backend == "" {
+		backend = "local"
+	}
+
+	switch backend {
+	case "s3":
+		if s3Impl == nil {
+			logger.Error().Msg("REPORT_STORAGE=s3 but S3 not configured; falling back to LocalFS")
+			return mustLocalFS(cfg, logger)
+		}
+		logger.Info().Msg("report storage backend: S3")
+		return s3Impl
+
+	case "local":
+		fallthrough
+	default:
+		return mustLocalFS(cfg, logger)
+	}
 }
 
-func (n *nullReportStorage) Upload(ctx context.Context, bucket, key string, data []byte) error {
-	if n.impl == nil {
+// FIX-248 DEV-561: glue function — only the LocalFS backend exposes a
+// streamable Open(); when REPORT_STORAGE=s3 the download endpoint is not
+// registered (S3 has its own presigned URL).
+func buildReportDownloadDeps(s storage.Storage, cfg *config.Config, logger zerolog.Logger) *reportsapi.DownloadDeps {
+	local, ok := s.(*storage.LocalFSUploader)
+	if !ok {
+		logger.Info().Msg("report download endpoint disabled (S3 backend serves its own presigned URLs)")
 		return nil
 	}
-	return n.impl.Upload(ctx, bucket, key, data)
+	signingKey, err := hex.DecodeString(cfg.ReportSigningKeyHex)
+	if err != nil || len(signingKey) < 16 {
+		signingKey = local.SigningKey
+	}
+	return &reportsapi.DownloadDeps{
+		Opener: reportsapi.NewLocalFileOpener(local),
+		Verifier: func(key, expires, sig string) error {
+			exp, err := storage.ParseExpiresQS(expires)
+			if err != nil {
+				return err
+			}
+			return storage.VerifyKey(key, exp, sig, signingKey)
+		},
+	}
 }
 
-func (n *nullReportStorage) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
-	if n.impl == nil {
-		return "", nil
+func mustLocalFS(cfg *config.Config, logger zerolog.Logger) storage.Storage {
+	signingKey, err := hex.DecodeString(cfg.ReportSigningKeyHex)
+	if err != nil || len(signingKey) < 16 {
+		// Auto-generate a one-shot key. Multi-instance deploys MUST set
+		// REPORT_SIGNING_KEY explicitly — different keys yield URLs that
+		// only verify on the minting instance.
+		signingKey = make([]byte, 32)
+		if _, randErr := rand.Read(signingKey); randErr != nil {
+			panic(fmt.Sprintf("FIX-248 selectReportStorage: rand: %v", randErr))
+		}
+		logger.Warn().Msg("REPORT_SIGNING_KEY missing or <16 bytes; using ephemeral key (multi-instance deploys must set this env)")
 	}
-	return n.impl.PresignGet(ctx, bucket, key, ttl)
+	uploader, err := storage.NewLocalFSUploader(cfg.ReportStoragePath, signingKey, cfg.ReportPublicBaseURL, logger)
+	if err != nil {
+		panic(fmt.Sprintf("FIX-248 selectReportStorage: %v", err))
+	}
+	logger.Info().Str("path", cfg.ReportStoragePath).Msg("report storage backend: LocalFS")
+	return uploader
 }
 
 // emptyReportProvider is a stub DataProvider that returns empty result sets for

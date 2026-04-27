@@ -453,7 +453,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | FIX-244 | Violations lifecycle UI — acknowledge + remediate actions wired | P1 | S | [x] DONE (2026-04-27) | — |
 | FIX-239 | Knowledge Base Ops Runbook Redesign — 9 bölüm operational + interactive popup | P1 | L | [x] DONE (2026-04-27) | — |
 | FIX-236 | 10M SIM Scale Readiness — filter-based bulk, async batch, streaming export, virtual scrolling | P1 | XL | [x] DONE (2026-04-27) · Wave C deferred D-162 | FIX-201 |
-| FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [ ] PENDING | FIX-241 |
+| FIX-248 | Reports Subsystem Refactor — 4 kaldır + 5 yeni + Local FS storage + signed URL endpoint | P1 | XL | [x] DONE (2026-04-27) · 5 new builders deferred D-165, cleanup cron deferred D-167 | FIX-241 |
 
 ### Wave 10 — Phase 2 P2 UX Redesign + Scope Reduction
 
@@ -801,6 +801,9 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-162 | FIX-236 DEV-553 | Page adoption of FIX-236 primitives — Sessions / eSIM / Audit / Operators / APNs / Policies / Alerts each need to wire up `<VirtualTable>` + shared `<BulkActionBar>` + `*ByFilter` bulk endpoints (where applicable). Adoption is mechanical drop-in; deferred per-page so each owning future FIX can land its own behaviour parity tests. SCALE.md §6 audit table is the source-of-truth registry. | Per-page future FIX stories | OPEN |
 | D-163 | FIX-236 DEV-549 | Partition strategy refactor — `sims` is currently LIST partitioned by `operator_id`. At 10M+ SIMs spread across few operators, the per-partition row count becomes very large and re-partition benefit erodes. Revisit when 10M-seed benchmark exists; consider tenant-LIST or hash partitioning. Schema migration is non-trivial (pg_partman or manual swap-and-rename) — don't refactor without a specific p95 regression to chase. | Future perf story | OPEN |
 | D-164 | FIX-236 plan §D8 | Benchmark suite (k6 + 10M-row seed) — heavy infra (CI test env, baseline corpus). Out of scope for inline AUTOPILOT. Targets: list page p95 < 500ms; bulk enqueue < 2s; export streaming start < 1s. | Dedicated perf-benchmark story | OPEN |
+| D-165 | FIX-248 plan §D9 | 5 new operational reports (fleet_health, policy_rollout_audit, ip_pool_forecast, coa_enforcement, traffic_trend). Each is a 200+ line query + PDF/CSV/XLSX renderer — one builder per follow-up story is the right unit. Per-builder spec sketches in REPORTS.md §1 "Future catalogue" carry the starting point. | Per-builder follow-up FIX | OPEN |
+| D-166 | FIX-248 DEV-560 | Atomic deletion of dead-code KVKK/GDPR/BTK/CostAnalysis builder Go files (`internal/report/store_provider.go` methods + supporting types) plus FE `iconMap` cleanup in `web/src/pages/reports/index.tsx`. Tied to D-165 so the diff lands atomically with the new-builder additions — one git commit per builder add/remove rather than two passes through the codebase. | Tied to first D-165 builder | OPEN |
+| D-167 | FIX-248 plan §D9 / DEV-562 | Cleanup cron processor `internal/job/report_cleanup.go` — daily 02:00 UTC, walks `REPORT_STORAGE_PATH`, deletes files where `mtime + REPORT_RETENTION_DAYS < now`, removes empty leaf dirs. Logs `{deleted_files, reclaimed_bytes, duration_ms}`. Skipped when `REPORT_STORAGE=s3` (S3 lifecycle rules handle retention). Deferred from FIX-248 inline scope; signed-URL TTL (7d) ≪ retention (90d) means cleanup is housekeeping, not safety. | Small follow-up | OPEN |
 
 ---
 

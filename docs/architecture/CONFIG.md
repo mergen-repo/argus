@@ -343,6 +343,44 @@ These variables set the expected platform-wide capacity targets shown in the Sys
     └── db/{date}/argus_backup.sql.gz
 ```
 
+## Report Storage (FIX-248)
+
+The report subsystem uses a `Storage` interface (`internal/storage/storage.go`)
+with two interchangeable backends. Pre-FIX-248 the codebase only supported S3
+and silently no-op'd in environments without EC2 IMDS; this is fixed.
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `REPORT_STORAGE` | string | `local` | No | `local` (LocalFS, default) or `s3`. When `s3`, the S3_* variables above are reused. |
+| `REPORT_STORAGE_PATH` | path | `/var/lib/argus/reports` | No | LocalFS root. Must be writeable by the argus process. The Docker compose mounts `./data/reports` to this path. |
+| `REPORT_SIGNING_KEY` | hex string | (auto-generated) | **Yes for multi-instance** | 32-byte hex (≥16 raw bytes) used for HMAC-SHA256 signing of download URLs. **Multi-instance deployments MUST set this** — auto-generated keys differ per instance, breaking URLs. Logs a warning when missing. |
+| `REPORT_RETENTION_DAYS` | int | `90` | No | LocalFS file retention. Cleanup cron deletes files where `mtime + retention < now`. (Cleanup processor itself deferred to D-167.) |
+| `REPORT_PUBLIC_BASE_URL` | url | `http://localhost:8084` | No | Base URL prepended to LocalFS signed download links. Set to your customer-facing host (e.g. `https://argus.example.com`) in production. |
+
+### LocalFS layout
+
+```
+{REPORT_STORAGE_PATH}/tenants/{tenant_id}/reports/{job_id}/{filename}
+```
+
+The hierarchical path matches the S3 object key shape used by
+`scheduledReportProcessor`, so neither backend cares about path semantics.
+
+### Signed URL contract
+
+```
+{REPORT_PUBLIC_BASE_URL}/api/v1/reports/download/{key_b64}?expires={unix}&sig={hex}
+
+  key_b64  = base64.RawURLEncoding(key)
+  sig      = hex(HMAC-SHA256(key + "|" + expires_unix, REPORT_SIGNING_KEY))
+  TTL      = 7 days (matches the pre-FIX-248 S3 contract)
+```
+
+Verification: the download handler decodes `key_b64`, parses `expires`, and
+re-derives the HMAC with the same signing key. Constant-time compare; bad
+signatures return 401 with `{error: "Invalid download token"}`. Path
+traversal (`..`, absolute paths) is rejected during decode.
+
 ---
 
 ## eSIM SM-DP+

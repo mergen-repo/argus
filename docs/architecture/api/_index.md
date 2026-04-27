@@ -319,15 +319,16 @@ Implementation: See [STORY-040](../../stories/phase-7/STORY-040-websocket-events
 | API-204 | POST | /api/v1/onboarding/:id/step/:n | Submit step n payload (1..5); atomic side-effects per step | JWT (api_user, same tenant) | 422 with `details[]` on validation failure |
 | API-205 | POST | /api/v1/onboarding/:id/complete | Finalise the wizard, fire welcome notification, NATS event | JWT (api_user, same tenant) | Idempotent |
 
-## Reports (5 endpoints) — STORY-069
+## Reports (6 endpoints) — STORY-069, FIX-248
 
 | ID | Method | Path | Description | Auth | Notes |
 |----|--------|------|-------------|------|-------|
-| API-206 | POST | /api/v1/reports/generate | Enqueue an on-demand report run | JWT (api_user) | Returns 202 `{job_id, status:"queued"}` |
+| API-206 | POST | /api/v1/reports/generate | Enqueue an on-demand report run. FIX-248 DEV-560: scope reduced to `sla_monthly`, `usage_summary`, `audit_log_export`, `sim_inventory` (KVKK/GDPR/BTK/cost_analysis removed alongside compliance + cost page deprecation). | JWT (api_user) | Returns 202 `{job_id, status:"queued"}` |
 | API-207 | GET | /api/v1/reports/scheduled | List scheduled report definitions (cursor) | JWT (api_user) | — |
 | API-208 | POST | /api/v1/reports/scheduled | Create a scheduled report (cron + recipients[]) | JWT (tenant_admin+) | `next_run_at` computed via `NextRunAfter` |
 | API-209 | PATCH | /api/v1/reports/scheduled/:id | Update schedule, recipients, filters, state | JWT (tenant_admin+) | `state ∈ {active, paused}` |
 | API-210 | DELETE | /api/v1/reports/scheduled/:id | Delete a scheduled report | JWT (tenant_admin+) | — |
+| API-345 | GET | /api/v1/reports/download/{key_b64}?expires=&sig= | Stream a generated report file. **Public route** — auth is the HMAC-signed query string minted by `storage.LocalFSUploader.PresignGet` (TTL 7 days). Path-traversal-safe: `..` and absolute keys rejected during decode. Active only when `REPORT_STORAGE=local`; with `REPORT_STORAGE=s3` the FE is served the bucket presigned URL directly. Errors: 401 invalid/expired token, 404 missing file, 503 LocalFS not configured. | None (HMAC token) | FIX-248 DEV-559 |
 
 ## Webhooks (6 endpoints) — STORY-069
 
@@ -631,3 +632,4 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 > Index updated 2026-04-27 by Phase 11 architect dispatch — 12 row additions (API-327..338) covering Device Binding (4), IMEI Pool Management (5), Bulk SIM-Device Binding (1), Syslog Log Forwarding (2). New domain sections appended after the Alerts section. Total updated 257→269. See [ADR-004](../adrs/ADR-004-imei-binding-architecture.md).
 > Index updated 2026-04-27 by FIX-244 review — 2 row additions (API-339..340) for bulk violation acknowledge + bulk dismiss endpoints; API-262 amended with `status`, `action_taken`, `date_from`, `date_to` filter params; API-260 amended with reason ≥3 chars validation + `details.remediation` write; API-266 amended with Nginx 301 from legacy `/violations/export.csv`. Policy Violations count 5→7. Total updated 269→271.
 > Index updated 2026-04-27 by FIX-236 review — 4 row additions (API-341..344) for filter-based SIM bulk endpoints (preview-count + state-change-by-filter + policy-assign-by-filter + operator-switch-by-filter). SIM Segments & Bulk count 10→14. Total updated 271→275. Existing per-id bulk endpoints (API-064..066) unchanged.
+> Index updated 2026-04-27 by FIX-248 review — 1 row addition (API-345) for the public HMAC-signed `/reports/download/{key_b64}` endpoint; API-206 amended with the FIX-248 scope reduction (KVKK/GDPR/BTK/cost_analysis removed). Reports count 5→6. Total updated 275→276.

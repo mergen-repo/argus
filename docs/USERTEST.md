@@ -5365,3 +5365,41 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `web/src/components/shared/bulk-action-bar.tsx` import edilebilir, `mode="matching-filter"` + `actions=[{...}]` ile sticky bar render eder.
 2. `web/src/components/shared/virtual-table.tsx` import edilebilir, 1000+ satır listesinde `useVirtualizer` ile sadece görünür penceredeki satırları render eder; Home/End/PgUp/PgDn klavye nav çalışır.
 3. `useBulkPreviewCount` hook'u herhangi bir resource için `POST /{resource}/bulk/preview-count` çağrısı yapar.
+
+## FIX-248: Reports Subsystem Refactor — pipeline fix + storage abstraction
+
+> Wave C cleanup cron (D-167) and 5 new builders (D-165) deferred.
+> Tests below exercise the foundational fix: scope reduction + LocalFS
+> + signed-URL download endpoint.
+
+### AC-1, AC-2: Scope reduction
+1. Authenticate as an `api_user`.
+2. `GET /api/v1/reports/definitions` → expect 4 entries: `sla_monthly`, `usage_summary`, `audit_log_export`, `sim_inventory`.
+3. **Beklenen:** `compliance_kvkk`, `compliance_gdpr`, `compliance_btk`, `cost_analysis` ENVANTERDE YOK.
+4. `POST /api/v1/reports/generate` body `{"report_type":"compliance_kvkk","format":"pdf"}` → **expect 400** "Invalid report type".
+
+### AC-4..AC-7: Pipeline fix + signed-URL download
+1. `.env` ortamında `REPORT_STORAGE=local`, `REPORT_STORAGE_PATH=/var/lib/argus/reports`, `REPORT_SIGNING_KEY` opsiyonel (boş ise auto-gen + warn log).
+2. `make up` veya argus container restart → boot logunda `report storage backend: LocalFS` görünür.
+3. `POST /api/v1/reports/generate` body `{"report_type":"sla_monthly","format":"pdf","filters":{}}` → 202 `{job_id, status:"queued"}`.
+4. Job tamamlanınca container içindeki `ls /var/lib/argus/reports/tenants/{tenant_id}/reports/{job_id}/*.pdf` → dosya var.
+5. `GET /api/v1/jobs/{job_id}` veya scheduled report email → `download_url` döner; format `http://localhost:8084/api/v1/reports/download/{base64key}?expires=&sig=`.
+6. Tarayıcıdan URL'yi aç → PDF iner. Content-Type `application/pdf`, Content-Disposition `attachment; filename=...`.
+
+### AC-7: Bad-token guard
+1. URL'deki `sig=` parametresini bozar (örn. son karakteri değiştir) → 401 "Invalid download token".
+2. URL'deki `expires=` parametresini geçmiş bir unix timestamp'a çevir → 401 "Download link expired".
+3. URL'deki `key_b64` parametresini `..` veya `/etc/passwd` base64'üne çevir → 400 "Invalid download key".
+
+### AC-8: Docker volume persistence
+1. `docker compose down`; `ls ./data/reports/tenants/...` host'ta dosyalar duruyor.
+2. `docker compose up`; restart sonrası eski URL'ler hâlâ çalışır (signing key persistent ise).
+
+### REPORT_STORAGE=s3 fallback (smoke)
+1. `.env`'de `REPORT_STORAGE=s3` + S3 vars yoksa → boot logunda `REPORT_STORAGE=s3 but S3 not configured; falling back to LocalFS` warn-log.
+2. Process her durumda başlatılır.
+
+### Multi-instance deploy guard
+1. `REPORT_SIGNING_KEY` boş bırakılarak iki argus instance ayağa kaldır.
+2. Instance A'da minted URL Instance B'de 401 (sig'lar uyuşmaz) → boot warn-log uyarmıştı zaten.
+3. Aynı `REPORT_SIGNING_KEY=<32-byte-hex>` ikiye paylaştırılınca cross-instance verify çalışır.

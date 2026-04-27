@@ -88,6 +88,7 @@ type RouterDeps struct {
 	DashboardHandler      *dashboardapi.Handler
 	SLAHandler            *slaapi.Handler
 	ReportsHandler        *reportsapi.Handler
+	ReportDownload        *reportsapi.DownloadDeps // FIX-248 DEV-561: nil → no public download route
 	ReliabilityHandler    *systemapi.ReliabilityHandler
 	StatusHandler         *systemapi.StatusHandler
 	SystemConfigHandler   *systemapi.ConfigHandler
@@ -833,6 +834,15 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Patch("/api/v1/reports/scheduled/{id}", deps.ReportsHandler.PatchScheduled)
 				r.Delete("/api/v1/reports/scheduled/{id}", deps.ReportsHandler.DeleteScheduled)
 			})
+		}
+
+		// FIX-248 DEV-561: report download endpoint. PUBLIC by design — auth
+		// is the HMAC signed query string minted by `storage.PresignGet`. The
+		// FE renders an `<a href>` directly to this URL (no JWT header
+		// possible). Path traversal + signature verification happen in the
+		// handler.
+		if deps.ReportDownload != nil {
+			r.Get("/api/v1/reports/download/{key_b64}", deps.ReportDownload.Download)
 		}
 
 		if deps.ReliabilityHandler != nil {

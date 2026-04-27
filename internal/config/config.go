@@ -93,6 +93,16 @@ type Config struct {
 	S3Region    string `envconfig:"S3_REGION" default:"eu-west-1"`
 	S3PathStyle bool   `envconfig:"S3_PATH_STYLE" default:"false"`
 
+	// FIX-248 DEV-558: report-storage backend selection. Defaults to local FS
+	// so dev environments without S3/IMDS still produce downloadable reports.
+	// Set REPORT_STORAGE=s3 to opt back into the cloud path; the existing S3
+	// settings above are then used.
+	ReportStorage         string `envconfig:"REPORT_STORAGE" default:"local"` // local|s3
+	ReportStoragePath     string `envconfig:"REPORT_STORAGE_PATH" default:"/var/lib/argus/reports"`
+	ReportSigningKeyHex   string `envconfig:"REPORT_SIGNING_KEY"` // 32-byte hex (>=16 raw bytes); auto-generated on boot if empty (warning logged)
+	ReportRetentionDays   int    `envconfig:"REPORT_RETENTION_DAYS" default:"90"`
+	ReportPublicBaseURL   string `envconfig:"REPORT_PUBLIC_BASE_URL" default:"http://localhost:8084"`
+
 	EncryptionKey string `envconfig:"ENCRYPTION_KEY"`
 
 	TLSCertPath    string `envconfig:"TLS_CERT_PATH"`

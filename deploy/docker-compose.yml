@@ -42,6 +42,11 @@ services:
       - "8443:8443"
     env_file:
       - ../.env
+    volumes:
+      # FIX-248 DEV-563: persist generated reports on the host so the
+      # download endpoint can stream them. Default REPORT_STORAGE=local;
+      # multi-instance deploys should switch to REPORT_STORAGE=s3.
+      - ../data/reports:/var/lib/argus/reports
     depends_on:
       postgres:
         condition: service_healthy
