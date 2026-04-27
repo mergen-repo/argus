@@ -82,8 +82,7 @@ const OpsBackupPage = lazy(() => import('@/pages/ops/backup'))
 const OpsDeploysPage = lazy(() => import('@/pages/ops/deploys'))
 const OpsIncidentsPage = lazy(() => import('@/pages/ops/incidents'))
 
-const AdminTenantResourcesPage = lazy(() => import('@/pages/admin/tenant-resources'))
-const AdminQuotasPage = lazy(() => import('@/pages/admin/quotas'))
+const TenantUsagePage = lazy(() => import('@/pages/admin/tenant-usage'))
 const AdminCostPage = lazy(() => import('@/pages/admin/cost'))
 const AdminCompliancePage = lazy(() => import('@/pages/admin/compliance'))
 const AdminSecurityEventsPage = lazy(() => import('@/pages/admin/security-events'))
@@ -192,8 +191,9 @@ export const router = createBrowserRouter([
           { path: '/ops/backup', element: lazySuspense(OpsBackupPage) },
           { path: '/ops/deploys', element: lazySuspense(OpsDeploysPage) },
           { path: '/ops/incidents', element: lazySuspense(OpsIncidentsPage) },
-          { path: '/admin/resources', element: lazySuspense(AdminTenantResourcesPage) },
-          { path: '/admin/quotas', element: lazySuspense(AdminQuotasPage) },
+          { path: '/admin/tenant-usage', element: lazySuspense(TenantUsagePage) },
+          { path: '/admin/quotas', element: <Navigate to="/admin/tenant-usage" replace /> },
+          { path: '/admin/resources', element: <Navigate to="/admin/tenant-usage" replace /> },
           { path: '/admin/cost', element: lazySuspense(AdminCostPage) },
           { path: '/admin/compliance', element: lazySuspense(AdminCompliancePage) },
           { path: '/admin/security-events', element: lazySuspense(AdminSecurityEventsPage) },

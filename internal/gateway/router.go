@@ -973,6 +973,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("super_admin"))
+			r.Get("/api/v1/admin/tenants/usage", deps.AdminHandler.ListTenantUsage)
 			r.Get("/api/v1/admin/tenants/resources", deps.AdminHandler.ListTenantResources)
 			r.Get("/api/v1/admin/cost/by-tenant", deps.AdminHandler.ListCostByTenant)
 			r.Get("/api/v1/admin/sessions/active", deps.AdminHandler.ListActiveSessions)

@@ -167,3 +167,35 @@ export interface PurgeHistoryFilters {
   cursor?: string
   limit?: number
 }
+
+// FIX-246: Tenant Usage dashboard
+export type TenantPlan = 'starter' | 'standard' | 'enterprise'
+export type TenantState = 'active' | 'suspended' | 'trial'
+
+export interface TenantUsageMetric {
+  current: number
+  max: number
+  pct: number
+  status: 'ok' | 'warning' | 'critical'
+}
+
+export interface TenantUsageItem {
+  tenant_id: string
+  tenant_name: string
+  plan: TenantPlan
+  state: TenantState
+  sims: TenantUsageMetric
+  sessions: TenantUsageMetric
+  api_rps: TenantUsageMetric
+  storage_bytes: TenantUsageMetric
+  user_count: number
+  cdr_bytes_30d: number
+  open_breach_count: number
+}
+
+export interface UsageTrendPoint {
+  date: string
+  sims: number
+  sessions: number
+  cdr_bytes: number
+}

@@ -5447,3 +5447,56 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. Open browser Network tab (filter: Fetch/XHR).
 2. Navigate to `/settings` (defaults to Security tab).
 3. **Expected:** No API calls for Reliability or Notifications data until those tabs are clicked.
+
+---
+
+## FIX-246: Quotas + Resources → Tenant Usage Dashboard
+
+> `make up` gerektiriyor. Süper admin yetkili hesapla giriş yapın (`admin@argus.io`).
+
+### AC-1 + AC-2: Sayfa erişimi ve eski route redirect
+1. Tarayıcıda `/admin/resources` adresine gidin.
+2. **Beklenen:** URL otomatik olarak `/admin/tenant-usage`'a yönlendirilir (301-replace — tarayıcı geçmişine `/admin/resources` eklenmez).
+3. `/admin/quotas` adresini deneyin → aynı şekilde `/admin/tenant-usage`'a redirect.
+4. Sidebar'da "Tenant Usage" menüsüne tıklayın → doğrudan `/admin/tenant-usage` açılır.
+5. **Beklenen:** Her tenant için bir kart (4 quota bar: SIMs, Sessions, API RPS, Storage) ve üstte toolbar (arama, sıralama, filtre).
+
+### AC-2 + AC-7: formatBytes ve quota bar 4-tier renk
+1. Herhangi bir tenant kartında Storage satırına bakın.
+2. **Beklenen:** Ham byte değil, okunabilir format: "27.3 KB / 400 MB" (F-317 düzeltmesi — eski "273.4 B" değil).
+3. Düşük kullanım tüm metriklerde (SIMs < %50): quota bar rengi yeşil (success).
+4. Postgres'ten bir tenant'ın SIM sayısını artırarak (veya `max_sims`'i düşürerek) %50 üzerine çıkarın → bar rengi sarıya (warning) dönmeli.
+5. %80 eşiğini geçince: bar rengi kırmızıya (danger) ve kart etrafına turuncu `ring-2 ring-warning/40 animate-pulse` eklenmeli (80% warning ring).
+6. %95 eşiğini geçince: bar üzerinde ek kırmızı pulse overlay görünmeli (95% critical ring). Motion prefers-reduced-motion: animasyon durur, ring statik kalır.
+
+### AC-3: Kart / Tablo toggle
+1. Sayfanın sağ üst köşesindeki grid/list toggle ikonuna tıklayın.
+2. **Beklenen:** Tablo view'a geçer; URL'de `?view=table` parametresi eklenir.
+3. Sayfayı yenileyin → tablo view korunur.
+4. Toggle'a tekrar tıklayın → kart view'a döner, URL parametresi temizlenir.
+
+### AC-4: Toolbar — arama, sıralama, filtre
+1. Search kutusuna "Bosphorus" yazın → sadece o tenanta ait kart/satır görünmeli.
+2. Search clear butonuna tıklayın → tüm tenant'lar geri gelir. (Clear butonu shadcn `<Button variant="ghost" size="icon">` — not raw `<button>`.)
+3. Sort dropdown'dan "Utilization (desc)" seçin → en yüksek kullanımlı tenant üstte.
+4. Filter dropdown'dan "Warning (≥50%)" seçin → sadece sarı veya kırmızı tenant'lar listelenir.
+5. 30 saniye bekleyin → sayfa sessizce yenilenir (Network tab'ında yeni API çağrısı görünür), kart değerleri güncel kalır.
+
+### AC-5: %80+ quota breach alert tetiklenme (F-315)
+1. `GET /api/v1/admin/alerts?type=quota.breach` → başlangıçta sıfır veya birkaç kayıt.
+2. Bir tenant'ın `max_sims` değerini mevcut `sim_count`'un %80'inin altına indirin (örn. `UPDATE tenants SET max_sims = floor(sim_count / 0.95) WHERE name = 'Bosphorus IoT'`).
+3. Quota breach checker'ın çalışması için `CRON_QUOTA_BREACH_CHECK` cron expression'ı kısa bir aralığa ayarlanmış olmalı (geliştirme ortamı — default 1 dakika) veya servisi restart edin.
+4. **Beklenen:** `GET /api/v1/admin/alerts?type=quota.breach` → yeni `{type:"quota.breach", source:"system", severity:"warning"|"critical"}` alert kaydı görünür.
+5. `/alerts` sayfasına gidin → alert listelenir; Tenant Usage kartında %95+ ise critical pulse ring görünür.
+
+### AC-11: SlidePanel drill-down
+1. Herhangi bir tenant kartına tıklayın (veya tablo satırında satır genişletme).
+2. **Beklenen:** SlidePanel açılır — tenant adı, plan, 4 metrik özeti, breach geçmişi bölümü.
+3. Breach geçmişi bölümünde "View in Alerts →" bağlantısına tıklayın → `/alerts?type=quota.breach` sayfasına gider.
+4. Bir breach satırında "Events →" bağlantısı → `/alerts?type=quota.breach&tenant_id={id}` — o tenant'a ait breach alert'leri filtreli görünür.
+5. (Beklenen eksik: Sparkline trend grafiği henüz yok — D-170 deferred.)
+
+### AC-8 + AC-9: Plan enum ve realistic defaults (migration)
+1. `psql -c "SELECT name, plan FROM tenants"` → `plan` değerleri `starter | standard | enterprise` (küçük harf, başka değer yok).
+2. `psql -c "INSERT INTO tenants (plan, ...) VALUES ('STANDARD', ...)"` → `23514 CHECK violation` hatası döner (plana CHECK constraint var).
+3. `psql -c "SELECT name, max_sims, max_sessions, max_storage_bytes FROM tenants"` → M2M-realistic değerler: en az 10,000 SIM, 2,000 sessions, 10 GB (F-316 düzeltmesi — eski 50 sessions / 400 MB değil).

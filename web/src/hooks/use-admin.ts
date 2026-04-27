@@ -104,6 +104,11 @@ export function useDeliveryStatus(window: '1h' | '24h' | '7d' | '30d' = '24h') {
   })
 }
 
+/**
+ * @deprecated FIX-246 D-168 — prefer `useTenantUsage` (unified Tenant Usage
+ * dashboard). Pinned to compliance.tsx until the next maintenance wave routes
+ * that page through the merged endpoint.
+ */
 export function useTenantResources() {
   return useQuery({
     queryKey: TENANT_RESOURCES_KEY,
@@ -116,6 +121,11 @@ export function useTenantResources() {
   })
 }
 
+/**
+ * @deprecated FIX-246 D-168 — prefer `useTenantUsage` (unified Tenant Usage
+ * dashboard). Pinned to compliance.tsx until the next maintenance wave routes
+ * that page through the merged endpoint.
+ */
 export function useTenantQuotas() {
   return useQuery({
     queryKey: TENANT_QUOTAS_KEY,

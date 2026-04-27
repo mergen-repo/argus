@@ -806,6 +806,12 @@ func runServe(cfg *config.Config) {
 	coaFailureAlerterProc := job.NewCoAFailureAlerterProcessor(jobStore, policyStore, alertStore, metricsReg, eventBus, log.Logger)
 	jobRunner.Register(coaFailureAlerterProc)
 
+	// FIX-246 D-5 — quota breach checker: runs hourly, raises deduplicated alerts
+	// for tenants at >=80% (medium) or >=95% (critical) quota utilization across
+	// sims, sessions, api_rps, and storage_bytes. Auto-resolves when below threshold.
+	quotaBreachProc := job.NewQuotaBreachCheckerProcessor(jobStore, tenantStore, alertStore, log.Logger)
+	jobRunner.Register(quotaBreachProc)
+
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
 
@@ -943,6 +949,13 @@ func runServe(cfg *config.Config) {
 			Name:     "coa_failure_alerter",
 			Schedule: "* * * * *",
 			JobType:  job.JobTypeCoAFailureAlerter,
+		})
+		// FIX-246 D-5 — quota breach checker: hourly sweep across all active tenants.
+		// Env CRON_QUOTA_BREACH_CHECK overrides default (@hourly).
+		cronScheduler.AddEntry(job.CronEntry{
+			Name:     "quota_breach_checker",
+			Schedule: cfg.CronQuotaBreachCheck,
+			JobType:  job.JobTypeQuotaBreachChecker,
 		})
 		cronScheduler.AddEntry(job.CronEntry{
 			Name:     "data_retention",

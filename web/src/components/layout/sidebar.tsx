@@ -38,7 +38,6 @@ import {
   CalendarClock,
   DollarSign,
   UserCheck,
-  DatabaseZap,
   FileSearch,
   PackageSearch,
   MessageSquare,
@@ -121,9 +120,8 @@ const navGroups: NavGroup[] = [
     title: 'ADMIN',
     minRole: 'tenant_admin',
     items: [
-      { label: 'Quotas', icon: Gauge, path: '/admin/quotas' },
+      { label: 'Tenant Usage', icon: Gauge, path: '/admin/tenant-usage' },
       { label: 'DSAR Queue', icon: FileSearch, path: '/admin/dsar' },
-      { label: 'Resources', icon: DatabaseZap, path: '/admin/resources', minRole: 'super_admin' },
       { label: 'Cost', icon: DollarSign, path: '/admin/cost', minRole: 'super_admin' },
       { label: 'Compliance', icon: ShieldCheck, path: '/admin/compliance', minRole: 'super_admin' },
       { label: 'Security Events', icon: Shield, path: '/admin/security-events', minRole: 'super_admin' },

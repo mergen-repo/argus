@@ -62,8 +62,8 @@
 | SCR-167 | Ops Backup | Operations (SRE) | /ops/backup | JWT (super_admin) | STORY-072 SCR-137 alias: Last backup run status, size, checksum, S3 key; backup_runs table summary; sourced from /api/v1/system/backups |
 | SCR-168 | Ops Deploys | Operations (SRE) | /ops/deploys | JWT (super_admin) | STORY-072 SCR-138 alias: Deployment history list (color/version/timestamp/initiator); sourced from /api/v1/system/deploys |
 | SCR-169 | Ops Incidents Timeline | Operations (SRE) | /ops/incidents | JWT (super_admin) | STORY-072 SCR-139 alias: Severity-sorted merged anomaly+audit incident feed (LIMIT 200); sourced from API-238 |
-| SCR-140 | Tenant Resource Dashboard | Admin | /admin/resources | JWT (super_admin) | STORY-073: per-tenant SIM/session/API-RPS/storage cards + sparkbars + table toggle |
-| SCR-141 | Quota Breakdown | Admin | /admin/quotas | JWT (super_admin) | STORY-073: per-tenant quota progress bars with ok/warning/danger thresholds |
+| SCR-140 | Tenant Usage Dashboard | Admin | /admin/tenant-usage | JWT (super_admin) | FIX-246: unified quota+resource page (merged from old SCR-140 /admin/resources + SCR-141 /admin/quotas). Per-tenant card grid: 4 quota bars (SIMs/sessions/API-RPS/storage) with 4-tier color (success/warning/danger/critical), 80% warning pulse ring, 95% critical pulse ring, card/table toggle, sort/search/filter toolbar, 30s auto-refresh, SlidePanel drill-down. Old routes `/admin/resources` + `/admin/quotas` redirect here (301-replace). |
+| SCR-141 | Quota Breakdown | Admin | MERGED → SCR-140 | — | STORY-073 (original). MERGED INTO SCR-140 by FIX-246 — page deleted, route redirected to `/admin/tenant-usage`. |
 | SCR-142 | Cost by Tenant | Admin | /admin/cost | JWT (super_admin) | STORY-073: 6-month RADIUS/operator/SMS/storage cost breakdown table + sparklines |
 | SCR-143 | Security Events | Admin | /admin/security-events | JWT (tenant_admin+) | STORY-073: auth failures, role changes, kill-switch activity; sourced from /audit?actions= |
 | SCR-144 | Global Sessions | Admin | /admin/sessions | JWT (tenant_admin+) | STORY-073: all active sessions with idle timer, force-logout button; tenant_admin scoped |

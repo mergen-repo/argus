@@ -39,6 +39,10 @@ type Tenant struct {
 	PurgeRetentionDays int             `json:"purge_retention_days"`
 	Settings           json.RawMessage `json:"settings"`
 	State              string          `json:"state"`
+	Plan               string          `json:"plan"`
+	MaxSessions        int             `json:"max_sessions"`
+	MaxAPIRPS          int             `json:"max_api_rps"`
+	MaxStorageBytes    int64           `json:"max_storage_bytes"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 	CreatedBy          *uuid.UUID      `json:"created_by,omitempty"`
@@ -115,14 +119,17 @@ func (s *TenantStore) Create(ctx context.Context, p CreateTenantParams) (*Tenant
 
 	var t Tenant
 	err := s.db.QueryRow(ctx, `
-		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by,
+			plan, max_sessions, max_api_rps, max_storage_bytes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'standard', 20000, 5000, 1099511627776)
 		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
-			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+			purge_retention_days, settings, state, plan, max_sessions, max_api_rps, max_storage_bytes,
+			created_at, updated_at, created_by, updated_by
 	`, p.Name, p.Domain, p.ContactEmail, p.ContactPhone, maxSims, maxApns, maxUsers, p.CreatedBy).
 		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
+			&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+			&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, ErrDomainExists
@@ -154,14 +161,17 @@ func (s *TenantStore) CreateTenantWithAdmin(ctx context.Context, p CreateTenantW
 
 	var t Tenant
 	err = tx.QueryRow(ctx, `
-		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO tenants (name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, created_by,
+			plan, max_sessions, max_api_rps, max_storage_bytes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'standard', 20000, 5000, 1099511627776)
 		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
-			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+			purge_retention_days, settings, state, plan, max_sessions, max_api_rps, max_storage_bytes,
+			created_at, updated_at, created_by, updated_by
 	`, p.Name, p.Domain, p.ContactEmail, p.ContactPhone, maxSims, maxApns, maxUsers, p.CreatedBy).
 		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
+			&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+			&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, nil, ErrDomainExists
@@ -199,12 +209,14 @@ func (s *TenantStore) GetByID(ctx context.Context, id uuid.UUID) (*Tenant, error
 	var t Tenant
 	err := s.db.QueryRow(ctx, `
 		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
-			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+			purge_retention_days, settings, state, plan, max_sessions, max_api_rps, max_storage_bytes,
+			created_at, updated_at, created_by, updated_by
 		FROM tenants
 		WHERE id = $1
 	`, id).Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 		&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-		&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
+		&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+		&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantNotFound
 	}
@@ -248,7 +260,8 @@ func (s *TenantStore) List(ctx context.Context, cursor string, limit int, stateF
 
 	query := fmt.Sprintf(`
 		SELECT id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
-			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+			purge_retention_days, settings, state, plan, max_sessions, max_api_rps, max_storage_bytes,
+			created_at, updated_at, created_by, updated_by
 		FROM tenants
 		%s
 		ORDER BY created_at DESC, id DESC
@@ -266,7 +279,8 @@ func (s *TenantStore) List(ctx context.Context, cursor string, limit int, stateF
 		var t Tenant
 		if err := rows.Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy); err != nil {
+			&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+			&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy); err != nil {
 			return nil, "", fmt.Errorf("store: scan tenant: %w", err)
 		}
 		results = append(results, t)
@@ -315,7 +329,8 @@ func (s *TenantStore) ListWithCounts(ctx context.Context, cursor string, limit i
 
 	query := fmt.Sprintf(`
 		SELECT t.id, t.name, t.domain, t.contact_email, t.contact_phone, t.max_sims, t.max_apns, t.max_users, t.max_api_keys,
-			t.purge_retention_days, t.settings, t.state, t.created_at, t.updated_at, t.created_by, t.updated_by,
+			t.purge_retention_days, t.settings, t.state, t.plan, t.max_sessions, t.max_api_rps, t.max_storage_bytes,
+			t.created_at, t.updated_at, t.created_by, t.updated_by,
 			sc.cnt AS sim_count, uc.cnt AS user_count
 		FROM tenants t
 		LEFT JOIN LATERAL (
@@ -341,7 +356,8 @@ func (s *TenantStore) ListWithCounts(ctx context.Context, cursor string, limit i
 		t := &twc.Tenant
 		if err := rows.Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy,
+			&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+			&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy,
 			&twc.SimCount, &twc.UserCount); err != nil {
 			return nil, "", fmt.Errorf("store: scan tenant with counts: %w", err)
 		}
@@ -416,14 +432,16 @@ func (s *TenantStore) Update(ctx context.Context, id uuid.UUID, p UpdateTenantPa
 		UPDATE tenants SET %s
 		WHERE id = $1
 		RETURNING id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, max_api_keys,
-			purge_retention_days, settings, state, created_at, updated_at, created_by, updated_by
+			purge_retention_days, settings, state, plan, max_sessions, max_api_rps, max_storage_bytes,
+			created_at, updated_at, created_by, updated_by
 	`, strings.Join(sets, ", "))
 
 	var t Tenant
 	err := s.db.QueryRow(ctx, query, args...).
 		Scan(&t.ID, &t.Name, &t.Domain, &t.ContactEmail, &t.ContactPhone,
 			&t.MaxSims, &t.MaxApns, &t.MaxUsers, &t.MaxAPIKeys, &t.PurgeRetentionDays,
-			&t.Settings, &t.State, &t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
+			&t.Settings, &t.State, &t.Plan, &t.MaxSessions, &t.MaxAPIRPS, &t.MaxStorageBytes,
+			&t.CreatedAt, &t.UpdatedAt, &t.CreatedBy, &t.UpdatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantNotFound
 	}
@@ -483,6 +501,29 @@ func (s *TenantStore) GetStats(ctx context.Context, tenantID uuid.UUID) (*Tenant
 	}
 
 	return &stats, nil
+}
+
+// EstimateAPIRPS returns the rolling 5-minute API requests/sec estimate for a
+// tenant by counting authenticated audit_logs in the window. Mirrors the
+// admin-handler helper (estimateTenantAPIRPS) so the quota_breach_checker can
+// reuse the same calculation. Returns 0 on any error or when db is nil.
+// FIX-246 Gate F-A2 — wired so api_rps quota breach alerts fire correctly.
+func (s *TenantStore) EstimateAPIRPS(ctx context.Context, tenantID uuid.UUID) float64 {
+	if s.db == nil {
+		return 0
+	}
+	var count float64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM audit_logs
+		WHERE tenant_id = $1
+		  AND api_key_id IS NOT NULL
+		  AND created_at >= NOW() - INTERVAL '5 minutes'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		return 0
+	}
+	return count / float64((5 * time.Minute).Seconds())
 }
 
 func (s *TenantStore) CountActive(ctx context.Context) (int64, error) {

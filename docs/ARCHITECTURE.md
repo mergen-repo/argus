@@ -305,6 +305,9 @@ argus/
 | /settings/system | SystemConfigPage | JWT (super_admin) | DashboardLayout |
 | /system/health | SystemHealthPage | JWT (super_admin) | DashboardLayout |
 | /system/tenants | TenantManagementPage | JWT (super_admin) | DashboardLayout |
+| /admin/tenant-usage | TenantUsagePage | JWT (super_admin) | DashboardLayout — unified quota+resource dashboard; card/table toggle; 30s auto-refresh; 80%/95% threshold pulse rings; breach drill-down; FIX-246 |
+| /admin/quotas | → redirect `/admin/tenant-usage` | — | 301-replace; FIX-246 |
+| /admin/resources | → redirect `/admin/tenant-usage` | — | 301-replace; FIX-246 |
 
 ### State Management
 - **Zustand**: Auth state, UI preferences (dark/light mode), sidebar state, command palette

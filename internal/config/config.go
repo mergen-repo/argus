@@ -130,6 +130,7 @@ type Config struct {
 	CronS3Archival            string        `envconfig:"CRON_S3_ARCHIVAL" default:"0 3 * * 0"`
 	CronDataRetention         string        `envconfig:"CRON_DATA_RETENTION" default:"@daily"`
 	CronStorageMonitor        string        `envconfig:"CRON_STORAGE_MONITOR" default:"@hourly"`
+	CronQuotaBreachCheck      string        `envconfig:"CRON_QUOTA_BREACH_CHECK" default:"@hourly"`
 	CronFleetDigest           string        `envconfig:"CRON_FLEET_DIGEST" default:"*/15 * * * *"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
 	RoamingRenewalAlertDays   int           `envconfig:"ROAMING_RENEWAL_ALERT_DAYS" default:"30"`
