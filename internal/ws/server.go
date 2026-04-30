@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,12 @@ type ServerConfig struct {
 	MaxConnsPerTenant int
 	MaxConnsPerUser   int
 	PongTimeout       time.Duration
+	// AllowedOrigins is the comma-separated list of origins (full URLs,
+	// scheme + host + optional port) permitted to upgrade to WebSocket.
+	// Empty list ⇒ same-origin only (server-issued requests with empty
+	// Origin header). Wire to env WS_ALLOWED_ORIGINS at construction.
+	// Security: prevents Cross-Site WebSocket Hijacking (CWE-352).
+	AllowedOrigins []string
 }
 
 type Server struct {
@@ -55,13 +62,29 @@ func NewServer(hub *Hub, cfg ServerConfig, logger zerolog.Logger) *Server {
 		cfg.PongTimeout = 90 * time.Second
 	}
 
+	allowed := normaliseOrigins(cfg.AllowedOrigins)
 	s := &Server{
 		hub: hub,
 		cfg: cfg,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
-			CheckOrigin:     func(r *http.Request) bool { return true },
+			// Security: CSWH guard. An empty Origin header is allowed
+			// (same-origin / non-browser callers); anything else must
+			// match the configured allow-list. CWE-352.
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true
+				}
+				origin = strings.ToLower(origin)
+				for _, a := range allowed {
+					if origin == a {
+						return true
+					}
+				}
+				return false
+			},
 		},
 		logger: logger.With().Str("component", "ws_server").Logger(),
 	}
@@ -366,4 +389,19 @@ func (s *Server) writePump(conn *Connection) {
 			return
 		}
 	}
+}
+
+// normaliseOrigins lower-cases each origin and trims trailing slashes so the
+// CheckOrigin equality check is canonical. Empty entries are skipped.
+func normaliseOrigins(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, o := range in {
+		o = strings.TrimSpace(strings.ToLower(o))
+		o = strings.TrimRight(o, "/")
+		if o == "" {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
 }
