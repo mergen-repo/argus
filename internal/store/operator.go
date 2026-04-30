@@ -457,6 +457,23 @@ func (s *OperatorStore) UpdateHealthStatus(ctx context.Context, id uuid.UUID, st
 	return nil
 }
 
+// FIX-308: write the circuit-breaker state to operators.circuit_state alongside
+// the per-tick log row in operator_health_logs. Pre-fix the column was always
+// NULL despite log inserts recording transitions, so UAT-005/020 saw no live
+// CB indicator on the operators page. Idempotent — same UPDATE re-runs on every
+// tick are cheap (NOOP when state hasn't changed).
+func (s *OperatorStore) UpdateCircuitState(ctx context.Context, id uuid.UUID, circuitState string) error {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE operators SET circuit_state = $2 WHERE id = $1`, id, circuitState)
+	if err != nil {
+		return fmt.Errorf("store: update operator circuit state: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrOperatorNotFound
+	}
+	return nil
+}
+
 func (s *OperatorStore) ListActive(ctx context.Context) ([]Operator, error) {
 	rows, err := s.db.Query(ctx, `SELECT `+operatorColumns+` FROM operators WHERE state = 'active' ORDER BY name`)
 	if err != nil {

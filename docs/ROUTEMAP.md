@@ -342,10 +342,10 @@ Architectural decisions (documented, not blocking UAT):
 | FIX-305 | SIM Suspend Does Not Auto-Fire DM | HIGH | UAT-003/022 | M | [x] DONE 2026-04-30 | DEV-585; SessionTerminator interface + SIMSessionTerminator impl; suspend → ListActive→DM→Finalize; session.dm_sent audit + session_state=closed verified |
 | FIX-306 | `/api/v1/anomalies` Listing Route 404 | HIGH | UAT-010/021 | S | [x] DONE 2026-04-30 | DEV-586; canonical path was /analytics/anomalies; added /api/v1/anomalies alias for List/Get/Patch/ExportCSV; both paths 200 |
 | FIX-307 | Email Pipeline Silent (0 emails fired) | HIGH | UAT-001/013 | M | [x] DONE 2026-04-30 | DEV-587; SMTP_HOST/PORT/TLS/FROM defaults pinned in compose env (PAT-030 pattern); password reset email visible in Mailhog post-fix |
-| FIX-308 | `operators.circuit_state` Always NULL | MEDIUM | UAT-005/020 | XS | [ ] PENDING | CB transitions log but col never set |
-| FIX-309 | `notification_preferences` Defaults Not Seeded | MEDIUM | UAT-013 | XS | [ ] PENDING | API returns [] for all users |
-| FIX-310 | OTA Command Not Persisted After POST | MEDIUM | UAT-023 | S | [ ] PENDING | 201 returns id, no DB row |
-| FIX-311 | `ip_address` NULL in SIM DTO After Activate | MEDIUM | UAT-003 | XS | [ ] PENDING | FIX-242 area extension |
+| FIX-308 | `operators.circuit_state` Always NULL | MEDIUM | UAT-005/020 | XS | [x] DONE 2026-04-30 | DEV-588; new migration 20260506000001 adds circuit_state col; UpdateCircuitState wired in CB transition handler; verified 'closed' for all 4 operators |
+| FIX-309 | `notification_preferences` Defaults Not Seeded | MEDIUM | UAT-013 | XS | [x] DONE 2026-04-30 | DEV-589; new seed file 010_notification_preferences_defaults.sql; 4 tenants × 11 events = 44 rows; GET /api/v1/notification-preferences now returns 11 |
+| FIX-310 | OTA Command Not Persisted After POST | MEDIUM | UAT-023 | S | [x] DONE 2026-04-30 | DEV-590; STALE_SCENARIO — handler persists to ota_commands (correct table), UAT report's expectation of esim_ota_commands was for the M2M provisioning path (FIX-235), different code path |
+| FIX-311 | `ip_address` NULL in SIM DTO After Activate | MEDIUM | UAT-003 | XS | [x] DONE 2026-04-30 | DEV-591; new buildSIMResponse helper + resolveSIMIPAddress; Get/Suspend/Resume/Activate/Terminate now return ip_address+ip_pool_name; verified 10.20.0.12/32 / Demo IoT Pool |
 
 STALE_SCENARIO updates (UAT.md edits, no code change): D-uat-002-cols, D-uat-004, D-uat-006, D-uat-007, D-uat-011, D-uat-016, D-uat-022 — route via `/amil change` single batch.
 

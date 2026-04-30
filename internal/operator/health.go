@@ -397,6 +397,12 @@ func (hc *HealthChecker) checkOperator(opID uuid.UUID, adapterType string, confi
 		if err := hc.store.UpdateHealthStatus(ctx, opID, status); err != nil {
 			hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("update health status")
 		}
+
+		// FIX-308: persist the live CB state on operators.circuit_state so the
+		// operators list/detail UI surfaces it without rolling up the log table.
+		if err := hc.store.UpdateCircuitState(ctx, opID, string(cbState)); err != nil {
+			hc.logger.Error().Err(err).Str("operator_id", opID.String()).Msg("update circuit state")
+		}
 	}
 
 	if hc.redisClient != nil {

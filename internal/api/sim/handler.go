@@ -493,7 +493,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteSuccess(w, http.StatusCreated, toSIMResponseBase(sim))
 		return
 	}
-	apierr.WriteSuccess(w, http.StatusCreated, toSIMResponse(enriched))
+	apierr.WriteSuccess(w, http.StatusCreated, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +521,40 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(sim))
+	apierr.WriteSuccess(w, http.StatusOK, h.buildSIMResponse(r.Context(), tenantID, sim))
+}
+
+// buildSIMResponse converts an enriched SIM to the API response shape and
+// fills the per-SIM IP fields (FIX-311). All Get / Create / Activate /
+// Suspend / Resume / Terminate handlers funnel through this helper so the
+// detail endpoints stay at parity with the List endpoint.
+func (h *Handler) buildSIMResponse(ctx context.Context, tenantID uuid.UUID, enriched *store.SIMWithNames) simResponse {
+	resp := toSIMResponse(enriched)
+	h.resolveSIMIPAddress(ctx, tenantID, &enriched.SIM, &resp)
+	return resp
+}
+
+// resolveSIMIPAddress fills resp.IPAddress + resp.IPPoolName for a single
+// SIM. FIX-311: Get / Suspend / Resume / Activate all returned ip_address:null
+// because toSIMResponse only consumes SIMWithNames (which has no IP join).
+// The List path populates IP via a separate map; this helper centralises the
+// per-SIM lookup so all single-SIM responses match List parity.
+func (h *Handler) resolveSIMIPAddress(ctx context.Context, tenantID uuid.UUID, sim *store.SIM, resp *simResponse) {
+	if sim == nil || resp == nil || h.ippoolStore == nil || sim.IPAddressID == nil {
+		return
+	}
+	addr, err := h.ippoolStore.GetAddressByID(ctx, *sim.IPAddressID)
+	if err != nil || addr == nil {
+		return
+	}
+	if addr.AddressV4 != nil && *addr.AddressV4 != "" {
+		resp.IPAddress = *addr.AddressV4
+	} else if addr.AddressV6 != nil && *addr.AddressV6 != "" {
+		resp.IPAddress = *addr.AddressV6
+	}
+	if pool, err := h.ippoolStore.GetByID(ctx, tenantID, addr.PoolID); err == nil && pool != nil {
+		resp.IPPoolName = pool.Name
+	}
 }
 
 func (h *Handler) enrichSIMResponse(ctx context.Context, tenantID uuid.UUID, sim *store.SIM, resp *simResponse) {
@@ -1150,7 +1183,7 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
 		return
 	}
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
+	apierr.WriteSuccess(w, http.StatusOK, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
@@ -1217,7 +1250,7 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
 		return
 	}
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
+	h.writeSIMWithUndo(w, r, simID, existing.State, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 // FIX-253 DEV-392: Resume re-allocates IP via handler-side flow (mirrors Activate post-FIX-253).
@@ -1374,7 +1407,7 @@ func (h *Handler) Resume(w http.ResponseWriter, r *http.Request) {
 		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
 		return
 	}
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
+	h.writeSIMWithUndo(w, r, simID, existing.State, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
@@ -1435,7 +1468,7 @@ func (h *Handler) Terminate(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
 		return
 	}
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
+	apierr.WriteSuccess(w, http.StatusOK, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
@@ -1488,7 +1521,7 @@ func (h *Handler) ReportLost(w http.ResponseWriter, r *http.Request) {
 		h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponseBase(sim))
 		return
 	}
-	h.writeSIMWithUndo(w, r, simID, existing.State, toSIMResponse(enriched))
+	h.writeSIMWithUndo(w, r, simID, existing.State, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) writeSIMWithUndo(w http.ResponseWriter, r *http.Request, simID uuid.UUID, previousState string, data interface{}) {
@@ -1634,7 +1667,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteSuccess(w, http.StatusOK, toSIMResponseBase(sim))
 		return
 	}
-	apierr.WriteSuccess(w, http.StatusOK, toSIMResponse(enriched))
+	apierr.WriteSuccess(w, http.StatusOK, h.buildSIMResponse(r.Context(), tenantID, enriched))
 }
 
 func (h *Handler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}, userID *uuid.UUID) {
