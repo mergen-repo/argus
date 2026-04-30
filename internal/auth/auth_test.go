@@ -552,3 +552,19 @@ func TestLogin_OnboardingLookupNil_FailSafeFalse(t *testing.T) {
 		t.Errorf("OnboardingCompleted = true with nil lookup; want fail-safe false")
 	}
 }
+
+func TestLogin_SuperAdmin_OnboardingBypass(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: false})
+	user := createTestUser("super@example.com", "password123", false)
+	user.Role = "super_admin" // super_admin bypasses tenant-scoped onboarding
+	users.addUser(user)
+
+	result, _, err := svc.Login(context.Background(), "super@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if !result.User.OnboardingCompleted {
+		t.Errorf("super_admin OnboardingCompleted = false; want true (role bypass)")
+	}
+}

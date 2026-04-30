@@ -220,8 +220,18 @@ func (s *Service) WithOnboardingSessions(lookup OnboardingSessionLookup) *Servic
 }
 
 // isOnboardingCompleted returns true if the tenant has a completed onboarding
-// session. Fail-safe: returns false on nil lookup or any error.
-func (s *Service) isOnboardingCompleted(ctx context.Context, tenantID uuid.UUID) bool {
+// session OR the user is a super_admin / system role that bypasses tenant
+// onboarding. Fail-safe: returns false on nil lookup or any error for non-
+// privileged roles so the FE redirects them to the wizard.
+//
+// FIX-303 patch (super_admin bypass): super_admin and system roles operate
+// across all tenants and don't have their own per-tenant onboarding flow;
+// treat the flag as completed for them so they land on the dashboard at
+// login instead of getting stuck in the wizard for tenant 00000000-...01.
+func (s *Service) isOnboardingCompleted(ctx context.Context, role string, tenantID uuid.UUID) bool {
+	if role == "super_admin" || role == "system" {
+		return true
+	}
 	if s.onboardingSessions == nil {
 		return false
 	}
@@ -284,7 +294,7 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 				Email:               user.Email,
 				Name:                user.Name,
 				Role:                user.Role,
-				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
+				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.Role, user.TenantID),
 			},
 			Token:  partialToken,
 			Reason: reason,
@@ -302,7 +312,7 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 				Email:               user.Email,
 				Name:                user.Name,
 				Role:                user.Role,
-				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
+				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.Role, user.TenantID),
 			},
 			Token:       partialToken,
 			Requires2FA: true,
@@ -323,7 +333,7 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 			Email:               user.Email,
 			Name:                user.Name,
 			Role:                user.Role,
-			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
+			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.Role, user.TenantID),
 		},
 		Token:        token,
 		RefreshToken: refreshToken,
@@ -738,7 +748,7 @@ func (s *Service) CreateSessionForUser(ctx context.Context, userID uuid.UUID, ip
 			Email:               user.Email,
 			Name:                user.Name,
 			Role:                user.Role,
-			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
+			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.Role, user.TenantID),
 		},
 		Token:        token,
 		RefreshToken: refreshToken,
