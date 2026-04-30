@@ -39,8 +39,12 @@ func TestOperatorColumnsAndScanCountConsistency(t *testing.T) {
 			count++
 		}
 	}
-	if count != 20 {
-		t.Fatalf("operatorColumns has %d columns; expected 20. If you intentionally changed the column count, update List() and ListActive() inline rows.Scan() destinations to match — see PAT-006 RECURRENCE in bug-patterns.md", count)
+	// FIX-308-ext (2026-04-30): circuit_state added → 21 columns. PAT-006
+	// regression invariant still applies — every column count change MUST
+	// update the inline rows.Scan loops in List() and ListActive() in
+	// lockstep with operatorColumns and scanOperator.
+	if count != 21 {
+		t.Fatalf("operatorColumns has %d columns; expected 21. If you intentionally changed the column count, update List() and ListActive() inline rows.Scan() destinations to match — see PAT-006 RECURRENCE in bug-patterns.md", count)
 	}
 }
 

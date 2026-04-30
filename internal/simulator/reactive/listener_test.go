@@ -219,9 +219,20 @@ func TestListener_CoAAck_UpdatesDeadline(t *testing.T) {
 		t.Errorf("deadline %v not within ±2s of expected %v (delta %v)", deadline, expected, delta)
 	}
 
-	count := countMetric(metrics.SimulatorReactiveIncomingTotal, prometheus.Labels{"operator": "testop2", "kind": "coa", "result": "ack"})
+	// Metric is bumped asynchronously after the ACK is written; poll
+	// briefly to avoid flakes on slow CI runners under -race rather than
+	// asserting immediately on the post-response goroutine.
+	deadlineWait := time.Now().Add(2 * time.Second)
+	var count float64
+	for time.Now().Before(deadlineWait) {
+		count = countMetric(metrics.SimulatorReactiveIncomingTotal, prometheus.Labels{"operator": "testop2", "kind": "coa", "result": "ack"})
+		if count >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if count < 1 {
-		t.Errorf("expected metric coa/ack >= 1, got %v", count)
+		t.Errorf("expected metric coa/ack >= 1 within 2s, got %v", count)
 	}
 }
 
