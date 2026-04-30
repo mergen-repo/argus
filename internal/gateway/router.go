@@ -656,6 +656,13 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/analytics/anomalies/export.csv", deps.AnomalyHandler.ExportCSV)
 				r.Get("/api/v1/analytics/anomalies/{id}", deps.AnomalyHandler.Get)
 				r.Patch("/api/v1/analytics/anomalies/{id}", deps.AnomalyHandler.UpdateState)
+				// FIX-306: alias the canonical /api/v1/anomalies path so UAT
+				// scenarios + external integrations don't need to know that
+				// anomalies live under analytics. Same handler, same auth.
+				r.Get("/api/v1/anomalies", deps.AnomalyHandler.List)
+				r.Get("/api/v1/anomalies/export.csv", deps.AnomalyHandler.ExportCSV)
+				r.Get("/api/v1/anomalies/{id}", deps.AnomalyHandler.Get)
+				r.Patch("/api/v1/anomalies/{id}", deps.AnomalyHandler.UpdateState)
 			})
 		}
 

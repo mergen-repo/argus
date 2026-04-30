@@ -340,7 +340,7 @@ Architectural decisions (documented, not blocking UAT):
 | FIX-303 | Onboarding Phantom Field + Route Rename | CRITICAL | UAT-001 | M | [x] DONE 2026-04-30 | DEV-583; UserInfo.OnboardingCompleted wired (4 sites) + /setup→/onboarding rename + transition redirect; 4 unit tests added |
 | FIX-304 | 5G SBA :8443 Listener Not Bound | CRITICAL | UAT-019 | S | [x] DONE 2026-04-30 | DEV-584; SBA_ENABLED default true; compose env defense-in-depth; netstat shows :::8443 LISTEN; /health → {"status":"healthy"} |
 | FIX-305 | SIM Suspend Does Not Auto-Fire DM | HIGH | UAT-003/022 | M | [x] DONE 2026-04-30 | DEV-585; SessionTerminator interface + SIMSessionTerminator impl; suspend → ListActive→DM→Finalize; session.dm_sent audit + session_state=closed verified |
-| FIX-306 | `/api/v1/anomalies` Listing Route 404 | HIGH | UAT-010/021 | S | [ ] PENDING | Cascades to UAT-021 entirely |
+| FIX-306 | `/api/v1/anomalies` Listing Route 404 | HIGH | UAT-010/021 | S | [x] DONE 2026-04-30 | DEV-586; canonical path was /analytics/anomalies; added /api/v1/anomalies alias for List/Get/Patch/ExportCSV; both paths 200 |
 | FIX-307 | Email Pipeline Silent (0 emails fired) | HIGH | UAT-001/013 | M | [ ] PENDING | Mailhog 0 throughout UAT |
 | FIX-308 | `operators.circuit_state` Always NULL | MEDIUM | UAT-005/020 | XS | [ ] PENDING | CB transitions log but col never set |
 | FIX-309 | `notification_preferences` Defaults Not Seeded | MEDIUM | UAT-013 | XS | [ ] PENDING | API returns [] for all users |
