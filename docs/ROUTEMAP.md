@@ -336,7 +336,7 @@ Architectural decisions (documented, not blocking UAT):
 | # | Story | Severity | UAT | Effort | Status | Notes |
 |---|-------|---------|-----|--------|--------|-------|
 | FIX-301 | Startup Race — Prepared-Statement OID Cache | CRITICAL | UAT-002 + all SIM ops | M | [x] DONE 2026-04-30 | DEV-581; in-process migrate (Layer 1) + pgx ExecMode override (Layer 2); ARGUS_AUTO_MIGRATE env added |
-| FIX-302 | Audit Hash Chain Broken at Entry 1 | CRITICAL | UAT-001/012 | M | [ ] PENDING — Plan ready | Plan: ComputeHash timezone + microsecond padding bugs |
+| FIX-302 | Audit Hash Chain Broken at Entry 1 | CRITICAL | UAT-001/012 | M | [x] DONE 2026-04-30 | DEV-582; ComputeHash UTC + 6-digit micro layout; seed → placeholder + repair; verify endpoint returns verified:true total=264 |
 | FIX-303 | Onboarding Phantom Field + Route Rename | CRITICAL | UAT-001 | M | [ ] PENDING — Plan ready | Plan: UserInfo.OnboardingCompleted + /setup→/onboarding |
 | FIX-304 | 5G SBA :8443 Listener Not Bound | CRITICAL | UAT-019 | S | [ ] PENDING — Plan ready | Plan: SBA_ENABLED default false→true |
 | FIX-305 | SIM Suspend Does Not Auto-Fire DM | HIGH | UAT-003/022 | M | [ ] PENDING | Sessions stay active after suspend |

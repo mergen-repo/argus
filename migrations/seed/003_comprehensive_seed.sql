@@ -968,11 +968,15 @@ DO $guard$ BEGIN
 EXCEPTION WHEN undefined_object THEN NULL;
 END $guard$;
 
--- Audit logs (guarded: skip if already seeded)
+-- FIX-302: Single source of truth for audit hash = Go.
+-- Seed inserts placeholder hashes ('0' x 64 for both hash and prev_hash);
+-- the Makefile db-seed target runs `argus repair-audit` afterwards which
+-- recomputes correct chained hashes via Go's audit.ComputeHash. This
+-- eliminates the format-drift class of bugs (FIX-104 RECURRENCE) where
+-- PG to_char and Go time.Format diverged on timezone or sub-second padding.
 DO $$
 DECLARE
-    prev_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
-    cur_h TEXT;
+    placeholder_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
     i INT;
     t_id UUID;
     u_id UUID;
@@ -980,8 +984,6 @@ DECLARE
     ent_type TEXT;
     ent_id TEXT;
     ts TIMESTAMPTZ;
-    ts_text TEXT;
-    user_text TEXT;
     tenants_arr UUID[] := ARRAY['10000000-0000-0000-0000-000000000001'::uuid, '10000000-0000-0000-0000-000000000002'::uuid];
     users_nar UUID[] := ARRAY['40000000-0000-0000-0000-000000000001'::uuid, '40000000-0000-0000-0000-000000000002'::uuid, '40000000-0000-0000-0000-000000000003'::uuid, '40000000-0000-0000-0000-000000000004'::uuid, '40000000-0000-0000-0000-000000000005'::uuid];
     users_bio UUID[] := ARRAY['40000000-0000-0000-0000-000000000011'::uuid, '40000000-0000-0000-0000-000000000012'::uuid, '40000000-0000-0000-0000-000000000013'::uuid, '40000000-0000-0000-0000-000000000014'::uuid];
@@ -1005,11 +1007,6 @@ BEGIN
         ent_id := gen_random_uuid()::text;
         ts := NOW() - ((250 - i) * INTERVAL '2 hours') + (random() * INTERVAL '1 hour');
 
-        -- Match Go's ComputeHash field order: tenant_id|user_id|action|entity_type|entity_id|created_at_RFC3339Nano|prev_hash
-        ts_text := to_char(ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US000"Z"');
-        user_text := u_id::text;
-        cur_h := encode(sha256((t_id::text || '|' || user_text || '|' || act || '|' || ent_type || '|' || ent_id || '|' || ts_text || '|' || prev_h)::bytea), 'hex');
-
         INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, before_data, after_data, ip_address, hash, prev_hash, created_at)
         VALUES (
             t_id,
@@ -1024,12 +1021,10 @@ BEGIN
                  WHEN act LIKE '%.terminate' THEN '{"state":"terminated"}'::jsonb
                  ELSE '{}'::jsonb END,
             ('192.168.1.' || (1 + (random()*254)::int))::inet,
-            cur_h,
-            prev_h,
+            placeholder_h,  -- Will be overwritten by `argus repair-audit` post-seed
+            placeholder_h,  -- Will be overwritten by `argus repair-audit` post-seed
             ts
         );
-
-        prev_h := cur_h;
     END LOOP;
 END $$;
 

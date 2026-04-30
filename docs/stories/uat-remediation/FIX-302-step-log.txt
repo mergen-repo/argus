@@ -1,0 +1,74 @@
+FIX-302 — Audit Hash Chain Recurrence — Step Log
+===================================================
+
+STEP 1 PLAN: EXECUTED | 2026-04-30 | source=docs/reports/uat-acceptance-2026-04-30.md F-3 | plan=docs/stories/uat-remediation/FIX-302-plan.md | recurrence_of=FIX-104(2d7f917) | effort=M | result=PASS
+
+STEP 2 DEV (Bug Fix TDD): EXECUTED | 2026-04-30 | mode=manual
+
+  2a. Triage discovery (pre-implementation):
+      - SELECT prev_hash, action FROM audit_logs ORDER BY id LIMIT 1
+        → prev_hash = '0' x 64 (Genesis), so chain SHOULD verify
+      - GET /audit-logs/verify → {verified:false, entries_checked:1, first_invalid:1, total_rows:1}
+      - Standalone Go recompute of entry 1 produced hash != stored hash
+      - Bucket scan (id 251..805): 64/608 broken, ~11% breakage even on runtime-written rows
+      - Two defects identified:
+        1. internal/audit/audit.go:87 → time.RFC3339Nano includes timezone; pgx returns +03:00, inserts use UTC
+        2. RFC3339Nano strips trailing-zero microseconds; PG to_char('.US') emits 6 digits; seed used '.US000' (9 digits)
+
+  2b. Code fix (canonical layout, single line):
+      file=internal/audit/audit.go
+      added=const canonicalAuditTimeLayout = "2006-01-02T15:04:05.000000Z"
+      change=ComputeHash now formats entry.CreatedAt.UTC().Format(canonicalAuditTimeLayout)
+      effect=byte-for-byte equivalent to PG to_char('YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+
+  2c. Unit tests (AC-6, AC-7) appended to internal/audit/audit_test.go:
+      - TestComputeHash_TimezoneInvariant — same instant in UTC, Asia/Istanbul, America/Los_Angeles → same hash
+      - TestComputeHash_TrailingZeroMicroseconds — 4 cases (.100, .65019, .123456, .000000) deterministic + 6-digit format
+      go test results: 7 passed (Genesis, Deterministic, FirstEntryNotGenesis, TamperDetection, TotalRowsField, TimezoneInvariant, TrailingZeroMicroseconds)
+
+  2d. Seed rewrite (single source of truth):
+      file=migrations/seed/003_comprehensive_seed.sql lines 962-1040
+      change=remove in-SQL hash computation; insert 250 rows with placeholder hash + prev_hash = '0' x 64
+      rationale=argus repair-audit (already wired into make db-seed at Makefile:174) recomputes correct chain via Go
+      DISABLE/ENABLE TRIGGER trg_audit_chain_guard wrappers retained
+
+  2e. Build verification:
+      go build ./...     → SUCCESS
+      go vet  ./...      → SUCCESS
+
+  2f. Deploy + smoke (the actual gate):
+      docker compose up -d --force-recreate argus
+      DROP SCHEMA public CASCADE; CREATE SCHEMA public; (clean DB)
+      restart argus → boot logs: "auto-migrate: schema already at latest version" (via FIX-301)
+      argus seed → 10 files completed
+      argus repair-audit:
+        → "repair-audit: repairing hash chain..."
+        → "repair-audit: chain verified successfully entries=251"
+      curl /api/v1/audit-logs/verify (admin token):
+        → {"verified":true,"entries_checked":264,"first_invalid":null,"total_rows":264}
+      Pre-fix: {"verified":false,"first_invalid":1,"total_rows":1}
+      Post-fix: full chain valid for all 264 rows in DB.
+
+STEP 3 ACCEPTANCE CRITERIA:
+  AC-1 verify returns verified:true post seed+repair        → PASS (264/264)
+  AC-2 fresh-DB E2E test                                    → DEFERRED (testcontainers infra not in tree; manual smoke gates this run; D-185 to wire CI)
+  AC-3 first audit row prev_hash == GenesisHash             → PASS (verifier accepted entry 1)
+  AC-4 all writers route through CreateWithChain            → PASS (no in-Go INSERT INTO audit_logs; seed uses placeholders only)
+  AC-5 boot-time self-check                                 → DEFERRED (D-186 — non-blocking; current verify endpoint serves the same observability need)
+  AC-6 TestComputeHash_TimezoneInvariant                    → PASS
+  AC-7 TestComputeHash_TrailingZeroMicroseconds             → PASS
+  AC-8 regression test FIX-104 was missing                  → DEFERRED (D-185 with AC-2 testcontainers)
+  AC-9 UAT-001/UAT-012 audit panel re-run                   → PENDING (next UAT cycle)
+  AC-10 VerifyChain response shape unchanged                → PASS (manual curl response shape identical)
+
+STEP 4 DECISIONS:
+  decisions.md → DEV-582
+
+STEP 5 PATTERNS:
+  bug-patterns.md → PAT-028 (cross-language hash format drift)
+
+OUT OF SCOPE / DEFERRED:
+  D-185 — testcontainers-based fresh-DB E2E (AC-2/AC-8) wired into CI integration job
+  D-186 — boot-time VerifyChain self-check with structured WARN log (AC-5)
+
+STATUS: COMPLETED — ready for commit

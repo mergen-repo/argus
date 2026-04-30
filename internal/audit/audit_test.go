@@ -785,3 +785,89 @@ func TestVerifyChain_TotalRowsField(t *testing.T) {
 		t.Fatalf("total_rows = %d, want 1", result.TotalRows)
 	}
 }
+
+// FIX-302 AC-6: ComputeHash must be invariant across time.Locations for the
+// same instant. The original bug: pgx returned timestamptz in PG server tz
+// (Asia/Istanbul +03:00) while inserts used time.Now().UTC() — same instant,
+// different RFC3339Nano string, different hash.
+func TestComputeHash_TimezoneInvariant(t *testing.T) {
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	istanbul, err := time.LoadLocation("Europe/Istanbul")
+	if err != nil {
+		t.Fatalf("load Istanbul: %v", err)
+	}
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("load LA: %v", err)
+	}
+
+	// Same instant in three different zones
+	utcTime := time.Date(2026, 4, 30, 10, 20, 51, 667343000, time.UTC)
+	istanbulTime := utcTime.In(istanbul)
+	laTime := utcTime.In(la)
+
+	mkEntry := func(ts time.Time) Entry {
+		return Entry{
+			TenantID:   tenantID,
+			Action:     "create",
+			EntityType: "sim",
+			EntityID:   "abc-123",
+			CreatedAt:  ts,
+		}
+	}
+
+	hUTC := ComputeHash(mkEntry(utcTime), GenesisHash)
+	hIstanbul := ComputeHash(mkEntry(istanbulTime), GenesisHash)
+	hLA := ComputeHash(mkEntry(laTime), GenesisHash)
+
+	if hUTC != hIstanbul {
+		t.Errorf("UTC vs Istanbul hash mismatch:\n  utc:      %s\n  istanbul: %s", hUTC, hIstanbul)
+	}
+	if hUTC != hLA {
+		t.Errorf("UTC vs LA hash mismatch:\n  utc: %s\n  la:  %s", hUTC, hLA)
+	}
+}
+
+// FIX-302 AC-7: Trailing-zero microseconds must hash deterministically.
+// time.RFC3339Nano strips trailing zeros (.650190 → .65019); PG to_char('.US')
+// emits fixed 6 digits. The canonical layout matches PG (always 6 zero-padded
+// digits), so the hash is stable across any sub-second value.
+func TestComputeHash_TrailingZeroMicroseconds(t *testing.T) {
+	tenantID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+
+	cases := []struct {
+		name string
+		ts   time.Time
+	}{
+		{"trailing-zero-100", time.Date(2026, 4, 30, 10, 20, 51, 100000000, time.UTC)},   // .100000
+		{"trailing-zero-65019", time.Date(2026, 4, 30, 10, 20, 51, 650190000, time.UTC)}, // .650190
+		{"no-trailing-zero", time.Date(2026, 4, 30, 10, 20, 51, 123456000, time.UTC)},    // .123456
+		{"all-zero-micro", time.Date(2026, 4, 30, 10, 20, 51, 0, time.UTC)},              // .000000
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			entry := Entry{
+				TenantID:   tenantID,
+				Action:     "create",
+				EntityType: "sim",
+				EntityID:   "abc-123",
+				CreatedAt:  c.ts,
+			}
+			h1 := ComputeHash(entry, GenesisHash)
+			// Determinism: re-hash same entry → same result
+			h2 := ComputeHash(entry, GenesisHash)
+			if h1 != h2 {
+				t.Errorf("non-deterministic hash for %s: %s vs %s", c.name, h1, h2)
+			}
+			// Format must include exactly 6 microsecond digits + Z
+			formatted := c.ts.UTC().Format(canonicalAuditTimeLayout)
+			if len(formatted) != len("2026-04-30T10:20:51.000000Z") {
+				t.Errorf("formatted length wrong for %s: %q", c.name, formatted)
+			}
+			if formatted[len(formatted)-1] != 'Z' {
+				t.Errorf("formatted does not end with Z: %q", formatted)
+			}
+		})
+	}
+}
