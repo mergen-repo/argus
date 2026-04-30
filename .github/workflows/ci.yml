@@ -31,9 +31,15 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # Action @v8 supports golangci-lint v2.x. Pinned version: v2 resolves
+        # to the latest v2.x release, which is built with Go 1.25 — required
+        # by go.mod's `go 1.25.9` directive. v1.x (the previous default
+        # `latest`) was Go 1.24 and triggered: "the Go language version
+        # (go1.24) used to build golangci-lint is lower than the targeted
+        # Go version (1.25.9)".
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.5.0
           args: ./...
 
   web-lint:
@@ -51,11 +57,11 @@ jobs:
       - name: Install dependencies
         run: cd web && npm ci
 
-      - name: ESLint
-        run: cd web && npm run lint
-
+      # ESLint step removed — the project has no ESLint config (.eslintrc /
+      # eslint.config.js). Re-enable when ESLint is added; until then,
+      # tsc strict-mode type-checking is the lint gate.
       - name: TypeScript type-check
-        run: cd web && npm run type-check
+        run: cd web && npm run typecheck
 
   # ── Stage 2: Test (parallel, after lint) ──────────────────────────────────
 
