@@ -42,6 +42,13 @@ services:
       - "8443:8443"
     env_file:
       - ../.env
+    environment:
+      # FIX-304: defense-in-depth. The code default is true and .env.example
+      # carries SBA_ENABLED=true, but a stale .env file generated from an old
+      # template would still default to false. Pin here so the local stack
+      # always brings the 5G SBA listener up unless an operator explicitly
+      # exports SBA_ENABLED=false in their shell.
+      SBA_ENABLED: ${SBA_ENABLED:-true}
     volumes:
       # FIX-248 DEV-563: persist generated reports on the host so the
       # download endpoint can stream them. Default REPORT_STORAGE=local;

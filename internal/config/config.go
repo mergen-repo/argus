@@ -68,7 +68,9 @@ type Config struct {
 	DiameterOriginHost   string `envconfig:"DIAMETER_ORIGIN_HOST"`
 	DiameterOriginRealm  string `envconfig:"DIAMETER_ORIGIN_REALM"`
 	SBAPort              int    `envconfig:"SBA_PORT" default:"8443"`
-	SBAEnabled           bool   `envconfig:"SBA_ENABLED" default:"false"`
+	// FIX-304: default true so dev/UAT stacks bring the 5G SBA listener up
+	// at boot. 4G-only deployments must set SBA_ENABLED=false explicitly.
+	SBAEnabled           bool   `envconfig:"SBA_ENABLED" default:"true"`
 	SBAEnableMTLS        bool   `envconfig:"SBA_ENABLE_MTLS" default:"false"`
 
 	RateLimitPerMinute          int    `envconfig:"RATE_LIMIT_DEFAULT_PER_MINUTE" default:"1000"`

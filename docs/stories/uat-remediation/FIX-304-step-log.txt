@@ -1,0 +1,74 @@
+FIX-304 — 5G SBA :8443 Listener Not Bound — Step Log
+======================================================
+
+STEP 1 PLAN: EXECUTED | 2026-04-30 | source=docs/reports/uat-acceptance-2026-04-30.md F-4 | plan=docs/stories/uat-remediation/FIX-304-plan.md | effort=S | result=PASS
+
+STEP 2 DEV (Bug Fix TDD): EXECUTED | 2026-04-30 | mode=manual
+
+  2a. Triage discovery (already done by Planner):
+      - SBA code path EXISTS, fully wired (cmd/argus/main.go:1259-1302)
+      - SBA implementation complete (AUSF, UDM, NRF, NSMF, EAP-proxy, /health)
+      - cfg.SBAEnabled defaulted to false in internal/config/config.go:65
+      - .env.example had SBA_ENABLED=false
+      - .env in deploy/ did not set the flag → fell back to default false
+      - docker-compose published :8443 but no one bound it inside container
+      - No log evidence: init block was skipped, not failed (would log.Fatal)
+
+  2b. Code change (single line):
+      file=internal/config/config.go:65
+      change=default:"false" → default:"true" + struct comment explaining 4G-only opt-out
+
+  2c. .env.example flip:
+      SBA_ENABLED=false → SBA_ENABLED=true with inline comment
+
+  2d. docker-compose defense-in-depth:
+      file=deploy/docker-compose.yml argus service
+      added=environment: block with SBA_ENABLED: ${SBA_ENABLED:-true}
+      rationale=if .env file is stale or regenerated from old template,
+                compose's explicit value still wins
+
+  2e. Build verification:
+      go build ./...          → SUCCESS
+      go test ./internal/config/... → 1 package PASS
+      go test ./internal/aaa/sba/... → 1 package PASS (existing 16KB test suite unaffected)
+
+  2f. Manual smoke (the actual gate):
+      make build && docker compose up -d --force-recreate argus
+      docker exec argus-app ss -tlnp:
+        :::8443 LISTEN  ← NEW (was absent pre-fix)
+        :::8081 LISTEN
+        :::8080 LISTEN
+        :::3868 LISTEN
+        :::6060 LISTEN
+      docker exec argus-app wget -qO- http://localhost:8443/health:
+        → {"status":"healthy","service":"argus-sba"}
+
+      Boot logs:
+        "starting argus" → "auto-migrate: ..." → "postgres connected" →
+        "schema integrity check passed" → "audit consumer started" → ...
+        SBA init now runs (NRF Register WARN expected when SBA_NRF_URL empty
+        in dev — well-known non-fatal behavior).
+
+STEP 3 ACCEPTANCE CRITERIA:
+  AC-1 ss -tlnp shows :8443 LISTEN                           → PASS
+  AC-2 wget http://localhost:8443/health → 200 healthy       → PASS
+  AC-3 UAT-019 5G SBA AUSF/UDM end-to-end                    → PENDING (next UAT cycle; listener ready, full flow needs UAT.md correction per D-190)
+  AC-4 default boot brings SBA up                            → PASS (no env override needed)
+  AC-5 reproduction Go test                                  → DEFERRED (existing internal/aaa/sba/server_test.go covers Start/Stop semantics; explicit "default config binds 8443" assertion routed to D-191)
+
+STEP 4 DECISIONS:
+  decisions.md → DEV-584
+
+STEP 5 PATTERNS:
+  bug-patterns.md → PAT-030 (feature shipped dark behind off-by-default flag)
+
+OUT OF SCOPE / DEFERRED:
+  D-190 — update docs/UAT.md UAT-019 reproduction command from
+          `wget --no-check-certificate https://localhost:8443/-/health`
+          to `wget http://localhost:8443/health` (dev listener is plain HTTP/2;
+          /health path not /-/health)
+  D-191 — Go reproduction test asserting default-config bind on 8443
+  D-192 — F-4 secondary finding: 5g_sba session miscategorization
+          (separate from listener bind; reroute when re-running UAT-019)
+
+STATUS: COMPLETED — ready for commit
