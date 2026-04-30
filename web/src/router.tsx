@@ -110,7 +110,12 @@ export const router = createBrowserRouter([
     children: [
       { path: '/login', element: <LoginPage /> },
       { path: '/login/2fa', element: <TwoFactorPage /> },
-      { path: '/setup', element: <OnboardingPage /> },
+      // FIX-303: canonical onboarding route is /onboarding (matches BE
+      // /api/v1/onboarding/* namespace + use-onboarding hook calls).
+      // /setup retained as transition redirect; remove after Wave 11 P1
+      // (D-187).
+      { path: '/onboarding', element: <OnboardingPage /> },
+      { path: '/setup', element: <Navigate to="/onboarding" replace /> },
       { path: '/auth/change-password', element: <ChangePasswordPage /> },
       { path: '/auth/forgot', element: <ForgotPasswordPage /> },
       { path: '/auth/reset', element: <ResetPasswordPage /> },

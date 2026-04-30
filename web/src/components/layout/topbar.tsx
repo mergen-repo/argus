@@ -147,7 +147,7 @@ export function Topbar() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => navigate('/setup')}>
+            <DropdownMenuItem onClick={() => navigate('/onboarding')}>
               <Settings className="h-4 w-4" />
               Setup Wizard
             </DropdownMenuItem>

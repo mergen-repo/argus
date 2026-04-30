@@ -132,3 +132,24 @@ func (s *OnboardingSessionStore) MarkCompleted(ctx context.Context, id uuid.UUID
 	}
 	return nil
 }
+
+// IsCompleted satisfies auth.OnboardingSessionLookup (FIX-303): returns true
+// if the latest onboarding session for the tenant is in `completed` state.
+// Returns false (no error) when no session exists — fail-safe so the FE
+// redirects new tenants to the wizard.
+func (s *OnboardingSessionStore) IsCompleted(ctx context.Context, tenantID uuid.UUID) (bool, error) {
+	var state string
+	err := s.db.QueryRow(ctx, `
+		SELECT state FROM onboarding_sessions
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, tenantID).Scan(&state)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check onboarding completion: %w", err)
+	}
+	return state == "completed", nil
+}

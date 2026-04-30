@@ -482,3 +482,73 @@ func TestVerify2FA_NoSecretSet(t *testing.T) {
 		t.Fatalf("Expected ErrInvalid2FACode, got: %v", err)
 	}
 }
+
+// FIX-303: ensure UserInfo.OnboardingCompleted populates correctly at login.
+// Pure-Go unit tests would have caught the phantom-field bug that shipped:
+// the FE redirect guard checks `user.onboarding_completed === false`, but
+// the field never existed on the BE DTO before FIX-303.
+
+type fakeOnboardingLookup struct {
+	completed bool
+	err       error
+}
+
+func (f *fakeOnboardingLookup) IsCompleted(_ context.Context, _ uuid.UUID) (bool, error) {
+	return f.completed, f.err
+}
+
+func TestLogin_OnboardingIncomplete_FlagFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: false})
+	users.addUser(createTestUser("ti@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "ti@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true, want false (no completed session)")
+	}
+}
+
+func TestLogin_OnboardingCompleted_FlagTrue(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: true})
+	users.addUser(createTestUser("tc@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "tc@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if !result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = false, want true")
+	}
+}
+
+func TestLogin_OnboardingLookupError_FailSafeFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: true, err: errors.New("db down")})
+	users.addUser(createTestUser("te@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "te@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true on lookup error; want fail-safe false (redirect to wizard)")
+	}
+}
+
+func TestLogin_OnboardingLookupNil_FailSafeFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	// No WithOnboardingSessions call — onboardingSessions stays nil
+	users.addUser(createTestUser("tn@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "tn@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true with nil lookup; want fail-safe false")
+	}
+}

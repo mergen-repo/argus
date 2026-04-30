@@ -72,7 +72,7 @@ export default function LoginPage() {
       } else {
         setAuth(data.user, data.token, [], data.session_id)
         if (data.user.onboarding_completed === false) {
-          navigate('/setup')
+          navigate('/onboarding')
         } else {
           navigate('/')
         }

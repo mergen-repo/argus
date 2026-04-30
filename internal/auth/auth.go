@@ -115,10 +115,11 @@ type LoginResult struct {
 }
 
 type UserInfo struct {
-	ID    uuid.UUID `json:"id"`
-	Email string    `json:"email"`
-	Name  string    `json:"name"`
-	Role  string    `json:"role"`
+	ID                  uuid.UUID `json:"id"`
+	Email               string    `json:"email"`
+	Name                string    `json:"name"`
+	Role                string    `json:"role"`
+	OnboardingCompleted bool      `json:"onboarding_completed"`
 }
 
 type RefreshResult struct {
@@ -168,13 +169,23 @@ type Config struct {
 	BackupCodeCount      int
 }
 
+// OnboardingSessionLookup is the FIX-303 dependency contract used to populate
+// UserInfo.OnboardingCompleted at login time. Returns true if the tenant has a
+// completed onboarding session. Implementations must be fail-safe: any error
+// or nil store should propagate `completed=false` so the FE redirects the user
+// to the wizard rather than silently skipping onboarding.
+type OnboardingSessionLookup interface {
+	IsCompleted(ctx context.Context, tenantID uuid.UUID) (bool, error)
+}
+
 type Service struct {
-	users           UserRepository
-	sessions        SessionRepository
-	audit           AuditLogger
-	passwordHistory PasswordHistoryRepository
-	backupCodes     BackupCodeRepository
-	cfg             Config
+	users               UserRepository
+	sessions            SessionRepository
+	audit               AuditLogger
+	passwordHistory     PasswordHistoryRepository
+	backupCodes         BackupCodeRepository
+	onboardingSessions  OnboardingSessionLookup
+	cfg                 Config
 }
 
 func NewService(users UserRepository, sessions SessionRepository, audit AuditLogger, cfg Config) *Service {
@@ -198,6 +209,27 @@ func (s *Service) WithPasswordHistory(repo PasswordHistoryRepository) *Service {
 func (s *Service) WithBackupCodes(repo BackupCodeRepository) *Service {
 	s.backupCodes = repo
 	return s
+}
+
+// WithOnboardingSessions wires the onboarding-session lookup used to populate
+// UserInfo.OnboardingCompleted at login. Without it, the field always serializes
+// false (fail-safe to redirect to wizard rather than silently skip).
+func (s *Service) WithOnboardingSessions(lookup OnboardingSessionLookup) *Service {
+	s.onboardingSessions = lookup
+	return s
+}
+
+// isOnboardingCompleted returns true if the tenant has a completed onboarding
+// session. Fail-safe: returns false on nil lookup or any error.
+func (s *Service) isOnboardingCompleted(ctx context.Context, tenantID uuid.UUID) bool {
+	if s.onboardingSessions == nil {
+		return false
+	}
+	done, err := s.onboardingSessions.IsCompleted(ctx, tenantID)
+	if err != nil {
+		return false
+	}
+	return done
 }
 
 func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent string, rememberMe bool) (*LoginResult, *LockInfo, error) {
@@ -248,10 +280,11 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 		}
 		return &LoginResult{
 			User: UserInfo{
-				ID:    user.ID,
-				Email: user.Email,
-				Name:  user.Name,
-				Role:  user.Role,
+				ID:                  user.ID,
+				Email:               user.Email,
+				Name:                user.Name,
+				Role:                user.Role,
+				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
 			},
 			Token:  partialToken,
 			Reason: reason,
@@ -265,10 +298,11 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 		}
 		return &LoginResult{
 			User: UserInfo{
-				ID:    user.ID,
-				Email: user.Email,
-				Name:  user.Name,
-				Role:  user.Role,
+				ID:                  user.ID,
+				Email:               user.Email,
+				Name:                user.Name,
+				Role:                user.Role,
+				OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
 			},
 			Token:       partialToken,
 			Requires2FA: true,
@@ -285,10 +319,11 @@ func (s *Service) Login(ctx context.Context, email, password, ipAddr, userAgent 
 
 	return &LoginResult{
 		User: UserInfo{
-			ID:    user.ID,
-			Email: user.Email,
-			Name:  user.Name,
-			Role:  user.Role,
+			ID:                  user.ID,
+			Email:               user.Email,
+			Name:                user.Name,
+			Role:                user.Role,
+			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
 		},
 		Token:        token,
 		RefreshToken: refreshToken,
@@ -699,10 +734,11 @@ func (s *Service) CreateSessionForUser(ctx context.Context, userID uuid.UUID, ip
 
 	return &LoginResult{
 		User: UserInfo{
-			ID:    user.ID,
-			Email: user.Email,
-			Name:  user.Name,
-			Role:  user.Role,
+			ID:                  user.ID,
+			Email:               user.Email,
+			Name:                user.Name,
+			Role:                user.Role,
+			OnboardingCompleted: s.isOnboardingCompleted(ctx, user.TenantID),
 		},
 		Token:        token,
 		RefreshToken: refreshToken,

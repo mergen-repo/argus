@@ -10,8 +10,8 @@ export function ProtectedRoute() {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  if (user && user.onboarding_completed === false && location.pathname !== '/setup') {
-    return <Navigate to="/setup" replace />
+  if (user && user.onboarding_completed === false && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />
   }
 
   return <Outlet />

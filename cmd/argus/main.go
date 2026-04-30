@@ -1470,6 +1470,12 @@ func runServe(cfg *config.Config) {
 	smsOutboundStore := store.NewSMSOutboundStore(pg.Pool)
 	onboardingSessionStore := store.NewOnboardingSessionStore(pg.Pool)
 
+	// FIX-303: wire onboarding-session lookup into auth service so login
+	// responses populate UserInfo.OnboardingCompleted. The FE first-login
+	// redirect guard reads this field; without it the flag is always false
+	// (fail-safe) and brand-new tenants always go to the wizard.
+	authSvc.WithOnboardingSessions(onboardingSessionStore)
+
 	notifSvc.SetPrefStore(&notifPrefAdapter{store: notifPrefStore})
 	notifSvc.SetTemplateStore(&notifTemplateAdapter{store: notifTemplateStore})
 	notifHandler.SetPrefStore(notifPrefStore)
