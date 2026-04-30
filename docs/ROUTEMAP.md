@@ -324,6 +324,35 @@ Architectural decisions (documented, not blocking UAT):
 - UAT-014: API key auth not wired — JWT-only by design for current release. Future story.
 - UAT-015: TOTP secret stored plaintext — requires KEK/KMS infrastructure. Future story.
 
+### Batch 2 Remediation (2026-04-30) — FULL UAT-001..023 RERUN
+
+> Full 23-scenario UAT rerun (`/amil` UAT mode, dev-browser non-headless, fresh build+seed).
+> Result: REJECTED — 6 CRITICAL + 9 HIGH + 5 MEDIUM (11 BUG findings F-1..F-11).
+> Source: `docs/reports/uat-acceptance-2026-04-30.md`
+> Plan: `docs/reviews/uat-batch2-remediation-plan.md`
+> 17 screenshots: `docs/reports/screenshots/uat-2026-04-30/`
+> RECURRENCE WARNING: F-1 (onboarding wizard) and F-3 (audit chain) regressed from batch1 fixes — Phase Gate gap, see PAT-027 candidate.
+
+| # | Story | Severity | UAT | Effort | Status | Notes |
+|---|-------|---------|-----|--------|--------|-------|
+| FIX-301 | Startup Race — Prepared-Statement OID Cache | CRITICAL | UAT-002 + all SIM ops | M | [ ] PENDING | Production blocker — restart fixes |
+| FIX-302 | Audit Hash Chain Broken at Entry 1 | CRITICAL | UAT-001/012 | M | [ ] PENDING | RECURRENCE batch1 F-10 |
+| FIX-303 | SCR-003 Onboarding Wizard Missing | CRITICAL | UAT-001 | L | [ ] PENDING | RECURRENCE batch1 F-9 |
+| FIX-304 | 5G SBA :8443 Listener Not Bound | CRITICAL | UAT-019 | S | [ ] PENDING | App not listening despite port published |
+| FIX-305 | SIM Suspend Does Not Auto-Fire DM | HIGH | UAT-003/022 | M | [ ] PENDING | Sessions stay active after suspend |
+| FIX-306 | `/api/v1/anomalies` Listing Route 404 | HIGH | UAT-010/021 | S | [ ] PENDING | Cascades to UAT-021 entirely |
+| FIX-307 | Email Pipeline Silent (0 emails fired) | HIGH | UAT-001/013 | M | [ ] PENDING | Mailhog 0 throughout UAT |
+| FIX-308 | `operators.circuit_state` Always NULL | MEDIUM | UAT-005/020 | XS | [ ] PENDING | CB transitions log but col never set |
+| FIX-309 | `notification_preferences` Defaults Not Seeded | MEDIUM | UAT-013 | XS | [ ] PENDING | API returns [] for all users |
+| FIX-310 | OTA Command Not Persisted After POST | MEDIUM | UAT-023 | S | [ ] PENDING | 201 returns id, no DB row |
+| FIX-311 | `ip_address` NULL in SIM DTO After Activate | MEDIUM | UAT-003 | XS | [ ] PENDING | FIX-242 area extension |
+
+STALE_SCENARIO updates (UAT.md edits, no code change): D-uat-002-cols, D-uat-004, D-uat-006, D-uat-007, D-uat-011, D-uat-016, D-uat-022 — route via `/amil change` single batch.
+
+DATA_GAP (no fix needed): G-uat-019-slice, G-uat-020-sla, G-uat-023-apdu, G-uat-017-vector, G-uat-022-coa-prior.
+
+Stop condition: FIX-301..307 (CRITICAL+HIGH) DONE → re-run full UAT-001..023 → 0 CRITICAL/0 HIGH from this batch's findings.
+
 ---
 
 ## UI Review Remediation [IN PROGRESS]
