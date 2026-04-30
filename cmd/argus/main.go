@@ -1211,6 +1211,12 @@ func runServe(cfg *config.Config) {
 
 		esimHandler.SetSessionDeps(radiusSessionStore, dmSender)
 
+		// FIX-305: wire SIM-suspend → DM auto-fire. The terminator owns the
+		// "list active sessions, send DM, finalize row" flow that the SIM API
+		// handler invokes from Suspend.
+		simSessionTerminator := aaasession.NewSIMSessionTerminator(radiusSessionStore, dmSender, log.Logger)
+		simHandler.SetSessionTerminator(simSessionTerminator)
+
 		radiusServer = aaaradius.NewServer(
 			aaaradius.ServerConfig{
 				AuthAddr:       fmt.Sprintf(":%d", cfg.RadiusAuthPort),

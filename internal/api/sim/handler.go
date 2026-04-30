@@ -38,21 +38,32 @@ type EventPublisher interface {
 	Publish(ctx context.Context, subject string, payload interface{}) error
 }
 
+// SessionTerminator is FIX-305's narrow contract: when a SIM is suspended
+// with an active session, the handler asks this dispatcher to send a RADIUS
+// Disconnect-Message (DM) to the NAS for each active session and then
+// finalize the session row (state→closed). Implementations live in
+// internal/aaa/session. Defined here as an interface to avoid the
+// api/sim → aaa/session import cycle.
+type SessionTerminator interface {
+	TerminateSIMSessions(ctx context.Context, simID uuid.UUID, tenantID uuid.UUID, reason string) (int, error)
+}
+
 type Handler struct {
-	simStore      *store.SIMStore
-	apnStore      *store.APNStore
-	operatorStore *store.OperatorStore
-	ippoolStore   *store.IPPoolStore
-	tenantStore   *store.TenantStore
-	policyStore   *store.PolicyStore
-	cdrStore      *store.CDRStore
-	sessionStore  *store.RadiusSessionStore
-	nameCache     *cache.NameCache
-	undoRegistry  *undopkg.Registry
-	auditSvc      audit.Auditor
-	eventBus      EventPublisher
-	imsiStrict    bool
-	logger        zerolog.Logger
+	simStore          *store.SIMStore
+	apnStore          *store.APNStore
+	operatorStore     *store.OperatorStore
+	ippoolStore       *store.IPPoolStore
+	tenantStore       *store.TenantStore
+	policyStore       *store.PolicyStore
+	cdrStore          *store.CDRStore
+	sessionStore      *store.RadiusSessionStore
+	sessionTerminator SessionTerminator // FIX-305: auto-fire DM on Suspend
+	nameCache         *cache.NameCache
+	undoRegistry      *undopkg.Registry
+	auditSvc          audit.Auditor
+	eventBus          EventPublisher
+	imsiStrict        bool
+	logger            zerolog.Logger
 }
 
 func NewHandler(
@@ -102,6 +113,23 @@ func WithSessionStore(ss *store.RadiusSessionStore) func(*Handler) {
 	return func(h *Handler) {
 		h.sessionStore = ss
 	}
+}
+
+// WithSessionTerminator wires the FIX-305 session termination dispatcher.
+// On Suspend (and similar terminal-state transitions), the handler calls
+// TerminateSIMSessions which sends DM to each active session's NAS and
+// finalizes the session row.
+func WithSessionTerminator(t SessionTerminator) func(*Handler) {
+	return func(h *Handler) {
+		h.sessionTerminator = t
+	}
+}
+
+// SetSessionTerminator wires the terminator after construction. Mirrors
+// esimHandler.SetSessionDeps for cases where the DM sender / RADIUS infra
+// is built later in main.go than the SIM handler.
+func (h *Handler) SetSessionTerminator(t SessionTerminator) {
+	h.sessionTerminator = t
 }
 
 func WithCDRStore(cs *store.CDRStore) func(*Handler) {
@@ -1169,6 +1197,20 @@ func (h *Handler) Suspend(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "sim.suspend", simID.String(), existing, sim, userID)
 	h.publishSimUpdated(r.Context(), sim, existing.State, sim.State, nil)
+
+	// FIX-305: terminate active sessions for this SIM. Send DM to NAS (per
+	// session) and finalize the session row (state → closed). Best-effort:
+	// any error logs WARN but does not fail the suspend response. The
+	// suspend transition itself is durable; session cleanup is async-safe.
+	if h.sessionTerminator != nil {
+		count, termErr := h.sessionTerminator.TerminateSIMSessions(r.Context(), simID, tenantID, "sim_suspended")
+		if termErr != nil {
+			h.logger.Warn().Err(termErr).Str("sim_id", idStr).Msg("session termination after suspend failed")
+		} else if count > 0 {
+			h.logger.Info().Str("sim_id", idStr).Int("sessions_terminated", count).Msg("DM dispatched after suspend")
+		}
+	}
+
 	enriched, enrichErr := h.simStore.GetByIDEnriched(r.Context(), tenantID, simID)
 	if enrichErr != nil {
 		h.logger.Warn().Err(enrichErr).Str("sim_id", idStr).Msg("get enriched sim after suspend")
