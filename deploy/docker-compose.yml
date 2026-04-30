@@ -49,6 +49,16 @@ services:
       # always brings the 5G SBA listener up unless an operator explicitly
       # exports SBA_ENABLED=false in their shell.
       SBA_ENABLED: ${SBA_ENABLED:-true}
+      # FIX-307: defense-in-depth. Stale .env files (UAT batch2 found one in
+      # the wild) miss the SMTP block entirely → cfg.SMTPHost == "" → email
+      # pipeline silently dark (password reset, invite, notification, alert
+      # all swallowed). Pin Mailhog as the default for the local stack so
+      # `make up` always wires email through to the inspector at :8025.
+      # Production exports its own SMTP_HOST and overrides this.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      SMTP_FROM: ${SMTP_FROM:-noreply@argus.io}
     volumes:
       # FIX-248 DEV-563: persist generated reports on the host so the
       # download endpoint can stream them. Default REPORT_STORAGE=local;
