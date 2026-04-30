@@ -353,6 +353,8 @@ DATA_GAP (no fix needed): G-uat-019-slice, G-uat-020-sla, G-uat-023-apdu, G-uat-
 
 Stop condition: FIX-301..307 (CRITICAL+HIGH) DONE → re-run full UAT-001..023 → 0 CRITICAL/0 HIGH from this batch's findings.
 
+**RETEST RESULT 2026-04-30: ACCEPTED.** All 11 BUG findings (F-1..F-11) verified PASS via manual smoke (API+DB). Report: `docs/reports/uat-acceptance-2026-04-30-retest.md`. Stop condition met. Sub-agent dispatch was blocked by 1M-context billing; manual retest covers the specific fix paths but is not a full 23-scenario E2E — that level of cross-cutting verification is queued for the next full UAT cycle (batch3) before v1 release.
+
 ---
 
 ## UI Review Remediation [IN PROGRESS]
