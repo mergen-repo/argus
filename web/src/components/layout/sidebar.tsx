@@ -34,7 +34,6 @@ import {
   Archive,
   Rocket,
   History,
-  UserCheck,
   PackageSearch,
   MessageSquare,
   Settings,
@@ -118,7 +117,6 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Tenant Usage', icon: Gauge, path: '/admin/tenant-usage' },
       { label: 'Security Events', icon: Shield, path: '/admin/security-events', minRole: 'super_admin' },
-      { label: 'Sessions', icon: UserCheck, path: '/admin/sessions', minRole: 'super_admin' },
       { label: 'API Usage', icon: Key, path: '/admin/api-usage', minRole: 'super_admin' },
       { label: 'Purge History', icon: PackageSearch, path: '/admin/purge-history', minRole: 'super_admin' },
       { label: 'Delivery Status', icon: MessageSquare, path: '/admin/delivery', minRole: 'super_admin' },

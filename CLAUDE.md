@@ -117,10 +117,11 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: — (Wave 10 P2 IN PROGRESS; FIX-238 DONE; FIX-247 PENDING)
+- Story: —
 - Step: —
-- Last closed: FIX-238 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove Roaming Feature full stack; F-229 closed; 10/10 ACs PASS; full BE/FE/DB/DSL/test/doc sweep; AC-10 boot-time keyword archiver + idempotent audit; DEV-579; PAT-026 RECURRENCE; GLOSSARY 7 entries updated; 4 USERTEST scenarios added; 3803 Go tests PASS; tsc 0; 0 deferred D-NNN)
-- Wave 10 P2 IN PROGRESS (5/6 — FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 DONE; FIX-247 PENDING)
+- Last closed: FIX-247 [x] DONE 2026-04-30 (Wave 10 P2 S — Remove Admin Global Sessions UI; F-320 closed; 9/9 ACs PASS; UI-only removal pattern — page/hook/route/sidebar deleted, BE handler+routes+store retained per AC-5; DEV-580; PAT-026 RECURRENCE [FIX-247] — limited sweep documented exception; D-180 routed for dormant handler cleanup; tsc PASS, vite build 2.65s, go build/vet/test PASS; combined Gate+Review S-story dispatch)
+- Wave 10 P2 6/6 COMPLETE (FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 + FIX-247)
+- Earlier: FIX-238 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove Roaming Feature full stack; F-229 closed; 10/10 ACs PASS; full BE/FE/DB/DSL/test/doc sweep; AC-10 boot-time keyword archiver + idempotent audit; DEV-579; PAT-026 RECURRENCE; GLOSSARY 7 entries updated; 4 USERTEST scenarios added; 3803 Go tests PASS; tsc 0; 0 deferred D-NNN)
 - Earlier: FIX-245 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove 5 Admin Sub-pages + Kill Switches→env; PAT-026 NEW; DEV-575..578)
 - Earlier: FIX-235 [x] DONE 2026-04-27 (Wave 10 P2 XL — M2M eSIM Provisioning Pipeline; commit 124ff00; PAT-025; D-172..D-179)
 - Earlier: FIX-246 [x] DONE 2026-04-27 (Wave 10 P2 M — Quotas+Resources merge; commit 6e57b81; D-170/D-171; PAT-024)

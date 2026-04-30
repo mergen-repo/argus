@@ -5655,3 +5655,34 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 4. Aynı tetikleyici tekrar çalıştırın → **ikinci alert oluşmamalı** (dedup koruması).
 5. Stok 6'ya yüksel: `UPDATE ... SET available = 6` → alert otomatik kapanmamalı (manuel ack veya zaman süresi beklemek gerekebilir — bu deferred/D-175 kapsamı dışı).
 3. `psql -c "SELECT name, max_sims, max_sessions, max_storage_bytes FROM tenants"` → M2M-realistic değerler: en az 10,000 SIM, 2,000 sessions, 10 GB (F-316 düzeltmesi — eski 50 sessions / 400 MB değil).
+
+## FIX-247: Remove Admin Global Sessions UI (Backend Retain)
+
+**Ortam:** `make up` (postgres + nats + redis + argus + nginx ayakta olmalı)
+**Ön koşul:** Admin hesabı (`admin@argus.io` / `admin`) ile giriş yapılmış olmalı.
+
+### UT-247-01: `/admin/sessions` Route — 404 Dönmeli
+
+1. Tarayıcıda `http://localhost:8084/admin/sessions` adresini ziyaret edin.
+2. **Beklenen:** React Router "Not Found" sayfası görünmeli (veya tanımlı 404 fallback). Sayfa içeriği render edilmemeli, hiçbir admin auth session listesi görünmemeli.
+3. Sayfa kaynağını kontrol edin: `/admin/sessions` lazy import veya route entry yok (router.tsx temiz).
+4. **Hata durumu:** Sayfa boş beyaz ekran veya hata yerine içerik gösteriyorsa test BAŞARISIZ.
+
+### UT-247-02: Sidebar — ADMIN Grubunda "Sessions" Yok
+
+1. `/admin/tenant-usage` sayfasına gidin (super_admin olarak giriş yapmış olmalısınız).
+2. Sol sidebar'daki ADMIN grubunu inceleyin.
+3. **Beklenen:** ADMIN grubu altında "Sessions" öğesi GÖRÜNMEMELI.
+4. **Beklenen:** ADMIN grubu altında şu 5 öğe GÖRÜNMELI: "Tenant Usage", "Security Events", "API Usage", "Purge History", "Delivery Status".
+5. Sayfanın ana navigasyon (NAVIGATION) grubundaki "Sessions" öğesi (SIM/RADIUS sessions için, `/sessions` rotası) — bu ÖGE KORUNMUŞ olmalı, FIX-247 sadece ADMIN grubundaki global auth sessions öğesini siler.
+6. Sidebar'ı `Ctrl+Shift+R` ile hard-reload yapın → aynı sonuç.
+
+### UT-247-03: User Detail Sayfası — "Revoke All Sessions" Hâlâ Çalışmalı (AC-6)
+
+1. `/settings/users` sayfasına gidin (tenant_admin+ rolü gerekli).
+2. Herhangi bir kullanıcıya tıklayıp User Detail sayfasını açın (`/settings/users/:id`).
+3. Sayfada "Sessions" sekmesini veya "More actions" menüsünü açın.
+4. **Beklenen:** "Revoke all sessions" eylemi (FIX-244 AC-6 ile gelen) görünür ve tıklanabilir.
+5. Tıklayın → onay dialog'u → onaylayın → `DELETE /api/v1/users/{id}/sessions` (veya muadil endpoint) HTTP 200 dönmeli; o kullanıcının tüm aktif auth session'ları sonlandırılmalı.
+6. **Beklenen:** Backend auth session store hâlâ çalışıyor — login/logout/refresh-token akışları etkilenmemiş. (FIX-247 sadece admin global sessions UI'sini kaldırır; per-user revoke yolu açık kalır.)
+7. **Smoke (opsiyonel — backend dormant handler):** `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/admin/sessions/active` → HTTP 200 dönebilir (handler dormant ama erişilebilir; D-180 zero-callers audit ardından kaldırılacak).

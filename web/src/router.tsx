@@ -80,7 +80,6 @@ const OpsIncidentsPage = lazy(() => import('@/pages/ops/incidents'))
 
 const TenantUsagePage = lazy(() => import('@/pages/admin/tenant-usage'))
 const AdminSecurityEventsPage = lazy(() => import('@/pages/admin/security-events'))
-const AdminGlobalSessionsPage = lazy(() => import('@/pages/admin/sessions-global'))
 const AdminAPIUsagePage = lazy(() => import('@/pages/admin/api-usage'))
 const AdminPurgeHistoryPage = lazy(() => import('@/pages/admin/purge-history'))
 const AdminDeliveryPage = lazy(() => import('@/pages/admin/delivery'))
@@ -184,7 +183,6 @@ export const router = createBrowserRouter([
           { path: '/admin/quotas', element: <Navigate to="/admin/tenant-usage" replace /> },
           { path: '/admin/resources', element: <Navigate to="/admin/tenant-usage" replace /> },
           { path: '/admin/security-events', element: lazySuspense(AdminSecurityEventsPage) },
-          { path: '/admin/sessions', element: lazySuspense(AdminGlobalSessionsPage) },
           { path: '/admin/api-usage', element: lazySuspense(AdminAPIUsagePage) },
           { path: '/admin/purge-history', element: lazySuspense(AdminPurgeHistoryPage) },
           { path: '/admin/delivery', element: lazySuspense(AdminDeliveryPage) },
