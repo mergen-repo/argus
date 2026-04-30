@@ -41,6 +41,7 @@ type Operator struct {
 	SMDPPlusConfig            json.RawMessage `json:"sm_dp_plus_config"`
 	SupportedRATTypes         []string        `json:"supported_rat_types"`
 	HealthStatus              string          `json:"health_status"`
+	CircuitState              string          `json:"circuit_state"` // FIX-308
 	HealthCheckIntervalSec    int             `json:"health_check_interval_sec"`
 	FailoverPolicy            string          `json:"failover_policy"`
 	FailoverTimeoutMs         int             `json:"failover_timeout_ms"`
@@ -154,7 +155,7 @@ func (s *OperatorStore) WithAuditStore(a *AuditStore) *OperatorStore {
 }
 
 var operatorColumns = `id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url,
-	sm_dp_plus_config, supported_rat_types, health_status, health_check_interval_sec,
+	sm_dp_plus_config, supported_rat_types, health_status, circuit_state, health_check_interval_sec,
 	failover_policy, failover_timeout_ms, circuit_breaker_threshold, circuit_breaker_recovery_sec,
 	sla_uptime_target, sla_latency_threshold_ms, state, created_at, updated_at`
 
@@ -164,7 +165,7 @@ func scanOperator(row pgx.Row) (*Operator, error) {
 		&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
 		&o.AdapterConfig, &o.SMDPPlusURL,
 		&o.SMDPPlusConfig, &o.SupportedRATTypes,
-		&o.HealthStatus, &o.HealthCheckIntervalSec,
+		&o.HealthStatus, &o.CircuitState, &o.HealthCheckIntervalSec,
 		&o.FailoverPolicy, &o.FailoverTimeoutMs,
 		&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
 		&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,
@@ -342,7 +343,7 @@ func (s *OperatorStore) List(ctx context.Context, cursor string, limit int, stat
 			&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
 			&o.AdapterConfig, &o.SMDPPlusURL,
 			&o.SMDPPlusConfig, &o.SupportedRATTypes,
-			&o.HealthStatus, &o.HealthCheckIntervalSec,
+			&o.HealthStatus, &o.CircuitState, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,
 			&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
 			&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,
@@ -488,7 +489,7 @@ func (s *OperatorStore) ListActive(ctx context.Context) ([]Operator, error) {
 			&o.ID, &o.Name, &o.Code, &o.MCC, &o.MNC,
 			&o.AdapterConfig, &o.SMDPPlusURL,
 			&o.SMDPPlusConfig, &o.SupportedRATTypes,
-			&o.HealthStatus, &o.HealthCheckIntervalSec,
+			&o.HealthStatus, &o.CircuitState, &o.HealthCheckIntervalSec,
 			&o.FailoverPolicy, &o.FailoverTimeoutMs,
 			&o.CircuitBreakerThreshold, &o.CircuitBreakerRecoverySec,
 			&o.SLAUptimeTarget, &o.SLALatencyThresholdMs, &o.State, &o.CreatedAt, &o.UpdatedAt,

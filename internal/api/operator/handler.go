@@ -117,6 +117,7 @@ type operatorResponse struct {
 	AdapterConfig             json.RawMessage `json:"adapter_config,omitempty"`
 	SupportedRATTypes         []string        `json:"supported_rat_types"`
 	HealthStatus              string          `json:"health_status"`
+	CircuitState              string          `json:"circuit_state"` // FIX-308: live CB state ('closed' / 'half_open' / 'open')
 	HealthCheckIntervalSec    int             `json:"health_check_interval_sec"`
 	FailoverPolicy            string          `json:"failover_policy"`
 	FailoverTimeoutMs         int             `json:"failover_timeout_ms"`
@@ -315,6 +316,7 @@ func toOperatorResponse(o *store.Operator, enabledProtocols []string) operatorRe
 		EnabledProtocols:          protos,
 		SupportedRATTypes:         rats,
 		HealthStatus:              o.HealthStatus,
+		CircuitState:              o.CircuitState, // FIX-308 extension
 		HealthCheckIntervalSec:    o.HealthCheckIntervalSec,
 		FailoverPolicy:            o.FailoverPolicy,
 		FailoverTimeoutMs:         o.FailoverTimeoutMs,
