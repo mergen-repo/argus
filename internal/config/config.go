@@ -170,6 +170,12 @@ type Config struct {
 	WSMaxConnsPerTenant int           `envconfig:"WS_MAX_CONNS_PER_TENANT" default:"100"`
 	WSMaxConnsPerUser   int           `envconfig:"WS_MAX_CONNS_PER_USER" default:"5"`
 	WSPongTimeout       time.Duration `envconfig:"WS_PONG_TIMEOUT" default:"90s"`
+	// WSAllowedOrigins: P2-1 CSWH guard. Comma-separated full origins
+	// (scheme + host + optional port). Empty Origin headers (same-origin
+	// / non-browser callers) always pass; browser cross-origin requests
+	// must match. Default covers the local dev stack so `make up` works
+	// out of the box; production must set this explicitly.
+	WSAllowedOrigins []string `envconfig:"WS_ALLOWED_ORIGINS" default:"http://localhost:8084,http://127.0.0.1:8084"`
 
 	RadSecPort         int    `envconfig:"RADSEC_PORT" default:"2083"`
 	DiameterTLSEnabled bool   `envconfig:"DIAMETER_TLS_ENABLED" default:"false"`

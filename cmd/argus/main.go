@@ -1170,6 +1170,7 @@ func runServe(cfg *config.Config) {
 		MaxConnsPerTenant: cfg.WSMaxConnsPerTenant,
 		MaxConnsPerUser:   cfg.WSMaxConnsPerUser,
 		PongTimeout:       cfg.WSPongTimeout,
+		AllowedOrigins:    cfg.WSAllowedOrigins,
 	}, log.Logger)
 	if err := wsServer.Start(); err != nil {
 		log.Fatal().Err(err).Msg("failed to start ws server")

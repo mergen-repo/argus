@@ -37,7 +37,14 @@ func (s *SMTPEmailSender) smtpAuth() smtp.Auth {
 
 func (s *SMTPEmailSender) smtpSend(addr string, auth smtp.Auth, rawMsg []byte, to string) error {
 	if s.cfg.TLS {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: s.cfg.Host})
+		// Security (P3-1, CWE-327): pin minimum TLS to 1.2. TLS 1.0/1.1
+		// were deprecated by RFC 8996 in 2021. TLS 1.3 is preferred but
+		// not all SMTP relays (e.g., older corporate exchanges) support
+		// it; 1.2 is the safe floor.
+		conn, err := tls.Dial("tcp", addr, &tls.Config{
+			ServerName: s.cfg.Host,
+			MinVersion: tls.VersionTLS12,
+		})
 		if err != nil {
 			return fmt.Errorf("notification: smtp tls dial: %w", err)
 		}
