@@ -8,8 +8,12 @@ import type {
   SegmentCount,
   DiagnosticResult,
   SIMListFilters,
+  SIMUsageData,
+  SIMCompareResult,
+  SIMCDR,
   ListResponse,
   ApiResponse,
+  BulkJobResponse,
 } from '@/types/sim'
 
 const SIMS_KEY = ['sims'] as const
@@ -22,6 +26,10 @@ function buildListParams(filters: SIMListFilters, cursor?: string) {
   if (filters.state) params.set('state', filters.state)
   if (filters.operator_id) params.set('operator_id', filters.operator_id)
   if (filters.apn_id) params.set('apn_id', filters.apn_id)
+  if (filters.policy_version_id) params.set('policy_version_id', filters.policy_version_id)
+  if (filters.policy_id) params.set('policy_id', filters.policy_id)
+  if (filters.rollout_id) params.set('rollout_id', filters.rollout_id)
+  if (filters.rollout_stage_pct) params.set('rollout_stage_pct', String(filters.rollout_stage_pct))
   if (filters.rat_type) params.set('rat_type', filters.rat_type)
   if (filters.q) params.set('q', filters.q)
   if (filters.iccid) params.set('iccid', filters.iccid)
@@ -77,16 +85,16 @@ export function useSIMHistory(simId: string) {
   })
 }
 
-export function useSIMSessions(simId: string) {
+export function useSIMSessions(simId: string, state?: string) {
   return useInfiniteQuery({
-    queryKey: [...SIMS_KEY, 'sessions', simId],
+    queryKey: [...SIMS_KEY, 'sessions', simId, state],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '50')
-      params.set('sim_id', simId)
+      if (state) params.set('state', state)
       const res = await api.get<ListResponse<SIMSession>>(
-        `/sessions?${params.toString()}`,
+        `/sims/${simId}/sessions?${params.toString()}`,
       )
       return res.data
     },
@@ -97,13 +105,36 @@ export function useSIMSessions(simId: string) {
   })
 }
 
-export function useSIMUsage(simId: string) {
+export function useSIMUsage(simId: string, period: string = '30d') {
   return useQuery({
-    queryKey: [...SIMS_KEY, 'usage', simId],
+    queryKey: [...SIMS_KEY, 'usage', simId, period],
     queryFn: async () => {
-      const res = await api.get<ApiResponse<unknown>>(`/sims/${simId}/usage`)
+      const params = new URLSearchParams()
+      params.set('period', period)
+      const res = await api.get<ApiResponse<SIMUsageData>>(
+        `/sims/${simId}/usage?${params.toString()}`,
+      )
       return res.data.data
     },
+    enabled: !!simId,
+    staleTime: 60_000,
+  })
+}
+
+export function useSIMCDRs(simId: string) {
+  return useInfiniteQuery({
+    queryKey: [...SIMS_KEY, 'cdrs', simId],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams()
+      if (pageParam) params.set('cursor', pageParam as string)
+      params.set('limit', '20')
+      params.set('sim_id', simId)
+      const res = await api.get<ListResponse<SIMCDR>>(`/cdrs?${params.toString()}`)
+      return res.data
+    },
+    initialPageParam: '' as string,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.has_more ? lastPage.meta.cursor : undefined,
     enabled: !!simId,
     staleTime: 60_000,
   })
@@ -146,6 +177,31 @@ export function useSegmentCount(segmentId: string) {
   })
 }
 
+export interface SIMCurrentIP {
+  allocated: boolean
+  ip_id?: string
+  address_v4?: string | null
+  address_v6?: string | null
+  state?: string
+  allocation_type?: string
+  allocated_at?: string | null
+  pool_id?: string
+  pool_name?: string
+  pool_cidr_v4?: string
+}
+
+export function useSIMCurrentIP(simId: string) {
+  return useQuery({
+    queryKey: ['sims', 'ip-current', simId],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<SIMCurrentIP>>(`/sims/${simId}/ip-current`)
+      return res.data.data
+    },
+    enabled: !!simId,
+    staleTime: 30_000,
+  })
+}
+
 export function useSIMStateAction() {
   const queryClient = useQueryClient()
 
@@ -159,11 +215,14 @@ export function useSIMStateAction() {
       action: 'activate' | 'suspend' | 'resume' | 'terminate' | 'report-lost'
       reason?: string
     }) => {
-      const res = await api.post<ApiResponse<SIM>>(
+      const res = await api.post<ApiResponse<SIM> & { meta?: { undo_action_id?: string } }>(
         `/sims/${simId}/${action}`,
         reason ? { reason } : {},
       )
-      return res.data.data
+      return {
+        sim: res.data.data,
+        undoActionId: res.data.meta?.undo_action_id,
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
@@ -177,19 +236,21 @@ export function useBulkStateChange() {
   return useMutation({
     mutationFn: async ({
       simIds,
+      segmentId,
       targetState,
       reason,
     }: {
-      simIds: string[]
+      simIds?: string[]
+      segmentId?: string
       targetState: string
       reason?: string
     }) => {
-      const res = await api.post('/sims/bulk/state-change', {
-        sim_ids: simIds,
+      const res = await api.post<ApiResponse<BulkJobResponse>>('/sims/bulk/state-change', {
+        ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
         target_state: targetState,
         reason,
       })
-      return res.data
+      return res.data.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
@@ -203,16 +264,18 @@ export function useBulkPolicyAssign() {
   return useMutation({
     mutationFn: async ({
       simIds,
-      policyId,
+      segmentId,
+      policyVersionId,
     }: {
-      simIds: string[]
-      policyId: string
+      simIds?: string[]
+      segmentId?: string
+      policyVersionId: string
     }) => {
-      const res = await api.post('/sims/bulk/policy-assign', {
-        sim_ids: simIds,
-        policy_id: policyId,
+      const res = await api.post<ApiResponse<BulkJobResponse>>('/sims/bulk/policy-assign', {
+        ...(segmentId ? { segment_id: segmentId } : { sim_ids: simIds }),
+        policy_version_id: policyVersionId,
       })
-      return res.data
+      return res.data.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
@@ -231,10 +294,22 @@ export function useImportSIMs() {
       const res = await api.post('/sims/bulk/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      return res.data.data as { job_id: string; rows_parsed: number; errors: string[] }
+      return res.data.data as { job_id: string; tenant_id: string; status: string }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SIMS_KEY })
     },
+  })
+}
+
+export function useSIMComparePair(idA: string, idB: string) {
+  return useQuery({
+    queryKey: [...SIMS_KEY, 'compare', idA, idB],
+    queryFn: async () => {
+      const res = await api.post<ApiResponse<SIMCompareResult>>('/sims/compare', { sim_id_a: idA, sim_id_b: idB })
+      return res.data.data
+    },
+    enabled: !!idA && !!idB && idA !== idB,
+    staleTime: 10_000,
   })
 }

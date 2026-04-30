@@ -6,9 +6,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
+
+type fakeIPPoolStore struct {
+	addr  *store.IPAddress
+	pools []store.IPPool
+}
+
+func (f *fakeIPPoolStore) GetIPAddressByID(_ context.Context, _ uuid.UUID) (*store.IPAddress, error) {
+	return f.addr, nil
+}
+
+func (f *fakeIPPoolStore) ListByAPN(_ context.Context, _, _ uuid.UUID) ([]store.IPPool, error) {
+	return f.pools, nil
+}
+
+func strPtr(s string) *string { return &s }
 
 func newTestRedisForSession(t *testing.T) *redis.Client {
 	t.Helper()
@@ -330,6 +347,90 @@ func TestManager_Get_NonExistent(t *testing.T) {
 	}
 	if got != nil {
 		t.Error("expected nil for non-existent session")
+	}
+}
+
+func TestManager_ValidateFramedIP_OutsidePool(t *testing.T) {
+	apnID := uuid.New()
+	cidr := "10.0.0.0/24"
+	fake := &fakeIPPoolStore{
+		pools: []store.IPPool{
+			{ID: uuid.New(), APNID: apnID, CIDRv4: &cidr, State: "active"},
+		},
+	}
+	mgr := &Manager{
+		ipPoolStore: fake,
+		logger:      zerolog.Nop(),
+	}
+	sim := &store.SIM{
+		ID:          uuid.New(),
+		TenantID:    uuid.New(),
+		APNID:       &apnID,
+		IPAddressID: nil,
+	}
+
+	ok, reason := mgr.validateFramedIP(context.Background(), sim, "192.168.1.1")
+	if ok {
+		t.Error("expected ok=false for IP outside pool")
+	}
+	if reason != "outside_apn_pools" {
+		t.Errorf("reason = %q, want outside_apn_pools", reason)
+	}
+}
+
+func TestManager_ValidateFramedIP_InsidePool(t *testing.T) {
+	apnID := uuid.New()
+	cidr := "10.0.0.0/24"
+	fake := &fakeIPPoolStore{
+		pools: []store.IPPool{
+			{ID: uuid.New(), APNID: apnID, CIDRv4: &cidr, State: "active"},
+		},
+	}
+	mgr := &Manager{
+		ipPoolStore: fake,
+		logger:      zerolog.Nop(),
+	}
+	sim := &store.SIM{
+		ID:          uuid.New(),
+		TenantID:    uuid.New(),
+		APNID:       &apnID,
+		IPAddressID: nil,
+	}
+
+	ok, reason := mgr.validateFramedIP(context.Background(), sim, "10.0.0.50")
+	if !ok {
+		t.Errorf("expected ok=true for IP inside pool, got reason=%q", reason)
+	}
+	if reason != "" {
+		t.Errorf("reason = %q, want empty", reason)
+	}
+}
+
+func TestManager_ValidateFramedIP_MismatchAssigned(t *testing.T) {
+	addrID := uuid.New()
+	assignedIP := "10.0.0.5"
+	fake := &fakeIPPoolStore{
+		addr: &store.IPAddress{
+			ID:        addrID,
+			AddressV4: strPtr(assignedIP),
+		},
+	}
+	mgr := &Manager{
+		ipPoolStore: fake,
+		logger:      zerolog.Nop(),
+	}
+	sim := &store.SIM{
+		ID:          uuid.New(),
+		TenantID:    uuid.New(),
+		IPAddressID: &addrID,
+	}
+
+	ok, reason := mgr.validateFramedIP(context.Background(), sim, "10.0.0.9")
+	if ok {
+		t.Error("expected ok=false for mismatched assigned address")
+	}
+	if reason != "mismatch_assigned_address" {
+		t.Errorf("reason = %q, want mismatch_assigned_address", reason)
 	}
 }
 

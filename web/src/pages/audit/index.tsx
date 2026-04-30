@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -13,6 +14,7 @@ import {
   ChevronRight,
   Loader2,
   Calendar,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -35,10 +37,15 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useAuditList, useVerifyAuditChain } from '@/hooks/use-audit'
 import type { AuditFilters } from '@/hooks/use-audit'
+import { useUserList } from '@/hooks/use-settings'
 import type { AuditLog } from '@/types/audit'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/format'
+import { EntityLink } from '@/components/shared'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All Actions' },
@@ -88,14 +95,28 @@ function JsonDiffView({ data }: { data: unknown }) {
   )
 }
 
-function ExpandableRow({ entry }: { entry: AuditLog }) {
+const ENTITY_DETAIL_ROUTES: Partial<Record<string, (id: string) => string>> = {
+  sim: (id) => `/sims/${id}`,
+  apn: (id) => `/apns/${id}`,
+  operator: (id) => `/operators/${id}`,
+  policy: (id) => `/policies/${id}`,
+  user: (id) => `/settings/users/${id}`,
+  alert: (id) => `/alerts/${id}`,
+  violation: (id) => `/violations/${id}`,
+}
+
+function ExpandableRow({ entry, rowIndex }: { entry: AuditLog; rowIndex?: number }) {
   const [expanded, setExpanded] = useState(false)
+  const navigate = useNavigate()
+
+  const entityRouteFn = entry.entity_type ? ENTITY_DETAIL_ROUTES[entry.entity_type] : undefined
 
   return (
     <>
       <TableRow
         className="cursor-pointer hover:bg-bg-hover"
         onClick={() => setExpanded(!expanded)}
+        data-row-index={rowIndex}
       >
         <TableCell className="w-8">
           {expanded ? (
@@ -110,15 +131,21 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
           </Badge>
         </TableCell>
         <TableCell>
-          <span className="text-xs text-text-secondary">
-            {entry.user_id?.slice(0, 8) ?? 'system'}
-          </span>
+          {entry.user_id ? (
+            <EntityLink entityType="user" entityId={entry.user_id} truncate />
+          ) : (
+            <span className="text-xs text-text-secondary italic">system</span>
+          )}
         </TableCell>
         <TableCell>
           <span className="text-xs text-text-secondary">{entry.entity_type}</span>
         </TableCell>
         <TableCell>
-          <span className="font-mono text-xs text-text-tertiary">{entry.entity_id.slice(0, 8)}</span>
+          {entry.entity_id && entry.entity_type ? (
+            <EntityLink entityType={entry.entity_type} entityId={entry.entity_id} truncate />
+          ) : (
+            <span className="text-text-tertiary" title="No entity reference">—</span>
+          )}
         </TableCell>
         <TableCell>
           <span className="text-xs text-text-secondary" title={new Date(entry.created_at).toLocaleString()}>
@@ -128,10 +155,19 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
         <TableCell>
           <span className="font-mono text-xs text-text-tertiary">{entry.ip_address ?? '-'}</span>
         </TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          {entityRouteFn && entry.entity_id && (
+            <RowActionsMenu
+              actions={[
+                { label: 'View Entity', onClick: () => navigate(entityRouteFn(entry.entity_id!)) },
+              ]}
+            />
+          )}
+        </TableCell>
       </TableRow>
       {expanded && (
         <TableRow className="bg-bg-surface">
-          <TableCell colSpan={7}>
+          <TableCell colSpan={8}>
             <div className="px-4 py-3 space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -171,13 +207,33 @@ function ExpandableRow({ entry }: { entry: AuditLog }) {
 }
 
 export default function AuditLogPage() {
-  const [filters, setFilters] = useState<AuditFilters>({})
-  const [searchInput, setSearchInput] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<AuditFilters>(() => ({
+    action: searchParams.get('action') ?? undefined,
+    entity_type: searchParams.get('entity_type') ?? undefined,
+    entity_id: searchParams.get('entity_id') ?? undefined,
+    user_id: searchParams.get('user_id') ?? undefined,
+    from: searchParams.get('from') ?? undefined,
+    to: searchParams.get('to') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: AuditFilters | ((prev: AuditFilters) => AuditFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof AuditFilters)[] = ['action', 'entity_type', 'entity_id', 'user_id', 'from', 'to']
+      keys.forEach((k) => { const v = next[k]; if (v) p.set(k, v); else p.delete(k) })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
+  const [searchInput, setSearchInput] = useState(searchParams.get('entity_id') ?? '')
+  const [dateFrom, setDateFrom] = useState(searchParams.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(searchParams.get('to') ?? '')
   const [verifying, setVerifying] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  const { data: usersData } = useUserList()
+  const users = usersData ?? []
 
   const {
     data,
@@ -189,7 +245,8 @@ export default function AuditLogPage() {
     isFetchingNextPage,
   } = useAuditList(filters)
 
-  const { data: verifyResult, isLoading: isVerifying, refetch: runVerify } = useVerifyAuditChain(verifying)
+  const { data: verifyResult, isLoading: isVerifying, refetch: runVerify, isError: isVerifyError, error: verifyError } = useVerifyAuditChain(verifying)
+  const { exportCSV, exporting } = useExport('audit')
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -254,21 +311,49 @@ export default function AuditLogPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Audit Log</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={handleVerify}
-          disabled={isVerifying}
-        >
-          {isVerifying ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Shield className="h-3.5 w-3.5" />
-          )}
-          Verify Integrity
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleVerify}
+            disabled={isVerifying}
+          >
+            {isVerifying ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Shield className="h-3.5 w-3.5" />
+            )}
+            Verify Integrity
+          </Button>
+        </div>
       </div>
+
+      {/* Verify Error Banner */}
+      {verifying && isVerifyError && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-md)] border bg-danger-dim border-danger/30">
+          <ShieldAlert className="h-5 w-5 text-danger flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-danger">Verification failed</p>
+            <p className="text-xs text-text-secondary">
+              {verifyError instanceof Error ? verifyError.message : 'Unable to verify audit chain. Please try again.'}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Dismiss"
+            onClick={() => setVerifying(false)}
+            className="ml-auto text-text-tertiary hover:text-text-primary transition-colors h-6 w-6"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Verify Result Banner */}
       {verifying && verifyResult && (
@@ -292,12 +377,15 @@ export default function AuditLogPage() {
               {verifyResult.first_invalid && ` (first invalid entry: #${verifyResult.first_invalid})`}
             </p>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Dismiss"
             onClick={() => setVerifying(false)}
-            className="ml-auto text-text-tertiary hover:text-text-primary transition-colors"
+            className="ml-auto text-text-tertiary hover:text-text-primary transition-colors h-6 w-6"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -314,12 +402,15 @@ export default function AuditLogPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Clear search"
               onClick={() => { setSearchInput(''); setFilters((f) => ({ ...f, entity_id: undefined })) }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors h-5 w-5"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -370,21 +461,55 @@ export default function AuditLogPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* User Filter */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.user_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <Filter className="h-3 w-3" />
+            <span>
+              User{filters.user_id
+                ? `: ${users.find((u) => u.id === filters.user_id)?.name ?? filters.user_id.slice(0, 8)}`
+                : ''}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+            <DropdownMenuItem
+              onClick={() => setFilters((f) => ({ ...f, user_id: undefined }))}
+            >
+              <span className="flex-1">All Users</span>
+              {!filters.user_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            {users.map((u) => (
+              <DropdownMenuItem
+                key={u.id}
+                onClick={() => setFilters((f) => ({ ...f, user_id: u.id }))}
+              >
+                <span className="flex-1">{u.name || u.email}</span>
+                {filters.user_id === u.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Date Range */}
         <div className="flex items-center gap-1.5">
           <Calendar className="h-3.5 w-3.5 text-text-tertiary" />
-          <input
+          <Input
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="h-7 px-2 text-xs rounded-[var(--radius-sm)] border border-border bg-bg-elevated text-text-secondary focus:border-accent outline-none"
+            className="h-7 px-2 text-xs w-auto"
           />
           <span className="text-text-tertiary text-xs">to</span>
-          <input
+          <Input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="h-7 px-2 text-xs rounded-[var(--radius-sm)] border border-border bg-bg-elevated text-text-secondary focus:border-accent outline-none"
+            className="h-7 px-2 text-xs w-auto"
           />
           {(dateFrom || dateTo) && (
             <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={handleDateFilter}>
@@ -394,12 +519,14 @@ export default function AuditLogPage() {
         </div>
 
         {activeFilterCount > 0 && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => { setFilters({}); setSearchInput(''); setDateFrom(''); setDateTo('') }}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto py-0 px-1"
           >
             Clear all ({activeFilterCount})
-          </button>
+          </Button>
         )}
       </div>
 
@@ -416,13 +543,14 @@ export default function AuditLogPage() {
                 <TableHead>Entity ID</TableHead>
                 <TableHead>Time</TableHead>
                 <TableHead>IP Address</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 8 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
@@ -430,22 +558,18 @@ export default function AuditLogPage() {
 
               {!isLoading && allEntries.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Shield className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No audit logs found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {activeFilterCount > 0 ? 'Try adjusting your filters.' : 'Audit entries will appear here as actions are performed.'}
-                        </p>
-                      </div>
-                    </div>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Shield}
+                      title="No audit logs found"
+                      description={activeFilterCount > 0 ? 'Try adjusting your filters.' : 'Audit entries will appear here as actions are performed.'}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {allEntries.map((entry) => (
-                <ExpandableRow key={entry.id} entry={entry} />
+              {allEntries.map((entry, idx) => (
+                <ExpandableRow key={entry.id} entry={entry} rowIndex={idx} />
               ))}
             </TableBody>
           </Table>
@@ -458,12 +582,14 @@ export default function AuditLogPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1 h-auto"
             >
               Load more entries
-            </button>
+            </Button>
           ) : allEntries.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allEntries.length} entries

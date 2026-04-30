@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import {
   DollarSign, TrendingUp, TrendingDown, RefreshCw, AlertCircle,
-  Lightbulb, ArrowRight, BarChart3,
+  Lightbulb, ArrowRight, BarChart3, ImageDown,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useCostAnalytics, type CostFilters } from '@/hooks/use-analytics'
+import { useChartExport } from '@/hooks/use-chart-export'
 import type { UsagePeriod } from '@/types/analytics'
 
 const COST_TIMEFRAME_OPTIONS = [
@@ -27,6 +28,7 @@ const COST_TIMEFRAME_OPTIONS = [
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes, formatNumber } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 
 function formatCurrency(n: number): string {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -107,13 +109,16 @@ export default function AnalyticsCostPage() {
 
   const { data, isLoading, isError, refetch } = useCostAnalytics(filters)
 
+  const chartRef = useRef<HTMLDivElement>(null)
+  const { exportPng, exporting } = useChartExport(chartRef)
+
   if (isLoading) return <CostSkeleton />
   if (isError) return <ErrorState onRetry={() => refetch()} />
 
   const isEmpty = !data || (data.by_operator.length === 0 && data.total_cost === 0)
 
   const chartData = (data?.by_operator ?? []).map((op) => ({
-    name: op.operator_id.slice(0, 8),
+    name: op.operator_name || '—',
     cost: op.total_usage_cost,
     carrier: op.total_carrier_cost,
   }))
@@ -200,9 +205,19 @@ export default function AnalyticsCostPage() {
           </div>
 
           {chartData.length > 0 && (
-            <Card>
-              <CardHeader>
+            <Card ref={chartRef}>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Carrier Comparison</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => exportPng('cost-chart.png')}
+                  disabled={exporting}
+                  title="Export chart as PNG"
+                >
+                  <ImageDown className="h-3.5 w-3.5" />
+                </Button>
               </CardHeader>
               <CardContent>
                 <div className="h-[250px]">
@@ -271,7 +286,7 @@ export default function AnalyticsCostPage() {
                   <TableBody>
                     {data!.cost_per_mb.map((row, i) => (
                       <TableRow key={i}>
-                        <TableCell className="font-mono text-xs">{row.operator_id.slice(0, 8)}...</TableCell>
+                        <TableCell><EntityLink entityType="operator" entityId={row.operator_id} label={row.operator_name || row.operator_id} /></TableCell>
                         <TableCell>
                           <Badge variant="secondary">{row.rat_type || 'N/A'}</Badge>
                         </TableCell>

@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
+import type React from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useNavigate } from 'react-router-dom'
 import {
   Search,
   Plus,
-  MoreVertical,
   Shield,
   X,
   Filter,
@@ -13,6 +14,7 @@ import {
   Loader2,
   Trash2,
   Edit,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -45,9 +47,14 @@ import {
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { usePolicyList, useCreatePolicy, useDeletePolicy } from '@/hooks/use-policies'
+import { useUndo } from '@/hooks/use-undo'
 import type { PolicyListItem } from '@/types/policy'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Status' },
@@ -95,9 +102,22 @@ export default function PolicyListPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null)
   const [newPolicy, setNewPolicy] = useState({ name: '', description: '', scope: 'global' })
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < 3) next.add(id)
+      return next
+    })
+  }
 
   const createMutation = useCreatePolicy()
   const deleteMutation = useDeletePolicy()
+  const { register: registerUndo } = useUndo([['policies']])
+  const { exportCSV, exporting } = useExport('policies')
 
   const {
     data,
@@ -139,7 +159,10 @@ export default function PolicyListPage() {
   const handleDelete = async () => {
     if (!deleteDialogOpen) return
     try {
-      await deleteMutation.mutateAsync(deleteDialogOpen)
+      const result = await deleteMutation.mutateAsync(deleteDialogOpen)
+      if (result?.undoActionId) {
+        registerUndo(result.undoActionId, 'Policy deleted')
+      }
       setDeleteDialogOpen(null)
     } catch {
       // handled by api interceptor
@@ -169,10 +192,26 @@ export default function PolicyListPage() {
           <Shield className="h-5 w-5 text-accent" />
           <h1 className="text-[16px] font-semibold text-text-primary">Policies</h1>
         </div>
-        <Button className="gap-2" size="sm" onClick={() => setCreateDialogOpen(true)}>
-          <Plus className="h-4 w-4" />
-          New Policy
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => navigate(`/policies/compare?ids=${Array.from(selectedIds).join(',')}`)}
+            >
+              Compare ({selectedIds.size})
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV({ state: statusFilter, q: search })} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
+            New Policy
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -186,12 +225,14 @@ export default function PolicyListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => { setSearchInput(''); setSearch('') }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -219,12 +260,14 @@ export default function PolicyListPage() {
         </DropdownMenu>
 
         {statusFilter && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setStatusFilter('')}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto p-0"
           >
             Clear filter
-          </button>
+          </Button>
         )}
       </div>
 
@@ -233,6 +276,7 @@ export default function PolicyListPage() {
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
+                <TableHead className="w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Active Version</TableHead>
@@ -246,6 +290,7 @@ export default function PolicyListPage() {
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-10" /></TableCell>
@@ -258,47 +303,66 @@ export default function PolicyListPage() {
 
               {!isLoading && allPolicies.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Shield className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No policies found</h3>
-                        <p className="text-xs text-text-secondary mb-4">
-                          {search || statusFilter ? 'Try adjusting your filters.' : 'Create your first policy to get started.'}
-                        </p>
-                        {search || statusFilter ? (
-                          <Button variant="outline" size="sm" onClick={() => { setSearch(''); setSearchInput(''); setStatusFilter('') }}>
-                            Clear Filters
-                          </Button>
-                        ) : (
-                          <Button size="sm" className="gap-2" onClick={() => setCreateDialogOpen(true)}>
-                            <Plus className="h-3.5 w-3.5" />
-                            New Policy
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                  <TableCell colSpan={8}>
+                    {search || statusFilter ? (
+                      <EmptyState
+                        icon={Search}
+                        title="No policies match your filters"
+                        description="Try adjusting your search or filter criteria."
+                        ctaLabel="Clear Filters"
+                        onCta={() => { setSearch(''); setSearchInput(''); setStatusFilter('') }}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={Shield}
+                        title="No policies yet"
+                        description="Create your first policy to start enforcing usage rules."
+                        ctaLabel="New Policy"
+                        onCta={() => setCreateDialogOpen(true)}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
 
-              {allPolicies.map((policy) => (
+              {allPolicies.map((policy, idx) => (
                 <TableRow
                   key={policy.id}
+                  data-row-index={idx}
+                  data-href={`/policies/${policy.id}`}
                   className="cursor-pointer"
                   onClick={() => navigate(`/policies/${policy.id}`)}
                 >
+                  <TableCell onClick={(e) => toggleSelect(policy.id, e)}>
+                    <Checkbox
+                      checked={selectedIds.has(policy.id)}
+                      onClick={(e: React.MouseEvent) => toggleSelect(policy.id, e)}
+                      disabled={!selectedIds.has(policy.id) && selectedIds.size >= 3}
+                      aria-label={`Select ${policy.name}`}
+                    />
+                  </TableCell>
                   <TableCell>
-                    <div>
-                      <span className="text-sm font-medium text-text-primary hover:text-accent transition-colors">
-                        {policy.name}
-                      </span>
-                      {policy.description && (
-                        <p className="text-xs text-text-tertiary truncate max-w-xs mt-0.5">
-                          {policy.description}
-                        </p>
-                      )}
-                    </div>
+                    <RowQuickPeek
+                      title={policy.name}
+                      fields={[
+                        { label: 'Scope', value: policy.scope },
+                        { label: 'State', value: policy.state },
+                        { label: 'Version', value: policy.active_version != null ? `v${policy.active_version}` : '—' },
+                        { label: 'SIMs', value: policy.sim_count.toLocaleString() },
+                        { label: 'Modified', value: new Date(policy.updated_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-text-primary hover:text-accent transition-colors">
+                          {policy.name}
+                        </span>
+                        {policy.description && (
+                          <p className="text-xs text-text-tertiary truncate max-w-xs mt-0.5">
+                            {policy.description}
+                          </p>
+                        )}
+                      </div>
+                    </RowQuickPeek>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary">
@@ -331,25 +395,12 @@ export default function PolicyListPage() {
                     </span>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
-                        <MoreVertical className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => navigate(`/policies/${policy.id}`)}>
-                          <Edit className="h-3.5 w-3.5 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setDeleteDialogOpen(policy.id)}
-                          className="text-danger focus:text-danger"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'Edit', icon: Edit, onClick: () => navigate(`/policies/${policy.id}`) },
+                        { label: 'Delete', icon: Trash2, onClick: () => setDeleteDialogOpen(policy.id), variant: 'destructive', separator: true },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -364,12 +415,14 @@ export default function PolicyListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1 h-auto"
             >
               Load more policies
-            </button>
+            </Button>
           ) : allPolicies.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allPolicies.length} policies

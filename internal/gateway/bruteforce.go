@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -82,13 +83,17 @@ func BruteForceProtection(rdb *redis.Client, cfg BruteForceConfig, logger zerolo
 
 func isAuthEndpoint(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/auth/login") ||
+		strings.HasPrefix(path, "/api/v1/auth/refresh") ||
 		strings.HasPrefix(path, "/api/v1/auth/2fa")
 }
 
 func extractIP(r *http.Request) string {
 	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		return host
+	}
+	if parsed := net.ParseIP(ip); parsed != nil {
+		return parsed.String()
 	}
 	return ip
 }

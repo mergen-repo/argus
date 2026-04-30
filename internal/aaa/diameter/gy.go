@@ -79,6 +79,8 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 	ds := h.stateMap.Create(sessionID, "", msg.ApplicationID, imsi)
 	_ = ds.Transition(SessionStateOpen)
 
+	var tenantID, simID, operatorID, iccid string
+
 	if h.sessionMgr != nil {
 		existing, _ := h.sessionMgr.GetByAcctSessionID(ctx, sessionID)
 		if existing == nil {
@@ -111,6 +113,9 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 				sess.SimID = sim.ID.String()
 				sess.TenantID = sim.TenantID.String()
 				sess.OperatorID = sim.OperatorID.String()
+				// FIX-212 AC-6: embed ICCID at session-create so Gy CCR-U/T
+				// publishers set entity.display_name without re-resolving.
+				sess.ICCID = sim.ICCID
 				if sim.APNID != nil {
 					sess.APNID = sim.APNID.String()
 				}
@@ -133,17 +138,27 @@ func (h *GyHandler) handleInitial(msg *Message, sessionID, imsi, msisdn string, 
 			} else {
 				ds.InternalID = sess.ID
 			}
+
+			tenantID = sess.TenantID
+			simID = sess.SimID
+			operatorID = sess.OperatorID
+			iccid = sess.ICCID
+		} else {
+			tenantID = existing.TenantID
+			simID = existing.SimID
+			operatorID = existing.OperatorID
+			iccid = existing.ICCID
 		}
 	}
 
 	if h.eventBus != nil {
-		h.eventBus.Publish(ctx, bus.SubjectSessionStarted, map[string]interface{}{
-			"session_id": sessionID,
-			"imsi":       imsi,
-			"msisdn":     msisdn,
-			"protocol":   "diameter_gy",
-			"timestamp":  time.Now().UTC(),
-		})
+		env := bus.NewSessionEnvelope("session.started", tenantID, simID, iccid, "Session started (Gy)").
+			WithMeta("session_id", sessionID).
+			WithMeta("operator_id", operatorID).
+			WithMeta("imsi", imsi).
+			WithMeta("msisdn", msisdn).
+			WithMeta("protocol", "diameter_gy")
+		h.eventBus.Publish(ctx, bus.SubjectSessionStarted, env)
 	}
 
 	cca := NewAnswer(msg)
@@ -195,17 +210,14 @@ func (h *GyHandler) handleUpdate(msg *Message, sessionID, imsi string, ccReqNum 
 		}
 
 		if h.eventBus != nil {
-			h.eventBus.Publish(ctx, bus.SubjectSessionUpdated, map[string]interface{}{
-				"session_id":  sess.ID,
-				"sim_id":      sess.SimID,
-				"tenant_id":   sess.TenantID,
-				"operator_id": sess.OperatorID,
-				"imsi":        imsi,
-				"protocol":    "diameter_gy",
-				"type":        "credit_update",
-				"used_octets": totalOctets,
-				"timestamp":   time.Now().UTC(),
-			})
+			env := bus.NewSessionEnvelope("session.updated", sess.TenantID, sess.SimID, sess.ICCID, "Session updated (Gy)").
+				WithMeta("session_id", sess.ID).
+				WithMeta("operator_id", sess.OperatorID).
+				WithMeta("imsi", imsi).
+				WithMeta("protocol", "diameter_gy").
+				WithMeta("update_type", "credit_update").
+				WithMeta("used_octets", totalOctets)
+			h.eventBus.Publish(ctx, bus.SubjectSessionUpdated, env)
 		}
 	}
 
@@ -263,18 +275,15 @@ func (h *GyHandler) handleTermination(msg *Message, sessionID, imsi string, ccRe
 		}
 
 		if h.eventBus != nil {
-			h.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
-				"session_id":      sess.ID,
-				"sim_id":          sess.SimID,
-				"tenant_id":       sess.TenantID,
-				"operator_id":     sess.OperatorID,
-				"imsi":            imsi,
-				"protocol":        "diameter_gy",
-				"terminate_cause": "normal",
-				"bytes_in":        sess.BytesIn + inputOctets,
-				"bytes_out":       sess.BytesOut + outputOctets,
-				"timestamp":       time.Now().UTC(),
-			})
+			env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (Gy)").
+				WithMeta("session_id", sess.ID).
+				WithMeta("operator_id", sess.OperatorID).
+				WithMeta("imsi", imsi).
+				WithMeta("protocol", "diameter_gy").
+				WithMeta("termination_cause", "normal").
+				WithMeta("bytes_in", sess.BytesIn+inputOctets).
+				WithMeta("bytes_out", sess.BytesOut+outputOctets)
+			h.eventBus.Publish(ctx, bus.SubjectSessionEnded, env)
 		}
 	}
 

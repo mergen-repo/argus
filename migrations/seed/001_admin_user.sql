@@ -1,5 +1,7 @@
 -- SEED-01: Super Admin Account
--- Idempotent: uses ON CONFLICT DO NOTHING
+-- Idempotent: uses ON CONFLICT DO NOTHING (bare — covers PK + domain unique)
+
+BEGIN;
 
 -- Create demo tenant
 INSERT INTO tenants (id, name, domain, contact_email, state)
@@ -9,7 +11,7 @@ VALUES (
     'demo.argus.io',
     'admin@argus.io',
     'active'
-) ON CONFLICT (domain) DO NOTHING;
+) ON CONFLICT DO NOTHING;
 
 -- Create super admin user
 -- Password: admin (bcrypt cost 12)
@@ -23,3 +25,5 @@ VALUES (
     'super_admin',
     'active'
 ) ON CONFLICT DO NOTHING;
+
+COMMIT;

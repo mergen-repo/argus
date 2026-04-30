@@ -7,10 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/notification"
+	sev "github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -18,10 +22,12 @@ import (
 
 const (
 	progressInterval = 100
-	maxCSVColumns    = 5
+	minCSVColumns    = 5
+	maxCSVColumns    = 6
 )
 
 var requiredHeaders = []string{"iccid", "imsi", "msisdn", "operator_code", "apn_name"}
+var optionalHeaders = []string{"ip_address"}
 
 type ImportPayload struct {
 	CSVData         string `json:"csv_data"`
@@ -36,19 +42,22 @@ type ImportRowError struct {
 }
 
 type ImportResult struct {
-	TotalRows     int `json:"total_rows"`
-	SuccessCount  int `json:"success_count"`
-	FailureCount  int `json:"failure_count"`
+	TotalRows     int      `json:"total_rows"`
+	SuccessCount  int      `json:"success_count"`
+	FailureCount  int      `json:"failure_count"`
 	CreatedSIMIDs []string `json:"created_sim_ids,omitempty"`
 }
 
 type BulkImportProcessor struct {
-	jobs      *store.JobStore
-	sims      *store.SIMStore
-	operators *store.OperatorStore
-	apns      *store.APNStore
-	ipPools   *store.IPPoolStore
-	eventBus  *bus.EventBus
+	jobs      importJobStore
+	sims      importSIMWriter
+	operators importOperatorReader
+	apns      importAPNReader
+	ipPools   importIPPoolManager
+	eventBus  importEventPublisher
+	auditor   audit.Auditor
+	notifier  importNotifier
+	policies  importPolicyReader
 	logger    zerolog.Logger
 }
 
@@ -59,8 +68,19 @@ func NewBulkImportProcessor(
 	apns *store.APNStore,
 	ipPools *store.IPPoolStore,
 	eventBus *bus.EventBus,
+	auditor audit.Auditor,
+	notifier *notification.Service,
+	policies *store.PolicyStore,
 	logger zerolog.Logger,
 ) *BulkImportProcessor {
+	var notif importNotifier
+	if notifier != nil {
+		notif = notifier
+	}
+	var pol importPolicyReader
+	if policies != nil {
+		pol = policies
+	}
 	return &BulkImportProcessor{
 		jobs:      jobs,
 		sims:      sims,
@@ -68,7 +88,18 @@ func NewBulkImportProcessor(
 		apns:      apns,
 		ipPools:   ipPools,
 		eventBus:  eventBus,
+		auditor:   auditor,
+		notifier:  notif,
+		policies:  pol,
 		logger:    logger.With().Str("processor", JobTypeBulkImport).Logger(),
+	}
+}
+
+func (p *BulkImportProcessor) SetNotifier(n *notification.Service) {
+	if n != nil {
+		p.notifier = n
+	} else {
+		p.notifier = nil
 	}
 }
 
@@ -83,6 +114,7 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 	}
 
 	tenantCtx := context.WithValue(ctx, apierr.TenantIDKey, job.TenantID)
+	correlationID := job.ID
 
 	reader := csv.NewReader(strings.NewReader(payload.CSVData))
 	reader.TrimLeadingSpace = true
@@ -112,7 +144,12 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 	totalRows := len(rows)
 	if totalRows == 0 {
 		result, _ := json.Marshal(ImportResult{TotalRows: 0})
-		return p.jobs.Complete(ctx, job.ID, nil, result)
+		if completeErr := p.jobs.Complete(ctx, job.ID, nil, result); completeErr != nil {
+			return fmt.Errorf("complete job: %w", completeErr)
+		}
+		p.emitNotification(ctx, job, payload.FileName, 0, 0, 0)
+		p.emitSummaryAudit(ctx, job, &correlationID, payload.FileName, 0, 0, 0)
+		return nil
 	}
 
 	_ = p.jobs.UpdateProgress(ctx, job.ID, 0, 0, totalRows)
@@ -136,10 +173,10 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			}
 		}
 
-		if len(row) < maxCSVColumns {
+		if len(row) < minCSVColumns {
 			rowErrors = append(rowErrors, ImportRowError{
 				Row:          rowNum,
-				ErrorMessage: fmt.Sprintf("expected %d columns, got %d", maxCSVColumns, len(row)),
+				ErrorMessage: fmt.Sprintf("expected at least %d columns, got %d", minCSVColumns, len(row)),
 			})
 			failed++
 			p.updateProgressPeriodic(ctx, job, processed, failed, totalRows, i)
@@ -151,6 +188,11 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 		msisdn := strings.TrimSpace(row[colMap["msisdn"]])
 		operatorCode := strings.TrimSpace(row[colMap["operator_code"]])
 		apnName := strings.TrimSpace(row[colMap["apn_name"]])
+
+		var requestedIP string
+		if ipCol, ok := colMap["ip_address"]; ok && ipCol < len(row) {
+			requestedIP = strings.TrimSpace(row[ipCol])
+		}
 
 		if validationErr := validateRow(iccid, imsi, operatorCode, apnName); validationErr != "" {
 			rowErrors = append(rowErrors, ImportRowError{
@@ -217,8 +259,7 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			continue
 		}
 
-		ordered := "ordered"
-		_ = p.sims.InsertHistory(tenantCtx, sim.ID, nil, "ordered", "bulk_import", nil, nil)
+		p.emitAudit(tenantCtx, job, &correlationID, "sim.create", "sim", sim.ID.String(), nil, sim)
 
 		activatedSim, activateErr := p.sims.TransitionState(tenantCtx, sim.ID, "active", nil, "bulk_import", nil, 0)
 		if activateErr != nil {
@@ -232,9 +273,23 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 			p.updateProgressPeriodic(ctx, job, processed, failed, totalRows, i)
 			continue
 		}
-		_ = ordered
 
-		p.allocateIPAndPolicy(tenantCtx, activatedSim, &apn.ID, apn.DefaultPolicyID, payload.ReserveStaticIP)
+		p.emitAudit(tenantCtx, job, &correlationID, "sim.activate", "sim", sim.ID.String(), sim, activatedSim)
+
+		if requestedIP != "" {
+			reservedIPID, ipErr := p.reserveSpecificIP(tenantCtx, activatedSim, apn, requestedIP)
+			if ipErr != "" {
+				rowErrors = append(rowErrors, ImportRowError{
+					Row:          rowNum,
+					ICCID:        iccid,
+					ErrorMessage: fmt.Sprintf("SIM created but IP allocation failed: %s", ipErr),
+				})
+			} else if reservedIPID != nil {
+				activatedSim.IPAddressID = reservedIPID
+			}
+		}
+
+		p.resolveAndAssignPolicy(tenantCtx, job, &correlationID, activatedSim, apn)
 
 		createdIDs = append(createdIDs, sim.ID.String())
 		processed++
@@ -255,18 +310,22 @@ func (p *BulkImportProcessor) Process(ctx context.Context, job *store.Job) error
 		CreatedSIMIDs: createdIDs,
 	})
 
+	p.emitSummaryAudit(ctx, job, &correlationID, payload.FileName, totalRows, processed, failed)
+
 	if err := p.jobs.Complete(ctx, job.ID, errorReportJSON, resultJSON); err != nil {
 		return fmt.Errorf("complete job: %w", err)
 	}
 
+	p.emitNotification(ctx, job, payload.FileName, totalRows, processed, failed)
+
 	_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
-		"job_id":         job.ID.String(),
-		"tenant_id":      job.TenantID.String(),
-		"type":           JobTypeBulkImport,
-		"state":          "completed",
-		"total_rows":     totalRows,
-		"success_count":  processed,
-		"failure_count":  failed,
+		"job_id":        job.ID.String(),
+		"tenant_id":     job.TenantID.String(),
+		"type":          JobTypeBulkImport,
+		"state":         "completed",
+		"total_rows":    totalRows,
+		"success_count": processed,
+		"failure_count": failed,
 	})
 
 	return nil
@@ -311,28 +370,134 @@ func (p *BulkImportProcessor) resolveAPN(ctx context.Context, tenantID, operator
 	return apn, nil
 }
 
-func (p *BulkImportProcessor) allocateIPAndPolicy(ctx context.Context, sim *store.SIM, apnID *uuid.UUID, defaultPolicyID *uuid.UUID, reserveStatic bool) {
-	if apnID == nil {
+func (p *BulkImportProcessor) resolveAndAssignPolicy(ctx context.Context, job *store.Job, correlationID *uuid.UUID, sim *store.SIM, apn *store.APN) {
+	if p.policies == nil || sim.APNID == nil || sim.PolicyVersionID != nil {
 		return
 	}
 
-	pools, _, err := p.ipPools.List(ctx, sim.TenantID, "", 1, apnID)
-	if err != nil || len(pools) == 0 {
-		return
-	}
-
-	var result *store.IPAddress
-	if reserveStatic {
-		result, err = p.ipPools.ReserveStaticIP(ctx, pools[0].ID, sim.ID, nil)
-	} else {
-		result, err = p.ipPools.AllocateIP(ctx, pools[0].ID, sim.ID)
-	}
+	policies, _, err := p.policies.ListReferencingAPN(ctx, sim.TenantID, apn.Name, 10, "")
 	if err != nil {
-		p.logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("ip allocation failed during import")
+		p.logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("policy lookup failed during import")
 		return
 	}
 
-	_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &result.ID, defaultPolicyID)
+	for _, pol := range policies {
+		if pol.State == "active" && pol.CurrentVersionID != nil {
+			if setErr := p.sims.SetIPAndPolicy(ctx, sim.ID, sim.IPAddressID, pol.CurrentVersionID); setErr != nil {
+				p.logger.Warn().Err(setErr).Str("sim_id", sim.ID.String()).Msg("policy assignment failed during import")
+				return
+			}
+			sim.PolicyVersionID = pol.CurrentVersionID
+			p.emitAudit(ctx, job, correlationID, "sim.policy_auto_assigned", "sim", sim.ID.String(), nil, map[string]interface{}{
+				"policy_id":  pol.ID,
+				"version_id": *pol.CurrentVersionID,
+			})
+			return
+		}
+	}
+}
+
+func (p *BulkImportProcessor) reserveSpecificIP(ctx context.Context, sim *store.SIM, apn *store.APN, ipAddr string) (*uuid.UUID, string) {
+	pools, _, err := p.ipPools.List(ctx, sim.TenantID, "", 100, &apn.ID)
+	if err != nil || len(pools) == 0 {
+		return nil, fmt.Sprintf("no IP pool found for APN '%s'", apn.Name)
+	}
+
+	for _, pool := range pools {
+		addr, err := p.ipPools.ReserveStaticIP(ctx, pool.ID, sim.ID, &ipAddr)
+		if err == nil && addr != nil {
+			_ = p.sims.SetIPAndPolicy(ctx, sim.ID, &addr.ID, nil)
+			return &addr.ID, ""
+		}
+	}
+
+	return nil, fmt.Sprintf("IP '%s' not available in any pool of APN '%s'", ipAddr, apn.Name)
+}
+
+func (p *BulkImportProcessor) emitAudit(ctx context.Context, job *store.Job, correlationID *uuid.UUID, action, entityType, entityID string, before, after interface{}) {
+	if p.auditor == nil {
+		return
+	}
+
+	var beforeData, afterData json.RawMessage
+	if before != nil {
+		beforeData, _ = json.Marshal(before)
+	}
+	if after != nil {
+		afterData, _ = json.Marshal(after)
+	}
+
+	_, err := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      job.TenantID,
+		UserID:        job.CreatedBy,
+		Action:        action,
+		EntityType:    entityType,
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		CorrelationID: correlationID,
+	})
+	if err != nil {
+		p.logger.Warn().Err(err).Str("action", action).Str("entity_id", entityID).Msg("emit audit event failed")
+	}
+}
+
+func (p *BulkImportProcessor) emitSummaryAudit(ctx context.Context, job *store.Job, correlationID *uuid.UUID, fileName string, totalRows, processed, failed int) {
+	if p.auditor == nil {
+		return
+	}
+
+	summary := map[string]interface{}{
+		"total":     totalRows,
+		"success":   processed,
+		"failure":   failed,
+		"file_name": fileName,
+	}
+	afterData, _ := json.Marshal(summary)
+
+	_, err := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      job.TenantID,
+		UserID:        job.CreatedBy,
+		Action:        "sim.bulk_import",
+		EntityType:    "job",
+		EntityID:      job.ID.String(),
+		AfterData:     afterData,
+		CorrelationID: correlationID,
+	})
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("emit summary audit event failed")
+	}
+}
+
+func (p *BulkImportProcessor) emitNotification(ctx context.Context, job *store.Job, fileName string, totalRows, processed, failed int) {
+	if p.notifier == nil {
+		return
+	}
+
+	severity := sev.Info
+	if failed > 0 && processed > 0 {
+		severity = sev.Medium
+	} else if failed > 0 && processed == 0 {
+		severity = sev.High
+	}
+
+	_ = p.notifier.Notify(ctx, notification.NotifyRequest{
+		TenantID:   job.TenantID,
+		UserID:     job.CreatedBy,
+		EventType:  notification.EventJobCompleted,
+		ScopeType:  notification.ScopeSystem,
+		ScopeRefID: &job.ID,
+		Title:      "Bulk import complete",
+		Body:       fmt.Sprintf("%s: %d/%d successful, %d failed", fileName, processed, totalRows, failed),
+		Severity:   severity,
+		ExtraFields: map[string]string{
+			"job_id":        job.ID.String(),
+			"total":         strconv.Itoa(totalRows),
+			"success_count": strconv.Itoa(processed),
+			"fail_count":    strconv.Itoa(failed),
+			"file_name":     fileName,
+		},
+	})
 }
 
 func mapColumns(headers []string) (map[string]int, error) {
@@ -353,6 +518,14 @@ func mapColumns(headers []string) (map[string]int, error) {
 		}
 		if !found {
 			return nil, fmt.Errorf("missing required CSV column: %s", required)
+		}
+	}
+	for _, opt := range optionalHeaders {
+		for i, h := range normalized {
+			if h == opt {
+				colMap[opt] = i
+				break
+			}
 		}
 	}
 	return colMap, nil

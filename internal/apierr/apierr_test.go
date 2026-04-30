@@ -227,7 +227,7 @@ func TestErrorCodes_NotEmpty(t *testing.T) {
 		CodeNotFound, CodeConflict, CodeAlreadyExists,
 		CodeInvalidCredentials, CodeAccountLocked, CodeAccountDisabled,
 		CodeInvalid2FACode, CodeTokenExpired, CodeInvalidRefreshToken,
-		CodeForbidden, CodeInsufficientRole, CodeScopeDenied,
+		CodeForbidden, CodeInsufficientRole, CodeScopeDenied, CodeForbiddenCrossTenant,
 		CodeResourceLimitExceeded, CodeTenantSuspended,
 		CodeRateLimited, CodeAPNHasActiveSIMs, CodePoolExhausted,
 		CodeIPAlreadyAllocated, CodeICCIDExists, CodeIMSIExists,
@@ -239,6 +239,118 @@ func TestErrorCodes_NotEmpty(t *testing.T) {
 		if code == "" {
 			t.Error("error code should not be empty")
 		}
+	}
+}
+
+// TestWriteList_NilSliceNormalized covers AC-3: nil slices must serialize as "[]",
+// not "null", and non-slice types must pass through unchanged (no panic).
+func TestWriteList_NilSliceNormalized(t *testing.T) {
+	t.Run("nil_typed_struct_slice", func(t *testing.T) {
+		var entries []struct{ ID string }
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, entries, ListMeta{})
+
+		var resp map[string]interface{}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		arr, ok := resp["data"].([]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want []interface{}", resp["data"])
+		}
+		if len(arr) != 0 {
+			t.Errorf("len(data) = %d, want 0", len(arr))
+		}
+	})
+
+	t.Run("nil_map_slice", func(t *testing.T) {
+		var entries []map[string]interface{}
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, entries, ListMeta{})
+
+		var resp map[string]interface{}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		arr, ok := resp["data"].([]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want []interface{}", resp["data"])
+		}
+		if len(arr) != 0 {
+			t.Errorf("len(data) = %d, want 0", len(arr))
+		}
+	})
+
+	t.Run("empty_initialized_slice", func(t *testing.T) {
+		entries := []struct{ ID string }{}
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, entries, ListMeta{})
+
+		var resp map[string]interface{}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		arr, ok := resp["data"].([]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want []interface{}", resp["data"])
+		}
+		if len(arr) != 0 {
+			t.Errorf("len(data) = %d, want 0", len(arr))
+		}
+	})
+
+	t.Run("populated_slice_unchanged", func(t *testing.T) {
+		entries := []struct{ ID string }{{"a"}, {"b"}}
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, entries, ListMeta{})
+
+		var resp map[string]interface{}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		arr, ok := resp["data"].([]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want []interface{}", resp["data"])
+		}
+		if len(arr) != 2 {
+			t.Errorf("len(data) = %d, want 2", len(arr))
+		}
+		first, ok := arr[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("arr[0] is %T, want map[string]interface{}", arr[0])
+		}
+		if first["ID"] != "a" {
+			t.Errorf("arr[0].ID = %v, want \"a\"", first["ID"])
+		}
+	})
+
+	t.Run("non_slice_map_passthrough", func(t *testing.T) {
+		data := map[string]interface{}{"k": "v"}
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, data, ListMeta{})
+
+		var resp map[string]interface{}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		m, ok := resp["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want map[string]interface{}", resp["data"])
+		}
+		if m["k"] != "v" {
+			t.Errorf("data[k] = %v, want \"v\"", m["k"])
+		}
+	})
+}
+
+// BenchmarkWriteList_NilSlice measures the per-call cost of WriteList when
+// normalizeListData fires (nil slice → empty slice via reflect.MakeSlice).
+// AC-8 + DEV-397: expected overhead < 10 µs/op on modern hardware.
+func BenchmarkWriteList_NilSlice(b *testing.B) {
+	var entries []struct{ ID string }
+	for i := 0; i < b.N; i++ {
+		rec := httptest.NewRecorder()
+		WriteList(rec, http.StatusOK, entries, ListMeta{})
 	}
 }
 

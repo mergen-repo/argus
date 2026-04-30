@@ -4,19 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"net"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
+type ipPoolStore interface {
+	GetIPAddressByID(ctx context.Context, id uuid.UUID) (*store.IPAddress, error)
+	ListByAPN(ctx context.Context, tenantID, apnID uuid.UUID) ([]store.IPPool, error)
+}
+
 const (
-	ProtocolTypeRadius  = "radius"
+	ProtocolTypeRadius   = "radius"
 	ProtocolTypeDiameter = "diameter"
-	ProtocolType5GSBA   = "5g_sba"
+	ProtocolType5GSBA    = "5g_sba"
 )
 
 const (
@@ -33,21 +40,30 @@ const (
 )
 
 type Session struct {
-	ID             string    `json:"id"`
-	SimID          string    `json:"sim_id"`
-	TenantID       string    `json:"tenant_id"`
-	OperatorID     string    `json:"operator_id"`
-	APNID          string    `json:"apn_id,omitempty"`
-	IMSI           string    `json:"imsi"`
-	MSISDN         string    `json:"msisdn"`
-	APN            string    `json:"apn"`
-	NASIP          string    `json:"nas_ip"`
-	AcctSessionID  string    `json:"acct_session_id"`
-	FramedIP       string    `json:"framed_ip"`
-	SessionState   string    `json:"session_state"`
-	AuthMethod     string    `json:"auth_method,omitempty"`
-	SessionTimeout int       `json:"session_timeout"`
-	IdleTimeout    int       `json:"idle_timeout"`
+	ID    string `json:"id"`
+	SimID string `json:"sim_id"`
+	// ICCID is the pre-resolved SIM ICCID embedded at session-create so the
+	// hot-path session publishers (radius/diameter/sba) can set
+	// entity.display_name without a Redis/DB lookup on every Interim / CCR-U.
+	// Populated by Manager.Create from the in-memory SIM struct already
+	// loaded for framed-IP validation. The Redis-cached session blob carries
+	// this field so GetByAcctSessionID restores it. The DB row
+	// (store.RadiusSession) is unchanged — ICCID lives only at the Session
+	// (Redis) layer (FIX-212 AC-6).
+	ICCID          string          `json:"iccid,omitempty"`
+	TenantID       string          `json:"tenant_id"`
+	OperatorID     string          `json:"operator_id"`
+	APNID          string          `json:"apn_id,omitempty"`
+	IMSI           string          `json:"imsi"`
+	MSISDN         string          `json:"msisdn"`
+	APN            string          `json:"apn"`
+	NASIP          string          `json:"nas_ip"`
+	AcctSessionID  string          `json:"acct_session_id"`
+	FramedIP       string          `json:"framed_ip"`
+	SessionState   string          `json:"session_state"`
+	AuthMethod     string          `json:"auth_method,omitempty"`
+	SessionTimeout int             `json:"session_timeout"`
+	IdleTimeout    int             `json:"idle_timeout"`
 	RATType        string          `json:"rat_type,omitempty"`
 	BytesIn        uint64          `json:"bytes_in"`
 	BytesOut       uint64          `json:"bytes_out"`
@@ -57,6 +73,22 @@ type Session struct {
 	TerminateCause string          `json:"terminate_cause,omitempty"`
 	ProtocolType   string          `json:"protocol_type,omitempty"`
 	SliceInfo      json.RawMessage `json:"slice_info,omitempty"`
+	// SorDecision holds the JSONB payload written by the SoR engine when it
+	// selects an operator for this session. Engine wiring is deferred to D-148
+	// (FIX-24x); until then this field is nil and the sessions.sor_decision DB
+	// column is NULL. The expected shape once the engine is wired:
+	//
+	//   {
+	//     "chosen_operator_id": "<uuid>",
+	//     "scoring": [
+	//       {"operator_id": "<uuid>", "score": 0.95, "reason": "best latency"},
+	//       {"operator_id": "<uuid>", "score": 0.78, "reason": "lowest cost"}
+	//     ],
+	//     "decided_at": "<iso8601>"
+	//   }
+	//
+	// The handler's sorDecisionDTO must match this shape exactly (DEV-405).
+	SorDecision json.RawMessage `json:"sor_decision,omitempty"`
 }
 
 type SessionFilter struct {
@@ -87,8 +119,11 @@ type SessionCounters struct {
 type Manager struct {
 	sessionStore *store.RadiusSessionStore
 	simStore     *store.SIMStore
+	ipPoolStore  ipPoolStore
+	metricsReg   *metrics.Registry
 	redisClient  *redis.Client
 	logger       zerolog.Logger
+	auditService audit.Auditor
 }
 
 func NewManager(sessionStore *store.RadiusSessionStore, redisClient *redis.Client, logger zerolog.Logger, opts ...ManagerOption) *Manager {
@@ -111,6 +146,86 @@ func WithSIMStore(simStore *store.SIMStore) ManagerOption {
 	}
 }
 
+func WithIPPoolStore(s *store.IPPoolStore) ManagerOption {
+	return func(m *Manager) {
+		m.ipPoolStore = s
+	}
+}
+
+func WithMetrics(reg *metrics.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.metricsReg = reg
+	}
+}
+
+func WithAuditService(svc audit.Auditor) ManagerOption {
+	return func(m *Manager) {
+		m.auditService = svc
+	}
+}
+
+func (m *Manager) validateFramedIP(ctx context.Context, sim *store.SIM, framedIPStr string) (bool, string) {
+	if framedIPStr == "" {
+		return true, ""
+	}
+
+	framedIP := net.ParseIP(framedIPStr)
+	if framedIP == nil {
+		return false, "unparseable_framed_ip"
+	}
+
+	if sim.IPAddressID != nil {
+		addr, err := m.ipPoolStore.GetIPAddressByID(ctx, *sim.IPAddressID)
+		if err != nil {
+			m.logger.Warn().Err(err).
+				Str("sim_id", sim.ID.String()).
+				Str("framed_ip", framedIPStr).
+				Msg("validateFramedIP: failed to fetch assigned ip address; skipping validation")
+			return true, ""
+		}
+		var assignedStr string
+		if addr.AddressV4 != nil {
+			assignedStr = net.ParseIP(*addr.AddressV4).String()
+		} else if addr.AddressV6 != nil {
+			assignedStr = net.ParseIP(*addr.AddressV6).String()
+		}
+		if assignedStr != "" && framedIP.String() != assignedStr {
+			return false, "mismatch_assigned_address"
+		}
+		return true, ""
+	}
+
+	if sim.APNID == nil {
+		return true, ""
+	}
+
+	pools, err := m.ipPoolStore.ListByAPN(ctx, sim.TenantID, *sim.APNID)
+	if err != nil {
+		m.logger.Warn().Err(err).
+			Str("sim_id", sim.ID.String()).
+			Str("framed_ip", framedIPStr).
+			Msg("validateFramedIP: failed to list apn pools; skipping validation")
+		return true, ""
+	}
+
+	for _, pool := range pools {
+		if pool.CIDRv4 != nil {
+			_, ipNet, err := net.ParseCIDR(*pool.CIDRv4)
+			if err == nil && ipNet.Contains(framedIP) {
+				return true, ""
+			}
+		}
+		if pool.CIDRv6 != nil {
+			_, ipNet, err := net.ParseCIDR(*pool.CIDRv6)
+			if err == nil && ipNet.Contains(framedIP) {
+				return true, ""
+			}
+		}
+	}
+
+	return false, "outside_apn_pools"
+}
+
 func (m *Manager) Create(ctx context.Context, sess *Session) error {
 	if m.sessionStore != nil {
 		simID, _ := uuid.Parse(sess.SimID)
@@ -122,6 +237,32 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			id, err := uuid.Parse(sess.APNID)
 			if err == nil {
 				apnID = &id
+			}
+		}
+
+		if m.ipPoolStore != nil && m.simStore != nil && simID != uuid.Nil && tenantID != uuid.Nil {
+			sim, err := m.simStore.GetByID(ctx, tenantID, simID)
+			if err != nil {
+				m.logger.Warn().Err(err).
+					Str("sim_id", sess.SimID).
+					Msg("session create: failed to fetch SIM for framed_ip validation; skipping")
+			} else if sim != nil {
+				// FIX-212 AC-6: embed ICCID into the Redis-cached Session blob
+				// so interim/update/end publishers can set entity.display_name
+				// without a hot-path lookup. Only populate when caller hasn't
+				// already pre-set it (test harnesses may pass a fixture).
+				if sess.ICCID == "" {
+					sess.ICCID = sim.ICCID
+				}
+				if ok, reason := m.validateFramedIP(ctx, sim, sess.FramedIP); !ok {
+					m.logger.Warn().
+						Str("sim_id", sess.SimID).
+						Str("framed_ip", sess.FramedIP).
+						Str("apn_id", sess.APNID).
+						Str("reason", reason).
+						Msg("session create: framed_ip pool mismatch (AC-3); session allowed to proceed")
+					m.metricsReg.IncFramedIPPoolMismatch(reason)
+				}
 			}
 		}
 
@@ -145,6 +286,7 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 			RATType:       ratType,
 			ProtocolType:  sess.ProtocolType,
 			SliceInfo:     sess.SliceInfo,
+			SoRDecision:   sess.SorDecision, // D-148: nil until SoR engine is wired (FIX-24x)
 		})
 		if err != nil {
 			return fmt.Errorf("session manager: create: %w", err)
@@ -152,6 +294,24 @@ func (m *Manager) Create(ctx context.Context, sess *Session) error {
 
 		sess.ID = dbSess.ID.String()
 		sess.StartedAt = dbSess.StartedAt
+
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil {
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"sim_id":      sess.SimID,
+				"operator_id": sess.OperatorID,
+				"apn_id":      sess.APNID,
+				"ip_address":  sess.FramedIP,
+				"rat_type":    sess.RATType,
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.started",
+				EntityType: "session",
+				EntityID:   sess.ID,
+				AfterData:  afterData,
+			})
+		}
 
 		if sess.RATType != "" && m.simStore != nil && simID != uuid.Nil {
 			if err := m.simStore.UpdateLastRATType(ctx, simID, operatorID, sess.RATType); err != nil {
@@ -415,26 +575,56 @@ func (m *Manager) statsFromRedis(ctx context.Context) (*SessionStats, error) {
 		return stats, nil
 	}
 
-	all, err := m.redisClient.HGetAll(ctx, statsActiveKey).Result()
-	if err != nil {
-		return stats, nil
+	var cursor uint64
+	var totalDuration float64
+	var totalBytes float64
+	now := time.Now()
+
+	for {
+		keys, nextCursor, err := m.redisClient.Scan(ctx, cursor, sessionKeyPrefix+"*", 200).Result()
+		if err != nil {
+			return stats, fmt.Errorf("session stats: redis scan: %w", err)
+		}
+
+		for _, key := range keys {
+			if !isSessionDataKey(key) {
+				continue
+			}
+			data, err := m.redisClient.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var sess Session
+			if err := json.Unmarshal(data, &sess); err != nil {
+				continue
+			}
+			if sess.SessionState != "active" {
+				continue
+			}
+
+			stats.TotalActive++
+			if sess.OperatorID != "" {
+				stats.ByOperator[sess.OperatorID]++
+			}
+			if sess.APNID != "" {
+				stats.ByAPN[sess.APNID]++
+			}
+			if sess.RATType != "" {
+				stats.ByRATType[sess.RATType]++
+			}
+			totalDuration += now.Sub(sess.StartedAt).Seconds()
+			totalBytes += float64(sess.BytesIn + sess.BytesOut)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
 	}
 
-	for k, v := range all {
-		count, _ := strconv.ParseInt(v, 10, 64)
-		if count < 0 {
-			count = 0
-		}
-		switch {
-		case k == "total":
-			stats.TotalActive = count
-		case len(k) > 3 && k[:3] == "op:":
-			stats.ByOperator[k[3:]] = count
-		case len(k) > 4 && k[:4] == "apn:":
-			stats.ByAPN[k[4:]] = count
-		case len(k) > 4 && k[:4] == "rat:":
-			stats.ByRATType[k[4:]] = count
-		}
+	if stats.TotalActive > 0 {
+		stats.AvgDurationSec = totalDuration / float64(stats.TotalActive)
+		stats.AvgBytes = totalBytes / float64(stats.TotalActive)
 	}
 
 	return stats, nil
@@ -517,6 +707,24 @@ func (m *Manager) TerminateWithCounters(ctx context.Context, id string, cause st
 			}
 		}
 
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil && sess.TenantID != "" {
+			tenantID, _ := uuid.Parse(sess.TenantID)
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"bytes_in":           bytesIn,
+				"bytes_out":          bytesOut,
+				"termination_reason": cause,
+				"duration_sec":       int64(time.Since(sess.StartedAt).Seconds()),
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.ended",
+				EntityType: "session",
+				EntityID:   id,
+				AfterData:  afterData,
+			})
+		}
+
 		m.redisClient.Del(ctx, key)
 		if acctSessionID != "" {
 			m.redisClient.Del(ctx, sessionAcctKeyPrefix+acctSessionID)
@@ -549,6 +757,24 @@ func (m *Manager) Terminate(ctx context.Context, id string, cause string) error 
 			if err := json.Unmarshal(data, &sess); err == nil {
 				acctSessionID = sess.AcctSessionID
 			}
+		}
+
+		// FIX-242 AC-5 / F-161: session lifecycle audit row (DEV-402: inline publisher).
+		if m.auditService != nil && sess.TenantID != "" {
+			tenantID, _ := uuid.Parse(sess.TenantID)
+			afterData, _ := json.Marshal(map[string]interface{}{
+				"bytes_in":           sess.BytesIn,
+				"bytes_out":          sess.BytesOut,
+				"termination_reason": cause,
+				"duration_sec":       int64(time.Since(sess.StartedAt).Seconds()),
+			})
+			_, _ = m.auditService.CreateEntry(ctx, audit.CreateEntryParams{
+				TenantID:   tenantID,
+				Action:     "session.ended",
+				EntityType: "session",
+				EntityID:   id,
+				AfterData:  afterData,
+			})
 		}
 
 		m.redisClient.Del(ctx, key)

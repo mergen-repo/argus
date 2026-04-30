@@ -63,6 +63,7 @@ Indexes:
 | state | VARCHAR(20) | NOT NULL, DEFAULT 'available' | available, allocated, reserved, reclaiming |
 | allocated_at | TIMESTAMPTZ | | Allocation timestamp |
 | reclaim_at | TIMESTAMPTZ | | Scheduled reclaim time |
+| last_seen_at | TIMESTAMPTZ | NULL | Last RADIUS/Diameter keep-alive (FIX-223; writer deferred to D-121 / AAA accounting enrichment) |
 
 Indexes:
 - `idx_ip_addresses_pool_state` on (pool_id, state)
@@ -113,6 +114,11 @@ Indexes:
 - `idx_sims_tenant_policy` on (tenant_id, policy_version_id)
 - `idx_sims_purge` on (purge_at) WHERE state = 'terminated'
 
+Foreign Keys (FIX-206, migrations/20260420000002):
+- `fk_sims_operator` on (operator_id) → `operators(id)` ON DELETE RESTRICT — blocks operator delete while SIMs reference it; enforces "reassign before delete".
+- `fk_sims_apn` on (apn_id) → `apns(id)` ON DELETE SET NULL — APN deletion releases SIMs to default APN at next session.
+- `fk_sims_ip_address` on (ip_address_id) → `ip_addresses(id)` ON DELETE SET NULL — IP release does not block SIM record.
+
 Partitioning:
 ```sql
 CREATE TABLE sims (
@@ -159,14 +165,17 @@ CREATE TABLE sim_state_history (
 
 ## TBL-12: esim_profiles
 
+Multi-profile eSIM table. A single SIM may have up to 8 profiles (GSMA SGP.22 cap). Exactly one profile per SIM may be in `enabled` state, enforced by partial unique index.
+
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
 | id | UUID | PK, DEFAULT gen_random_uuid() | Profile identifier |
-| sim_id | UUID | FK → sims.id, NOT NULL, UNIQUE | Parent SIM |
+| sim_id | UUID | FK → sims.id, NOT NULL | Parent SIM (multi-profile: no plain UNIQUE) |
+| profile_id | VARCHAR(64) | | Operator/SM-DP+ profile identifier (for dedup) |
 | eid | VARCHAR(32) | NOT NULL | eUICC identifier |
 | sm_dp_plus_id | VARCHAR(255) | | SM-DP+ profile reference |
 | operator_id | UUID | FK → operators.id, NOT NULL | Profile operator |
-| profile_state | VARCHAR(20) | NOT NULL, DEFAULT 'disabled' | enabled, disabled, deleted |
+| profile_state | VARCHAR(20) | NOT NULL, DEFAULT 'available', CHECK (profile_state IN ('available','enabled','disabled','deleted')) | available (loaded, inactive), enabled (active), disabled (operator-deactivated), deleted (soft-deleted) |
 | iccid_on_profile | VARCHAR(22) | | Profile-specific ICCID |
 | last_provisioned_at | TIMESTAMPTZ | | Last SM-DP+ operation time |
 | last_error | TEXT | | Last provisioning error |
@@ -174,9 +183,13 @@ CREATE TABLE sim_state_history (
 | updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Last update |
 
 Indexes:
-- `idx_esim_profiles_sim` UNIQUE on (sim_id)
+- `idx_esim_profiles_sim_enabled` PARTIAL UNIQUE on (sim_id) WHERE profile_state = 'enabled' — enforces one active profile per SIM
+- `idx_esim_profiles_sim_profile` PARTIAL UNIQUE on (sim_id, profile_id) WHERE profile_id IS NOT NULL — prevents duplicate profile_id per SIM
+- `idx_esim_profiles_sim_state` on (sim_id, profile_state) — covers CountBySIM and filtered list queries
 - `idx_esim_profiles_eid` on (eid)
 - `idx_esim_profiles_operator` on (operator_id)
+
+Migration: `20260412000002_esim_multiprofile.up.sql` / `.down.sql`
 
 ---
 

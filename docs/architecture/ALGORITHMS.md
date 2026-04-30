@@ -10,6 +10,20 @@
 **Package**: `internal/store/ip_store.go`
 **Table**: TBL-09 `ip_addresses`
 
+### Invocation Points (STORY-092)
+
+`AllocateIP` is invoked from five call sites today — three AAA hot paths added by STORY-092 alongside the two pre-existing admin/import paths:
+
+| Caller | Path | Trigger | Release path |
+|--------|------|---------|--------------|
+| RADIUS Access-Accept | `internal/aaa/radius/server.go` (`allocateDynamicIPIfNeeded`) | `sim.IPAddressID == nil && sim.APNID != nil` — after policy Allow check | RADIUS Accounting-Stop (`releaseDynamicIPIfNeededForSession`, dynamic only; static preserved) |
+| Diameter Gx CCA-I | `internal/aaa/diameter/gx.go` (`handleInitial`) | same precondition — after SIM confirmed active | Diameter Gx CCR-T (`releaseDynamicIPIfNeeded`; static preserved) |
+| 5G SBA Nsmf CreateSMContext | `internal/aaa/sba/nsmf.go` (`HandleCreate`) | POST to `/nsmf-pdusession/v1/sm-contexts` with active SIM + APN | DELETE `/nsmf-pdusession/v1/sm-contexts/{ref}` (`HandleRelease`; static preserved) |
+| Admin / API | `internal/api/sim/handler.go`, `internal/api/ippool/handler.go` | Explicit operator action | Admin `ReleaseIP` + scheduled reclaim |
+| Bulk import | `internal/job/import.go` | CSV import job | Admin release flow |
+
+The `used_addresses` counter on `ip_pools` is maintained app-side (D2-A locked 2026-04-18) by `AllocateIP` / `ReleaseIP`. `RecountUsedAddresses` (added in STORY-092) is available as a deterministic reconciliation helper — used only from admin tools, never on the hot path.
+
 ### Allocation Algorithm
 
 ```
@@ -363,6 +377,77 @@ SELECT
     COUNT(*) AS session_count
 FROM cdrs
 GROUP BY bucket, tenant_id, operator_id, apn_id, rat_type;
+```
+
+---
+
+## 5a. CDR Export Streaming
+
+**Package**: `internal/api/cdr/` (handler), `internal/export/` (streaming primitives)
+**Endpoint**: `GET /api/v1/cdrs/export` → `ExportCSV`
+
+### Cursor-Pagination Streaming
+
+CDR export never buffers the full result set. Instead it iterates in 500-row cursor pages and writes rows directly to the HTTP response stream:
+
+```
+FUNCTION ExportCSV(w, r)
+
+1. Extract tenant_id from request context (forbidden if missing)
+2. Parse optional filters: operator_id, sim_id
+3. Set response headers:
+     Content-Type: text/csv; charset=utf-8
+     Content-Disposition: attachment; filename="cdrs_{filters}_{date}.csv"
+     Cache-Control: no-cache
+
+4. params = ListCDRParams{ Limit: 500 }
+   cursor = ""
+
+5. LOOP:
+     params.Cursor = cursor
+     cdrs, next, err = cdrStore.ListByTenant(ctx, tenantID, params)
+     IF err: log error, RETURN
+
+     FOR each cdr in cdrs:
+       yield([]string{ id, session_id, sim_id, operator_id, apn_id,
+                       rat_type, record_type, bytes_in, bytes_out,
+                       duration_sec, usage_cost, timestamp })
+
+     IF next == "": BREAK
+     cursor = next
+
+6. After every 500 rows written:
+     csv.Writer.Flush()          -- flush csv buffer to http.ResponseWriter
+     http.Flusher.Flush()        -- flush http buffer to network (chunked transfer)
+
+7. Final csv.Writer.Flush() after loop ends
+```
+
+### Key Properties
+
+| Property | Value |
+|----------|-------|
+| Chunk size | 500 rows per `ListByTenant` call |
+| Cursor field | opaque string (ID-based cursor, `""` = first page) |
+| Memory bound | O(500) rows in memory at any point |
+| Network flush | Every 500 rows via `http.Flusher` (chunked HTTP) |
+| CSV flush | Every 500 rows + final flush after loop |
+| Backpressure | `yield` returns `false` to abort mid-stream (client disconnect) |
+
+### Flow Diagram
+
+```
+Client                Handler (ExportCSV)           DB (ListByTenant)
+  │                         │                              │
+  │── GET /cdrs/export ────►│                              │
+  │                         │── SELECT LIMIT 500 cursor="" ►│
+  │                         │◄─ cdrs[0..499], next="abc" ──│
+  │                         │  write 500 rows → csv.Flush + http.Flush
+  │◄── chunk 1 ─────────────│                              │
+  │                         │── SELECT LIMIT 500 cursor="abc" ►│
+  │                         │◄─ cdrs[0..387], next="" ─────│
+  │                         │  write 387 rows → csv.Flush
+  │◄── chunk 2 (EOF) ───────│                              │
 ```
 
 ---

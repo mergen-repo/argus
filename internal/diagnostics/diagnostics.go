@@ -140,7 +140,7 @@ func (s *Service) checkLastAuth(ctx context.Context, sim *store.SIM) StepResult 
 		return step
 	}
 
-	lastSession, err := s.sessionStore.GetLastSessionBySIM(ctx, sim.ID)
+	lastSession, err := s.sessionStore.GetLastSessionBySIM(ctx, sim.TenantID, sim.ID)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("failed to query last session")
 		step.Status = StatusWarn

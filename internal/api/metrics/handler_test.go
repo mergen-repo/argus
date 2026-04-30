@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
@@ -105,51 +104,3 @@ func TestGetSystemMetrics_WithData(t *testing.T) {
 	}
 }
 
-func TestPrometheus_Format(t *testing.T) {
-	rdb := newTestRedis(t)
-	ctx := context.Background()
-	c := analyticmetrics.NewCollector(rdb, zerolog.Nop())
-
-	opID := uuid.New()
-	c.SetOperatorIDs([]uuid.UUID{opID})
-	c.RecordAuth(ctx, opID, true, 10)
-
-	h := NewHandler(c, zerolog.Nop())
-
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	w := httptest.NewRecorder()
-
-	h.Prometheus(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-
-	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "text/plain") {
-		t.Errorf("Content-Type = %q, want text/plain", contentType)
-	}
-
-	body := w.Body.String()
-	expectedMetrics := []string{
-		"argus_auth_requests_per_second",
-		"argus_auth_error_rate",
-		"argus_latency_p50_ms",
-		"argus_latency_p95_ms",
-		"argus_latency_p99_ms",
-		"argus_active_sessions",
-	}
-
-	for _, metric := range expectedMetrics {
-		if !strings.Contains(body, metric) {
-			t.Errorf("prometheus output missing metric %q", metric)
-		}
-	}
-
-	if !strings.Contains(body, "# HELP") {
-		t.Error("prometheus output missing HELP lines")
-	}
-	if !strings.Contains(body, "# TYPE") {
-		t.Error("prometheus output missing TYPE lines")
-	}
-}

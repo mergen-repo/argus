@@ -19,12 +19,14 @@ func NewUsageAnalyticsStore(db *pgxpool.Pool) *UsageAnalyticsStore {
 }
 
 type UsageTimePoint struct {
-	Timestamp    time.Time `json:"ts"`
-	TotalBytes   int64     `json:"total_bytes"`
-	Sessions     int64     `json:"sessions"`
-	Auths        int64     `json:"auths"`
-	UniqueSims   int64     `json:"unique_sims"`
-	GroupKey     string    `json:"group_key,omitempty"`
+	Timestamp  time.Time `json:"ts"`
+	TotalBytes int64     `json:"total_bytes"`
+	BytesIn    int64     `json:"bytes_in"`
+	BytesOut   int64     `json:"bytes_out"`
+	Sessions   int64     `json:"sessions"`
+	Auths      int64     `json:"auths"`
+	UniqueSims int64     `json:"unique_sims"`
+	GroupKey   string    `json:"group_key,omitempty"`
 }
 
 type UsageTotals struct {
@@ -43,9 +45,17 @@ type UsageBreakdownItem struct {
 }
 
 type TopConsumer struct {
-	SimID      uuid.UUID `json:"sim_id"`
-	TotalBytes int64     `json:"total_bytes"`
-	Sessions   int64     `json:"sessions"`
+	SimID          uuid.UUID  `json:"sim_id"`
+	TotalBytes     int64      `json:"total_bytes"`
+	Sessions       int64      `json:"sessions"`
+	BytesIn        int64      `json:"bytes_in"`
+	BytesOut       int64      `json:"bytes_out"`
+	AvgDurationSec *float64   `json:"avg_duration_sec,omitempty"`
+	ICCID          string     `json:"iccid"`
+	IMSI           string     `json:"imsi"`
+	MSISDN         *string    `json:"msisdn,omitempty"`
+	OperatorID     *uuid.UUID `json:"operator_id,omitempty"`
+	APNID          *uuid.UUID `json:"apn_id,omitempty"`
 }
 
 type UsageQueryParams struct {
@@ -111,7 +121,10 @@ func ResolveTimeRange(period string) (time.Time, time.Time) {
 	}
 }
 
-func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryParams) ([]UsageTimePoint, error) {
+// buildTimeSeriesQuery assembles the SQL + args for GetTimeSeries. Extracted so the dynamic
+// query string (including COALESCE sentinel for nullable group_by columns) can be asserted in
+// pure Go tests without a live database. See FIX-204.
+func buildTimeSeriesQuery(p UsageQueryParams) (string, []interface{}) {
 	spec := ResolvePeriod(p.Period, p.From, p.To)
 
 	var selectCols, groupCols, orderCols string
@@ -121,24 +134,34 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 		fromClause = "cdrs"
 		selectCols = fmt.Sprintf(`time_bucket('%s', timestamp) AS bucket,
 			SUM(bytes_in + bytes_out) AS total_bytes,
+			SUM(bytes_in) AS bytes_in,
+			SUM(bytes_out) AS bytes_out,
 			COUNT(*) AS sessions,
 			COUNT(*) FILTER (WHERE record_type = 'start') AS auths,
 			COUNT(DISTINCT sim_id) AS unique_sims`, spec.BucketInterval)
 		groupCols = "bucket"
 		orderCols = "bucket"
 	} else if spec.AggregateView == "cdrs_hourly" {
+		// cdrs_hourly has total_bytes_in/total_bytes_out but no sim_id dimension,
+		// so unique_sims cannot be computed per bucket — returned as 0 (UI hides the row when 0).
 		fromClause = "cdrs_hourly"
 		selectCols = fmt.Sprintf(`time_bucket('%s', bucket) AS ts,
 			SUM(total_bytes_in + total_bytes_out) AS total_bytes,
+			SUM(total_bytes_in) AS bytes_in,
+			SUM(total_bytes_out) AS bytes_out,
 			SUM(record_count) AS sessions,
 			SUM(record_count) AS auths,
 			0::bigint AS unique_sims`, spec.BucketInterval)
 		groupCols = "ts"
 		orderCols = "ts"
 	} else {
+		// cdrs_daily has active_sims but only total_bytes (combined); bytes_in/bytes_out
+		// are not available at daily granularity — returned as 0.
 		fromClause = "cdrs_daily"
 		selectCols = fmt.Sprintf(`time_bucket('%s', bucket) AS ts,
 			SUM(total_bytes) AS total_bytes,
+			0::bigint AS bytes_in,
+			0::bigint AS bytes_out,
 			0::bigint AS sessions,
 			0::bigint AS auths,
 			SUM(active_sims) AS unique_sims`, spec.BucketInterval)
@@ -148,7 +171,7 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 
 	if p.GroupBy != "" {
 		col := groupByColumn(p.GroupBy)
-		selectCols += fmt.Sprintf(`, %s::text AS group_key`, col)
+		selectCols += fmt.Sprintf(`, COALESCE(%s::text, '__unassigned__') AS group_key`, col)
 		groupCols += fmt.Sprintf(`, %s`, col)
 	}
 
@@ -161,12 +184,12 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 		args = append(args, *p.OperatorID)
 		argIdx++
 	}
-	if p.APNID != nil && spec.AggregateView != "cdrs_daily" {
+	if p.APNID != nil {
 		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
 		args = append(args, *p.APNID)
 		argIdx++
 	}
-	if p.RATType != nil && spec.AggregateView != "cdrs_daily" {
+	if p.RATType != nil {
 		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
 		args = append(args, *p.RATType)
 		argIdx++
@@ -176,6 +199,12 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 		selectCols, fromClause,
 		strings.Join(conditions, " AND "),
 		groupCols, orderCols)
+
+	return query, args
+}
+
+func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryParams) ([]UsageTimePoint, error) {
+	query, args := buildTimeSeriesQuery(p)
 
 	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
@@ -187,11 +216,11 @@ func (s *UsageAnalyticsStore) GetTimeSeries(ctx context.Context, p UsageQueryPar
 	for rows.Next() {
 		var tp UsageTimePoint
 		if p.GroupBy != "" {
-			if err := rows.Scan(&tp.Timestamp, &tp.TotalBytes, &tp.Sessions, &tp.Auths, &tp.UniqueSims, &tp.GroupKey); err != nil {
+			if err := rows.Scan(&tp.Timestamp, &tp.TotalBytes, &tp.BytesIn, &tp.BytesOut, &tp.Sessions, &tp.Auths, &tp.UniqueSims, &tp.GroupKey); err != nil {
 				return nil, fmt.Errorf("store: scan usage time point: %w", err)
 			}
 		} else {
-			if err := rows.Scan(&tp.Timestamp, &tp.TotalBytes, &tp.Sessions, &tp.Auths, &tp.UniqueSims); err != nil {
+			if err := rows.Scan(&tp.Timestamp, &tp.TotalBytes, &tp.BytesIn, &tp.BytesOut, &tp.Sessions, &tp.Auths, &tp.UniqueSims); err != nil {
 				return nil, fmt.Errorf("store: scan usage time point: %w", err)
 			}
 		}
@@ -256,7 +285,7 @@ func (s *UsageAnalyticsStore) GetBreakdowns(ctx context.Context, p UsageQueryPar
 	}
 
 	query := fmt.Sprintf(`SELECT
-		COALESCE(%s::text, 'unknown') AS key,
+		COALESCE(%s::text, '__unassigned__') AS key,
 		COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
 		COUNT(*) AS sessions,
 		COUNT(*) FILTER (WHERE record_type = 'start') AS auths
@@ -298,21 +327,21 @@ func (s *UsageAnalyticsStore) GetTopConsumers(ctx context.Context, p UsageQueryP
 	}
 
 	args := []interface{}{p.TenantID, p.From, p.To}
-	conditions := []string{"tenant_id = $1", "timestamp >= $2", "timestamp < $3"}
+	conditions := []string{"c.tenant_id = $1", "c.timestamp >= $2", "c.timestamp < $3"}
 	argIdx := 4
 
 	if p.OperatorID != nil {
-		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("c.operator_id = $%d", argIdx))
 		args = append(args, *p.OperatorID)
 		argIdx++
 	}
 	if p.APNID != nil {
-		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("c.apn_id = $%d", argIdx))
 		args = append(args, *p.APNID)
 		argIdx++
 	}
 	if p.RATType != nil {
-		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("c.rat_type = $%d", argIdx))
 		args = append(args, *p.RATType)
 		argIdx++
 	}
@@ -321,11 +350,21 @@ func (s *UsageAnalyticsStore) GetTopConsumers(ctx context.Context, p UsageQueryP
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
 	query := fmt.Sprintf(`SELECT
-		sim_id,
-		SUM(bytes_in + bytes_out) AS total_bytes,
-		COUNT(DISTINCT session_id) AS sessions
-		FROM cdrs WHERE %s
-		GROUP BY sim_id
+		c.sim_id,
+		SUM(c.bytes_in + c.bytes_out) AS total_bytes,
+		COUNT(DISTINCT c.session_id) AS sessions,
+		SUM(c.bytes_in) AS bytes_in,
+		SUM(c.bytes_out) AS bytes_out,
+		AVG(c.duration_sec) AS avg_duration_sec,
+		s.iccid,
+		s.imsi,
+		s.msisdn,
+		s.operator_id,
+		s.apn_id
+		FROM cdrs c
+		JOIN sims s ON s.id = c.sim_id
+		WHERE %s
+		GROUP BY c.sim_id, s.iccid, s.imsi, s.msisdn, s.operator_id, s.apn_id
 		ORDER BY total_bytes DESC
 		LIMIT %s`,
 		strings.Join(conditions, " AND "), limitPlaceholder)
@@ -339,7 +378,9 @@ func (s *UsageAnalyticsStore) GetTopConsumers(ctx context.Context, p UsageQueryP
 	var consumers []TopConsumer
 	for rows.Next() {
 		var c TopConsumer
-		if err := rows.Scan(&c.SimID, &c.TotalBytes, &c.Sessions); err != nil {
+		if err := rows.Scan(&c.SimID, &c.TotalBytes, &c.Sessions,
+			&c.BytesIn, &c.BytesOut, &c.AvgDurationSec,
+			&c.ICCID, &c.IMSI, &c.MSISDN, &c.OperatorID, &c.APNID); err != nil {
 			return nil, fmt.Errorf("store: scan top consumer: %w", err)
 		}
 		consumers = append(consumers, c)

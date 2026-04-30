@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
@@ -32,6 +33,8 @@ func NewHandler(auditStore *store.AuditStore, auditSvc *audit.FullService, logge
 type auditLogResponse struct {
 	ID         int64           `json:"id"`
 	UserID     *uuid.UUID      `json:"user_id"`
+	UserEmail  string          `json:"user_email,omitempty"`
+	UserName   string          `json:"user_name,omitempty"`
 	Action     string          `json:"action"`
 	EntityType string          `json:"entity_type"`
 	EntityID   string          `json:"entity_id"`
@@ -44,6 +47,7 @@ type verifyResponse struct {
 	Verified       bool   `json:"verified"`
 	EntriesChecked int    `json:"entries_checked"`
 	FirstInvalid   *int64 `json:"first_invalid"`
+	TotalRows      int    `json:"total_rows"`
 }
 
 type exportRequest struct {
@@ -51,8 +55,22 @@ type exportRequest struct {
 	To   string `json:"to"`
 }
 
-func toAuditLogResponse(e audit.Entry) auditLogResponse {
-	return auditLogResponse{
+type systemEventRequest struct {
+	Action     string          `json:"action"`
+	EntityType string          `json:"entity_type"`
+	EntityID   string          `json:"entity_id"`
+	AfterData  json.RawMessage `json:"after_data,omitempty"`
+}
+
+type systemEventResponse struct {
+	Status     string `json:"status"`
+	Action     string `json:"action"`
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+}
+
+func toAuditLogResponse(e store.EntryWithUser) auditLogResponse {
+	r := auditLogResponse{
 		ID:         e.ID,
 		UserID:     e.UserID,
 		Action:     e.Action,
@@ -62,6 +80,13 @@ func toAuditLogResponse(e audit.Entry) auditLogResponse {
 		IPAddress:  e.IPAddress,
 		CreatedAt:  e.CreatedAt.Format(time.RFC3339Nano),
 	}
+	if e.UserEmail != nil {
+		r.UserEmail = *e.UserEmail
+	}
+	if e.UserName != nil {
+		r.UserName = *e.UserName
+	}
+	return r
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +101,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Action:     r.URL.Query().Get("action"),
 		EntityType: r.URL.Query().Get("entity_type"),
 		EntityID:   r.URL.Query().Get("entity_id"),
+	}
+
+	if actionsStr := r.URL.Query().Get("actions"); actionsStr != "" {
+		parts := strings.Split(actionsStr, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				params.Actions = append(params.Actions, p)
+			}
+		}
 	}
 
 	params.Limit = 50
@@ -112,7 +147,18 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, nextCursor, err := h.auditStore.List(r.Context(), tenantID, params)
+	if (params.From != nil) != (params.To != nil) {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Both from and to date parameters are required when filtering by date range")
+		return
+	}
+	if params.From != nil && params.To != nil {
+		if params.To.Sub(*params.From) > 90*24*time.Hour {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Date range must not exceed 90 days")
+			return
+		}
+	}
+
+	entries, nextCursor, err := h.auditStore.ListEnriched(r.Context(), tenantID, params)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list audit logs")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -132,20 +178,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
-	if !ok || tenantID == uuid.Nil {
-		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context required")
-		return
-	}
-
-	count := 100
-	if countStr := r.URL.Query().Get("count"); countStr != "" {
-		if v, err := strconv.Atoi(countStr); err == nil && v > 0 && v <= 10000 {
-			count = v
-		}
-	}
-
-	result, err := h.auditSvc.VerifyChain(r.Context(), tenantID, count)
+	result, err := h.auditSvc.VerifyChain(r.Context())
 	if err != nil {
 		h.logger.Error().Err(err).Msg("verify audit chain")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -156,6 +189,7 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 		Verified:       result.Verified,
 		EntriesChecked: result.EntriesChecked,
 		FirstInvalid:   result.FirstInvalid,
+		TotalRows:      result.TotalRows,
 	})
 }
 
@@ -195,6 +229,11 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	toTime = toTime.Add(24*time.Hour - time.Nanosecond)
+
+	if toTime.Sub(fromTime) > 90*24*time.Hour {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidDateRange, "Date range must not exceed 90 days")
+		return
+	}
 
 	entries, err := h.auditStore.GetByDateRange(r.Context(), tenantID, fromTime, toTime)
 	if err != nil {
@@ -240,4 +279,61 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			e.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
+}
+
+// EmitSystemEvent writes a system-level audit entry for infrastructure actions
+// (e.g., blue-green flip, rollback) that occur outside tenant context. Uses
+// TenantID = uuid.Nil and no UserID. Gated by super_admin role at the router
+// layer.
+func (h *Handler) EmitSystemEvent(w http.ResponseWriter, r *http.Request) {
+	if h.auditSvc == nil {
+		apierr.WriteError(w, http.StatusServiceUnavailable, apierr.CodeInternalError, "Audit service unavailable")
+		return
+	}
+
+	var req systemEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	var validationErrors []map[string]string
+	if req.Action == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "action", "message": "Action is required", "code": "required"})
+	}
+	if req.EntityType == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "entity_type", "message": "Entity type is required", "code": "required"})
+	}
+	if req.EntityID == "" {
+		validationErrors = append(validationErrors, map[string]string{"field": "entity_id", "message": "Entity ID is required", "code": "required"})
+	}
+	if len(validationErrors) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
+		return
+	}
+
+	event := audit.AuditEvent{
+		TenantID:   uuid.Nil,
+		Action:     req.Action,
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+		AfterData:  req.AfterData,
+	}
+
+	if err := h.auditSvc.ProcessEntry(r.Context(), event); err != nil {
+		h.logger.Error().Err(err).
+			Str("action", req.Action).
+			Str("entity_type", req.EntityType).
+			Str("entity_id", req.EntityID).
+			Msg("emit system audit event")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Failed to write audit entry")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusCreated, systemEventResponse{
+		Status:     "recorded",
+		Action:     req.Action,
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+	})
 }

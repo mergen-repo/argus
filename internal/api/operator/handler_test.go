@@ -2,12 +2,15 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -23,7 +26,6 @@ func TestToOperatorResponse(t *testing.T) {
 		Code:                      "turkcell",
 		MCC:                       "286",
 		MNC:                       "01",
-		AdapterType:               "mock",
 		SupportedRATTypes:         []string{"lte", "nr_5g"},
 		HealthStatus:              "healthy",
 		HealthCheckIntervalSec:    30,
@@ -37,7 +39,9 @@ func TestToOperatorResponse(t *testing.T) {
 		UpdatedAt:                 now,
 	}
 
-	resp := toOperatorResponse(o)
+	// STORY-090 Wave 2 D2-B: enabledProtocols is now the second
+	// argument; it replaces the legacy `adapter_type` field.
+	resp := toOperatorResponse(o, []string{"mock"})
 
 	if resp.ID != o.ID.String() {
 		t.Errorf("ID = %q, want %q", resp.ID, o.ID.String())
@@ -54,8 +58,8 @@ func TestToOperatorResponse(t *testing.T) {
 	if resp.MNC != "01" {
 		t.Errorf("MNC = %q, want %q", resp.MNC, "01")
 	}
-	if resp.AdapterType != "mock" {
-		t.Errorf("AdapterType = %q, want %q", resp.AdapterType, "mock")
+	if len(resp.EnabledProtocols) != 1 || resp.EnabledProtocols[0] != "mock" {
+		t.Errorf("EnabledProtocols = %v, want [mock]", resp.EnabledProtocols)
 	}
 	if len(resp.SupportedRATTypes) != 2 {
 		t.Errorf("SupportedRATTypes len = %d, want 2", len(resp.SupportedRATTypes))
@@ -76,17 +80,23 @@ func TestToOperatorResponse(t *testing.T) {
 
 func TestToOperatorResponseNilRATTypes(t *testing.T) {
 	o := &store.Operator{
-		ID:            uuid.New(),
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	resp := toOperatorResponse(o)
+	resp := toOperatorResponse(o, nil)
 	if resp.SupportedRATTypes == nil {
 		t.Error("SupportedRATTypes should never be nil in response")
 	}
 	if len(resp.SupportedRATTypes) != 0 {
 		t.Errorf("SupportedRATTypes len = %d, want 0", len(resp.SupportedRATTypes))
+	}
+	if resp.EnabledProtocols == nil {
+		t.Error("EnabledProtocols should never be nil in response")
+	}
+	if len(resp.EnabledProtocols) != 0 {
+		t.Errorf("EnabledProtocols len = %d, want 0", len(resp.EnabledProtocols))
 	}
 }
 
@@ -136,19 +146,10 @@ func TestToGrantResponseNoGrantedBy(t *testing.T) {
 	}
 }
 
-func TestValidAdapterTypes(t *testing.T) {
-	valid := []string{"mock", "radius", "diameter", "sba"}
-	for _, v := range valid {
-		if !validAdapterTypes[v] {
-			t.Errorf("%q should be valid adapter type", v)
-		}
-	}
-
-	if validAdapterTypes["http"] {
-		t.Error("http should not be valid adapter type")
-	}
-}
-
+// TestValidAdapterTypes (Wave 2 D2-B): the legacy validAdapterTypes
+// map was removed. The test that enforced its contents is retired in
+// this wave; kept here as a regression marker so future attempts to
+// re-introduce the map show up in PR diff.
 func TestValidFailoverPolicies(t *testing.T) {
 	valid := []string{"reject", "fallback_to_next", "queue_with_timeout"}
 	for _, v := range valid {
@@ -176,8 +177,8 @@ func TestValidOperatorStates(t *testing.T) {
 
 func TestCreateValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		body    string
+		name     string
+		body     string
 		wantCode int
 	}{
 		{
@@ -187,42 +188,37 @@ func TestCreateValidation(t *testing.T) {
 		},
 		{
 			name:     "missing name",
-			body:     `{"code":"tc","mcc":"286","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"code":"tc","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "missing code",
-			body:     `{"name":"TC","mcc":"286","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "missing mcc",
-			body:     `{"name":"TC","code":"tc","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "invalid mcc length",
-			body:     `{"name":"TC","code":"tc","mcc":"28","mnc":"01","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"28","mnc":"01","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
 			name:     "invalid mnc length",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"0","adapter_type":"mock"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"0","adapter_config":{"mock":{"enabled":true}}}`,
 			wantCode: 422,
 		},
 		{
-			name:     "missing adapter_type",
+			name:     "missing adapter_config",
 			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01"}`,
 			wantCode: 422,
 		},
 		{
-			name:     "invalid adapter_type",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_type":"unknown"}`,
-			wantCode: 422,
-		},
-		{
 			name:     "invalid failover_policy",
-			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_type":"mock","failover_policy":"invalid"}`,
+			body:     `{"name":"TC","code":"tc","mcc":"286","mnc":"01","adapter_config":{"mock":{"enabled":true}},"failover_policy":"invalid"}`,
 			wantCode: 422,
 		},
 		{
@@ -301,6 +297,154 @@ func TestUpdateValidation(t *testing.T) {
 
 			if w.Code != tt.wantCode {
 				t.Errorf("Update(%s) status = %d, want %d, body: %s", tt.name, w.Code, tt.wantCode, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateSLAValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantHTTP    int
+		wantErrCode string
+	}{
+		{
+			name:        "sla_uptime_target too low",
+			body:        `{"sla_uptime_target":40.0}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_sla_target",
+		},
+		{
+			name:        "sla_uptime_target too high",
+			body:        `{"sla_uptime_target":150.0}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_sla_target",
+		},
+		{
+			name:        "sla_latency_threshold_ms too low",
+			body:        `{"sla_latency_threshold_ms":10}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_latency_threshold",
+		},
+		{
+			name:        "sla_latency_threshold_ms too high",
+			body:        `{"sla_latency_threshold_ms":70000}`,
+			wantHTTP:    400,
+			wantErrCode: "invalid_latency_threshold",
+		},
+	}
+
+	operatorID := uuid.New().String()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Handler{logger: zerolog.Nop()}
+
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, "operator_manager")
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code != tt.wantHTTP {
+				t.Errorf("Update(%s) status = %d, want %d, body: %s", tt.name, w.Code, tt.wantHTTP, w.Body.String())
+			}
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("response not JSON: %s", w.Body.String())
+			}
+			errBlock, _ := resp["error"].(map[string]interface{})
+			if errBlock == nil {
+				t.Fatalf("no error block in response: %s", w.Body.String())
+			}
+			if got, _ := errBlock["code"].(string); got != tt.wantErrCode {
+				t.Errorf("error.code = %q, want %q", got, tt.wantErrCode)
+			}
+		})
+	}
+}
+
+func TestUpdateSLAForbiddenRole(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	operatorID := uuid.New().String()
+
+	for _, role := range []string{"api_user", "analyst", "policy_editor", "sim_manager", ""} {
+		t.Run("role="+role, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+				strings.NewReader(`{"sla_uptime_target":99.5}`))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, role)
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("role %q: status = %d, want 403, body: %s", role, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateNoSLAFieldsRegressionValidation(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+	operatorID := uuid.New().String()
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+		strings.NewReader(`{"failover_policy":"bad"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", operatorID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.Update(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("regression: Update(invalid failover_policy) status = %d, want 422, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateSLABoundaryValid(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"uptime boundary 50.0", `{"sla_uptime_target":50.0}`},
+		{"uptime boundary 100.0", `{"sla_uptime_target":100.0}`},
+		{"latency boundary 50", `{"sla_latency_threshold_ms":50}`},
+		{"latency boundary 60000", `{"sla_latency_threshold_ms":60000}`},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() { recover() }()
+
+			operatorID := uuid.New().String()
+			h := &Handler{logger: zerolog.Nop()}
+
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/operators/"+operatorID,
+				strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", operatorID)
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, apierr.RoleKey, "operator_manager")
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			h.Update(w, req)
+
+			if w.Code == http.StatusBadRequest {
+				t.Errorf("boundary %s: got 400 (validation rejected valid value), body: %s", tt.name, w.Body.String())
 			}
 		})
 	}
@@ -466,4 +610,301 @@ func TestTestResponseStructure(t *testing.T) {
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func TestGetHealthHistory_InvalidID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/health-history", h.GetHealthHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/not-a-uuid/health-history", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestGetHealthHistory_ValidHoursParam(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/health-history", h.GetHealthHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/health-history?hours=invalid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status for invalid hours = %d, want 400", w.Code)
+	}
+}
+
+func TestGetMetrics_MissingTenant(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/metrics", h.GetMetrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/metrics", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestGetMetrics_InvalidWindow(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Get("/operators/{id}/metrics", h.GetMetrics)
+
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, uuid.New())
+	req := httptest.NewRequest(http.MethodGet, "/operators/"+uuid.New().String()+"/metrics?window=invalid", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------
+// STORY-090 Wave 3 Task 7a: per-protocol TestConnection tests.
+//
+// These tests exercise the `testConnectionForProtocol` helper directly
+// (uses a real adapter Registry + Store.Operator fixture — no DB) plus
+// the HTTP surface of `TestConnectionForProtocol` for the validation-
+// only edges (invalid ID, invalid protocol name). Happy-path HTTP
+// coverage is deferred to the integration smoke (Task 8) because the
+// handler requires a wired OperatorStore to look up the operator row.
+// ---------------------------------------------------------------------
+
+func TestTestConnection_PerProtocol_InvalidProtocolName(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Post("/operators/{id}/test/{protocol}", h.TestConnectionForProtocol)
+
+	req := httptest.NewRequest(http.MethodPost, "/operators/"+uuid.New().String()+"/test/nonsense", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Invalid protocol") {
+		t.Errorf("body does not mention invalid protocol: %s", w.Body.String())
+	}
+}
+
+func TestTestConnection_PerProtocol_InvalidOperatorID(t *testing.T) {
+	h := &Handler{logger: zerolog.Nop()}
+
+	router := chi.NewRouter()
+	router.Post("/operators/{id}/test/{protocol}", h.TestConnectionForProtocol)
+
+	req := httptest.NewRequest(http.MethodPost, "/operators/not-a-uuid/test/mock", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperMockHappyPath(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"mock":{"enabled":true,"latency_ms":5}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "mock", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if !resp.Success {
+		t.Errorf("Success = false, want true — mock HealthCheck should succeed")
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsDisabledProtocol(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	// radius enabled, sba disabled (not listed) — asking for sba must 422.
+	nested := json.RawMessage(`{"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 for disabled protocol", status)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsInvalidProtocolName(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"mock":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "nonsense", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for invalid protocol name", status)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRadiusFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"radius":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "radius", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "host") && !strings.Contains(errMsg, "shared_secret") {
+		t.Errorf("error message should mention missing config field, got: %s", errMsg)
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperDiameterFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"diameter":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "diameter", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error message should mention missing host, got: %s", err.Error())
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperHTTPFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"http":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "http", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "base_url") {
+		t.Errorf("error message should mention missing base_url, got: %s", err.Error())
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperSBAFactoryError(t *testing.T) {
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"sba":{"enabled":true}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	resp, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err == nil {
+		t.Fatal("expected adapter factory error, got nil")
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if resp.Success {
+		t.Error("Success should be false for factory error")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error message should mention missing host, got: %s", err.Error())
+	}
+}
+
+func TestTestConnection_PerProtocol_HelperRejectsExplicitDisabled(t *testing.T) {
+	// Both radius and sba present; sba.enabled=false. Asking for sba
+	// must 422 (not enabled) even though the sub-key is present.
+	h := &Handler{
+		logger:          zerolog.Nop(),
+		adapterRegistry: adapter.NewRegistry(),
+	}
+	nested := json.RawMessage(`{"radius":{"enabled":true,"shared_secret":"s","listen_addr":":1812"},"sba":{"enabled":false,"nrf_url":"https://nrf.example"}}`)
+	op := &store.Operator{
+		ID:            uuid.New(),
+		AdapterConfig: nested,
+	}
+
+	_, status, err := h.testConnectionForProtocol(context.Background(), op, "sba", nested)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 for explicitly disabled protocol", status)
+	}
 }

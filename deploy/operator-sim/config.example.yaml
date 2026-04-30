@@ -1,0 +1,26 @@
+server:
+  listen: :9595
+  metrics_listen: :9596
+  read_timeout: 5s
+  write_timeout: 10s
+
+operators:
+  - code: turkcell
+    display_name: Turkcell
+  - code: vodafone_tr
+    display_name: Vodafone TR
+  - code: vodafone
+    display_name: Vodafone TR
+  - code: turk_telekom
+    display_name: Türk Telekom
+  - code: mock
+    display_name: Mock Operator
+
+log:
+  level: info
+  format: console
+
+stubs:
+  subscriber_status: active
+  subscriber_plan: default
+  cdr_echo: true

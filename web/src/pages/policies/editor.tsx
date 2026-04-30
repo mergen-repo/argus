@@ -11,6 +11,11 @@ import {
   Keyboard,
   CheckCircle2,
   HelpCircle,
+  Layers,
+  FileWarning,
+  Copy,
+  Download,
+  Wifi,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +30,10 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip } from '@/components/ui/tooltip'
 import { DSLEditor } from '@/components/policy/dsl-editor'
+import { DSLErrorSummary } from '@/components/policy/dsl-error-summary'
+import type { Diagnostic } from '@codemirror/lint'
+import { validateDSL } from '@/lib/api/policies'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { PreviewTab } from '@/components/policy/preview-tab'
 import { VersionsTab } from '@/components/policy/versions-tab'
 import { RolloutTab } from '@/components/policy/rollout-tab'
@@ -36,6 +45,9 @@ import {
   useDryRunMutation,
 } from '@/hooks/use-policies'
 import type { PolicyVersion, DryRunResult } from '@/types/policy'
+import { RelatedAuditTab, RelatedViolationsTab, FavoriteToggle } from '@/components/shared'
+import { useUIStore } from '@/stores/ui'
+import { AssignedSimsTab } from './_tabs/assigned-sims-tab'
 
 export default function PolicyEditorPage() {
   const { id } = useParams<{ id: string }>()
@@ -51,9 +63,36 @@ export default function PolicyEditorPage() {
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null)
   const [dividerPosition, setDividerPosition] = useState(55)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
 
-
+  const editorScrollRef = useRef<HTMLDivElement>(null)
   const dryRunTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasErrors = diagnostics.some((d) => d.severity === 'error')
+
+  const handleJumpToDiagnostic = useCallback((pos: number) => {
+    const container = editorScrollRef.current
+    if (!container) return
+    // CodeMirror line markers carry data-line; fall back to scrolling the editor
+    // pane to the top of the relevant region by approximating with character pos.
+    const cm = container.querySelector('.cm-scroller') as HTMLElement | null
+    const cmContent = container.querySelector('.cm-content') as HTMLElement | null
+    if (!cm || !cmContent) return
+    // Approximate scroll: line height * (pos / avgCharsPerLine).
+    const lineHeight = parseFloat(getComputedStyle(cmContent).lineHeight || '20') || 20
+    const docText = cmContent.textContent || ''
+    const charsBefore = docText.slice(0, pos)
+    const lineIndex = (charsBefore.match(/\n/g) || []).length
+    cm.scrollTo({ top: Math.max(0, lineIndex * lineHeight - cm.clientHeight / 3), behavior: 'smooth' })
+  }, [])
+
+  const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  useEffect(() => {
+    if (policy && id) {
+      addRecentItem({ type: 'policy', id, label: `Policy: ${policy.name}`, path: `/policies/${id}` })
+    }
+  }, [policy, id, addRecentItem])
 
   const updateVersionMutation = useUpdateVersion()
   const activateVersionMutation = useActivateVersion(id!)
@@ -124,6 +163,33 @@ export default function PolicyEditorPage() {
     }
   }, [selectedVersionId, dryRunMutation])
 
+  // FIX-243 Wave D — Ctrl+Shift+F formats the buffer via the validate
+  // endpoint with ?format=true. On non-error response we replace the
+  // editor content with the canonicalised source. On error we silently
+  // no-op (the linter already surfaces the underlying parse error).
+  const handleFormat = useCallback(async () => {
+    if (!isDraft) return
+    if (!dslContent.trim()) return
+    try {
+      const result = await validateDSL(dslContent, { format: true })
+      if (result.formatted_source && result.formatted_source !== dslContent) {
+        setDslContent(result.formatted_source)
+        setIsDirty(true)
+        setSaveStatus('idle')
+      }
+    } catch {
+      // intentionally swallow — linter has already flagged the error
+    }
+  }, [dslContent, isDraft])
+
+  // FIX-243 Wave D — Ctrl+Enter is now "validate now". The DSLEditor
+  // also calls forceLinting() internally; this callback is mostly a
+  // no-op hook for analytics / future UX (e.g. flash the status badge).
+  const handleValidateNow = useCallback(() => {
+    // Linter is already triggered inside the editor. Future: surface a
+    // brief "validated" toast or pulse the status indicator.
+  }, [])
+
   const handleActivate = async () => {
     if (!selectedVersionId) return
     try {
@@ -151,20 +217,58 @@ export default function PolicyEditorPage() {
     }
   }
 
+  const handleExport = () => {
+    if (!policy || !selectedVersion) return
+    const dslBlob = new Blob([dslContent], { type: 'text/plain' })
+    const jsonBlob = new Blob(
+      [JSON.stringify({ policy, version: selectedVersion }, null, 2)],
+      { type: 'application/json' }
+    )
+    const dslUrl = URL.createObjectURL(dslBlob)
+    const jsonUrl = URL.createObjectURL(jsonBlob)
+    const prefix = `${policy.name.replace(/\s+/g, '_')}_v${selectedVersion.version}`
+    const a1 = document.createElement('a')
+    a1.href = dslUrl
+    a1.download = `${prefix}.dsl`
+    a1.click()
+    URL.revokeObjectURL(dslUrl)
+    const a2 = document.createElement('a')
+    a2.href = jsonUrl
+    a2.download = `${prefix}.json`
+    a2.click()
+    URL.revokeObjectURL(jsonUrl)
+  }
+
+  // FIX-243 Wave D — global page-level shortcuts. Mirrors the in-editor
+  // keymap so the bindings work even when the editor isn't focused.
+  //   Ctrl+S         → save
+  //   Ctrl+Enter     → (handled inside the editor — forceLinting)
+  //   Ctrl+Shift+Enter → dry-run
+  //   Ctrl+Shift+F   → format
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      if (e.key === 's') {
         e.preventDefault()
         handleSave()
+        return
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault()
         handleDryRun()
+        return
+      }
+      // Ctrl+Shift+F — match by lowercased key; some layouts emit 'F'.
+      if (e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        handleFormat()
+        return
       }
     }
     window.addEventListener('keydown', handleKeydown)
     return () => window.removeEventListener('keydown', handleKeydown)
-  }, [handleSave, handleDryRun])
+  }, [handleSave, handleDryRun, handleFormat])
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -231,6 +335,7 @@ export default function PolicyEditorPage() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Go back"
             onClick={() => navigate('/policies')}
             className="h-8 w-8"
           >
@@ -240,6 +345,12 @@ export default function PolicyEditorPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-semibold text-text-primary">{policy.name}</h1>
+              <FavoriteToggle
+                type="policy"
+                id={id ?? ''}
+                label={`Policy: ${policy.name}`}
+                path={`/policies/${id}`}
+              />
               <Badge variant={policy.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
                 {policy.state.toUpperCase()}
               </Badge>
@@ -270,10 +381,14 @@ export default function PolicyEditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Tooltip content="Ctrl+S: Save | Ctrl+Enter: Dry Run" side="bottom">
+          <Tooltip
+            content="Ctrl+S Save · Ctrl+Enter Validate · Ctrl+Shift+Enter Dry-run · Ctrl+Shift+F Format"
+            side="bottom"
+          >
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Keyboard shortcuts"
               className="h-8 w-8 text-text-tertiary"
             >
               <Keyboard className="h-4 w-4" />
@@ -295,19 +410,54 @@ export default function PolicyEditorPage() {
             Dry Run
           </Button>
 
+          <Tooltip
+            content={hasErrors ? 'Fix DSL errors before saving' : 'Save the current draft (Ctrl+S) · Ctrl+Shift+F to format'}
+            side="bottom"
+          >
+            <span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={handleSave}
+                disabled={!isDirty || !isDraft || updateVersionMutation.isPending || hasErrors}
+              >
+                {updateVersionMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                Save Draft
+              </Button>
+            </span>
+          </Tooltip>
+
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5 text-xs"
-            onClick={handleSave}
-            disabled={!isDirty || !isDraft || updateVersionMutation.isPending}
+            onClick={handleCreateVersion}
+            disabled={createVersionMutation.isPending}
+            title="Clone current version into a new draft"
           >
-            {updateVersionMutation.isPending ? (
+            {createVersionMutation.isPending ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <Save className="h-3 w-3" />
+              <Copy className="h-3 w-3" />
             )}
-            Save Draft
+            Clone
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={handleExport}
+            disabled={!selectedVersion}
+            title="Download .dsl and .json files"
+          >
+            <Download className="h-3 w-3" />
+            Export
           </Button>
 
           <Button
@@ -334,16 +484,22 @@ export default function PolicyEditorPage() {
               {dslContent.split('\n').length} lines
             </span>
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <DSLEditor
-              value={dslContent}
-              onChange={handleDslChange}
-              onSave={handleSave}
-              onDryRun={handleDryRun}
-              readOnly={!isDraft}
-              className="h-full"
-            />
+          <div ref={editorScrollRef} className="flex-1 min-h-0 overflow-hidden">
+            <ErrorBoundary>
+              <DSLEditor
+                value={dslContent}
+                onChange={handleDslChange}
+                onSave={handleSave}
+                onDryRun={handleDryRun}
+                onValidateNow={handleValidateNow}
+                onFormat={handleFormat}
+                onDiagnostics={setDiagnostics}
+                readOnly={!isDraft}
+                className="h-full"
+              />
+            </ErrorBoundary>
           </div>
+          <DSLErrorSummary diagnostics={diagnostics} onJumpTo={handleJumpToDiagnostic} />
         </div>
 
         {/* Divider */}
@@ -364,7 +520,19 @@ export default function PolicyEditorPage() {
                   Versions {policy.versions ? `(${policy.versions.length})` : ''}
                 </TabsTrigger>
                 <TabsTrigger value="rollout">Rollout</TabsTrigger>
-                <TabsTrigger value="dsl-help">
+                <TabsTrigger value="audit" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          <TabsTrigger value="violations" className="gap-1.5">
+            <FileWarning className="h-3.5 w-3.5" />
+            Violations
+          </TabsTrigger>
+          <TabsTrigger value="assigned-sims" className="gap-1.5">
+            <Wifi className="h-3.5 w-3.5" />
+            SIMs
+          </TabsTrigger>
+          <TabsTrigger value="dsl-help">
                   <HelpCircle className="h-3 w-3 mr-1" />
                   DSL Help
                 </TabsTrigger>
@@ -417,7 +585,7 @@ export default function PolicyEditorPage() {
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">operator</code> — Operator name <span className="text-text-tertiary">(=, !=, IN)</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">rat_type</code> — Radio type <span className="text-text-tertiary">(=, IN) values: nb_iot, lte_m, lte, nr_5g</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">sim_type</code> — SIM type <span className="text-text-tertiary">(=, IN) values: physical, esim</span></div>
-                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">roaming</code> — Roaming state <span className="text-text-tertiary">(=) values: true, false</span></div>
+
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">metadata.*</code> — Custom fields <span className="text-text-tertiary">(=) e.g. metadata.fleet_id = "fleet-01"</span></div>
                     </div>
                     <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`MATCH {
@@ -447,7 +615,7 @@ export default function PolicyEditorPage() {
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_count</code> — Active sessions <span className="text-text-tertiary">(&gt;, &lt;, =) e.g. 3</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_duration</code> — Current session length <span className="text-text-tertiary">(&gt;, &lt;) e.g. 2h</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">bandwidth_used</code> — Current rate <span className="text-text-tertiary">(&gt;, &lt;) e.g. 5mbps</span></div>
-                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">roaming</code> — Roaming status <span className="text-text-tertiary">(=) true/false</span></div>
+
                     </div>
                     <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`WHEN usage > 1GB AND time_of_day IN (08:00-18:00) {
     bandwidth_down = 512kbps
@@ -456,7 +624,7 @@ export default function PolicyEditorPage() {
 WHEN usage BETWEEN 800MB 1GB {
     ACTION notify(quota_warning, 80%)
 }
-WHEN NOT roaming = true {
+WHEN apn = "iot.local" {
     bandwidth_down = 5mbps
 }`}</pre>
                   </div>
@@ -562,6 +730,22 @@ WHEN NOT roaming = true {
 }`}</pre>
                   </div>
                 </div>
+              </TabsContent>
+
+              {id && (
+                <TabsContent value="audit" className="h-full mt-0 overflow-y-auto p-4">
+                  <RelatedAuditTab entityId={id} entityType="policy" />
+                </TabsContent>
+              )}
+
+              {id && (
+                <TabsContent value="violations" className="h-full mt-0 overflow-y-auto p-4">
+                  <RelatedViolationsTab entityId={id} scope="policy" />
+                </TabsContent>
+              )}
+
+              <TabsContent value="assigned-sims" className="h-full mt-0 overflow-y-auto">
+                <AssignedSimsTab versionId={selectedVersionId} />
               </TabsContent>
             </div>
           </Tabs>

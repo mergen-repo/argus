@@ -1,12 +1,15 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
+	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
@@ -14,14 +17,24 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type SessionCounter interface {
+	GetActiveCount(ctx context.Context, tenantID string) (int64, error)
+}
+
 type Handler struct {
-	simStore      *store.SIMStore
-	sessionStore  *store.RadiusSessionStore
-	operatorStore *store.OperatorStore
-	anomalyStore  *store.AnomalyStore
-	apnStore      *store.APNStore
-	redisClient   *redis.Client
-	logger        zerolog.Logger
+	alertStore       *store.AlertStore
+	simStore         *store.SIMStore
+	sessionStore     *store.RadiusSessionStore
+	operatorStore    *store.OperatorStore
+	anomalyStore     *store.AnomalyStore
+	apnStore         *store.APNStore
+	cdrStore         *store.CDRStore
+	ippoolStore      *store.IPPoolStore
+	redisClient      *redis.Client
+	sessionCounter   SessionCounter
+	metricsCollector *analyticmetrics.Collector
+	agg              aggregates.Aggregates
+	logger           zerolog.Logger
 }
 
 type HandlerOption func(*Handler)
@@ -32,16 +45,44 @@ func WithRedisClient(rc *redis.Client) HandlerOption {
 	}
 }
 
+func WithCDRStore(cs *store.CDRStore) HandlerOption {
+	return func(h *Handler) {
+		h.cdrStore = cs
+	}
+}
+
+func WithIPPoolStore(ps *store.IPPoolStore) HandlerOption {
+	return func(h *Handler) {
+		h.ippoolStore = ps
+	}
+}
+
+func WithSessionCounter(sc SessionCounter) HandlerOption {
+	return func(h *Handler) {
+		h.sessionCounter = sc
+	}
+}
+
+func WithMetricsCollector(c *analyticmetrics.Collector) HandlerOption {
+	return func(h *Handler) { h.metricsCollector = c }
+}
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
+}
+
 func NewHandler(
 	simStore *store.SIMStore,
 	sessionStore *store.RadiusSessionStore,
 	operatorStore *store.OperatorStore,
 	anomalyStore *store.AnomalyStore,
+	alertStore *store.AlertStore,
 	apnStore *store.APNStore,
 	logger zerolog.Logger,
 	opts ...HandlerOption,
 ) *Handler {
 	h := &Handler{
+		alertStore:    alertStore,
 		simStore:      simStore,
 		sessionStore:  sessionStore,
 		operatorStore: operatorStore,
@@ -61,36 +102,69 @@ type simByStateDTO struct {
 }
 
 type operatorHealthDTO struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Status       string  `json:"status"`
-	HealthPct    float64 `json:"health_pct"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Status           string    `json:"status"`
+	HealthPct        float64   `json:"health_pct"`
+	Code             string    `json:"code"`
+	SLATarget        *float64  `json:"sla_target,omitempty"`
+	ActiveSessions   *int64    `json:"active_sessions,omitempty"`
+	LastHealthCheck  *string   `json:"last_health_check,omitempty"`
+	LatencyMs        *float64  `json:"latency_ms,omitempty"`
+	AuthRate         *float64  `json:"auth_rate,omitempty"`
+	LatencySparkline []float64 `json:"latency_sparkline,omitempty"`
 }
 
 type topAPNDTO struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Count  int64  `json:"session_count"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Count int64  `json:"session_count"`
 }
 
 type alertDTO struct {
-	ID         string `json:"id"`
-	Type       string `json:"type"`
-	Severity   string `json:"severity"`
-	State      string `json:"state"`
-	Message    string `json:"message"`
-	DetectedAt string `json:"detected_at"`
+	ID         string          `json:"id"`
+	Type       string          `json:"type"`
+	Severity   string          `json:"severity"`
+	Source     string          `json:"source"`
+	State      string          `json:"state"`
+	Message    string          `json:"message"`
+	DetectedAt string          `json:"detected_at"`
+	SimID      *string         `json:"sim_id,omitempty"`
+	OperatorID *string         `json:"operator_id,omitempty"`
+	APNID      *string         `json:"apn_id,omitempty"`
+	Meta       json.RawMessage `json:"meta,omitempty"`
+}
+
+type trafficHeatmapCell struct {
+	Day      int     `json:"day"`
+	Hour     int     `json:"hour"`
+	Value    float64 `json:"value"`
+	RawBytes int64   `json:"raw_bytes"`
+}
+
+type topIPPoolDTO struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	UsagePct float64 `json:"usage_pct"`
 }
 
 type dashboardDTO struct {
-	TotalSIMs      int               `json:"total_sims"`
-	ActiveSessions int64             `json:"active_sessions"`
-	AuthPerSec     float64           `json:"auth_per_sec"`
-	MonthlyCost    float64           `json:"monthly_cost"`
-	SIMByState     []simByStateDTO   `json:"sim_by_state"`
-	OperatorHealth []operatorHealthDTO `json:"operator_health"`
-	TopAPNs        []topAPNDTO       `json:"top_apns"`
-	RecentAlerts   []alertDTO        `json:"recent_alerts"`
+	TotalSIMs          int                  `json:"total_sims"`
+	ActiveSessions     int64                `json:"active_sessions"`
+	AuthPerSec         float64              `json:"auth_per_sec"`
+	MonthlyCost        float64              `json:"monthly_cost"`
+	IPPoolUsagePct     float64              `json:"ip_pool_usage_pct"`
+	SessionStartRate   float64              `json:"session_start_rate"`
+	ErrorRate          float64              `json:"error_rate"`
+	SIMVelocityPerHour float64              `json:"sim_velocity_per_hour"`
+	SIMByState         []simByStateDTO      `json:"sim_by_state"`
+	OperatorHealth     []operatorHealthDTO  `json:"operator_health"`
+	TopAPNs            []topAPNDTO          `json:"top_apns"`
+	RecentAlerts       []alertDTO           `json:"recent_alerts"`
+	Sparklines         map[string][]float64 `json:"sparklines"`
+	Deltas             map[string]float64   `json:"deltas"`
+	TrafficHeatmap     []trafficHeatmapCell `json:"traffic_heatmap"`
+	TopIPPool          *topIPPoolDTO        `json:"top_ip_pool,omitempty"`
 }
 
 func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -116,11 +190,16 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	wg.Add(4)
+	var sessionStatsByOp map[string]int64
+
+	wg.Add(8)
 
 	go func() {
 		defer wg.Done()
-		totalSIMs, simStates, err := h.simStore.CountByState(ctx, tenantID)
+		if h.agg == nil {
+			return
+		}
+		totalSIMs, simStates, err := h.agg.SIMCountByState(ctx, tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("count sims by state")
 			return
@@ -136,10 +215,10 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer wg.Done()
-		if h.sessionStore == nil {
+		if h.agg == nil {
 			return
 		}
-		stats, err := h.sessionStore.GetActiveStats(ctx, &tenantID)
+		stats, err := h.agg.ActiveSessionStats(ctx, tenantID)
 		if err != nil {
 			h.logger.Error().Err(err).Msg("get active sessions")
 			return
@@ -168,9 +247,18 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		if len(topAPNs) > 5 {
 			topAPNs = topAPNs[:5]
 		}
+
+		activeSessions := stats.TotalActive
+		if h.sessionCounter != nil {
+			if cached, cErr := h.sessionCounter.GetActiveCount(ctx, tenantID.String()); cErr == nil && cached >= 0 {
+				activeSessions = cached
+			}
+		}
+
 		mu.Lock()
-		resp.ActiveSessions = stats.TotalActive
+		resp.ActiveSessions = activeSessions
 		resp.TopAPNs = topAPNs
+		sessionStatsByOp = stats.ByOperator
 		mu.Unlock()
 	}()
 
@@ -181,15 +269,33 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error().Err(err).Msg("list operator grants")
 			return
 		}
+		snapMap, snapErr := h.operatorStore.LatestHealthWithLatencyByOperator(ctx)
+		if snapErr != nil {
+			h.logger.Warn().Err(snapErr).Msg("latest health with latency by operator")
+			snapMap = nil
+		}
 		health := make([]operatorHealthDTO, 0, len(grants))
 		for _, g := range grants {
 			pct := healthStatusToPct(g.HealthStatus)
-			health = append(health, operatorHealthDTO{
+			dto := operatorHealthDTO{
 				ID:        g.OperatorGrant.OperatorID.String(),
 				Name:      g.OperatorName,
 				Status:    g.HealthStatus,
 				HealthPct: pct,
-			})
+				Code:      g.OperatorCode,
+				SLATarget: g.SLATarget,
+			}
+			if !g.OperatorUpdatedAt.IsZero() {
+				s := g.OperatorUpdatedAt.Format(time.RFC3339)
+				dto.LastHealthCheck = &s
+			}
+			if snapMap != nil {
+				if snap, ok := snapMap[g.OperatorGrant.OperatorID]; ok && snap.LatencyMs != nil {
+					v := float64(*snap.LatencyMs)
+					dto.LatencyMs = &v
+				}
+			}
+			health = append(health, dto)
 		}
 		mu.Lock()
 		resp.OperatorHealth = health
@@ -198,34 +304,219 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer wg.Done()
-		anomalies, _, err := h.anomalyStore.ListByTenant(ctx, tenantID, store.ListAnomalyParams{
+		if h.alertStore == nil {
+			return
+		}
+		recentAlerts, _, err := h.alertStore.ListByTenant(ctx, tenantID, store.ListAlertsParams{
 			Limit: 10,
 		})
 		if err != nil {
-			h.logger.Error().Err(err).Msg("list recent anomalies")
+			h.logger.Error().Err(err).Msg("list recent alerts")
 			return
 		}
-		alerts := make([]alertDTO, 0, len(anomalies))
-		for _, a := range anomalies {
-			msg := a.Type
-			if a.Source != nil {
-				msg = msg + ": " + *a.Source
-			}
-			alerts = append(alerts, alertDTO{
+		dtos := make([]alertDTO, 0, len(recentAlerts))
+		for _, a := range recentAlerts {
+			dto := alertDTO{
 				ID:         a.ID.String(),
 				Type:       a.Type,
 				Severity:   a.Severity,
+				Source:     a.Source,
 				State:      a.State,
-				Message:    msg,
-				DetectedAt: a.DetectedAt.Format(time.RFC3339),
+				Message:    a.Title,
+				DetectedAt: a.FiredAt.Format(time.RFC3339),
+				Meta:       a.Meta,
+			}
+			if a.SimID != nil {
+				s := a.SimID.String()
+				dto.SimID = &s
+			}
+			if a.OperatorID != nil {
+				s := a.OperatorID.String()
+				dto.OperatorID = &s
+			}
+			if a.APNID != nil {
+				s := a.APNID.String()
+				dto.APNID = &s
+			}
+			dtos = append(dtos, dto)
+		}
+		mu.Lock()
+		resp.RecentAlerts = dtos
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		if h.cdrStore == nil {
+			return
+		}
+		cost, err := h.cdrStore.GetMonthlyCostForTenant(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get monthly cost")
+		}
+		sparklines, err := h.cdrStore.GetDailyKPISparklines(ctx, tenantID, 7)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get daily kpi sparklines")
+			sparklines = map[string][]float64{}
+		}
+
+		var totalSimsDelta, activeSessionsDelta, monthlyCostDelta float64
+		if costSeries, ok := sparklines["monthly_cost"]; ok && len(costSeries) >= 2 {
+			today := costSeries[len(costSeries)-1]
+			yesterday := costSeries[len(costSeries)-2]
+			if yesterday != 0 {
+				monthlyCostDelta = (today - yesterday) / yesterday * 100
+			}
+		}
+		if simSeries, ok := sparklines["total_sims"]; ok && len(simSeries) >= 2 {
+			today := simSeries[len(simSeries)-1]
+			yesterday := simSeries[len(simSeries)-2]
+			if yesterday != 0 {
+				totalSimsDelta = (today - yesterday) / yesterday * 100
+			}
+		}
+
+		mu.Lock()
+		resp.MonthlyCost = cost
+		resp.Sparklines = sparklines
+		resp.Deltas = map[string]float64{
+			"total_sims_delta":      totalSimsDelta,
+			"active_sessions_delta": activeSessionsDelta,
+			"monthly_cost_delta":    monthlyCostDelta,
+		}
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		if h.ippoolStore == nil {
+			return
+		}
+		pct, err := h.ippoolStore.TenantPoolUsage(ctx, tenantID)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("tenant ip pool usage")
+			return
+		}
+		top, err := h.ippoolStore.TopPoolUsage(ctx, tenantID)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("top ip pool usage")
+		}
+		mu.Lock()
+		resp.IPPoolUsagePct = pct
+		if top != nil {
+			resp.TopIPPool = &topIPPoolDTO{
+				ID:       top.ID.String(),
+				Name:     top.Name,
+				UsagePct: top.UsagePct,
+			}
+		}
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Computed derived KPIs — initial snapshot; realtime WS pusher
+		// overwrites auth_per_sec + error_rate + active_sessions at 1s
+		// cadence, but we want meaningful first-paint values too.
+		var startRate, errRate, velocity float64
+		if h.cdrStore != nil {
+			if v, err := h.cdrStore.RecentSessionStartRate(ctx, tenantID, 5*time.Minute); err == nil {
+				startRate = v
+			}
+			if v, err := h.cdrStore.RecentErrorRatePct(ctx, tenantID, 15*time.Minute); err == nil {
+				errRate = v
+			}
+		}
+		if h.simStore != nil {
+			if v, err := h.simStore.RecentVelocityPerHour(ctx, tenantID); err == nil {
+				velocity = v
+			}
+		}
+		mu.Lock()
+		resp.SessionStartRate = startRate
+		resp.ErrorRate = errRate
+		resp.SIMVelocityPerHour = velocity
+		mu.Unlock()
+	}()
+
+	go func() {
+		defer wg.Done()
+		if h.cdrStore == nil {
+			return
+		}
+		rawCells, err := h.cdrStore.GetTrafficHeatmap7x24WithRaw(ctx, tenantID)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("get traffic heatmap")
+			return
+		}
+		cells := make([]trafficHeatmapCell, 0, len(rawCells))
+		for _, c := range rawCells {
+			cells = append(cells, trafficHeatmapCell{
+				Day:      c.Day,
+				Hour:     c.Hour,
+				Value:    c.Normalized,
+				RawBytes: c.RawBytes,
 			})
 		}
 		mu.Lock()
-		resp.RecentAlerts = alerts
+		resp.TrafficHeatmap = cells
 		mu.Unlock()
 	}()
 
 	wg.Wait()
+
+	// Merge active-session counts into OperatorHealth after all goroutines have
+	// finished. The mutex inside the goroutines guarantees visibility but not
+	// happens-before ordering between the session and operator-health goroutines,
+	// so doing the merge sequentially post-Wait is the only correct placement.
+	if sessionStatsByOp != nil {
+		for i := range resp.OperatorHealth {
+			if count, ok := sessionStatsByOp[resp.OperatorHealth[i].ID]; ok {
+				c := count
+				resp.OperatorHealth[i].ActiveSessions = &c
+			}
+		}
+	}
+
+	if h.metricsCollector != nil {
+		metrics, err := h.metricsCollector.GetMetrics(ctx)
+		if err == nil {
+			for i := range resp.OperatorHealth {
+				if m, ok := metrics.ByOperator[resp.OperatorHealth[i].ID]; ok && m != nil {
+					errRate := m.AuthErrorRate
+					rate := 100 * (1 - errRate)
+					if rate < 0 {
+						rate = 0
+					} else if rate > 100 {
+						rate = 100
+					}
+					resp.OperatorHealth[i].AuthRate = &rate
+				}
+			}
+		} else {
+			h.logger.Warn().Err(err).Msg("get metrics for auth_rate")
+		}
+	}
+
+	var sparkWG sync.WaitGroup
+	for i := range resp.OperatorHealth {
+		i := i
+		opID, parseErr := uuid.Parse(resp.OperatorHealth[i].ID)
+		if parseErr != nil {
+			continue
+		}
+		sparkWG.Add(1)
+		go func() {
+			defer sparkWG.Done()
+			trend, tErr := h.operatorStore.GetLatencyTrend(ctx, opID, time.Hour, 5*time.Minute)
+			if tErr != nil {
+				h.logger.Warn().Err(tErr).Str("operator_id", opID.String()).Msg("get latency trend for sparkline")
+				return
+			}
+			resp.OperatorHealth[i].LatencySparkline = trend
+		}()
+	}
+	sparkWG.Wait()
 
 	if resp.SIMByState == nil {
 		resp.SIMByState = []simByStateDTO{}
@@ -239,11 +530,20 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	if resp.RecentAlerts == nil {
 		resp.RecentAlerts = []alertDTO{}
 	}
+	if resp.Sparklines == nil {
+		resp.Sparklines = map[string][]float64{}
+	}
+	if resp.Deltas == nil {
+		resp.Deltas = map[string]float64{}
+	}
+	if resp.TrafficHeatmap == nil {
+		resp.TrafficHeatmap = []trafficHeatmapCell{}
+	}
 
 	if h.redisClient != nil {
 		envelope := apierr.SuccessResponse{Status: "success", Data: resp}
 		if respBytes, err := json.Marshal(envelope); err == nil {
-			h.redisClient.Set(r.Context(), cacheKey, respBytes, 15*time.Second)
+			h.redisClient.Set(r.Context(), cacheKey, respBytes, 30*time.Second)
 		}
 	}
 

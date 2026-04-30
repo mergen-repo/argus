@@ -1,9 +1,10 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
+import { api, authApi, userApi } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
 import type {
   TenantUser,
+  AuthSessionItem,
   ApiKey,
   ApiKeyCreateResult,
   IpPool,
@@ -20,6 +21,78 @@ const IP_POOLS_KEY = ['ip-pools'] as const
 const NOTIF_CONFIG_KEY = ['notification-configs'] as const
 const SYSTEM_KEY = ['system'] as const
 const TENANTS_KEY = ['tenants'] as const
+const RELIABILITY_KEY = ['reliability'] as const
+const AUTH_SESSIONS_KEY = ['auth-sessions'] as const
+
+export function useSessions() {
+  return useQuery({
+    queryKey: [...AUTH_SESSIONS_KEY, 'list'],
+    queryFn: async () => {
+      const res = await authApi.listSessions(undefined, 50)
+      return res.data.data as AuthSessionItem[]
+    },
+    staleTime: 15_000,
+  })
+}
+
+export function useRevokeSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await authApi.revokeSession(id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUTH_SESSIONS_KEY })
+    },
+  })
+}
+
+export function useRevokeAllSessions(userId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await userApi.revokeSessions(userId)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUTH_SESSIONS_KEY })
+    },
+  })
+}
+
+export function useUnlockUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await userApi.unlock(id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_KEY })
+    },
+  })
+}
+
+export function useRevokeUserSessions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await userApi.revokeSessions(id)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_KEY })
+    },
+  })
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await userApi.resetPassword(id)
+      return res.data.data
+    },
+  })
+}
 
 export function useUserList() {
   return useQuery({
@@ -39,7 +112,7 @@ export function useInviteUser() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (payload: { email: string; name: string; role: string }) => {
-      const res = await api.post<ApiResponse<TenantUser>>('/users', payload)
+      const res = await api.post<ApiResponse<{ user: TenantUser; temp_password: string }>>('/users', payload)
       return res.data.data
     },
     onSuccess: () => {
@@ -75,7 +148,7 @@ export function useApiKeyList() {
 export function useCreateApiKey() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string; scopes: string[]; rate_limit: number; expires_in_days?: number }) => {
+    mutationFn: async (payload: { name: string; scopes: string[]; rate_limit: number; expires_in_days?: number; allowed_ips?: string[] }) => {
       const res = await api.post<ApiResponse<ApiKeyCreateResult>>('/api-keys', payload)
       return res.data.data
     },
@@ -121,13 +194,27 @@ export function useIpPoolList() {
   })
 }
 
-export function useIpPoolAddresses(poolId: string) {
+export function useCreateIpPool() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { apn_id: string; name: string; cidr_v4?: string; cidr_v6?: string; alert_threshold_warning?: number; alert_threshold_critical?: number; reclaim_grace_period_days?: number }) => {
+      const res = await api.post<ApiResponse<IpPool>>('/ip-pools', body)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: IP_POOLS_KEY })
+    },
+  })
+}
+
+export function useIpPoolAddresses(poolId: string, q?: string) {
   return useInfiniteQuery({
-    queryKey: [...IP_POOLS_KEY, 'addresses', poolId],
+    queryKey: [...IP_POOLS_KEY, 'addresses', poolId, q ?? ''],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '50')
+      if (q) params.set('q', q)
       const res = await api.get<ListResponse<IpAddress>>(`/ip-pools/${poolId}/addresses?${params.toString()}`)
       return res.data
     },
@@ -237,6 +324,100 @@ export function useRealtimeMetrics() {
   }, [handler])
 }
 
+export function useHealthLive() {
+  return useQuery({
+    queryKey: [...SYSTEM_KEY, 'health-live'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: { status: string; uptime: string; goroutines: number; go_version: string } }>('/health/live', { baseURL: '/' })
+      return res.data.data
+    },
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  })
+}
+
+export function useHealthReady() {
+  return useQuery({
+    queryKey: [...SYSTEM_KEY, 'health-ready'],
+    queryFn: async () => {
+      const res = await api.get<{
+        status: string
+        data: {
+          state: string
+          db: { status: string; latency_ms: number }
+          redis: { status: string; latency_ms: number }
+          nats: { status: string; latency_ms: number }
+          aaa?: { radius: { status: string }; sessions_active: number }
+          disks?: { mount: string; used_pct: number; status: string }[]
+          uptime: string
+          degraded_reasons?: string[]
+        }
+      }>('/health/ready', { baseURL: '/' })
+      return res.data.data
+    },
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  })
+}
+
+export interface BackupRunEntry {
+  status: string
+  finished_at?: string
+  size_mb: number
+  s3_key: string
+  sha256: string
+  kind: string
+  started_at: string
+}
+
+export interface BackupStatusData {
+  last_daily?: BackupRunEntry
+  last_weekly?: BackupRunEntry
+  last_monthly?: BackupRunEntry
+  last_verify?: {
+    status: string
+    verified_at: string
+    tenants_count: number
+    sims_count: number
+  }
+  history: BackupRunEntry[]
+}
+
+export function useBackupStatus() {
+  return useQuery({
+    queryKey: [...RELIABILITY_KEY, 'backup-status'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: BackupStatusData }>('/system/backup-status')
+      return res.data.data
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+}
+
+export interface JWTRotationEntry {
+  when: string
+  actor: string
+  correlation_id: string
+}
+
+export interface JWTRotationHistoryData {
+  current_fingerprint: string
+  previous_fingerprint: string
+  history: JWTRotationEntry[]
+}
+
+export function useJwtRotationHistory() {
+  return useQuery({
+    queryKey: [...RELIABILITY_KEY, 'jwt-rotation'],
+    queryFn: async () => {
+      const res = await api.get<{ status: string; data: JWTRotationHistoryData }>('/system/jwt-rotation-history')
+      return res.data.data
+    },
+    staleTime: 60_000,
+  })
+}
+
 export function useTenantList() {
   return useQuery({
     queryKey: [...TENANTS_KEY, 'list'],
@@ -251,8 +432,19 @@ export function useTenantList() {
 export function useCreateTenant() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string; slug: string; plan: string; max_sims: number; max_users: number }) => {
-      const res = await api.post<ApiResponse<Tenant>>('/tenants', payload)
+    mutationFn: async (payload: {
+      name: string
+      contact_email: string
+      contact_phone?: string
+      domain?: string
+      max_sims?: number
+      max_apns?: number
+      max_users?: number
+      admin_name: string
+      admin_email: string
+      admin_initial_password: string
+    }) => {
+      const res = await api.post<ApiResponse<{ tenant: Tenant; admin_user_id: string }>>('/tenants', payload)
       return res.data.data
     },
     onSuccess: () => {
@@ -271,5 +463,53 @@ export function useUpdateTenant() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: TENANTS_KEY })
     },
+  })
+}
+
+export interface UserDetail {
+  id: string
+  email: string
+  name: string
+  role: string
+  state: string
+  totp_enabled: boolean
+  last_login_at?: string
+  locked_until?: string
+  created_at: string
+}
+
+export function useUserDetail(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'detail', id],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<UserDetail>>(`/users/${id}`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 30_000,
+  })
+}
+
+export function useUserActivity(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'activity', id],
+    queryFn: async () => {
+      const res = await api.get<ListResponse<Record<string, unknown>>>(`/users/${id}/activity?limit=50`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 30_000,
+  })
+}
+
+export function useUserSessions(id: string | undefined) {
+  return useQuery({
+    queryKey: [...USERS_KEY, 'sessions', id],
+    queryFn: async () => {
+      const res = await authApi.listSessions(undefined, 50)
+      return (res.data.data as AuthSessionItem[])
+    },
+    enabled: !!id,
+    staleTime: 15_000,
   })
 }

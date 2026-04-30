@@ -77,6 +77,36 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-034: Dry-run simulation — "this rule affects N SIMs" preview
 - F-035: Staged rollout — canary 1% → 10% → 100%, concurrent policy versions, CoA on each stage
 
+##### Policy DSL Editor Capabilities (FIX-243)
+
+The Policy Editor surfaces DSL errors and warnings inline as authors type:
+- **Realtime validation** — every keystroke (debounced 500ms) calls
+  `POST /api/v1/policies/validate`; errors render as squiggly underlines
+  with hover tooltips; an error summary panel below the editor shows
+  "N errors, M warnings" with click-to-line navigation. Endpoint is
+  rate-limited 10/sec per IP and is read-only (no DB writes).
+- **Did-you-mean suggestions** — typos in match fields, action names,
+  and rule keywords trigger Levenshtein-based suggestions appended to
+  the error message (e.g. `did you mean "throttle"?`).
+- **Autocomplete** — Ctrl+Space surfaces context-aware keywords (MATCH
+  context: `apn`/`imsi`/`tenant`/...; RULES context: `bandwidth_down`/
+  `rate_limit`/...) sourced from the canonical grammar via
+  `GET /api/v1/policies/vocab`. Adding a new keyword to the parser
+  whitelist auto-propagates to the FE without a code change.
+- **Auto-format** — Ctrl+Shift+F normalizes indentation (2 spaces),
+  whitespace around operators, brace placement, and trailing newlines
+  without changing semantics. The formatter is idempotent and is a
+  no-op on unparseable input (linter handles the parse error).
+- **Keyboard shortcuts** — Ctrl+S Save, Ctrl+Enter Validate-now (force
+  the linter to run immediately), Ctrl+Shift+Enter Dry-run,
+  Ctrl+Shift+F Format.
+- **Save guard** — the Save Draft button is disabled when the DSL has
+  validation errors, surfacing the issue before the API rejects the save.
+
+Migration-time enforcement: `make db-seed-validate` (run automatically
+before `make db-seed`) calls `argusctl validate-seed-dsl` to ensure no
+broken DSL ships in seed data.
+
 #### BI & Analytics
 - F-036: Real-time usage dashboards — per SIM/APN/operator/RAT-type
 - F-037: Anomaly detection — SIM cloning, abuse patterns, data spikes
@@ -84,7 +114,7 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-039: CDR processing & rating engine with carrier cost tracking
 - F-040: RAT-type cost differentiation
 - F-041: Compliance reporting — BTK, KVKK, GDPR report generation
-- F-042: Built-in observability — auth/s, latency percentiles, error rate, session count dashboards
+- F-042: Built-in observability — auth/s, latency percentiles, error rate, session count dashboards. Production-grade implementation (STORY-065): OpenTelemetry distributed tracing (OTLP gRPC), Prometheus `client_golang` metrics at `/metrics` (17 metric vectors, tenant-labeled), 6 Grafana dashboards, 9 Prometheus alert rules, DB/NATS/Redis/Job/Circuit Breaker instrumentation. Tenant isolation: `tenant_id` label added post-auth only.
 
 #### Portal
 - F-043: Tenant dashboard — system health, SIM summary, alert feed, active sessions, top APNs, quick actions
@@ -101,7 +131,7 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 #### API & Integration
 - F-053: REST API — all operations API-first
 - F-054: Event streaming — WebSocket/SSE for real-time data
-- F-055: SMS Gateway — outbound for IoT device management
+- F-055: SMS Gateway — outbound for IoT device management ✓ COVERED (STORY-069 AC-12)
 - F-056: API key management — create, rotate, rate limit, scope restrict, revoke
 - F-057: OAuth2 client credentials for third-party integration
 - F-058: Webhook delivery for notifications
@@ -120,9 +150,16 @@ Layer 1: AAA Core ─── RADIUS, Diameter, 5G SBA, EAP-SIM/AKA
 - F-069: TLS everywhere — HTTPS, RadSec, Diameter/TLS
 - F-070: Input validation/sanitization, CORS per-tenant
 
+#### Device Identity & Binding (Phase 11 — Enterprise Readiness Pack)
+- F-073: IMEI capture (cross-protocol) — read-only ingestion of device identity on every auth path: 3GPP-IMEISV via RADIUS VSA (vendor 10415, attr 20), Terminal-Information AVP via Diameter S6a (AVP 350), PEI via 5G SBA (Nudm/Namf). Runs before policy evaluation; null-safe (auth never blocked by missing IMEI). Per-SIM binding state lives on TBL-10 `sims` extended columns (`bound_imei`, `binding_mode`, `binding_status`, etc.); full IMEI history per SIM tracked in TBL-59 `imei_history`. Answers customer Q11 (device identity visibility), Q40 (cross-RAT consistency). Depends on: F-001 RADIUS, F-002 Diameter, F-003 5G SBA, F-026 RAT awareness. Stories: STORY-093.
+- F-074: SIM-Device Binding — per-SIM enforcement of legitimate device pairing across 6 binding modes (`strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`) plus NULL default (off). Configurable per-SIM (SIM Detail), per-segment via bulk action (SIM List), and via Policy DSL (Policy Editor) with precedence per BR-4. Binding status (`verified` / `pending` / `mismatch` / `unbound` / `disabled`) surfaced on SIM Detail and SIM List. Answers customer Q12 (anti-clone / anti-swap), Q13 (per-SIM device control), Q31 (policy-driven enforcement). Depends on: F-073 IMEI capture, F-025 Policy DSL, F-032 rule engine, F-044 segments, F-064 audit. Stories: STORY-094, STORY-096. Out-of-scope: EIR (S13/N17) integration — local enforcement only per ADR-004.
+- F-075: IMEI Pool Management — org-level White / Grey / Black lists (TBL-56 `imei_whitelist`, TBL-57 `imei_greylist`, TBL-58 `imei_blacklist`) keyed by full IMEI **or** TAC range (8-digit prefix). Bulk CSV import as async job with partial-success error report (same pattern as F-018). IMEI Lookup tool (paste IMEI → see bound SIM, list membership, history). Answers customer Q12 (stolen-device control), Q14 (vendor-model fleet rules). Depends on: F-018 bulk ops, F-068 job system, F-073 IMEI capture. Stories: STORY-095. Out-of-scope: GSMA CEIR auto-feed — manual blacklist import only per ADR-004.
+- F-076: Binding enforcement & mismatch handling — auth-path gate that rejects (or alert-only logs) authentications when a SIM's bound IMEI does not match the captured one, with reject reason code, audit entry, and deduped alert (per FIX-210). Behaviour scaled by binding_mode: `soft` = alert only, `strict` = reject, `grace-period` = accept with countdown alert until expiry, `tac-lock` = accept only if TAC matches, `allowlist` = accept only if IMEI in pool. "Unverified Devices" report aggregates `pending` + `mismatch` SIMs across the fleet. Answers customer Q13 (real-time enforcement), Q31 (granular per-SIM control). Depends on: F-074 binding modes, F-067 notifications, F-064 audit. Stories: STORY-096 (with modes from STORY-094).
+- F-077: IMEI change detection & re-pair — historical IMEI tracking per SIM (TBL-59 `imei_history`), grace-period workflow for legitimate device swaps (configurable window with countdown alert), admin re-pair UI (manual unbind + re-bind to new IMEI, audited). Alarm `imei.changed` published to NATS with severity scaled by binding_mode (`strict` = high, `grace-period` = medium, `soft` = info). Answers customer Q12 (theft/clone detection), Q13 (legitimate swap handling). Depends on: F-074 binding, F-067 notifications, FIX-210 dedup, F-064 audit. Stories: STORY-097.
+- F-078: Native Syslog forwarding — built-in RFC 3164 (BSD legacy) and RFC 5424 (modern structured) emitters with UDP / TCP / TLS transports. Configurable destinations (TBL-61 `syslog_destinations`) and per-destination filter rules (which event categories — auth/audit/alert/policy/IMEI — forward where). SIEM-ready out of the box (Splunk, QRadar, ArcSight, Elastic). Answers customer Q40 (enterprise SIEM integration without third-party shipper). Depends on: F-064 audit, F-067 notifications, F-069 TLS. Stories: STORY-098.
+
 ### Should Have (v1 but lower priority within development phases)
 - F-071: SIM comparison — side-by-side debug view
-- F-072: Roaming agreement management UI
 ### Won't Have (explicitly excluded)
 - Predictive analytics / ML-based predictions (deferred to FUTURE.md FTR-002: AI & Predictive Intelligence)
 - Own SM-DP+ server
@@ -235,7 +272,7 @@ Super Admin → Create Tenant (company name, domain, contact)
 - Static IP: reserved per-SIM, never returned to pool while SIM exists
 - Dynamic IP: returned to pool on session end
 - On SIM termination: IP held for configurable grace period, then reclaimed
-- Pool at 80%: warning alert. 90%: critical alert. 100%: new allocations rejected + alert
+- Pool at 80%: medium-severity alert. 90%: critical alert. 100%: new allocations rejected + alert
 
 ### BR-4: Policy Enforcement
 - Policy changes propagated via CoA to active sessions
@@ -352,7 +389,7 @@ APIKey ──N:1──▶ Tenant
 |--------|-----------|-------|
 | Tenant | id, name, domain, resource_limits, created_at | Root isolation entity |
 | User | id, tenant_id, email, role, 2fa_enabled | RBAC role enum |
-| Operator | id, name, adapter_type, health_status, failover_policy | System-level |
+| Operator | id, name, adapter_config (nested per-protocol), health_status, failover_policy | System-level; `adapter_type` column dropped in STORY-090 (migration 20260418120000) |
 | OperatorGrant | tenant_id, operator_id, enabled | Tenant ↔ Operator access |
 | APN | id, tenant_id, operator_id, name, state (ACTIVE/ARCHIVED), rat_types | Soft-delete |
 | SIM | id, tenant_id, iccid, imsi, msisdn, operator_id, apn_id, policy_version_id, state, ip_address_id | Partitioned by operator/state |
@@ -367,3 +404,76 @@ APIKey ──N:1──▶ Tenant
 | Job | id, tenant_id, type, state, progress_pct, error_report, created_at | NATS-backed |
 | Notification | id, tenant_id, user_id, channel, scope, event_type, state (UNREAD/READ), created_at | Multi-channel |
 | APIKey | id, tenant_id, key_hash, scopes, rate_limit, expires_at, revoked_at | Never store plaintext |
+
+## Policy Model Doctrine — 1 SIM = 1 Policy
+
+Argus enforces a single canonical policy assignment per SIM. The doctrine has three parts:
+
+1. **Single canonical assignment**: Every SIM has at most one active `policy_version_id` at any moment. The `policy_assignments` table is the canonical source of truth — guaranteed by `idx_policy_assignments_sim` (UNIQUE on `sim_id`).
+
+2. **Read-optimised denorm pointer**: `sims.policy_version_id` is a trigger-synced denormalised copy of `policy_assignments.policy_version_id` for the RADIUS hot path. Trigger `trg_sims_policy_version_sync` (FIX-231) is the single writer. Application code MUST NOT write `sims.policy_version_id` directly — go through `policy_assignments`.
+
+3. **Multi-layer policies (base + override) are out of scope**. The current architecture intentionally rejects layered policies. Revisit only when a product driver (e.g. tenant-wide default + per-SIM override) lands. See `docs/FUTURE.md` if/when that arrives.
+
+### Invariants enforced
+- At most one in-flight `policy_rollouts` per `policy_id` (`policy_active_rollout` partial unique index).
+- At most one `state='active'` `policy_versions` per `policy_id` (`policy_active_version` partial unique index).
+- `policy_assignments.sim_id` is unique (existing).
+
+### Reference
+FIX-231 — Policy Version State Machine + Dual-Source Fix. Plan: `docs/stories/fix-ui-review/FIX-231-plan.md`.
+
+## Event Notification Philosophy: M2M-Centric
+
+Argus manages 10M+ IoT/M2M SIMs that reconnect, send heartbeats, and transition
+state every few minutes. A consumer-telco notification model — "your SIM was
+activated", "session started", "policy enforced" — would generate millions of
+events per hour and bury operators in noise. Argus inverts the model: per-SIM
+activity is treated as **internal metric data**, while user-facing notifications
+surface only fleet-level signals or operational events that an admin must act on.
+
+### Three-Tier Taxonomy
+
+Every event in the platform is classified into one of three tiers:
+
+- **Tier 1 — Internal/Metric.** Per-SIM, high-volume signals (`session.started`,
+  `sim.state_changed`, `heartbeat.ok`, `auth.attempt`, `usage.threshold`,
+  `ip.reclaimed`, `ip.released`, `policy.enforced`, `notification.dispatch`).
+  These flow on the NATS event bus for the WebSocket Live Event Stream and for
+  analytics, but **never** create user-facing notification rows. The Live Event
+  Stream still shows them in real time for NOC visibility.
+
+- **Tier 2 — Aggregate/Digest.** Fleet-level rollups computed every 15 minutes
+  by the digest worker. Examples: `fleet.mass_offline` (when X% of active SIMs
+  go offline in a window), `fleet.traffic_spike` (bytes vs rolling baseline),
+  `fleet.quota_breach_count`, `fleet.violation_surge`. Thresholds are
+  operator-tunable via env vars (see `docs/architecture/CONFIG.md`). When a
+  threshold crosses, ONE notification is created — not 100K per-SIM rows.
+
+- **Tier 3 — Operational.** Admin attention required: `operator_down`,
+  `operator_recovered`, `sla_violation`, `policy_violation`, `bulk_job.completed`,
+  `bulk_job.failed`, `webhook.dead_letter`, `backup.verify_failed`,
+  `report.ready`, etc. These create notification rows by default; users can
+  opt out via the Notification Preferences page.
+
+### Why This Matters
+
+- **At 10M SIMs**, even a 1% per-SIM event would be 100K notifications. The
+  digest tier folds noise into actionable signals — operators see "120 SIMs
+  went offline (6%)" as ONE alert, not 120 emails.
+- **Notification Preferences** only show Tier 2 + Tier 3 events. Users cannot
+  subscribe to Tier 1 events because doing so would be a footgun (and even if
+  legacy preference rows exist, the runtime tier guard suppresses them).
+- **The Live Event Stream** remains the channel for per-event visibility —
+  NOC analysts can still watch every `session.started` flow through in real
+  time, but those events are bytes-on-the-wire, not stored alerts.
+
+### Reclassification
+
+Moving an event between tiers requires a story-level decision (`docs/decisions.md`)
+plus updates to `internal/api/events/tiers.go`, the catalog, and a regression
+test. The canonical taxonomy lives at `docs/architecture/EVENTS.md`.
+
+## Changelog
+
+- **F-229 / FIX-238 (2026-04-30)**: Roaming Agreements feature removed (full-stack sweep). `roaming_agreements` DB table dropped (see migration `20260505000001_drop_roaming_agreements`); roaming DSL fields removed from policy engine; `roaming.agreement.renewal_due` event removed from catalog, tiers, and notification mapping; F-072 removed from Should Have list. Roaming network selection (SoR engine, F-022) is unaffected — it routes by RAT-type preference and has no dependency on the removed agreements table.

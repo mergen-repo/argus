@@ -1,0 +1,105 @@
+# Argus — Prometheus alert rules
+# Loaded by prometheus.yml via rule_files.
+# Alertmanager routing is in STORY-066 scope — these rules fire but routing
+# is configured separately.
+groups:
+  - name: argus-http
+    interval: 30s
+    rules:
+      - alert: ArgusHighErrorRate
+        expr: sum(rate(argus_http_requests_total{status=~"5.."}[5m])) / sum(rate(argus_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: argus
+        annotations:
+          summary: "Argus HTTP 5xx error rate >5% for 5m"
+          description: "5xx error rate is {{ $value | humanizePercentage }} on the Argus API."
+
+  - name: argus-aaa
+    interval: 30s
+    rules:
+      - alert: ArgusAuthLatencyHigh
+        expr: histogram_quantile(0.99, sum(rate(argus_aaa_auth_latency_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: argus-aaa
+        annotations:
+          summary: "Argus AAA p99 auth latency >500ms"
+          description: "p99 auth latency is {{ $value }}s."
+
+      - alert: ArgusOperatorDown
+        expr: argus_operator_adapter_health_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: argus
+        annotations:
+          summary: "Argus operator {{ $labels.operator_id }} protocol {{ $labels.protocol }} is DOWN"
+
+      - alert: ArgusCircuitBreakerOpen
+        expr: argus_circuit_breaker_state{state="open"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          service: argus
+        annotations:
+          summary: "Argus circuit breaker OPEN for operator {{ $labels.operator_id }}"
+
+  - name: argus-database
+    interval: 30s
+    rules:
+      - alert: ArgusDBPoolExhausted
+        expr: argus_db_pool_connections{state="idle"} < 5
+        for: 1m
+        labels:
+          severity: warning
+          service: argus-db
+        annotations:
+          summary: "Argus DB pool has <5 idle connections"
+
+  - name: argus-messaging
+    interval: 30s
+    rules:
+      - alert: ArgusNATSConsumerLag
+        expr: argus_nats_pending_messages > 10000
+        for: 5m
+        labels:
+          severity: warning
+          service: argus-nats
+        annotations:
+          summary: "Argus NATS pending messages >10k for subject {{ $labels.subject }}"
+
+  - name: argus-jobs
+    interval: 30s
+    rules:
+      - alert: ArgusJobFailureRate
+        expr: sum(rate(argus_job_runs_total{result="failure"}[10m])) by (job_type) / sum(rate(argus_job_runs_total[10m])) by (job_type) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: argus-jobs
+        annotations:
+          summary: "Argus job {{ $labels.job_type }} failure rate >10%"
+
+  - name: infra
+    interval: 30s
+    rules:
+      - alert: ArgusRedisEvictionStorm
+        expr: rate(redis_evicted_keys_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: argus-redis
+        annotations:
+          summary: "Redis eviction rate >100/sec"
+
+      - alert: ArgusDiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 5m
+        labels:
+          severity: critical
+          service: node
+        annotations:
+          summary: "Disk space < 15% on {{ $labels.instance }}"

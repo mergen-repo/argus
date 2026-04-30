@@ -1,0 +1,147 @@
+# Argus Simulator — RADIUS + Diameter + 5G SBA Traffic Generator (STORY-082/083/084)
+#
+# This file is TEST-ONLY. Never commit production secrets. Env overrides
+# (ARGUS_SIM_DB_URL, ARGUS_SIM_RADIUS_SECRET, etc.) are available for
+# environment-specific values.
+
+argus:
+  radius_host: argus-app
+  radius_auth_port: 1812
+  radius_accounting_port: 1813
+  # MUST match Argus's RADIUS_SECRET env var (currently global; per-
+  # operator secrets tracked in STORY-086).
+  radius_shared_secret: change-me-radius-shared-secret
+  # Read-only PG role from migrations/seed/005_multi_operator_seed.sql.
+  db_url: postgres://argus_sim:sim_ro_pass@argus-postgres:5432/argus?sslmode=disable
+  db_refresh_interval: 5m
+
+# Global Diameter defaults — applied to every operator that enables Diameter.
+# All 9 fields are shown so operators can see every tunable knob.
+diameter:
+  host: argus-app                 # Argus Diameter server hostname (inside compose network)
+  port: 3868                      # TCP port; matches Argus DIAMETER_PORT default
+  origin_realm: sim.argus.test    # Realm announced by the simulator in CER / every CCR
+  # destination-realm must equal Argus DIAMETER_ORIGIN_REALM (default argus.local)
+  destination_realm: argus.local  # Target realm; Argus rejects CCRs with mismatched realm
+  watchdog_interval: 30s          # DWR → DWA keepalive period (RFC 6733 §5.5)
+  connect_timeout: 5s             # TCP dial + CER/CEA handshake deadline
+  request_timeout: 5s             # Per-CCR round-trip deadline
+  reconnect_backoff_min: 1s       # Initial backoff after peer loss
+  reconnect_backoff_max: 30s      # Backoff cap (exponential, capped here)
+
+# Global 5G SBA client defaults — applied to every operator that opts in.
+# All 10 fields shown so operators can see every tunable knob.
+# Protocol stack order: radius → diameter → sba (session fork: sba REPLACES radius).
+sba:
+  host: argus-app                            # Argus SBA server hostname (inside compose network)
+  port: 8443                                 # TCP port; matches Argus SBA_PORT default
+  tls_enabled: false                         # false = HTTP/1.1 cleartext (dev compose default)
+  tls_skip_verify: false                     # false = require valid cert when tls_enabled: true
+  # Production: set tls_enabled: true, tls_skip_verify: false
+  serving_network_name: "5G:mnc001.mcc286.3gppnetwork.org"  # 5G serving network name in 3GPP format
+  request_timeout: 5s                        # Per-request HTTP deadline (context-based)
+  amf_instance_id: sim-amf-01               # AMF instance UUID sent in AMF registration PUT
+  dereg_callback_uri: "http://sim-amf.invalid/dereg"  # Deregistration callback URI (non-routable for sim)
+  include_optional_calls: false              # If true, ~20% of flows add GET security-information + POST auth-events
+  prod_guard: true                           # true = reject tls_skip_verify when ARGUS_SIM_ENV=prod (recommended; set false only for exceptional hand-crafted fixtures)
+
+# ─── Reactive Behavior (STORY-085, approach B) ────────────────────────────
+# Optional. When enabled, the simulator behaves like a real SIM/modem:
+# - interprets Access-Accept attributes (Session-Timeout, Reply-Message)
+# - backs off exponentially on Access-Reject (30s → 600s cap; 5 retries/hr)
+# - responds to Argus-initiated RADIUS Disconnect-Message + CoA (RFC 5176)
+# Disabled by default. Enabling does NOT change RADIUS/Diameter/SBA byte-patterns
+# when no reactive stimulus arrives — it only ADDS reaction paths.
+reactive:
+  enabled: false                       # master switch — set true to activate
+  session_timeout_respect: true        # honor Access-Accept Session-Timeout
+  early_termination_margin: 5s         # end session this long before Session-Timeout expires (interim-tick grace)
+  reject_backoff_base: 30s             # first-retry sleep after Access-Reject
+  reject_backoff_max: 600s             # cap for exponential backoff
+  reject_max_retries_per_hour: 5       # after this many, SIM is Suspended until the 1h window slides
+
+  coa_listener:
+    enabled: false                     # bind UDP :3799 listener for Argus-initiated DM/CoA
+    listen_addr: "0.0.0.0:3799"        # standard RADIUS CoA port; not published to host
+    shared_secret: ""                  # when empty, inherits argus.radius_shared_secret
+# ──────────────────────────────────────────────────────────────────────────
+
+# Per-operator NAS identity. Secret is shared globally (see STORY-086).
+# Diameter is opt-in; SBA is opt-in — operators without those blocks remain RADIUS-only.
+# SBA opt-in semantics:
+#   enabled: false (or no sba block) → SBA not built for this operator
+#   enabled: true, rate: 0.0         → SBA client built but never selected (effectively disabled)
+#   enabled: true, rate: 0.2         → 20% of sessions use 5G-SBA instead of RADIUS
+#   enabled: true, rate: 1.0         → all sessions use 5G-SBA (RADIUS never called for this operator)
+# NOTE: SBA sessions are ALTERNATIVE to RADIUS (not additive) — a session uses one path only.
+# nas_ip: RFC 5737 TEST-NET-1 address; enables NAS-IP-Address AVP population.
+# CoA/DM still reach simulator via compose DNS (argus-simulator) — see reactive.coa_listener.listen_addr.
+operators:
+  - code: turkcell
+    nas_identifier: sim-turkcell
+    nas_ip: 192.0.2.10           # RFC 5737 TEST-NET-1; net.ParseIP resolves → NAS-IP-Address AVP populated
+    diameter:
+      enabled: true
+      # origin_host defaults to "sim-turkcell.<origin_realm>" when omitted
+      applications: [gx, gy]     # gx = Policy Control (16777238); gy = Online Charging (4)
+    sba:
+      enabled: true
+      rate: 0.2                  # 20% of turkcell sessions authenticate via 5G-SBA instead of RADIUS
+      auth_method: 5G_AKA        # "5G_AKA" (default); "EAP_AKA_PRIME" reserved for future story
+  - code: vodafone
+    nas_identifier: sim-vodafone
+    nas_ip: 192.0.2.20           # RFC 5737 TEST-NET-1; distinct per-operator for AVP identity
+    # No diameter block → RADIUS-only
+    # No sba block → RADIUS-only
+  - code: turk_telekom
+    nas_identifier: sim-turk-telekom
+    nas_ip: 192.0.2.30           # RFC 5737 TEST-NET-1; distinct per-operator for AVP identity
+    # No diameter block → RADIUS-only
+    # No sba block → RADIUS-only
+
+# Weighted-random scenario picker (weights must sum to ~1.0).
+# aggressive_m2m (weight 0.01) triggers bandwidth_exceeded policy violations via
+# the real policy enforcer path — simulator does NOT write policy_violations directly.
+scenarios:
+  - name: normal_browsing
+    weight: 0.69
+    session_duration_seconds: [600, 1800]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [1000000, 10000000]
+    bytes_per_interim_out: [500000, 5000000]
+
+  - name: heavy_user
+    weight: 0.20
+    session_duration_seconds: [3600, 7200]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [50000000, 200000000]
+    bytes_per_interim_out: [25000000, 100000000]
+
+  - name: idle
+    weight: 0.10
+    session_duration_seconds: [60, 300]
+    interim_interval_seconds: 60
+    bytes_per_interim_in: [100000, 1000000]
+    bytes_per_interim_out: [50000, 500000]
+
+  - name: aggressive_m2m
+    weight: 0.01
+    session_duration_seconds: [300, 900]
+    interim_interval_seconds: 30
+    bytes_per_interim_in: [200000000, 500000000]   # 200-500 MB / 30s = 53-133 Mbps; breaches meter-low-v1 (256kbps)
+    bytes_per_interim_out: [100000000, 200000000]
+
+# Global rate limit protects Argus from startup bursts. Sized for ~200
+# concurrent SIMs: auth (1×) + acct-start (1×) + interim (every 30s normal_browsing) +
+# acct-stop (1×). At 200 SIMs steady-state normal_browsing (69%): ~4.6 interims/s → 25 req/s
+# cap leaves headroom for session churn.
+rate:
+  max_radius_requests_per_second: 25
+  initial_jitter_seconds: [0, 60]
+
+metrics:
+  listen: ":9099"
+
+log:
+  level: info      # debug | info | warn | error
+  format: console  # console | json

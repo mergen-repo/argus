@@ -44,6 +44,18 @@ func TestRegistryCreateDiameterAdapter(t *testing.T) {
 	}
 }
 
+func TestRegistryCreateHTTPAdapter(t *testing.T) {
+	r := NewRegistry()
+	cfg := json.RawMessage(`{"base_url":"http://example.com"}`)
+	a, err := r.CreateAdapter("http", cfg)
+	if err != nil {
+		t.Fatalf("create http adapter: %v", err)
+	}
+	if a.Type() != "http" {
+		t.Errorf("type = %q, want %q", a.Type(), "http")
+	}
+}
+
 func TestRegistryUnsupportedProtocol(t *testing.T) {
 	r := NewRegistry()
 	_, err := r.CreateAdapter("sba_v99", nil)
@@ -76,14 +88,56 @@ func TestRegistryGetOrCreate(t *testing.T) {
 	}
 }
 
+// TestRegistryMultiProtocolPerOperator (Wave 2 Task 3, AC-2): a single
+// operatorID must be able to host concurrent adapter instances for
+// distinct protocols — distinct Set/Get lookups return distinct
+// adapters without collision.
+func TestRegistryMultiProtocolPerOperator(t *testing.T) {
+	r := NewRegistry()
+	opID := uuid.New()
+
+	mockAdapter, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
+	httpAdapter, _ := NewHTTPAdapter(json.RawMessage(`{"base_url":"http://example.com"}`))
+	r.Set(opID, "mock", mockAdapter)
+	r.Set(opID, "http", httpAdapter)
+
+	gotMock, ok := r.Get(opID, "mock")
+	if !ok {
+		t.Fatal("expected mock adapter to be found")
+	}
+	if gotMock.Type() != "mock" {
+		t.Errorf("mock lookup returned %q adapter", gotMock.Type())
+	}
+
+	gotHTTP, ok := r.Get(opID, "http")
+	if !ok {
+		t.Fatal("expected http adapter to be found")
+	}
+	if gotHTTP.Type() != "http" {
+		t.Errorf("http lookup returned %q adapter", gotHTTP.Type())
+	}
+
+	// Both adapters must coexist in the all-for-operator enumeration.
+	all := r.GetAllForOperator(opID)
+	if len(all) != 2 {
+		t.Errorf("GetAllForOperator returned %d adapters, want 2", len(all))
+	}
+	if _, ok := all["mock"]; !ok {
+		t.Error("missing mock from GetAllForOperator")
+	}
+	if _, ok := all["http"]; !ok {
+		t.Error("missing http from GetAllForOperator")
+	}
+}
+
 func TestRegistrySetAndGet(t *testing.T) {
 	r := NewRegistry()
 	opID := uuid.New()
 
 	mock, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
-	r.Set(opID, mock)
+	r.Set(opID, "mock", mock)
 
-	a, ok := r.Get(opID)
+	a, ok := r.Get(opID, "mock")
 	if !ok {
 		t.Fatal("expected adapter to be found")
 	}
@@ -92,18 +146,64 @@ func TestRegistrySetAndGet(t *testing.T) {
 	}
 }
 
-func TestRegistryRemove(t *testing.T) {
+func TestRegistryRemove_AllProtocols(t *testing.T) {
 	r := NewRegistry()
 	opID := uuid.New()
 
 	mock, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
-	r.Set(opID, mock)
+	httpA, _ := NewHTTPAdapter(json.RawMessage(`{"base_url":"http://example.com"}`))
+	r.Set(opID, "mock", mock)
+	r.Set(opID, "http", httpA)
 
 	r.Remove(opID)
 
-	_, ok := r.Get(opID)
-	if ok {
-		t.Error("expected adapter to be removed")
+	if _, ok := r.Get(opID, "mock"); ok {
+		t.Error("expected mock adapter removed after Remove")
+	}
+	if _, ok := r.Get(opID, "http"); ok {
+		t.Error("expected http adapter removed after Remove")
+	}
+	if len(r.GetAllForOperator(opID)) != 0 {
+		t.Error("GetAllForOperator should be empty after Remove")
+	}
+}
+
+func TestRegistryRemoveProtocol_Scoped(t *testing.T) {
+	r := NewRegistry()
+	opID := uuid.New()
+
+	mock, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
+	httpA, _ := NewHTTPAdapter(json.RawMessage(`{"base_url":"http://example.com"}`))
+	r.Set(opID, "mock", mock)
+	r.Set(opID, "http", httpA)
+
+	r.RemoveProtocol(opID, "mock")
+
+	if _, ok := r.Get(opID, "mock"); ok {
+		t.Error("expected mock adapter removed")
+	}
+	if _, ok := r.Get(opID, "http"); !ok {
+		t.Error("http adapter should survive mock-scoped removal")
+	}
+}
+
+func TestRegistryRemoveIsolationAcrossOperators(t *testing.T) {
+	r := NewRegistry()
+	op1 := uuid.New()
+	op2 := uuid.New()
+
+	mock1, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
+	mock2, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":2}`))
+	r.Set(op1, "mock", mock1)
+	r.Set(op2, "mock", mock2)
+
+	r.Remove(op1)
+
+	if _, ok := r.Get(op1, "mock"); ok {
+		t.Error("op1 mock should be removed")
+	}
+	if _, ok := r.Get(op2, "mock"); !ok {
+		t.Error("op2 mock should be isolated from op1 removal")
 	}
 }
 
@@ -118,6 +218,9 @@ func TestRegistryHasFactory(t *testing.T) {
 	}
 	if !r.HasFactory("diameter") {
 		t.Error("expected diameter factory to exist")
+	}
+	if !r.HasFactory("http") {
+		t.Error("expected http factory to exist")
 	}
 	if r.HasFactory("nonexistent") {
 		t.Error("expected nonexistent factory to not exist")
@@ -173,9 +276,9 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 			opID := uuid.New()
 
 			mock, _ := NewMockAdapter(json.RawMessage(`{"latency_ms":1}`))
-			r.Set(opID, mock)
+			r.Set(opID, "mock", mock)
 
-			_, _ = r.Get(opID)
+			_, _ = r.Get(opID, "mock")
 			_, _ = r.GetOrCreate(uuid.New(), "mock", json.RawMessage(`{"latency_ms":1}`))
 			r.Remove(opID)
 		}(i)

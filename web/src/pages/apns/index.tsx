@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -11,6 +11,7 @@ import {
   Wifi,
   Plus,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,10 +27,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAPNList, useCreateAPN } from '@/hooks/use-apns'
 import { useOperatorList } from '@/hooks/use-operators'
+import { useIpPoolList } from '@/hooks/use-settings'
 import type { APN, APNListFilters } from '@/types/apn'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 
 const APN_TYPE_OPTIONS = [
   { value: 'private_managed', label: 'Private Managed' },
@@ -46,10 +51,21 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
     apn_type: 'private_managed',
     display_name: '',
     supported_rat_types: [] as string[],
+    ip_pool_ids: [] as string[],
   })
   const [error, setError] = useState<string | null>(null)
   const { data: operators } = useOperatorList()
+  const { data: ipPools = [] } = useIpPoolList()
   const createMutation = useCreateAPN()
+
+  const togglePool = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      ip_pool_ids: f.ip_pool_ids.includes(id)
+        ? f.ip_pool_ids.filter((p) => p !== id)
+        : [...f.ip_pool_ids, id],
+    }))
+  }
 
   const toggleRat = (rat: string) => {
     setForm((f) => ({
@@ -72,8 +88,9 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
         apn_type: form.apn_type,
         supported_rat_types: form.supported_rat_types,
         display_name: form.display_name.trim() || undefined,
+        ip_pool_ids: form.ip_pool_ids.length > 0 ? form.ip_pool_ids : undefined,
       })
-      setForm({ name: '', operator_id: '', apn_type: 'private_managed', display_name: '', supported_rat_types: [] })
+      setForm({ name: '', operator_id: '', apn_type: 'private_managed', display_name: '', supported_rat_types: [], ip_pool_ids: [] })
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -125,22 +142,47 @@ function CreateAPNDialog({ open, onClose }: { open: boolean; onClose: () => void
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 h-auto rounded text-xs font-mono transition-colors',
                   form.supported_rat_types.includes(rat)
                     ? 'border-accent bg-accent-dim text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
+        {ipPools.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-text-secondary mb-1.5 block">IP Pools (optional)</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              {ipPools.map((pool) => (
+                <div
+                  key={pool.id}
+                  className={cn(
+                    'flex items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 py-1.5 cursor-pointer transition-colors text-xs',
+                    form.ip_pool_ids.includes(pool.id) ? 'border-accent bg-accent/5' : 'border-border hover:border-text-tertiary',
+                  )}
+                  onClick={() => togglePool(pool.id)}
+                >
+                  <div className={cn('h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0', form.ip_pool_ids.includes(pool.id) ? 'border-accent bg-accent text-white' : 'border-border')}>
+                    {form.ip_pool_ids.includes(pool.id) && <Check className="h-2.5 w-2.5" />}
+                  </div>
+                  <span className="text-text-primary">{pool.name}</span>
+                  <span className="text-text-tertiary font-mono ml-auto">{pool.cidr_v4 || pool.cidr_v6}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {error && (
           <p className="text-xs text-danger">{error}</p>
         )}
@@ -185,10 +227,18 @@ function IPPoolBar({ used, total }: { used: number; total: number }) {
 }
 
 function APNCard({ apn, operatorName, onClick }: { apn: APN; operatorName: string; onClick: () => void }) {
-  const mockSimCount = useMemo(() => Math.floor(Math.random() * 5000) + 100, [])
-  const mockTrafficMB = useMemo(() => Math.floor(Math.random() * 50000) + 500, [])
-  const mockPoolUsed = useMemo(() => Math.floor(Math.random() * 200) + 10, [])
-  const mockPoolTotal = useMemo(() => mockPoolUsed + Math.floor(Math.random() * 100) + 20, [mockPoolUsed])
+  const simCount = apn.sim_count ?? null
+  const trafficBytes = apn.traffic_24h_bytes ?? null
+  const poolUsed = apn.pool_used ?? 0
+  const poolTotal = apn.pool_total ?? 0
+
+  const trafficLabel = trafficBytes === null
+    ? '—'
+    : trafficBytes >= 1_000_000_000
+      ? `${(trafficBytes / 1_000_000_000).toFixed(1)} GB`
+      : trafficBytes >= 1_000_000
+        ? `${(trafficBytes / 1_000_000).toFixed(1)} MB`
+        : `${(trafficBytes / 1_000).toFixed(0)} KB`
 
   return (
     <Card
@@ -209,17 +259,17 @@ function APNCard({ apn, operatorName, onClick }: { apn: APN; operatorName: strin
       <div className="grid grid-cols-2 gap-3">
         <div>
           <span className="text-[10px] uppercase tracking-wider text-text-tertiary">SIM Count</span>
-          <div className="font-mono text-sm font-semibold text-text-primary">{mockSimCount.toLocaleString()}</div>
+          <div className="font-mono text-sm font-semibold text-text-primary">
+            {simCount !== null ? simCount.toLocaleString() : '—'}
+          </div>
         </div>
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Traffic</span>
-          <div className="font-mono text-sm font-semibold text-text-primary">
-            {mockTrafficMB >= 1000 ? `${(mockTrafficMB / 1000).toFixed(1)} GB` : `${mockTrafficMB} MB`}
-          </div>
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Traffic 24h</span>
+          <div className="font-mono text-sm font-semibold text-text-primary">{trafficLabel}</div>
         </div>
       </div>
 
-      <IPPoolBar used={mockPoolUsed} total={mockPoolTotal} />
+      <IPPoolBar used={poolUsed} total={poolTotal} />
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <Badge variant={apn.apn_type === 'private_managed' ? 'default' : apn.apn_type === 'operator_managed' ? 'secondary' : 'warning'} className="text-[10px]">
@@ -269,12 +319,27 @@ function APNCardSkeleton() {
 
 export default function ApnListPage() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<APNListFilters>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<APNListFilters>(() => ({
+    operator_id: searchParams.get('operator_id') ?? undefined,
+    state: searchParams.get('state') ?? undefined,
+    q: searchParams.get('q') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: APNListFilters | ((prev: APNListFilters) => APNListFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof APNListFilters)[] = ['operator_id', 'state', 'q']
+      keys.forEach((k) => { const v = next[k]; if (v) p.set(k, v); else p.delete(k) })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
 
   const { data: operators } = useOperatorList()
   const { data: apns, isLoading, isError, refetch } = useAPNList(filters)
+  const { exportCSV, exporting } = useExport('apns')
 
   const operatorMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -313,10 +378,16 @@ export default function ApnListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">APN Management</h1>
-        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Create APN
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Create APN
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -329,12 +400,14 @@ export default function ApnListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setSearchInput('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 text-text-tertiary hover:text-text-primary"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -371,12 +444,14 @@ export default function ApnListPage() {
         </DropdownMenu>
 
         {filters.operator_id && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFilters({})}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto py-0 px-1"
           >
             Clear filters
-          </button>
+          </Button>
         )}
       </div>
 
@@ -389,45 +464,41 @@ export default function ApnListPage() {
       )}
 
       {!isLoading && filteredApns.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-            <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-text-primary mb-1">No APNs configured</h3>
-            <p className="text-xs text-text-secondary mb-4">
-              {searchInput || filters.operator_id
-                ? 'Try adjusting your filters or search terms.'
-                : 'Create your first APN to get started.'}
-            </p>
-            {searchInput || filters.operator_id ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFilters({})
-                  setSearchInput('')
-                }}
-              >
-                Clear Filters
-              </Button>
-            ) : (
-              <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-3.5 w-3.5" />
-                Create APN
-              </Button>
-            )}
-          </div>
-        </div>
+        searchInput || filters.operator_id ? (
+          <EmptyState
+            icon={Search}
+            title="No APNs match your filters"
+            description="Try adjusting your filters or search terms."
+            ctaLabel="Clear Filters"
+            onCta={() => { setFilters({}); setSearchInput('') }}
+          />
+        ) : (
+          <EmptyState
+            icon={Wifi}
+            title="No APNs configured"
+            description="Create your first APN to get started."
+            ctaLabel="Create APN"
+            onCta={() => setCreateOpen(true)}
+          />
+        )
       )}
 
       {!isLoading && filteredApns.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredApns.map((apn, i) => (
-            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1">
+            <div key={apn.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group" data-row-index={i} data-href={`/apns/${apn.id}`}>
               <APNCard
                 apn={apn}
                 operatorName={operatorMap.get(apn.operator_id) ?? 'Unknown'}
                 onClick={() => navigate(`/apns/${apn.id}`)}
               />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <RowActionsMenu
+                  actions={[
+                    { label: 'View Details', onClick: () => navigate(`/apns/${apn.id}`) },
+                  ]}
+                />
+              </div>
             </div>
           ))}
         </div>

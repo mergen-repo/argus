@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,123 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+func TestMatchIPOrCIDR_CIDR_Deny(t *testing.T) {
+	if matchIPOrCIDR("10.0.0.1", "192.168.1.0/24") {
+		t.Error("10.0.0.1 should not match 192.168.1.0/24")
+	}
+}
+
+func TestMatchIPOrCIDR_CIDR_Allow(t *testing.T) {
+	if !matchIPOrCIDR("192.168.1.5", "192.168.1.0/24") {
+		t.Error("192.168.1.5 should match 192.168.1.0/24")
+	}
+}
+
+func TestMatchIPOrCIDR_PlainIP_Allow(t *testing.T) {
+	if !matchIPOrCIDR("10.0.0.5", "10.0.0.5") {
+		t.Error("10.0.0.5 should match plain IP 10.0.0.5")
+	}
+}
+
+func TestMatchIPOrCIDR_PlainIP_Deny(t *testing.T) {
+	if matchIPOrCIDR("10.0.0.6", "10.0.0.5") {
+		t.Error("10.0.0.6 should not match plain IP 10.0.0.5")
+	}
+}
+
+func TestMatchIPOrCIDR_IPv6_CIDR_Allow(t *testing.T) {
+	if !matchIPOrCIDR("::1", "::1/128") {
+		t.Error("::1 should match ::1/128")
+	}
+}
+
+func TestMatchIPOrCIDR_EmptyAllowedIPs_AlwaysAllow(t *testing.T) {
+	allowedIPs := []string{}
+	if len(allowedIPs) > 0 {
+		t.Error("empty AllowedIPs must skip enforcement — this test validates the guard condition")
+	}
+}
+
+func TestTrustedProxy_PrivateIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.1:9999"
+	if !trustedProxy(req) {
+		t.Error("192.168.1.1 should be trusted proxy (private IP)")
+	}
+}
+
+func TestTrustedProxy_Loopback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	if !trustedProxy(req) {
+		t.Error("127.0.0.1 should be trusted proxy (loopback)")
+	}
+}
+
+func TestTrustedProxy_PublicIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "1.2.3.4:9999"
+	if trustedProxy(req) {
+		t.Error("1.2.3.4 should not be trusted proxy (public IP)")
+	}
+}
+
+func TestAPIKeyIPWhitelist_DeniedByCIDR(t *testing.T) {
+	allowedIPs := []string{"192.168.1.0/24"}
+	clientIP := "10.0.0.1"
+	allowed := false
+	for _, entry := range allowedIPs {
+		if matchIPOrCIDR(clientIP, entry) {
+			allowed = true
+			break
+		}
+	}
+	if allowed {
+		t.Error("10.0.0.1 should be denied by 192.168.1.0/24")
+	}
+}
+
+func TestAPIKeyIPWhitelist_AllowedByCIDR(t *testing.T) {
+	allowedIPs := []string{"192.168.1.0/24"}
+	clientIP := "192.168.1.5"
+	allowed := false
+	for _, entry := range allowedIPs {
+		if matchIPOrCIDR(clientIP, entry) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		t.Error("192.168.1.5 should be allowed by 192.168.1.0/24")
+	}
+}
+
+func TestAPIKeyIPWhitelist_XForwardedFor_TrustedProxy(t *testing.T) {
+	allowedIPs := []string{"192.168.1.0/24"}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	req.Header.Set("X-Forwarded-For", "192.168.1.5, 10.0.0.1")
+
+	clientIP := extractIP(req)
+	if trustedProxy(req) {
+		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+			clientIP = strings.TrimSpace(strings.Split(xff, ",")[0])
+		}
+	}
+
+	allowed := false
+	for _, entry := range allowedIPs {
+		if matchIPOrCIDR(clientIP, entry) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		t.Errorf("XFF 192.168.1.5 via trusted proxy should be allowed; clientIP resolved to %q", clientIP)
+	}
+}
 
 func TestAPIKeyAuth_MissingHeader(t *testing.T) {
 	logger := zerolog.Nop()

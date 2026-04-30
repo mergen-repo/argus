@@ -23,6 +23,7 @@ const buttonVariants = cva(
       size: {
         default: 'h-9 px-4 py-2 rounded-[var(--radius-sm)]',
         sm: 'h-8 px-3 text-xs rounded-[var(--radius-sm)]',
+        xs: 'h-6 px-2 text-[10px] rounded-[var(--radius-sm)] gap-1',
         lg: 'h-10 px-6 rounded-[var(--radius-sm)]',
         icon: 'h-9 w-9 rounded-[var(--radius-sm)]',
       },

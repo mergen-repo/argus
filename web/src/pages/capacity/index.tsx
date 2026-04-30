@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import {
   RefreshCw,
   AlertCircle,
@@ -26,7 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { AnimatedCounter } from '@/components/ui/animated-counter'
 import { Skeleton } from '@/components/ui/skeleton'
-import { api } from '@/lib/api'
+import { useCapacity } from '@/hooks/use-capacity'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 
@@ -55,49 +54,36 @@ interface CapacityData {
 }
 
 function useCapacityData() {
-  return useQuery<CapacityData>({
-    queryKey: ['capacity'],
-    queryFn: async () => {
-      const [poolRes, dashRes] = await Promise.all([
-        api.get('/ip-pools'),
-        api.get('/dashboard'),
-      ])
-      const pools = (poolRes.data.data || []) as Array<{
-        id: string
-        name: string
-        cidr: string
-        total_addresses: number
-        used_addresses: number
-        available_addresses: number
-      }>
-      const dash = (dashRes.data.data || {}) as Record<string, number>
-
-      const enrichedPools: PoolForecast[] = pools.map((p) => {
-        const utilization_pct = p.total_addresses > 0 ? (p.used_addresses / p.total_addresses) * 100 : 0
-        const allocation_rate = Math.round(50 + Math.random() * 200)
-        const exhaustion_hours = utilization_pct > 80
-          ? Math.max(1, Math.round(((100 - utilization_pct) / 100) * p.total_addresses / allocation_rate))
-          : null
-        return { ...p, utilization_pct, allocation_rate, exhaustion_hours }
-      })
-
-      const totalUsed = pools.reduce((s, p) => s + p.used_addresses, 0)
-      const totalAll = pools.reduce((s, p) => s + p.total_addresses, 0)
-
-      return {
-        ip_pools: enrichedPools,
-        overall_pool_utilization: totalAll > 0 ? (totalUsed / totalAll) * 100 : 0,
-        total_sims: dash.total_sims || 10200000,
-        active_sessions: dash.active_sessions || 847000,
-        auth_per_sec: dash.auth_per_sec || 1247,
-        sim_capacity: 15000000,
-        session_capacity: 2000000,
-        auth_capacity: 5000,
-        monthly_growth: 72000,
-      }
-    },
-    staleTime: 60_000,
-  })
+  const query = useCapacity()
+  const data = useMemo<CapacityData | undefined>(() => {
+    const d = query.data
+    if (!d) return undefined
+    const pools: PoolForecast[] = (d.ip_pools || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      cidr: p.cidr,
+      total_addresses: p.total,
+      used_addresses: p.used,
+      available_addresses: p.available,
+      utilization_pct: p.utilization_pct,
+      allocation_rate: p.allocation_rate,
+      exhaustion_hours: p.exhaustion_hours,
+    }))
+    const totalUsed = pools.reduce((s, p) => s + p.used_addresses, 0)
+    const totalAll = pools.reduce((s, p) => s + p.total_addresses, 0)
+    return {
+      ip_pools: pools,
+      overall_pool_utilization: totalAll > 0 ? (totalUsed / totalAll) * 100 : 0,
+      total_sims: d.total_sims,
+      active_sessions: d.active_sessions,
+      auth_per_sec: d.auth_per_sec,
+      sim_capacity: d.sim_capacity,
+      session_capacity: d.session_capacity,
+      auth_capacity: d.auth_capacity,
+      monthly_growth: d.monthly_growth_sims,
+    }
+  }, [query.data])
+  return { ...query, data }
 }
 
 function CapacityBar({

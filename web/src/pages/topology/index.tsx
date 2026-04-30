@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { EntityLink } from '@/components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -46,6 +47,7 @@ function useTopologyData() {
       } as TopologyData
     },
     staleTime: 60_000,
+    refetchInterval: 30_000,
   })
 }
 
@@ -58,7 +60,8 @@ function hc(status: string) {
   }
 }
 
-function FlowLine({ color = 'var(--color-accent)', active = false, severed = false, height = 28 }: { color?: string; active?: boolean; severed?: boolean; height?: number }) {
+function FlowLine({ color = 'var(--color-accent)', active = false, severed = false, height = 28, traffic = 0 }: { color?: string; active?: boolean; severed?: boolean; height?: number; traffic?: number }) {
+  const duration = traffic > 0 ? Math.max(0.4, 1.5 - traffic) : 1.5
   return (
     <div className="flex justify-center relative" style={{ height }}>
       {severed ? (
@@ -67,7 +70,15 @@ function FlowLine({ color = 'var(--color-accent)', active = false, severed = fal
         <div className="w-px" style={{ backgroundColor: color + '30', height: '100%' }} />
       )}
       {active && !severed && (
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1 rounded-full topo-flow" style={{ backgroundColor: color, height: 8, boxShadow: `0 0 6px ${color}` }} />
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-1 rounded-full topo-flow"
+          style={{
+            backgroundColor: color,
+            height: 8,
+            boxShadow: `0 0 6px ${color}`,
+            '--topo-flow-duration': `${duration}s`,
+          } as React.CSSProperties}
+        />
       )}
     </div>
   )
@@ -108,12 +119,13 @@ export default function TopologyPage() {
   const downCnt = data.operators.filter((o) => o.health_status === 'down').length
   const hasIssues = degradedCnt > 0 || downCnt > 0
   const coreColor = downCnt > 0 ? 'var(--color-danger)' : degradedCnt > 0 ? 'var(--color-warning)' : 'var(--color-accent)'
+  const maxOpSessions = Math.max(...data.operators.map((o) => o.active_sessions || 0), 1)
 
   return (
     <div className="space-y-5 overflow-x-auto">
       <style>{`
         @keyframes topo-flow { 0%{top:-8px;opacity:0}30%{opacity:1}100%{top:calc(100% + 8px);opacity:0} }
-        .topo-flow{animation:topo-flow 1.5s ease-in-out infinite}
+        .topo-flow{animation:topo-flow var(--topo-flow-duration,1.5s) ease-in-out infinite}
         @keyframes topo-ring{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
         .topo-ring{animation:topo-ring 20s linear infinite}
         @keyframes topo-breathe{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:var(--topo-glow)}}
@@ -179,7 +191,7 @@ export default function TopologyPage() {
         </div>
       </div>
 
-      <FlowLine color={coreColor} active={data.totalSessions > 0} height={32} />
+      <FlowLine color={coreColor} active={data.totalSessions > 0} height={32} traffic={data.totalSessions / maxOpSessions} />
 
       {/* Operators — always side by side, full width */}
       <div className="flex gap-5 w-full">
@@ -188,6 +200,7 @@ export default function TopologyPage() {
           const isDown = op.health_status === 'down'
           const isDegraded = op.health_status === 'degraded'
           const opColor = hc(op.health_status)
+          const opTraffic = (op.active_sessions || 0) / maxOpSessions
 
           return (
             <div key={op.id} className="flex flex-col items-center flex-1 min-w-0">
@@ -207,7 +220,7 @@ export default function TopologyPage() {
               >
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', (isDown || isDegraded) && 'animate-pulse')} style={{ backgroundColor: opColor, boxShadow: `0 0 ${isDown ? 12 : 8}px ${opColor}80` }} />
-                  <span className={cn('text-sm font-semibold truncate', isDown ? 'text-danger' : 'text-text-primary')}>{op.name}</span>
+                  <span className={cn('text-sm font-semibold truncate', isDown ? 'text-danger' : 'text-text-primary')} onClick={(e) => e.stopPropagation()}><EntityLink entityType="operator" entityId={op.id} label={op.name} /></span>
                   <Badge variant={op.health_status === 'healthy' ? 'success' : op.health_status === 'degraded' ? 'warning' : 'danger'} className="text-[9px] ml-auto shrink-0">
                     {isDown && <XCircle className="h-2.5 w-2.5 mr-0.5" />}
                     {isDegraded && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />}
@@ -239,27 +252,30 @@ export default function TopologyPage() {
                 </div>
               ) : (
                 op.apns.map((apn) => {
-                  const apnActive = hasTraffic && !isDown
+                  const apnSevered = isDown || apn.state !== 'active'
+                  const apnActive = hasTraffic && !apnSevered
+                  const maxApnSims = Math.max(...op.apns.map((a) => a.sim_count || 0), 1)
+                  const apnTraffic = (apn.sim_count || 0) / maxApnSims * opTraffic
                   return (
                     <div key={apn.id} className="flex flex-col items-center w-full">
-                      <FlowLine color={opColor} active={apnActive} severed={isDown} height={24} />
+                      <FlowLine color={opColor} active={apnActive} severed={apnSevered} height={24} traffic={apnTraffic} />
                       <div className="h-2 w-2 rounded-full" style={{
-                        backgroundColor: isDown ? 'var(--color-danger)' : 'var(--color-cyan)',
-                        boxShadow: isDown ? '0 0 8px var(--color-danger)' : apnActive ? '0 0 8px var(--color-cyan)' : 'none',
+                        backgroundColor: apnSevered ? 'var(--color-danger)' : 'var(--color-cyan)',
+                        boxShadow: apnSevered ? '0 0 8px var(--color-danger)' : apnActive ? '0 0 8px var(--color-cyan)' : 'none',
                       }} />
 
                       {/* APN Card */}
                       <div
                         className={cn(
                           'w-[90%] rounded-[var(--radius-sm)] border p-3 mt-1 cursor-pointer transition-colors',
-                          isDown ? 'border-danger/30 bg-danger-dim/20 opacity-60' : 'border-border bg-bg-elevated hover:border-cyan',
+                          apnSevered ? 'border-danger/30 bg-danger-dim/20 opacity-60' : 'border-border bg-bg-elevated hover:border-cyan',
                         )}
                         onClick={() => navigate(`/apns/${apn.id}`)}
                       >
                         <div className="flex items-center gap-2">
-                          <Wifi className={cn('h-3.5 w-3.5 shrink-0', isDown ? 'text-danger' : apnActive ? 'text-cyan' : 'text-text-tertiary')} />
-                          <span className={cn('text-xs font-medium truncate', isDown ? 'text-danger/80' : 'text-text-primary')}>{apn.name}</span>
-                          <Badge variant={isDown ? 'danger' : apn.state === 'active' ? 'success' : 'secondary'} className="text-[9px] ml-auto shrink-0">
+                          <Wifi className={cn('h-3.5 w-3.5 shrink-0', apnSevered ? 'text-danger' : apnActive ? 'text-cyan' : 'text-text-tertiary')} />
+                          <span className={cn('text-xs font-medium truncate', apnSevered ? 'text-danger/80' : 'text-text-primary')} onClick={(e) => e.stopPropagation()}><EntityLink entityType="apn" entityId={apn.id} label={apn.name} /></span>
+                          <Badge variant={apnSevered ? 'danger' : apn.state === 'active' ? 'success' : 'secondary'} className="text-[9px] ml-auto shrink-0">
                             {isDown ? 'UNREACHABLE' : apn.state}
                           </Badge>
                         </div>
@@ -278,7 +294,7 @@ export default function TopologyPage() {
                             <div
                               className={cn(
                                 'w-[80%] rounded-[var(--radius-sm)] border p-2.5 cursor-pointer transition-colors',
-                                isDown ? 'border-danger/20 opacity-50' : critical ? 'border-danger/30 bg-danger-dim/10' : 'border-border-subtle bg-bg-primary hover:border-accent/40',
+                                apnSevered ? 'border-danger/20 opacity-50' : critical ? 'border-danger/30 bg-danger-dim/10' : 'border-border-subtle bg-bg-primary hover:border-accent/40',
                               )}
                               onClick={() => navigate(`/settings/ip-pools/${pool.id}`)}
                             >

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import {
   Shield,
   Lock,
@@ -19,12 +20,24 @@ import {
   CalendarClock,
   Play,
   Pause,
+  Trash2,
+  AlertCircle,
 } from 'lucide-react'
+import { useScheduledReports, useGenerateReport, useDeleteScheduledReport, useUpdateScheduledReport, useReportDefinitions, type ScheduledReport as ApiScheduledReport, type ReportDefinition as ApiReportDefinition } from '@/hooks/use-reports'
 import type { LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
@@ -40,13 +53,31 @@ interface ReportDefinition {
   lastGenerated: string | null
 }
 
-interface ScheduledReport {
-  id: string
-  reportName: string
-  schedule: string
-  recipient: string
-  nextRun: string
-  status: 'active' | 'paused'
+function toLocalDef(d: ApiReportDefinition): ReportDefinition {
+  const categoryMap: Record<string, 'COMPLIANCE' | 'OPERATIONS' | 'INVENTORY'> = {
+    compliance: 'COMPLIANCE',
+    operations: 'OPERATIONS',
+    inventory: 'INVENTORY',
+  }
+  const iconMap: Record<string, string> = {
+    compliance_btk: 'Shield',
+    compliance_kvkk: 'Lock',
+    compliance_gdpr: 'FileText',
+    sla_monthly: 'ShieldCheck',
+    usage_summary: 'Activity',
+    cost_analysis: 'TrendingDown',
+    sim_inventory: 'Cpu',
+    audit_log_export: 'FileText',
+  }
+  return {
+    id: d.id,
+    category: categoryMap[d.category?.toLowerCase()] ?? 'OPERATIONS',
+    name: d.name,
+    description: d.description,
+    icon: iconMap[d.id] ?? 'FileBarChart',
+    format: d.format_options?.[0]?.toUpperCase() ?? 'PDF',
+    lastGenerated: null,
+  }
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -60,26 +91,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Globe,
 }
 
-const REPORT_DEFINITIONS: ReportDefinition[] = [
-  { id: 'btk-monthly', category: 'COMPLIANCE', name: 'BTK Monthly Report', description: 'Regulatory compliance report for BTK submission', icon: 'Shield', format: 'PDF', lastGenerated: '2024-03-01T09:00:00Z' },
-  { id: 'kvkk-inventory', category: 'COMPLIANCE', name: 'KVKK Data Inventory', description: 'Personal data inventory per KVKK requirements', icon: 'Lock', format: 'PDF', lastGenerated: '2024-02-15T09:00:00Z' },
-  { id: 'gdpr-processing', category: 'COMPLIANCE', name: 'GDPR Data Processing', description: 'Data processing activities report', icon: 'FileText', format: 'PDF', lastGenerated: '2024-02-15T09:00:00Z' },
-  { id: 'sla-compliance', category: 'OPERATIONS', name: 'SLA Compliance Report', description: 'Per-operator SLA compliance and breach analysis', icon: 'ShieldCheck', format: 'PDF', lastGenerated: '2024-03-01T09:00:00Z' },
-  { id: 'operator-perf', category: 'OPERATIONS', name: 'Operator Performance', description: 'Operator latency, auth rates, and health trends', icon: 'Activity', format: 'CSV', lastGenerated: '2024-03-15T09:00:00Z' },
-  { id: 'cost-optimization', category: 'OPERATIONS', name: 'Cost Optimization', description: 'Cost breakdown with optimization recommendations', icon: 'TrendingDown', format: 'PDF', lastGenerated: '2024-03-20T09:00:00Z' },
-  { id: 'sim-inventory', category: 'INVENTORY', name: 'SIM Inventory by State', description: 'Complete SIM inventory grouped by lifecycle state', icon: 'Cpu', format: 'CSV', lastGenerated: null },
-  { id: 'ip-utilization', category: 'INVENTORY', name: 'IP Pool Utilization', description: 'IP address allocation and utilization report', icon: 'Globe', format: 'CSV', lastGenerated: '2024-03-22T09:00:00Z' },
-  { id: 'policy-coverage', category: 'INVENTORY', name: 'Policy Coverage', description: 'Policy assignment coverage across SIM inventory', icon: 'Shield', format: 'PDF', lastGenerated: '2024-03-18T09:00:00Z' },
-]
-
-const SCHEDULED_REPORTS: ScheduledReport[] = [
-  { id: '1', reportName: 'BTK Monthly Report', schedule: 'Monthly (1st)', recipient: 'compliance@argus.io', nextRun: '2024-04-01T09:00:00Z', status: 'active' },
-  { id: '2', reportName: 'SLA Compliance Report', schedule: 'Weekly (Monday)', recipient: 'ops-team@argus.io', nextRun: '2024-03-25T09:00:00Z', status: 'active' },
-  { id: '3', reportName: 'Operator Performance', schedule: 'Daily', recipient: 'noc@argus.io', nextRun: '2024-03-25T06:00:00Z', status: 'active' },
-  { id: '4', reportName: 'KVKK Data Inventory', schedule: 'Monthly (15th)', recipient: 'legal@argus.io', nextRun: '2024-04-15T09:00:00Z', status: 'paused' },
-  { id: '5', reportName: 'Cost Optimization', schedule: 'Weekly (Friday)', recipient: 'finance@argus.io', nextRun: '2024-03-29T09:00:00Z', status: 'active' },
-]
-
 const CATEGORY_META: Record<string, { label: string; color: string; border: string }> = {
   COMPLIANCE: { label: 'Compliance', color: 'text-accent', border: 'border-accent/20' },
   OPERATIONS: { label: 'Operations', color: 'text-success', border: 'border-success/20' },
@@ -89,7 +100,7 @@ const CATEGORY_META: Record<string, { label: string; color: string; border: stri
 const FORMAT_OPTIONS = [
   { value: 'pdf', label: 'PDF' },
   { value: 'csv', label: 'CSV' },
-  { value: 'xlsx', label: 'Excel (XLSX)' },
+  { value: 'xlsx', label: 'Excel (.xlsx)' },
 ]
 
 function formatDate(iso: string | null): string {
@@ -113,12 +124,9 @@ function ReportCard({
   report: ReportDefinition
   onGenerate: (report: ReportDefinition) => void
 }) {
-  const [generating, setGenerating] = useState(false)
   const IconComp = ICON_MAP[report.icon] || FileBarChart
 
   const handleGenerate = () => {
-    setGenerating(true)
-    setTimeout(() => setGenerating(false), 2000)
     onGenerate(report)
   }
 
@@ -155,14 +163,9 @@ function ReportCard({
           variant="outline"
           className="flex-1 gap-1.5 text-xs"
           onClick={handleGenerate}
-          disabled={generating}
         >
-          {generating ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Download className="h-3 w-3" />
-          )}
-          {generating ? 'Generating...' : 'Generate'}
+          <Download className="h-3 w-3" />
+          Generate
         </Button>
         <Button size="sm" variant="ghost" className="text-xs gap-1.5">
           <CalendarClock className="h-3 w-3" />
@@ -173,66 +176,91 @@ function ReportCard({
   )
 }
 
-function ScheduledReportsTable({ reports }: { reports: ScheduledReport[] }) {
+function ScheduledReportsTable({
+  reports,
+  onToggleState,
+  onDelete,
+}: {
+  reports: ApiScheduledReport[]
+  onToggleState: (r: ApiScheduledReport) => void
+  onDelete: (id: string) => void
+}) {
+  if (reports.length === 0) {
+    return (
+      <div className="border border-border rounded-[var(--radius-md)] p-8 text-center text-text-tertiary text-sm">
+        No scheduled reports yet. Create one from the Generate Report panel.
+      </div>
+    )
+  }
   return (
     <div className="border border-border rounded-[var(--radius-md)] overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-bg-elevated/50">
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Name</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Schedule</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipient</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Next Run</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map((report, i) => (
-              <tr
-                key={report.id}
-                className={cn(
-                  'border-b border-border last:border-b-0 hover:bg-bg-hover/50 transition-colors',
-                  'animate-in fade-in',
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border bg-bg-elevated/50 hover:bg-bg-elevated/50">
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Report Type</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Schedule</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Recipients</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Next Run</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Status</TableHead>
+            <TableHead className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider w-[120px]">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {reports.map((report, i) => (
+            <TableRow
+              key={report.id}
+              className={cn(
+                'border-b border-border last:border-b-0 hover:bg-bg-hover/50 transition-colors',
+                'animate-in fade-in',
+              )}
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              <TableCell>
+                <span className="text-sm font-medium text-text-primary">{report.report_type}</span>
+                <Badge variant="outline" className="ml-2 text-[10px]">{report.format.toUpperCase()}</Badge>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3 w-3 text-text-tertiary" />
+                  <span className="text-xs text-text-secondary font-mono">{report.schedule_cron}</span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1.5">
+                  <Mail className="h-3 w-3 text-text-tertiary" />
+                  <span className="text-xs text-text-secondary font-mono truncate max-w-[180px]">{report.recipients.join(', ') || '—'}</span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <span className="text-xs text-text-secondary font-mono">{formatDate(report.next_run_at)}</span>
+              </TableCell>
+              <TableCell>
+                {report.state === 'active' ? (
+                  <Badge variant="success" className="text-[10px] gap-1">
+                    <Play className="h-2.5 w-2.5" />
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px] gap-1">
+                    <Pause className="h-2.5 w-2.5" />
+                    Paused
+                  </Badge>
                 )}
-                style={{ animationDelay: `${i * 40}ms` }}
-              >
-                <td className="px-4 py-3">
-                  <span className="text-sm font-medium text-text-primary">{report.reportName}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="h-3 w-3 text-text-tertiary" />
-                    <span className="text-xs text-text-secondary font-mono">{report.schedule}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <Mail className="h-3 w-3 text-text-tertiary" />
-                    <span className="text-xs text-text-secondary font-mono">{report.recipient}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="text-xs text-text-secondary font-mono">{formatDate(report.nextRun)}</span>
-                </td>
-                <td className="px-4 py-3">
-                  {report.status === 'active' ? (
-                    <Badge variant="success" className="text-[10px] gap-1">
-                      <Play className="h-2.5 w-2.5" />
-                      Active
-                    </Badge>
-                  ) : (
-                    <Badge variant="warning" className="text-[10px] gap-1">
-                      <Pause className="h-2.5 w-2.5" />
-                      Paused
-                    </Badge>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => onToggleState(report)} className="h-7 w-7 p-0">
+                    {report.state === 'active' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => onDelete(report.id)} className="h-7 w-7 p-0 text-error hover:text-error">
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
@@ -241,11 +269,14 @@ function GenerateReportPanel({
   open,
   onClose,
   preselectedReport,
+  definitions,
 }: {
   open: boolean
   onClose: () => void
   preselectedReport: ReportDefinition | null
+  definitions: ReportDefinition[]
 }) {
+  const generateMutation = useGenerateReport()
   const [form, setForm] = useState({
     reportType: preselectedReport?.id || '',
     dateFrom: '',
@@ -256,21 +287,35 @@ function GenerateReportPanel({
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    if (!form.reportType) return
     setGenerating(true)
-    setTimeout(() => {
-      setGenerating(false)
+    try {
+      const filters: Record<string, unknown> = {}
+      if (form.dateFrom) filters.date_from = form.dateFrom
+      if (form.dateTo) filters.date_to = form.dateTo
+      const res = await generateMutation.mutateAsync({
+        report_type: form.reportType,
+        format: form.format,
+        filters,
+      })
+      toast.success(`Report queued (job ${res?.job_id?.slice(0, 8)}). Check Jobs page for status.`)
       setGenerated(true)
       setTimeout(() => {
         setGenerated(false)
         onClose()
       }, 1500)
-    }, 2000)
+    } catch {
+      toast.error('Failed to queue report. Please try again.')
+      setGenerated(false)
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const reportOptions = useMemo(
-    () => REPORT_DEFINITIONS.map((r) => ({ value: r.id, label: r.name })),
-    [],
+    () => definitions.map((r: ReportDefinition) => ({ value: r.id, label: r.name })),
+    [definitions],
   )
 
   return (
@@ -372,15 +417,44 @@ function GenerateReportPanel({
 export default function ReportsPage() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportDefinition | null>(null)
+  const scheduledQuery = useScheduledReports()
+  const definitionsQuery = useReportDefinitions()
+  const updateMutation = useUpdateScheduledReport()
+  const deleteMutation = useDeleteScheduledReport()
+  const scheduledReports: ApiScheduledReport[] = scheduledQuery.data?.data ?? []
+  const reportDefinitions: ReportDefinition[] = useMemo(
+    () => (definitionsQuery.data ?? []).map(toLocalDef),
+    [definitionsQuery.data],
+  )
+
+  const handleToggleState = async (report: ApiScheduledReport) => {
+    const newState = report.state === 'active' ? 'paused' : 'active'
+    try {
+      await updateMutation.mutateAsync({ id: report.id, patch: { state: newState } })
+      toast.success(`Report ${newState}`)
+    } catch {
+      toast.error('Failed to update report')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this scheduled report?')) return
+    try {
+      await deleteMutation.mutateAsync(id)
+      toast.success('Scheduled report deleted')
+    } catch {
+      toast.error('Failed to delete report')
+    }
+  }
 
   const grouped = useMemo(() => {
     const map: Record<string, ReportDefinition[]> = {}
-    for (const r of REPORT_DEFINITIONS) {
+    for (const r of reportDefinitions) {
       if (!map[r.category]) map[r.category] = []
       map[r.category].push(r)
     }
     return map
-  }, [])
+  }, [reportDefinitions])
 
   const handleGenerate = (report: ReportDefinition) => {
     setSelectedReport(report)
@@ -415,6 +489,16 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {definitionsQuery.isError && (
+        <div className="rounded-lg border border-danger/30 bg-danger-dim p-4 flex items-center gap-3">
+          <AlertCircle className="h-4 w-4 text-danger flex-shrink-0" />
+          <span className="text-sm text-danger">Failed to load report definitions.</span>
+          <Button size="sm" variant="ghost" onClick={() => definitionsQuery.refetch()} className="ml-auto text-xs">
+            Retry
+          </Button>
+        </div>
+      )}
+
       {(['COMPLIANCE', 'OPERATIONS', 'INVENTORY'] as const).map((category) => {
         const meta = CATEGORY_META[category]
         const reports = grouped[category] || []
@@ -428,17 +512,29 @@ export default function ReportsPage() {
               </h2>
               <Badge variant="outline" className="text-[10px]">{reports.length}</Badge>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {reports.map((report, i) => (
-                <div
-                  key={report.id}
-                  className="animate-in fade-in slide-in-from-bottom-1"
-                  style={{ animationDelay: `${i * 50}ms` }}
-                >
-                  <ReportCard report={report} onGenerate={handleGenerate} />
-                </div>
-              ))}
-            </div>
+            {definitionsQuery.isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Card key={i} className="p-5 space-y-3 animate-pulse">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reports.map((report, i) => (
+                  <div
+                    key={report.id}
+                    className="animate-in fade-in slide-in-from-bottom-1"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
+                    <ReportCard report={report} onGenerate={handleGenerate} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )
       })}
@@ -450,16 +546,21 @@ export default function ReportsPage() {
             <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
               Scheduled Reports
             </h2>
-            <Badge variant="outline" className="text-[10px]">{SCHEDULED_REPORTS.length}</Badge>
+            <Badge variant="outline" className="text-[10px]">{scheduledReports.length}</Badge>
           </div>
         </div>
-        <ScheduledReportsTable reports={SCHEDULED_REPORTS} />
+        <ScheduledReportsTable
+          reports={scheduledReports}
+          onToggleState={handleToggleState}
+          onDelete={handleDelete}
+        />
       </div>
 
       <GenerateReportPanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         preselectedReport={selectedReport}
+        definitions={reportDefinitions}
       />
     </div>
   )

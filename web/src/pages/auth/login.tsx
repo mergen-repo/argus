@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
   const setPartial2FA = useAuthStore((s) => s.setPartial2FA)
+  const setPartialSession = useAuthStore((s) => s.setPartialSession)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,13 +63,16 @@ export default function LoginPage() {
       const res = await authApi.login(email, password, rememberMe)
       const data = res.data.data
 
-      if (data.requires_2fa) {
+      if (data.partial === true && data.reason === 'password_change_required') {
+        setPartialSession(data.token, data.reason)
+        navigate('/auth/change-password')
+      } else if (data.requires_2fa) {
         setPartial2FA(data.token, data.user)
         navigate('/login/2fa')
       } else {
-        setAuth(data.user, data.token)
+        setAuth(data.user, data.token, [], data.session_id)
         if (data.user.onboarding_completed === false) {
-          navigate('/setup')
+          navigate('/onboarding')
         } else {
           navigate('/')
         }
@@ -166,12 +170,12 @@ export default function LoginPage() {
       </div>
 
       <div className="flex items-center gap-2">
-        <input
+        <Input
           id="remember"
           type="checkbox"
           checked={rememberMe}
           onChange={(e) => setRememberMe(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-border bg-bg-elevated text-accent accent-accent focus:ring-accent focus:ring-offset-0"
+          className="h-3.5 w-3.5 rounded border-border bg-bg-elevated text-accent accent-accent focus:ring-accent focus:ring-offset-0 w-3.5 flex-none"
           disabled={loading || !!lockout}
         />
         <label htmlFor="remember" className="text-xs text-text-secondary cursor-pointer select-none">
@@ -193,6 +197,12 @@ export default function LoginPage() {
           'Sign in'
         )}
       </Button>
+
+      <div className="mt-3 text-center">
+        <Link to="/auth/forgot" className="text-xs text-text-secondary hover:text-text-primary">
+          Parolamı unuttum?
+        </Link>
+      </div>
     </form>
   )
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/go-pdf/fpdf"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -60,7 +61,7 @@ func (s *Service) RunPurgeSweep(ctx context.Context, batchSize int) (*PurgeResul
 	s.logger.Info().Int("count", len(sims)).Msg("found SIMs eligible for purge")
 
 	for _, sim := range sims {
-		tenantSalt := deriveTenantSalt(sim.TenantID)
+		tenantSalt := DeriveTenantSalt(sim.TenantID)
 
 		if err := s.complianceStore.PurgeSIM(ctx, sim.ID, tenantSalt); err != nil {
 			s.logger.Error().Err(err).Str("sim_id", sim.ID.String()).Msg("purge failed")
@@ -75,7 +76,7 @@ func (s *Service) RunPurgeSweep(ctx context.Context, batchSize int) (*PurgeResul
 
 	tenants := uniqueTenantIDs(sims)
 	for _, tenantID := range tenants {
-		chainResult, chainErr := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+		chainResult, chainErr := s.auditSvc.VerifyChain(ctx)
 		if chainErr != nil {
 			s.logger.Error().Err(chainErr).Str("tenant_id", tenantID.String()).Msg("hash chain verification failed, skipping pseudonymization")
 			continue
@@ -90,7 +91,7 @@ func (s *Service) RunPurgeSweep(ctx context.Context, batchSize int) (*PurgeResul
 			s.logger.Warn().Err(retErr).Str("tenant_id", tenantID.String()).Msg("failed to get retention days, using default 90")
 			retentionDays = 90
 		}
-		tenantSalt := deriveTenantSalt(tenantID)
+		tenantSalt := DeriveTenantSalt(tenantID)
 		pseudonymized, err := s.complianceStore.PseudonymizeAuditLogs(ctx, tenantID, retentionDays, tenantSalt)
 		if err != nil {
 			s.logger.Error().Err(err).Str("tenant_id", tenantID.String()).Msg("audit pseudonymization failed")
@@ -107,7 +108,7 @@ func (s *Service) DataSubjectAccess(ctx context.Context, tenantID, simID uuid.UU
 }
 
 func (s *Service) RightToErasure(ctx context.Context, tenantID, simID uuid.UUID) error {
-	chainResult, err := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+	chainResult, err := s.auditSvc.VerifyChain(ctx)
 	if err != nil {
 		return fmt.Errorf("verify audit chain: %w", err)
 	}
@@ -115,7 +116,7 @@ func (s *Service) RightToErasure(ctx context.Context, tenantID, simID uuid.UUID)
 		return fmt.Errorf("audit chain verification failed — erasure blocked for data integrity")
 	}
 
-	tenantSalt := deriveTenantSalt(tenantID)
+	tenantSalt := DeriveTenantSalt(tenantID)
 	if err := s.complianceStore.EarlyPurgeSIM(ctx, tenantID, simID, tenantSalt); err != nil {
 		return fmt.Errorf("early purge: %w", err)
 	}
@@ -123,7 +124,7 @@ func (s *Service) RightToErasure(ctx context.Context, tenantID, simID uuid.UUID)
 	s.createPurgeAuditEntry(ctx, tenantID, simID)
 
 	entityIDs := []string{simID.String()}
-	if err := s.auditStore.Pseudonymize(ctx, tenantID, entityIDs); err != nil {
+	if err := s.auditStore.Pseudonymize(ctx, tenantID, entityIDs, tenantSalt); err != nil {
 		s.logger.Error().Err(err).Str("sim_id", simID.String()).Msg("post-erasure pseudonymization failed")
 	}
 
@@ -162,7 +163,7 @@ func (s *Service) Dashboard(ctx context.Context, tenantID uuid.UUID, retentionDa
 		}
 	}
 
-	chainResult, err := s.auditSvc.VerifyChain(ctx, tenantID, 100)
+	chainResult, err := s.auditSvc.VerifyChain(ctx)
 	chainVerified := false
 	if err == nil {
 		chainVerified = chainResult.Verified
@@ -250,6 +251,75 @@ func (s *Service) ExportBTKReportCSV(ctx context.Context, tenantID uuid.UUID) ([
 	return buf.Bytes(), nil
 }
 
+func (s *Service) ExportBTKReportPDF(ctx context.Context, tenantID uuid.UUID) ([]byte, error) {
+	report, err := s.GenerateBTKReport(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return buildBTKReportPDF(report)
+}
+
+func buildBTKReportPDF(report *BTKReport) ([]byte, error) {
+	pdf := fpdf.New("L", "mm", "A4", "")
+	pdf.AddPage()
+	pdf.SetMargins(15, 15, 15)
+
+	pdf.SetFont("Arial", "B", 16)
+	pdf.CellFormat(0, 10, "BTK Monthly SIM Report", "", 1, "C", false, 0, "")
+	pdf.Ln(2)
+
+	pdf.SetFont("Arial", "", 10)
+	pdf.CellFormat(40, 7, "Tenant ID:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 7, report.TenantID.String(), "", 1, "L", false, 0, "")
+	pdf.CellFormat(40, 7, "Report Month:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 7, report.ReportMonth, "", 1, "L", false, 0, "")
+	pdf.CellFormat(40, 7, "Generated At:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 7, report.GeneratedAt, "", 1, "L", false, 0, "")
+	pdf.Ln(4)
+
+	colWidths := []float64{60, 30, 30, 30, 35, 30}
+	headers := []string{"Operator", "Code", "Active", "Suspended", "Terminated", "Total"}
+
+	pdf.SetFont("Arial", "B", 9)
+	pdf.SetFillColor(40, 40, 60)
+	pdf.SetTextColor(255, 255, 255)
+	for i, h := range headers {
+		pdf.CellFormat(colWidths[i], 8, h, "1", 0, "C", true, 0, "")
+	}
+	pdf.Ln(-1)
+
+	pdf.SetFont("Arial", "", 9)
+	pdf.SetTextColor(0, 0, 0)
+	for i, op := range report.Operators {
+		if i%2 == 0 {
+			pdf.SetFillColor(248, 248, 252)
+		} else {
+			pdf.SetFillColor(255, 255, 255)
+		}
+		pdf.CellFormat(colWidths[0], 7, op.OperatorName, "1", 0, "L", true, 0, "")
+		pdf.CellFormat(colWidths[1], 7, op.OperatorCode, "1", 0, "C", true, 0, "")
+		pdf.CellFormat(colWidths[2], 7, fmt.Sprintf("%d", op.ActiveCount), "1", 0, "R", true, 0, "")
+		pdf.CellFormat(colWidths[3], 7, fmt.Sprintf("%d", op.SuspendedCount), "1", 0, "R", true, 0, "")
+		pdf.CellFormat(colWidths[4], 7, fmt.Sprintf("%d", op.TerminatedCount), "1", 0, "R", true, 0, "")
+		pdf.CellFormat(colWidths[5], 7, fmt.Sprintf("%d", op.TotalCount), "1", 0, "R", true, 0, "")
+		pdf.Ln(-1)
+	}
+
+	pdf.Ln(4)
+	pdf.SetFont("Arial", "B", 10)
+	pdf.CellFormat(40, 7, "Total Active:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 7, fmt.Sprintf("%d", report.TotalActive), "", 1, "L", false, 0, "")
+	pdf.CellFormat(40, 7, "Total SIMs:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 7, fmt.Sprintf("%d", report.TotalSIMs), "", 1, "L", false, 0, "")
+
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, fmt.Errorf("write pdf: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 func (s *Service) UpdateRetention(ctx context.Context, tenantID uuid.UUID, days int) error {
 	if days < 30 || days > 365 {
 		return fmt.Errorf("retention days must be between 30 and 365")
@@ -276,7 +346,7 @@ func (s *Service) createPurgeAuditEntry(ctx context.Context, tenantID uuid.UUID,
 	}
 }
 
-func deriveTenantSalt(tenantID uuid.UUID) string {
+func DeriveTenantSalt(tenantID uuid.UUID) string {
 	h := sha256.Sum256([]byte("argus-compliance-salt:" + tenantID.String()))
 	return hex.EncodeToString(h[:16])
 }

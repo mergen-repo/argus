@@ -1,8 +1,11 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestResolvePeriod_Presets(t *testing.T) {
@@ -139,6 +142,64 @@ func TestSanitizeDimension(t *testing.T) {
 				t.Errorf("sanitizeDimension(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBuildTimeSeriesQuery_COALESCESentinel verifies that the dynamic SQL string emitted for a
+// group_by request wraps the grouping column in `COALESCE(..., '__unassigned__')`. This is the
+// AC-7 regression safeguard for FIX-204 — without COALESCE, NULL group values crash the pgx
+// scan into `tp.GroupKey string`. AC-8 perf note: COALESCE is a planner-cheap pass-through for
+// non-null values; no benchmark harness built per plan (pure code-inspectable guarantee).
+func TestBuildTimeSeriesQuery_COALESCESentinel(t *testing.T) {
+	base := UsageQueryParams{
+		TenantID: uuid.New(),
+		Period:   "24h",
+		From:     time.Now().UTC().Add(-24 * time.Hour),
+		To:       time.Now().UTC(),
+	}
+
+	cases := []struct {
+		name       string
+		groupBy    string
+		wantSubstr string
+	}{
+		{"apn", "apn", `COALESCE(apn_id::text, '__unassigned__')`},
+		{"operator", "operator", `COALESCE(operator_id::text, '__unassigned__')`},
+		{"rat_type", "rat_type", `COALESCE(rat_type::text, '__unassigned__')`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := base
+			p.GroupBy = tc.groupBy
+			query, _ := buildTimeSeriesQuery(p)
+			if !strings.Contains(query, tc.wantSubstr) {
+				t.Errorf("buildTimeSeriesQuery(groupBy=%q) missing %q\nfull query: %s",
+					tc.groupBy, tc.wantSubstr, query)
+			}
+			if strings.Contains(query, `'unknown'`) {
+				t.Errorf("buildTimeSeriesQuery(groupBy=%q) still contains legacy 'unknown' sentinel: %s",
+					tc.groupBy, query)
+			}
+		})
+	}
+}
+
+// TestBuildTimeSeriesQuery_NoGroupByOmitsCOALESCE verifies the sentinel is only applied when a
+// group_by column is requested; the default (no-grouping) path does not project group_key.
+func TestBuildTimeSeriesQuery_NoGroupByOmitsCOALESCE(t *testing.T) {
+	p := UsageQueryParams{
+		TenantID: uuid.New(),
+		Period:   "24h",
+		From:     time.Now().UTC().Add(-24 * time.Hour),
+		To:       time.Now().UTC(),
+	}
+	query, _ := buildTimeSeriesQuery(p)
+	if strings.Contains(query, "__unassigned__") {
+		t.Errorf("buildTimeSeriesQuery(no group_by) unexpectedly contains sentinel: %s", query)
+	}
+	if strings.Contains(query, "AS group_key") {
+		t.Errorf("buildTimeSeriesQuery(no group_by) unexpectedly projects group_key: %s", query)
 	}
 }
 

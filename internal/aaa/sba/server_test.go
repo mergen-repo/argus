@@ -517,21 +517,11 @@ func TestExtractEAPSessionID(t *testing.T) {
 	}
 }
 
-func TestNRFRegistrationPlaceholder(t *testing.T) {
+func TestNRFProfileDefaults(t *testing.T) {
 	nrf := NewNRFRegistration(NRFConfig{
 		NFInstanceID: "test-nf",
-		NRFURL:       "https://nrf.example.com",
+		NRFURL:       "",
 	}, testLogger())
-
-	if err := nrf.Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-	if err := nrf.Heartbeat(); err != nil {
-		t.Fatalf("Heartbeat: %v", err)
-	}
-	if err := nrf.Deregister(); err != nil {
-		t.Fatalf("Deregister: %v", err)
-	}
 
 	profile := nrf.GetProfile()
 	if profile.NFType != "AUSF" {
@@ -542,6 +532,16 @@ func TestNRFRegistrationPlaceholder(t *testing.T) {
 	}
 	if len(profile.NFServices) != 2 {
 		t.Errorf("expected 2 services, got %d", len(profile.NFServices))
+	}
+
+	if err := nrf.Register(); err != nil {
+		t.Fatalf("Register with empty NRFURL should return nil: %v", err)
+	}
+	if err := nrf.Heartbeat(); err != nil {
+		t.Fatalf("Heartbeat with empty NRFURL should return nil: %v", err)
+	}
+	if err := nrf.Deregister(); err != nil {
+		t.Fatalf("Deregister with empty NRFURL should return nil: %v", err)
 	}
 }
 

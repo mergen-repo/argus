@@ -1,0 +1,20 @@
+STEP_1 PLAN: EXECUTED | items=11 | evidence=STORY-071-plan.md | result=PASS
+STEP_2 DB_MIGRATION: EXECUTED | files=migrations/20260414000001_roaming_agreements.up.sql,.down.sql | result=PASS
+STEP_3 STORE: EXECUTED | files=internal/store/roaming_agreement.go,internal/store/user.go | methods=Create,GetByID,List,Update,Terminate,ListByOperator,ListActiveByTenant,ListRecentlyExpiredByTenant,ListExpiringWithin,ListByRole | result=PASS
+STEP_4 API_HANDLER: EXECUTED | files=internal/api/roaming/handler.go,internal/apierr/apierr.go | endpoints=5 | result=PASS
+STEP_5 ROUTE_WIRING: EXECUTED | files=internal/gateway/router.go,cmd/argus/main.go | routes=GET /api/v1/roaming-agreements,POST /api/v1/roaming-agreements,GET /api/v1/roaming-agreements/{id},PATCH /api/v1/roaming-agreements/{id},DELETE /api/v1/roaming-agreements/{id},GET /api/v1/operators/{id}/roaming-agreements | result=PASS
+STEP_6 SOR_INTEGRATION: EXECUTED | files=internal/operator/sor/engine.go,internal/operator/sor/types.go | additions=RoamingAgreementProvider interface,SetAgreementProvider,AgreementID field,ReasonRoamingAgreement constant | result=PASS
+STEP_7 RENEWAL_CRON: EXECUTED | files=internal/job/roaming_renewal.go,internal/job/types.go,internal/config/config.go | job=roaming_renewal_sweep | result=PASS
+STEP_8 FE_TYPES_HOOKS: EXECUTED | files=web/src/types/roaming.ts,web/src/hooks/use-roaming-agreements.ts | result=PASS
+STEP_9 FE_PAGES: EXECUTED | files=web/src/pages/roaming/index.tsx,web/src/pages/roaming/detail.tsx | screens=SCR-150,SCR-151 | result=PASS
+STEP_10 FE_WIRING: EXECUTED | files=web/src/router.tsx,web/src/components/layout/sidebar.tsx,web/src/pages/operators/detail.tsx | result=PASS
+STEP_11 TESTS: EXECUTED | files=internal/api/roaming/handler_test.go(46 tests),internal/operator/sor/roaming_test.go(8 tests),internal/job/roaming_renewal_test.go(9 tests),internal/store/roaming_agreement_test.go(20 tests) | total_new_tests=75 (2576→2651) | result=PASS
+STEP_12 ENV_EXAMPLE: EXECUTED | files=.env.example | vars=ROAMING_RENEWAL_ALERT_DAYS,ROAMING_RENEWAL_CRON | result=PASS
+GATE_BUILD: go build ./... | result=PASS
+GATE_TEST: go test ./... | 2651 passed | result=PASS
+GATE_TSC: npx tsc --noEmit | result=PASS
+GATE_BUILD_FE: npm run build | result=PASS
+STEP_3 GATE: EXECUTED | passes=6 | fixes=4 | result=PASS
+STEP_4 REVIEW: EXECUTED | items=14 | evidence=review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=45f2253 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS

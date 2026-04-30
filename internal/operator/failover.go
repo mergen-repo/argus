@@ -46,14 +46,14 @@ func NewFailoverEngine(router *OperatorRouter) *FailoverEngine {
 	return &FailoverEngine{router: router}
 }
 
-func (fe *FailoverEngine) ExecuteAuth(ctx context.Context, primaryID uuid.UUID, config FailoverConfig, fallbackIDs []uuid.UUID, req adapter.AuthRequest) (*FailoverResult, error) {
+func (fe *FailoverEngine) ExecuteAuth(ctx context.Context, primaryID uuid.UUID, protocol string, config FailoverConfig, fallbackIDs []uuid.UUID, req adapter.AuthRequest) (*FailoverResult, error) {
 	result := &FailoverResult{
 		OperatorID: primaryID,
 		UsedPolicy: config.Policy,
 	}
 	start := time.Now()
 
-	resp, err := fe.router.ForwardAuth(ctx, primaryID, req)
+	resp, err := fe.router.ForwardAuth(ctx, primaryID, protocol, req)
 	result.Attempts++
 	if err == nil {
 		result.Response = resp
@@ -67,10 +67,10 @@ func (fe *FailoverEngine) ExecuteAuth(ctx context.Context, primaryID uuid.UUID, 
 		return nil, fmt.Errorf("%w: operator %s circuit open, policy=reject", adapter.ErrCircuitOpen, primaryID)
 
 	case PolicyFallbackToNext:
-		return fe.fallbackAuth(ctx, result, fallbackIDs, req, start)
+		return fe.fallbackAuth(ctx, result, protocol, fallbackIDs, req, start)
 
 	case PolicyQueueWithTimeout:
-		return fe.queueThenFallback(ctx, result, primaryID, config.TimeoutMs, fallbackIDs, req, start)
+		return fe.queueThenFallback(ctx, result, primaryID, protocol, config.TimeoutMs, fallbackIDs, req, start)
 
 	default:
 		result.Elapsed = time.Since(start)
@@ -78,14 +78,14 @@ func (fe *FailoverEngine) ExecuteAuth(ctx context.Context, primaryID uuid.UUID, 
 	}
 }
 
-func (fe *FailoverEngine) fallbackAuth(ctx context.Context, result *FailoverResult, fallbackIDs []uuid.UUID, req adapter.AuthRequest, start time.Time) (*FailoverResult, error) {
+func (fe *FailoverEngine) fallbackAuth(ctx context.Context, result *FailoverResult, protocol string, fallbackIDs []uuid.UUID, req adapter.AuthRequest, start time.Time) (*FailoverResult, error) {
 	for _, opID := range fallbackIDs {
-		cb := fe.router.GetCircuitBreaker(opID)
+		cb := fe.router.GetCircuitBreaker(opID, protocol)
 		if cb != nil && !cb.ShouldAllow() {
 			continue
 		}
 
-		resp, err := fe.router.ForwardAuth(ctx, opID, req)
+		resp, err := fe.router.ForwardAuth(ctx, opID, protocol, req)
 		result.Attempts++
 		if err == nil {
 			result.OperatorID = opID
@@ -99,7 +99,7 @@ func (fe *FailoverEngine) fallbackAuth(ctx context.Context, result *FailoverResu
 	return nil, fmt.Errorf("failover exhausted: all %d operators failed", result.Attempts)
 }
 
-func (fe *FailoverEngine) queueThenFallback(ctx context.Context, result *FailoverResult, primaryID uuid.UUID, timeoutMs int, fallbackIDs []uuid.UUID, req adapter.AuthRequest, start time.Time) (*FailoverResult, error) {
+func (fe *FailoverEngine) queueThenFallback(ctx context.Context, result *FailoverResult, primaryID uuid.UUID, protocol string, timeoutMs int, fallbackIDs []uuid.UUID, req adapter.AuthRequest, start time.Time) (*FailoverResult, error) {
 	if timeoutMs <= 0 {
 		timeoutMs = 5000
 	}
@@ -118,11 +118,11 @@ func (fe *FailoverEngine) queueThenFallback(ctx context.Context, result *Failove
 	for {
 		select {
 		case <-timer.C:
-			return fe.fallbackAuth(ctx, result, fallbackIDs, req, start)
+			return fe.fallbackAuth(ctx, result, protocol, fallbackIDs, req, start)
 		case <-retryTicker.C:
-			cb := fe.router.GetCircuitBreaker(primaryID)
+			cb := fe.router.GetCircuitBreaker(primaryID, protocol)
 			if cb != nil && cb.ShouldAllow() {
-				resp, err := fe.router.ForwardAuth(ctx, primaryID, req)
+				resp, err := fe.router.ForwardAuth(ctx, primaryID, protocol, req)
 				result.Attempts++
 				if err == nil {
 					result.Response = resp
@@ -137,8 +137,8 @@ func (fe *FailoverEngine) queueThenFallback(ctx context.Context, result *Failove
 	}
 }
 
-func (fe *FailoverEngine) ExecuteAcct(ctx context.Context, primaryID uuid.UUID, config FailoverConfig, fallbackIDs []uuid.UUID, req adapter.AcctRequest) error {
-	err := fe.router.ForwardAcct(ctx, primaryID, req)
+func (fe *FailoverEngine) ExecuteAcct(ctx context.Context, primaryID uuid.UUID, protocol string, config FailoverConfig, fallbackIDs []uuid.UUID, req adapter.AcctRequest) error {
+	err := fe.router.ForwardAcct(ctx, primaryID, protocol, req)
 	if err == nil {
 		return nil
 	}
@@ -149,11 +149,11 @@ func (fe *FailoverEngine) ExecuteAcct(ctx context.Context, primaryID uuid.UUID, 
 
 	case PolicyFallbackToNext:
 		for _, opID := range fallbackIDs {
-			cb := fe.router.GetCircuitBreaker(opID)
+			cb := fe.router.GetCircuitBreaker(opID, protocol)
 			if cb != nil && !cb.ShouldAllow() {
 				continue
 			}
-			if err := fe.router.ForwardAcct(ctx, opID, req); err == nil {
+			if err := fe.router.ForwardAcct(ctx, opID, protocol, req); err == nil {
 				return nil
 			}
 		}
@@ -172,11 +172,11 @@ func (fe *FailoverEngine) ExecuteAcct(ctx context.Context, primaryID uuid.UUID, 
 			return ctx.Err()
 		}
 		for _, opID := range fallbackIDs {
-			cb := fe.router.GetCircuitBreaker(opID)
+			cb := fe.router.GetCircuitBreaker(opID, protocol)
 			if cb != nil && !cb.ShouldAllow() {
 				continue
 			}
-			if err := fe.router.ForwardAcct(ctx, opID, req); err == nil {
+			if err := fe.router.ForwardAcct(ctx, opID, protocol, req); err == nil {
 				return nil
 			}
 		}

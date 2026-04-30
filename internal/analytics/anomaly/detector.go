@@ -3,6 +3,7 @@ package anomaly
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -128,11 +129,11 @@ func (d *RealtimeDetector) checkSIMCloning(ctx context.Context, evt AuthEvent) (
 			SimID:    &evt.SimID,
 			TenantID: evt.TenantID,
 			Details: map[string]interface{}{
-				"imsi":         evt.IMSI,
-				"nas_ips":      ipList,
-				"window_sec":   windowSec,
-				"ip_count":     len(nasIPs),
-				"current_ip":   evt.NASIP,
+				"imsi":       evt.IMSI,
+				"nas_ips":    ipList,
+				"window_sec": windowSec,
+				"ip_count":   len(nasIPs),
+				"current_ip": evt.NASIP,
 			},
 		}, nil
 	}
@@ -235,10 +236,12 @@ func (d *RealtimeDetector) incrementSlidingWindow(ctx context.Context, key strin
 }
 
 func extractIP(member string) string {
-	for i := len(member) - 1; i >= 0; i-- {
-		if member[i] == ':' {
-			return member[:i]
-		}
+	host, _, err := net.SplitHostPort(member)
+	if err == nil {
+		return host
+	}
+	if ip := net.ParseIP(member); ip != nil {
+		return ip.String()
 	}
 	return member
 }

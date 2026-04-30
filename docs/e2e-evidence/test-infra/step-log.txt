@@ -1,0 +1,62 @@
+# Mini Phase Gate — Test Infrastructure + Tech Debt Cleanup
+# Started: 2026-04-17
+# Scope: STORY-083, 084, 085, 087, 088
+# Spec: docs/reports/test-infra-tech-debt-gate-spec.md
+
+STEP_1 CLEAN_BUILD_AND_UP: EXECUTED | items=6 containers | evidence=docker-ps.txt | result=PASS
+  - make down, make build, make up all exit 0
+  - docker compose ps: argus-app, argus-nats, argus-nginx, argus-pgbouncer, argus-postgres, argus-redis all Up (healthy)
+  - argus-app boot log contains: "schema integrity check passed tables=12"
+  - No FATAL / level=error in first 2m of argus-app logs
+
+STEP_2 SIMULATOR_SMOKE: EXECUTED | items=235 simulator_ metric lines | evidence=sim-metrics.txt | result=PASS
+  - make sim-up launched argus-simulator container successfully
+  - /metrics scrape: 235 simulator_* lines (≥100 threshold met; STORY-082 baseline 190)
+  - Diameter: "peer open" + "diameter peer ready" for operator=turkcell (CER/CEA exchange); simulator_diameter_requests_total + latency histograms for app=gx,gy type=ccr present -> STORY-083 validated
+  - 5G SBA: simulator_sba_requests_total{op="authenticate",service="ausf",operator="turkcell"}=26; simulator_sba_latency_seconds histograms populated -> STORY-084 validated (note: argus-app side 5G AUSF not implemented => result="transport"/sessions aborted; simulator client code path correctly exercised)
+  - RADIUS: auth=44, acct_start=44, acct_interim=33+ per operator across 3 operators; argus-app logs show "session started" + "interim update" from simulator traffic
+  - Reactive: no CoA/session-timeout traffic observed in 60s window; reactive mode likely not enabled in default config.example.yaml (acceptable — spec says "if ... enabled")
+  - active_sessions: turk_telekom=44, turkcell=83, vodafone=86 (= 213 total)
+  - No "panic" / "fatal" in simulator output
+  - make sim-down succeeded
+
+STEP_3 FRESH_VOLUME_MIGRATION: EXECUTED | items=3 sub-checks | evidence=docker-ps-step3.txt,migrate-up-step3.log | result=PASS_WITH_NOTE (D-037 carve-out per spec Boundaries §)
+  - make down + docker volume rm argus_pgdata argus_redisdata argus_postgres_wal_archive (note: actual volume names differ from spec's argus_pg_data/argus_redis_data)
+  - make up on fresh volume → argus-app enters restart loop (expected; schemacheck fails with 12 missing tables)
+  - argus-app boot log confirms STORY-086 schemacheck guard fires: "boot: schema integrity check failed — run 'argus migrate up'" for all 12 critical tables
+  - `docker compose run --rm --no-deps argus migrate up` FAILS at migration 20260412000006 (RLS policies) with: "operation not supported on hypertables that have columnstore enabled" (pq error)
+  - schema_migrations: version=20260412000006, dirty=t (stopped mid-migration)
+  - to_regclass('sms_outbound'): NULL (never reached; STORY-087 shim at 20260412999999 sits AFTER 20260412000006 in lexicographic order)
+  - STORY-087 empirical validation via docker-compose E2E path: BLOCKED by pre-existing D-037 (TimescaleDB 2.26.2 columnstore/RLS DDL incompatibility). This is documented in ROUTEMAP D-037 row (STORY-087 Gate discovered it) and the gate spec Boundaries § explicitly carves it out: "does NOT fail this gate because the spec's Step 3 acceptance is measured against STORY-087's claim, not against an unrelated older migration's behaviour."
+  - STORY-087 empirical validation alternate path (unit tests): `internal/store/migration_freshvol_test.go` (525 lines, 3 tests: TestFreshVolumeBootstrap_STORY087, TestLiveDBIdempotent_STORY087, TestDownChain_STORY087) — DATABASE_URL-gated, SKIP in plain `go test ./...`, but STORY-087 Gate ran them with DATABASE_URL and they PASSED (per ROUTEMAP STORY-087 review row).
+  - Migration chain files are present: 20260412999999_story_087_sms_outbound_pre_069_shim.up.sql (2.5K) and 20260417000004_sms_outbound_recover.up.sql (3.8K) — STORY-087 + STORY-086 deliverables on disk.
+  - NOTE (D-037): pre-existing TimescaleDB 2.26.2 columnstore/RLS incompatibility blocks docker-compose end-to-end fresh-volume migrate. Orthogonal to STORY-087's D-032 fix. See ROUTEMAP D-037 row. Flagged for post-GA test-infra track.
+
+STEP_4 FULL_GO_TESTS: EXECUTED | items=3000 PASS / 40 SKIP / 0 FAIL across 88 packages | evidence=go-test.log,go-vet.log | result=PASS
+  - go test -count=1 -v ./... → EXIT=0
+  - Aggregate: 3040 === RUN / 3000 --- PASS / 40 --- SKIP / 0 --- FAIL (subtests counted, all depths)
+  - Packages: 88 ok, 10 no-test-files, 0 FAIL
+  - 3000 absolute PASS count ≥ 2872 baseline threshold (matches STORY-087 3000/3000 baseline)
+  - go vet ./... → EXIT=0, ZERO diagnostic lines (0-byte output) → STORY-088 / D-033 CLEARED
+
+STEP_5 FRONTEND_BUILD: EXECUTED | items=2825 modules | evidence=web-build.log | result=PASS
+  - cd web && npm run build → EXIT=0
+  - Vite output: "2825 modules transformed." + "built in 4.27s"
+  - 2825 ≥ 2800 threshold (matches Phase 10 baseline 2825)
+  - No TypeScript errors in stdout/stderr
+
+STEP_6 SIMULATOR_CONFIG_REGRESSION: EXECUTED | items=3 sections + 1 operator opt-in each | evidence=deploy/simulator/config.example.yaml | result=PASS
+  - Read deploy/simulator/config.example.yaml (137 lines)
+  - diameter: section present with origin_realm, destination_realm, watchdog_interval + per-operator enable (turkcell.diameter.enabled=true, applications=[gx,gy]) → STORY-083 ✓
+  - sba: section present with host/port/tls knobs + per-operator opt-in (turkcell.sba.enabled=true, rate=0.2, auth_method=5G_AKA) → STORY-084 ✓
+  - reactive: section present with master switch enabled=false (default), session_timeout_respect, reject_backoff, coa_listener sub-block → STORY-085 ✓
+
+STEP_7 ARCHITECTURE_DOC_DRIFT: EXECUTED | items=5 ROUTEMAP rows + 2 tech-debt rows + 5 USERTEST sections | evidence=grep output | result=PASS
+  - git log: top 5 commits cover STORY-083, 084, 085, 087, 088 in chronological order (each feat/fix commit present on main)
+  - ROUTEMAP.md: STORY-083 [x] DONE 2026-04-17, STORY-084 [x] DONE 2026-04-17, STORY-085 [x] DONE 2026-04-17, STORY-087 [x] DONE 2026-04-17, STORY-088 [x] DONE 2026-04-17
+  - ROUTEMAP.md Tech Debt: D-032 ✓ RESOLVED (2026-04-17), D-033 ✓ RESOLVED (2026-04-17)
+  - ROUTEMAP.md: D-037 tracked as PENDING (pre-existing TimescaleDB 2.26.2 columnstore/RLS; orthogonal to this gate)
+  - USERTEST.md: sections present for STORY-083 (line 2063), STORY-084 (line 2143), STORY-085 (line 2234), STORY-087 (line 2348), STORY-088 (line 2443)
+  - USERTEST.md STORY-087 section explicitly notes D-037 blocker for docker-compose empirical run (matches our Step 3 finding)
+
+# === All 7 steps EXECUTED; gate overall PASS (Step 3 PASS_WITH_NOTE per spec Boundaries D-037 carve-out) ===

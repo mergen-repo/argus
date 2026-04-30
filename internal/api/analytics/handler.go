@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,18 +10,20 @@ import (
 	"github.com/btopcu/argus/internal/analytics/cost"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
 type Handler struct {
-	usageStore    *store.UsageAnalyticsStore
-	simStore      *store.SIMStore
-	operatorStore *store.OperatorStore
-	apnStore      *store.APNStore
-	ippoolStore   *store.IPPoolStore
-	costService   *cost.Service
-	logger        zerolog.Logger
+	usageStore          *store.UsageAnalyticsStore
+	simStore            *store.SIMStore
+	operatorStore       *store.OperatorStore
+	apnStore            *store.APNStore
+	ippoolStore         *store.IPPoolStore
+	costService         *cost.Service
+	chartAnnotationStore *store.ChartAnnotationStore
+	logger              zerolog.Logger
 }
 
 func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *Handler {
@@ -42,9 +45,15 @@ func (h *Handler) SetCostService(svc *cost.Service) {
 	h.costService = svc
 }
 
+func (h *Handler) SetChartAnnotationStore(s *store.ChartAnnotationStore) {
+	h.chartAnnotationStore = s
+}
+
 type timeSeriesDTO struct {
 	Timestamp  string `json:"ts"`
 	TotalBytes int64  `json:"total_bytes"`
+	BytesIn    int64  `json:"bytes_in"`
+	BytesOut   int64  `json:"bytes_out"`
 	Sessions   int64  `json:"sessions"`
 	Auths      int64  `json:"auths"`
 	UniqueSims int64  `json:"unique_sims"`
@@ -67,13 +76,20 @@ type breakdownDTO struct {
 }
 
 type topConsumerDTO struct {
-	SimID        string `json:"sim_id"`
-	ICCID        string `json:"iccid,omitempty"`
-	OperatorName string `json:"operator_name,omitempty"`
-	APNName      string `json:"apn_name,omitempty"`
-	IPAddress    string `json:"ip_address,omitempty"`
-	TotalBytes   int64  `json:"total_bytes"`
-	Sessions     int64  `json:"sessions"`
+	SimID          string   `json:"sim_id"`
+	ICCID          string   `json:"iccid,omitempty"`
+	IMSI           string   `json:"imsi,omitempty"`
+	MSISDN         string   `json:"msisdn,omitempty"`
+	OperatorName   string   `json:"operator_name,omitempty"`
+	OperatorID     string   `json:"operator_id,omitempty"`
+	APNName        string   `json:"apn_name,omitempty"`
+	APNID          string   `json:"apn_id,omitempty"`
+	IPAddress      string   `json:"ip_address,omitempty"`
+	TotalBytes     int64    `json:"total_bytes"`
+	BytesIn        int64    `json:"bytes_in"`
+	BytesOut       int64    `json:"bytes_out"`
+	Sessions       int64    `json:"sessions"`
+	AvgDurationSec *float64 `json:"avg_duration_sec,omitempty"`
 }
 
 type comparisonDTO struct {
@@ -300,6 +316,8 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		tsDTO = append(tsDTO, timeSeriesDTO{
 			Timestamp:  tp.Timestamp.Format(time.RFC3339),
 			TotalBytes: tp.TotalBytes,
+			BytesIn:    tp.BytesIn,
+			BytesOut:   tp.BytesOut,
 			Sessions:   tp.Sessions,
 			Auths:      tp.Auths,
 			UniqueSims: tp.UniqueSims,
@@ -310,9 +328,27 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	tcDTO := make([]topConsumerDTO, 0, len(topConsumers))
 	for _, tc := range topConsumers {
 		dto := topConsumerDTO{
-			SimID:      tc.SimID.String(),
-			TotalBytes: tc.TotalBytes,
-			Sessions:   tc.Sessions,
+			SimID:          tc.SimID.String(),
+			TotalBytes:     tc.TotalBytes,
+			BytesIn:        tc.BytesIn,
+			BytesOut:       tc.BytesOut,
+			Sessions:       tc.Sessions,
+			AvgDurationSec: tc.AvgDurationSec,
+		}
+		if tc.ICCID != "" {
+			dto.ICCID = tc.ICCID
+		}
+		if tc.IMSI != "" {
+			dto.IMSI = tc.IMSI
+		}
+		if tc.MSISDN != nil && *tc.MSISDN != "" {
+			dto.MSISDN = *tc.MSISDN
+		}
+		if tc.OperatorID != nil {
+			dto.OperatorID = tc.OperatorID.String()
+		}
+		if tc.APNID != nil {
+			dto.APNID = tc.APNID.String()
 		}
 		if h.simStore != nil {
 			dto = h.enrichTopConsumer(ctx, tenantID, tc.SimID, dto)
@@ -345,7 +381,21 @@ func (h *Handler) enrichTopConsumer(ctx context.Context, tenantID, simID uuid.UU
 	if err != nil {
 		return dto
 	}
-	dto.ICCID = sim.ICCID
+	if sim.ICCID != "" {
+		dto.ICCID = sim.ICCID
+	}
+	if sim.IMSI != "" {
+		dto.IMSI = sim.IMSI
+	}
+	if sim.MSISDN != nil && *sim.MSISDN != "" {
+		dto.MSISDN = *sim.MSISDN
+	}
+	if sim.OperatorID != uuid.Nil {
+		dto.OperatorID = sim.OperatorID.String()
+	}
+	if sim.APNID != nil {
+		dto.APNID = (*sim.APNID).String()
+	}
 
 	if h.operatorStore != nil {
 		if op, err := h.operatorStore.GetByID(ctx, sim.OperatorID); err == nil {
@@ -377,6 +427,16 @@ func (h *Handler) enrichTopConsumer(ctx context.Context, tenantID, simID uuid.UU
 }
 
 func (h *Handler) resolveGroupKeyName(ctx context.Context, groupBy, key string, tenantID uuid.UUID) string {
+	if key == "__unassigned__" {
+		switch groupBy {
+		case "apn":
+			return "Unassigned APN"
+		case "operator":
+			return "Unknown Operator"
+		default:
+			return "Unassigned"
+		}
+	}
 	id, err := uuid.Parse(key)
 	if err != nil {
 		return key
@@ -499,4 +559,111 @@ func (h *Handler) GetCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apierr.WriteSuccess(w, http.StatusOK, result)
+}
+
+// ChartAnnotation handlers (T15)
+
+func (h *Handler) CreateChartAnnotation(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "tenant context required")
+		return
+	}
+	userID, _ := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+
+	if h.chartAnnotationStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "chart annotations not configured")
+		return
+	}
+
+	var body struct {
+		ChartKey  string    `json:"chart_key"`
+		Timestamp time.Time `json:"timestamp"`
+		Label     string    `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "invalid request body")
+		return
+	}
+	if body.ChartKey == "" || body.Label == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "chart_key and label are required")
+		return
+	}
+
+	a, err := h.chartAnnotationStore.Create(r.Context(), tenantID, userID, body.ChartKey, body.Timestamp, body.Label)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create chart annotation")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to create annotation")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusCreated, a)
+}
+
+func (h *Handler) ListChartAnnotations(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "tenant context required")
+		return
+	}
+
+	if h.chartAnnotationStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	chartKey := r.URL.Query().Get("chart_key")
+	if chartKey == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "chart_key is required")
+		return
+	}
+
+	from := time.Now().Add(-30 * 24 * time.Hour)
+	to := time.Now()
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			from = t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			to = t
+		}
+	}
+
+	list, err := h.chartAnnotationStore.List(r.Context(), tenantID, chartKey, from, to)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list chart annotations")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to list annotations")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, list)
+}
+
+func (h *Handler) DeleteChartAnnotation(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "tenant context required")
+		return
+	}
+
+	if h.chartAnnotationStore == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "invalid id")
+		return
+	}
+
+	if err := h.chartAnnotationStore.Delete(r.Context(), tenantID, id); err != nil {
+		h.logger.Error().Err(err).Msg("delete chart annotation")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to delete annotation")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

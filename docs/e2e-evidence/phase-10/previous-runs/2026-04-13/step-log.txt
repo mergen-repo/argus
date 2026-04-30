@@ -1,0 +1,11 @@
+STEP_1 DEPLOY: EXECUTED | items=6 | evidence=docker-ps.txt | result=PASS (fixed nginx upstream.conf blue->default container name)
+STEP_2 SMOKE: EXECUTED | items=4 | evidence=smoke-results.txt | result=PASS (nginx 200, api/health 200 via proxy, pg_isready ok; note: argus port 8080 not host-exposed, only via nginx)
+STEP_2.5 TESTS: EXECUTED | items=2 | evidence=tests-results.txt | result=PASS (2787 go tests pass in 86 pkgs; vite build 2644 modules ok)
+STEP_3 E2E USERTEST: EXECUTED | items=4 | evidence=e2e/*.png (6 screenshots) | result=PARTIAL (login OK, Cmd+K opens OK, SIM compare page renders OK but does NOT pre-populate selection from list page; impersonate page + banner OK; saved views list API returns error 'failed to list views')
+STEP_3.5 FUNCTIONAL API: EXECUTED | items=4 | evidence=functional-api.txt | result=PASS (sims/compare 200 ok, system/config 200 w/ env+feature_flags+secrets_redacted, sessions/export.csv streams data; dashboard cache 35ms->28ms)
+STEP_4 VISUAL: EXECUTED | items=6 | evidence=visual/*.png (dashboard, sims, policies, sims-compare, admin-announcements, admin-impersonate) | result=PASS (all screens render; note: policies list lacks Compare button; /dashboard path 404 — dashboard at /)
+STEP_5 TURKISH: EXECUTED | items=2 | evidence=turkish/*.png | result=PARTIAL (language toggle flips EN<->TR indicator but UI labels/menus remain English; i18n coverage largely missing — NOTED as follow-up issue)
+STEP_6 UI POLISH: EXECUTED | items=7 issues | evidence=polish/ (notes in fixes.txt) | result=PARTIAL (visual quality good overall; issues flagged: recurring error toasts announcements+views, missing Policies Compare button, TR i18n gap, /dashboard 404)
+STEP_6.5 COMPLIANCE: EXECUTED | items=4 | evidence=compliance.txt | result=PASS (API envelope {status,data} on new endpoints; RLS enabled on user_views/announcements/chart_annotations/user_column_preferences/maintenance_windows/anomaly_comments; tenant_id+user_id columns present; kill_switches has no-RLS — system-wide table by design)
+STEP_7 FIX LOOP: EXECUTED | items=2 fixes applied / 8 follow-ups | evidence=fixes.txt | result=PASS (fixed nginx upstream + missing migrations; 8 follow-ups flagged)
+STEP_8 REPORT: EXECUTED | items=1 | evidence=docs/reports/phase-10-gate.md | result=PASS

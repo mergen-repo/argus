@@ -8,6 +8,8 @@ type SecurityHeadersConfig struct {
 	HSTSMaxAge            int
 	HSTSIncludeSubdomains bool
 	HSTSPreload           bool
+	HSTSOnlyWhenTLS       bool
+	TrustForwardedProto   bool
 	FrameOptions          string
 	ContentTypeNoSniff    bool
 	XSSProtection         string
@@ -21,6 +23,8 @@ func DefaultSecurityHeadersConfig() SecurityHeadersConfig {
 		HSTSMaxAge:            31536000,
 		HSTSIncludeSubdomains: true,
 		HSTSPreload:           false,
+		HSTSOnlyWhenTLS:       true,
+		TrustForwardedProto:   false,
 		FrameOptions:          "DENY",
 		ContentTypeNoSniff:    true,
 		XSSProtection:         "1; mode=block",
@@ -50,14 +54,20 @@ func SecurityHeaders(cfg SecurityHeadersConfig) func(http.Handler) http.Handler 
 			}
 
 			if cfg.HSTSMaxAge > 0 {
-				hsts := "max-age=" + itoa(cfg.HSTSMaxAge)
-				if cfg.HSTSIncludeSubdomains {
-					hsts += "; includeSubDomains"
+				emitHSTS := !cfg.HSTSOnlyWhenTLS ||
+					r.TLS != nil ||
+					(cfg.TrustForwardedProto && r.Header.Get("X-Forwarded-Proto") == "https")
+
+				if emitHSTS {
+					hsts := "max-age=" + itoa(cfg.HSTSMaxAge)
+					if cfg.HSTSIncludeSubdomains {
+						hsts += "; includeSubDomains"
+					}
+					if cfg.HSTSPreload {
+						hsts += "; preload"
+					}
+					w.Header().Set("Strict-Transport-Security", hsts)
 				}
-				if cfg.HSTSPreload {
-					hsts += "; preload"
-				}
-				w.Header().Set("Strict-Transport-Security", hsts)
 			}
 
 			if cfg.ReferrerPolicy != "" {

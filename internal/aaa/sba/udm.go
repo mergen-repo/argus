@@ -108,14 +108,13 @@ func (h *UDMHandler) HandleAuthEvents(w http.ResponseWriter, r *http.Request) {
 		Msg("UDM auth event recorded")
 
 	if h.eventBus != nil {
-		h.eventBus.Publish(r.Context(), bus.SubjectSessionUpdated, map[string]interface{}{
-			"supi":           supi,
-			"auth_event_id":  authEventID,
-			"success":        event.Success,
-			"auth_type":      event.AuthType,
-			"protocol":       "5g_sba",
-			"timestamp":      time.Now().UTC(),
-		})
+		env := bus.NewSessionEnvelope("session.updated", bus.SystemTenantID.String(), "", "", "UDM auth event recorded").
+			WithMeta("supi", supi).
+			WithMeta("auth_event_id", authEventID).
+			WithMeta("success", event.Success).
+			WithMeta("auth_type", event.AuthType).
+			WithMeta("protocol", "5g_sba")
+		h.eventBus.Publish(r.Context(), bus.SubjectSessionUpdated, env)
 	}
 
 	resp := AuthEventResponse{

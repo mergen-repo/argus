@@ -1,11 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Search,
   Filter,
   X,
   ChevronDown,
-  MoreVertical,
   Pause,
   Play,
   XCircle,
@@ -20,11 +19,13 @@ import {
   AlertCircle,
   RefreshCw,
   GitCompareArrows,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableHeader,
@@ -33,28 +34,54 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table'
-import { SlidePanel } from '@/components/ui/slide-panel'
+import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip } from '@/components/ui/tooltip'
+import { timeAgo } from '@/lib/format'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { useSIMList, useSegments, useBulkStateChange, useImportSIMs } from '@/hooks/use-sims'
+import { toast } from 'sonner'
+import { useSIMList, useSegments, useSegmentCount, useBulkStateChange, useBulkPolicyAssign, useImportSIMs } from '@/hooks/use-sims'
+import { useJobPolling } from '@/hooks/use-jobs'
+import { usePolicyList, useRolloutList } from '@/hooks/use-policies'
+import { Link } from 'react-router-dom'
+import { wsClient } from '@/lib/ws'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useAPNList } from '@/hooks/use-apns'
 import type { SIM, SIMListFilters, SIMState } from '@/types/sim'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY, RAT_OPTIONS } from '@/lib/constants'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
+import { RATBadge } from '@/components/ui/rat-badge'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { OperatorChip } from '@/components/shared/operator-chip'
+import { EmptyState } from '@/components/shared/empty-state'
+import { DataFreshness } from '@/components/shared/data-freshness'
+import { useExport } from '@/hooks/use-export'
+import { useDataFreshness } from '@/hooks/use-data-freshness'
+import { useUIStore } from '@/stores/ui'
 
 const STATE_OPTIONS = [
-  { value: '', label: 'All States' },
   { value: 'ordered', label: 'Ordered' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
@@ -73,33 +100,121 @@ function detectSearchType(q: string): { field: string; label: string } | null {
 
 export default function SimListPage() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<SIMListFilters>({})
+  const tableDensity = useUIStore((s) => s.tableDensity)
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
+  const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo<SIMListFilters>(() => ({
+    state: searchParams.get('state') ?? undefined,
+    operator_id: searchParams.get('operator_id') ?? undefined,
+    apn_id: searchParams.get('apn_id') ?? undefined,
+    policy_version_id: searchParams.get('policy_version_id') ?? undefined,
+    policy_id: searchParams.get('policy_id') ?? undefined,
+    rollout_id: searchParams.get('rollout_id') ?? undefined,
+    rollout_stage_pct: Number(searchParams.get('rollout_stage_pct')) || undefined,
+    rat_type: searchParams.get('rat_type') ?? undefined,
+    q: searchParams.get('q') ?? undefined,
+    iccid: searchParams.get('iccid') ?? undefined,
+    imsi: searchParams.get('imsi') ?? undefined,
+    msisdn: searchParams.get('msisdn') ?? undefined,
+    ip: searchParams.get('ip') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: SIMListFilters | ((prev: SIMListFilters) => SIMListFilters)) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      const keys: (keyof SIMListFilters)[] = ['state', 'operator_id', 'apn_id', 'policy_version_id', 'policy_id', 'rollout_id', 'rollout_stage_pct', 'rat_type', 'q', 'iccid', 'imsi', 'msisdn', 'ip']
+      keys.forEach((k) => {
+        const v = next[k]
+        if (v !== undefined && v !== null && v !== '') { p.set(k, String(v)) } else { p.delete(k) }
+      })
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [searchInput, setSearchInput] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+  const [activeBulkJobId, setActiveBulkJobId] = useState<string | null>(null)
   const [bulkDialog, setBulkDialog] = useState<{ action: string; label: string } | null>(null)
   const [bulkReason, setBulkReason] = useState('')
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('')
+  const [selectAllSegment, setSelectAllSegment] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const { data: segments } = useSegments()
+  const { data: segmentCount } = useSegmentCount(selectedSegmentId)
   const { data: operators } = useOperatorList()
   const { data: apns } = useAPNList({})
+  const { data: policiesData } = usePolicyList(undefined, 'active')
+  const { data: activeRollouts = [] } = useRolloutList('in_progress,paused')
+
+  const activePolicies = useMemo(() => {
+    if (!policiesData?.pages) return []
+    return policiesData.pages.flatMap((page) => page.data).filter((p) => p.current_version_id)
+  }, [policiesData])
   const bulkMutation = useBulkStateChange()
+  const bulkPolicyAssignMutation = useBulkPolicyAssign()
   const importMutation = useImportSIMs()
+
+  useJobPolling(activeBulkJobId, {
+    onComplete: (job) => {
+      setProcessingIds(new Set())
+      setActiveBulkJobId(null)
+      queryClient.invalidateQueries({ queryKey: ['sims'] })
+      const message = `${job.processed_items ?? 0} processed, ${job.failed_items ?? 0} failed`
+      if ((job.failed_items ?? 0) > 0) {
+        toast.error(message, {
+          action: { label: 'View errors', onClick: () => navigate(`/jobs/${job.id}`) },
+        })
+      } else {
+        toast.success(message)
+      }
+    },
+    onError: (job) => {
+      setProcessingIds(new Set())
+      setActiveBulkJobId(null)
+      toast.error(`Job failed: ${job.failed_items ?? 0} errors`, {
+        action: { label: 'View details', onClick: () => navigate(`/jobs/${job.id}`) },
+      })
+    },
+  })
+  const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
+  const [selectedPolicyVersionId, setSelectedPolicyVersionId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [importTab, setImportTab] = useState<'paste' | 'file'>('paste')
   const [importFile, setImportFile] = useState<File | null>(null)
   const [pasteContent, setPasteContent] = useState('')
   const [reserveOnImport, setReserveOnImport] = useState(false)
-  const [importResult, setImportResult] = useState<{ job_id: string; rows_parsed: number; errors: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ job_id: string; tenant_id: string; status: string } | null>(null)
+  const [importJobId, setImportJobId] = useState<string | null>(null)
+  const [importPreview, setImportPreview] = useState<{ headers: string[]; rows: string[][]; errors: { row: number; message: string }[] } | null>(null)
+  const importJobPolling = useJobPolling(importJobId, {
+    onComplete: () => {
+      queryClient.invalidateQueries({ queryKey: ['sims'] })
+    },
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { exportCSV, exporting } = useExport('sims')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  const selectedStates = useMemo(() => {
+    if (!filters.state) return [] as string[]
+    return filters.state.split(',').filter(Boolean)
+  }, [filters.state])
 
   const activeFilters = useMemo(() => {
-    const applied: { key: string; label: string; value: string }[] = []
-    if (filters.state) {
-      const opt = STATE_OPTIONS.find((o) => o.value === filters.state)
-      applied.push({ key: 'state', label: 'State', value: opt?.label ?? filters.state })
+    const applied: { key: string; label: string; value: string; stateToken?: string }[] = []
+    if (selectedStates.length > 0) {
+      if (selectedStates.length === 1) {
+        const opt = STATE_OPTIONS.find((o) => o.value === selectedStates[0])
+        applied.push({ key: 'state', label: 'State', value: opt?.label ?? selectedStates[0], stateToken: selectedStates[0] })
+      } else {
+        selectedStates.forEach((token) => {
+          const opt = STATE_OPTIONS.find((o) => o.value === token)
+          applied.push({ key: 'state', label: 'State', value: opt?.label ?? token, stateToken: token })
+        })
+      }
     }
     if (filters.rat_type) {
       applied.push({ key: 'rat_type', label: 'RAT', value: RAT_DISPLAY[filters.rat_type] ?? filters.rat_type })
@@ -115,8 +230,22 @@ export default function SimListPage() {
     if (filters.ip) {
       applied.push({ key: 'ip', label: 'IP', value: filters.ip })
     }
+    if (filters.policy_id) {
+      const pol = activePolicies.find((p) => p.id === filters.policy_id)
+      applied.push({ key: 'policy_id', label: 'Policy', value: pol?.name ?? filters.policy_id.slice(0, 8) })
+    } else if (filters.policy_version_id) {
+      applied.push({ key: 'policy_version_id', label: 'Policy', value: `v${filters.policy_version_id.slice(0, 8)}` })
+    }
+    if (filters.rollout_id) {
+      const rollout = activeRollouts.find((r) => r.id === filters.rollout_id)
+      const rolloutLabel = rollout
+        ? `${rollout.policy_name} v${rollout.policy_version_number}`
+        : filters.rollout_id.slice(0, 8)
+      const stageSuffix = filters.rollout_stage_pct ? ` stage ${filters.rollout_stage_pct}%` : ' (all migrated)'
+      applied.push({ key: 'rollout_id', label: 'Cohort', value: `${rolloutLabel}${stageSuffix}` })
+    }
     return applied
-  }, [filters])
+  }, [filters, selectedStates, activePolicies, activeRollouts])
 
   const handleSearch = useCallback(() => {
     const trimmed = searchInput.trim()
@@ -149,6 +278,8 @@ export default function SimListPage() {
     isFetchingNextPage,
   } = useSIMList(filters)
 
+  const freshness = useDataFreshness({ source: 'poll', lastUpdated, refetch, pageKey: 'sims' })
+
   useEffect(() => {
     const el = loadMoreRef.current
     if (!el) return
@@ -169,10 +300,36 @@ export default function SimListPage() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
+  useEffect(() => {
+    if (data) setLastUpdated(new Date())
+  }, [data])
+
+  useEffect(() => {
+    if (!filters.rollout_id) return
+    const unsub = wsClient.on('policy.rollout_progress', (payload: unknown) => {
+      const typed = payload as { rollout_id?: string }
+      if (typed.rollout_id === filters.rollout_id) {
+        queryClient.invalidateQueries({ queryKey: ['sims'] })
+      }
+    })
+    return unsub
+  }, [filters.rollout_id, queryClient])
+
   const allSims = useMemo(() => {
     if (!data?.pages) return []
-    return data.pages.flatMap((page) => page.data)
-  }, [data])
+    const raw = data.pages.flatMap((page) => page.data)
+    if (selectedStates.length <= 1) return raw
+    return raw.filter((sim) => selectedStates.includes(sim.state))
+  }, [data, selectedStates])
+
+  const { visibleSelectedCount, hiddenSelectedCount } = useMemo(() => {
+    const visible = [...selectedIds].filter((id) => allSims.some((s) => s.id === id)).length
+    return { visibleSelectedCount: visible, hiddenSelectedCount: selectedIds.size - visible }
+  }, [selectedIds, allSims])
+
+  const selectionLabel = hiddenSelectedCount > 0
+    ? `${selectedIds.size} selected (${visibleSelectedCount} visible, ${hiddenSelectedCount} hidden by filter)`
+    : `${selectedIds.size} selected`
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -195,14 +352,27 @@ export default function SimListPage() {
     setFilters({})
     setSearchInput('')
     setSelectedSegmentId('')
+    setSelectAllSegment(false)
+    setSelectedIds(new Set())
   }
 
-  const removeFilter = (key: string) => {
-    setFilters((f) => ({ ...f, [key]: undefined }))
+  const removeFilter = (key: string, stateToken?: string) => {
+    if (key === 'state' && stateToken) {
+      setFilters((f) => {
+        const tokens = (f.state ?? '').split(',').filter((t) => t && t !== stateToken)
+        return { ...f, state: tokens.length > 0 ? tokens.join(',') : undefined }
+      })
+    } else if (key === 'rollout_id') {
+      setFilters((f) => ({ ...f, rollout_id: undefined, rollout_stage_pct: undefined }))
+    } else {
+      setFilters((f) => ({ ...f, [key]: undefined }))
+    }
   }
 
   const handleSegmentSelect = (segId: string) => {
     setSelectedSegmentId(segId)
+    setSelectAllSegment(false)
+    setSelectedIds(new Set())
     if (!segId) {
       setFilters({})
       return
@@ -221,19 +391,59 @@ export default function SimListPage() {
 
   const handleBulkAction = async () => {
     if (!bulkDialog) return
+    const ids = selectAllSegment ? [] : Array.from(selectedIds)
+    if (!selectAllSegment) setProcessingIds(new Set(ids))
     try {
-      await bulkMutation.mutateAsync({
-        simIds: Array.from(selectedIds),
+      const result = await bulkMutation.mutateAsync({
+        ...(selectAllSegment
+          ? { segmentId: selectedSegmentId }
+          : { simIds: ids }),
         targetState: bulkDialog.action,
         reason: bulkReason || undefined,
       })
+      if (result?.job_id) {
+        setActiveBulkJobId(result.job_id)
+      } else {
+        setProcessingIds(new Set())
+      }
       setSelectedIds(new Set())
+      setSelectAllSegment(false)
       setBulkDialog(null)
       setBulkReason('')
     } catch {
-      // error handled by api interceptor
+      setProcessingIds(new Set())
     }
   }
+
+  const REQUIRED_COLUMNS = ['iccid', 'imsi', 'msisdn']
+
+  const parseCSVPreview = useCallback((content: string) => {
+    const lines = content.trim().split('\n')
+    if (lines.length < 1) return null
+    const delimiter = lines[0].includes('\t') ? '\t' : ','
+    const headers = lines[0].split(delimiter).map((h) => h.trim().toLowerCase())
+    const rows = lines.slice(1).map((l) => l.split(delimiter).map((c) => c.trim()))
+    const errors: { row: number; message: string }[] = []
+    const missingCols = REQUIRED_COLUMNS.filter((c) => !headers.includes(c))
+    if (missingCols.length > 0) {
+      errors.push({ row: 0, message: `Missing required columns: ${missingCols.join(', ')}` })
+    }
+    if (missingCols.length === 0) {
+      const iccidIdx = headers.indexOf('iccid')
+      const imsiIdx = headers.indexOf('imsi')
+      const msisdnIdx = headers.indexOf('msisdn')
+      rows.forEach((row, i) => {
+        const rowNum = i + 2
+        const iccid = row[iccidIdx] ?? ''
+        const imsi = row[imsiIdx] ?? ''
+        const msisdn = row[msisdnIdx] ?? ''
+        if (!/^\d{18,22}$/.test(iccid)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid ICCID "${iccid}"` })
+        if (!/^\d{14,15}$/.test(imsi)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid IMSI "${imsi}"` })
+        if (msisdn && !/^\+?\d{10,15}$/.test(msisdn)) errors.push({ row: rowNum, message: `Row ${rowNum}: invalid MSISDN "${msisdn}"` })
+      })
+    }
+    return { headers, rows, errors }
+  }, [])
 
   if (isError) {
     return (
@@ -256,11 +466,21 @@ export default function SimListPage() {
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">SIM Management</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate('/sims/compare')}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => {
+            const ids = [...selectedIds].slice(0, 2)
+            const params = new URLSearchParams()
+            if (ids[0]) params.set('sim_id_a', ids[0])
+            if (ids[1]) params.set('sim_id_b', ids[1])
+            navigate(`/sims/compare${params.size ? `?${params}` : ''}`)
+          }}>
             <GitCompareArrows className="h-4 w-4" />
             Compare
           </Button>
-          <Button className="gap-2" size="sm" onClick={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportTab('paste'); setReserveOnImport(false) }}>
+          <Button className="gap-2" size="sm" onClick={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportPreview(null); setImportJobId(null); setImportTab('paste'); setReserveOnImport(false) }}>
             <Upload className="h-4 w-4" />
             Import SIMs
           </Button>
@@ -304,15 +524,18 @@ export default function SimListPage() {
             className="pl-9 h-8 text-sm"
           />
           {searchInput && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Clear search"
               onClick={() => {
                 setSearchInput('')
                 setFilters((f) => ({ ...f, q: undefined, iccid: undefined, imsi: undefined, msisdn: undefined, ip: undefined }))
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors h-5 w-5"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -320,22 +543,37 @@ export default function SimListPage() {
         <DropdownMenu>
           <DropdownMenuTrigger className={cn(
             'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
-            filters.state
+            selectedStates.length > 0
               ? 'border-accent/30 bg-accent-dim text-accent'
               : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
           )}>
             <Filter className="h-3 w-3" />
-            <span>State{filters.state ? `: ${stateLabel(filters.state)}` : ''}</span>
+            <span>
+              {selectedStates.length === 0
+                ? 'State'
+                : selectedStates.length === 1
+                  ? `State: ${STATE_OPTIONS.find((o) => o.value === selectedStates[0])?.label ?? selectedStates[0]}`
+                  : `States: ${selectedStates.length} selected`}
+            </span>
+            <ChevronDown className="h-3 w-3" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             {STATE_OPTIONS.map((opt) => (
-              <DropdownMenuItem
+              <DropdownMenuCheckboxItem
                 key={opt.value}
-                onClick={() => setFilters((f) => ({ ...f, state: opt.value || undefined }))}
+                checked={selectedStates.includes(opt.value)}
+                onCheckedChange={(checked) => {
+                  setFilters((f) => {
+                    const tokens = (f.state ?? '').split(',').filter(Boolean)
+                    const next = checked
+                      ? [...tokens.filter((t) => t !== opt.value), opt.value]
+                      : tokens.filter((t) => t !== opt.value)
+                    return { ...f, state: next.length > 0 ? next.join(',') : undefined }
+                  })
+                }}
               >
-                <span className="flex-1">{opt.label}</span>
-                {filters.state === opt.value && <Check className="h-3.5 w-3.5 text-accent" />}
-              </DropdownMenuItem>
+                {opt.label}
+              </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -413,37 +651,153 @@ export default function SimListPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Policy Filter */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.policy_id || filters.policy_version_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <span>
+              {filters.policy_id
+                ? `Policy: ${activePolicies.find((p) => p.id === filters.policy_id)?.name ?? filters.policy_id.slice(0, 8)}`
+                : filters.policy_version_id
+                  ? `Policy: v${filters.policy_version_id.slice(0, 8)}`
+                  : 'Policy'}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, policy_id: undefined, policy_version_id: undefined }))}>
+              <span className="flex-1">All Policies</span>
+              {!filters.policy_id && !filters.policy_version_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {activePolicies.map((pol) => (
+              <DropdownMenuItem key={pol.id} onClick={() => setFilters((f) => ({ ...f, policy_id: pol.id, policy_version_id: undefined }))}>
+                <span className="flex-1">{pol.name}</span>
+                {filters.policy_id === pol.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Cohort Filter */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className={cn(
+            'flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors',
+            filters.rollout_id
+              ? 'border-accent/30 bg-accent-dim text-accent'
+              : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary hover:text-text-primary',
+          )}>
+            <span>
+              {filters.rollout_id
+                ? (() => {
+                    const r = activeRollouts.find((x) => x.id === filters.rollout_id)
+                    const name = r ? `${r.policy_name} v${r.policy_version_number}` : filters.rollout_id.slice(0, 8)
+                    return filters.rollout_stage_pct ? `Cohort: ${name} stage ${filters.rollout_stage_pct}%` : `Cohort: ${name}`
+                  })()
+                : 'Cohort'}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, rollout_id: undefined, rollout_stage_pct: undefined }))}>
+              <span className="flex-1">No cohort filter</span>
+              {!filters.rollout_id && <Check className="h-3.5 w-3.5 text-accent" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {activeRollouts.map((rollout) => (
+              <DropdownMenuItem key={rollout.id} onClick={() => setFilters((f) => ({ ...f, rollout_id: rollout.id, rollout_stage_pct: undefined }))}>
+                <span className="flex-1">{rollout.policy_name} v{rollout.policy_version_number}</span>
+                {filters.rollout_id === rollout.id && <Check className="h-3.5 w-3.5 text-accent" />}
+              </DropdownMenuItem>
+            ))}
+            {filters.rollout_id && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1 text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Stage</div>
+                <DropdownMenuItem onClick={() => setFilters((f) => ({ ...f, rollout_stage_pct: undefined }))}>
+                  <span className="flex-1">All migrated</span>
+                  {!filters.rollout_stage_pct && <Check className="h-3.5 w-3.5 text-accent" />}
+                </DropdownMenuItem>
+                {[1, 10, 100].map((pct) => (
+                  <DropdownMenuItem key={pct} onClick={() => setFilters((f) => ({ ...f, rollout_stage_pct: pct }))}>
+                    <span className="flex-1">{pct}%</span>
+                    {filters.rollout_stage_pct === pct && <Check className="h-3.5 w-3.5 text-accent" />}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Applied filter chips */}
         {activeFilters.map((af) => (
           <span
-            key={af.key}
+            key={`${af.key}-${af.stateToken ?? af.value}`}
             className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border border-accent/30 bg-accent-dim text-accent"
           >
             {af.label}: {af.value}
-            <button onClick={() => removeFilter(af.key)} className="hover:text-text-primary transition-colors">
+            <Button variant="ghost" size="icon" aria-label="Remove filter" onClick={() => removeFilter(af.key, af.stateToken)} className="h-4 w-4 hover:text-text-primary">
               <X className="h-3 w-3" />
-            </button>
+            </Button>
           </span>
         ))}
 
         {activeFilters.length > 0 && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={clearFilters}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent h-auto py-0 px-1"
           >
             Clear all ({activeFilters.length})
-          </button>
+          </Button>
         )}
       </div>
 
+      {/* Select All in Segment Banner */}
+      {selectedSegmentId && segmentCount && !selectAllSegment && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-md)] border border-accent/20 bg-accent-dim/50">
+          <span className="text-sm text-text-secondary">
+            {selectedIds.size > 0
+              ? `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''} selected on this page.`
+              : `Segment contains ${segmentCount.count.toLocaleString()} SIMs.`}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5 border-accent/30 text-accent hover:bg-accent-dim"
+            onClick={() => { setSelectAllSegment(true); setSelectedIds(new Set()) }}
+          >
+            Select all {segmentCount.count.toLocaleString()} SIMs in segment
+          </Button>
+        </div>
+      )}
+      {selectAllSegment && segmentCount && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-md)] border border-accent/30 bg-accent-dim">
+          <span className="text-sm font-semibold text-accent">
+            {segmentCount.count.toLocaleString()} SIMs selected (entire segment)
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-text-tertiary hover:text-text-primary ml-auto"
+            onClick={() => setSelectAllSegment(false)}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* Data Table */}
-      <Card className="overflow-hidden density-compact">
+      <Card className={cn('overflow-hidden', `density-${tableDensity}`, (selectedIds.size > 0 || selectAllSegment) && 'pb-16')}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
                 <TableHead className="w-10">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={allSims.length > 0 && selectedIds.size === allSims.length}
                     onChange={toggleSelectAll}
@@ -457,6 +811,7 @@ export default function SimListPage() {
                 <TableHead>State</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>APN</TableHead>
+                <TableHead>Policy</TableHead>
                 <TableHead>IP Pool</TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead>Created</TableHead>
@@ -475,6 +830,7 @@ export default function SimListPage() {
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -484,51 +840,60 @@ export default function SimListPage() {
 
               {!isLoading && allSims.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={12}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Search className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No SIMs found</h3>
-                        <p className="text-xs text-text-secondary mb-4">
-                          {activeFilters.length > 0
-                            ? 'Try adjusting your filters or search terms.'
-                            : 'Import SIMs to get started.'}
-                        </p>
-                        {activeFilters.length > 0 ? (
-                          <Button variant="outline" size="sm" onClick={clearFilters}>
-                            Clear Filters
-                          </Button>
-                        ) : (
-                          <Button size="sm" className="gap-2">
-                            <Upload className="h-3.5 w-3.5" />
-                            Import SIMs
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                  <TableCell colSpan={13}>
+                    {activeFilters.length > 0 ? (
+                      <EmptyState
+                        icon={Search}
+                        title="No SIMs match your filters"
+                        description="Try adjusting your filters or search terms."
+                        ctaLabel="Clear Filters"
+                        onCta={clearFilters}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={Upload}
+                        title="No SIMs yet"
+                        description="Import SIMs to get started with subscriber management."
+                        ctaLabel="Import SIMs"
+                        onCta={() => { setImportOpen(true); setImportFile(null); setPasteContent(''); setImportResult(null); setImportPreview(null); setImportJobId(null); setImportTab('paste'); setReserveOnImport(false) }}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
 
-              {allSims.map((sim) => (
+              {allSims.map((sim, idx) => (
                 <TableRow
                   key={sim.id}
                   data-state={selectedIds.has(sim.id) ? 'selected' : undefined}
+                  data-row-index={idx}
+                  data-href={`/sims/${sim.id}`}
                   className="cursor-pointer"
                   onClick={() => navigate(`/sims/${sim.id}`)}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <input
+                    <Input
                       type="checkbox"
                       checked={selectedIds.has(sim.id)}
                       onChange={() => toggleSelect(sim.id)}
-                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer"
+                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer w-4 flex-none"
                     />
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs text-accent hover:underline">
-                      {sim.iccid}
-                    </span>
+                    <RowQuickPeek
+                      title={sim.iccid}
+                      fields={[
+                        { label: 'IMSI', value: sim.imsi },
+                        { label: 'State', value: sim.state },
+                        { label: 'Operator', value: sim.operator_name || '—' },
+                        { label: 'APN', value: sim.apn_name || '—' },
+                        { label: 'Created', value: new Date(sim.created_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <span className="font-mono text-xs text-accent hover:underline">
+                        {sim.iccid}
+                      </span>
+                    </RowQuickPeek>
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-xs text-text-secondary">{sim.imsi}</span>
@@ -544,79 +909,83 @@ export default function SimListPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={stateVariant(sim.state)} className="gap-1">
-                      {sim.state === 'active' && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                      )}
-                      {stateLabel(sim.state)}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant={stateVariant(sim.state)} className="gap-1">
+                        {sim.state === 'active' && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                        )}
+                        {stateLabel(sim.state)}
+                      </Badge>
+                      {processingIds.has(sim.id) && <Spinner className="h-3 w-3 text-accent" />}
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.operator_name || <span className="text-text-tertiary">—</span>}</span>
+                    <OperatorChip
+                      name={sim.operator_name}
+                      code={sim.operator_code}
+                      rawId={sim.operator_id}
+                      clickable
+                      onClick={() => navigate(`/operators/${sim.operator_id}`)}
+                    />
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.apn_name || <span className="text-text-tertiary">—</span>}</span>
+                    {sim.apn_name
+                      ? <span className="text-xs text-text-secondary">{sim.apn_name}</span>
+                      : <span className="text-xs italic text-text-tertiary">(Unknown)</span>
+                    }
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    {sim.policy_name && sim.policy_id
+                      ? (
+                        <Link
+                          to={`/policies/${sim.policy_id}`}
+                          className="text-xs text-accent hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {sim.policy_name}{sim.policy_version_number ? ` v${sim.policy_version_number}` : ''}
+                        </Link>
+                      )
+                      : <span className="text-text-tertiary">—</span>
+                    }
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-text-secondary truncate max-w-[100px] block">{sim.ip_pool_name || <span className="text-text-tertiary">—</span>}</span>
                   </TableCell>
                   <TableCell>
-                    {sim.rat_type ? (
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">
-                        {RAT_DISPLAY[sim.rat_type] ?? sim.rat_type}
-                      </span>
-                    ) : (
-                      <span className="text-text-tertiary text-xs">-</span>
-                    )}
+                    <RATBadge ratType={sim.rat_type} />
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary">
-                      {new Date(sim.created_at).toLocaleDateString()}
-                    </span>
+                    <Tooltip content={timeAgo(sim.created_at)} side="top">
+                      <span className="text-xs text-text-secondary cursor-default">
+                        {new Date(sim.created_at).toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+                      </span>
+                    </Tooltip>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="p-1 text-text-tertiary hover:text-text-primary transition-colors rounded-[var(--radius-sm)] hover:bg-bg-hover">
-                        <MoreVertical className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {sim.state === 'ordered' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Activate
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'active' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Suspend
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'suspended' && (
-                          <DropdownMenuItem onClick={() => navigate(`/sims/${sim.id}`)}>
-                            Resume
-                          </DropdownMenuItem>
-                        )}
-                        {sim.state === 'active' && !sim.ip_address && sim.apn_id && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={async () => {
-                              try {
-                                const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
-                                const pool = poolsRes.data.data?.[0]
-                                if (!pool) return
-                                await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
-                                refetch()
-                              } catch { /* handled */ }
-                            }}>
-                              Reserve Static IP
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'View Details', onClick: () => navigate(`/sims/${sim.id}`) },
+                        ...(sim.state === 'ordered' ? [{ label: 'Activate', icon: Play, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'active' ? [{ label: 'Suspend', icon: Pause, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'suspended' ? [{ label: 'Resume', icon: Play, onClick: () => navigate(`/sims/${sim.id}`) }] : []),
+                        ...(sim.state === 'active' && !sim.ip_address && sim.apn_id ? [{
+                          label: 'Reserve Static IP',
+                          separator: true,
+                          onClick: async () => {
+                            try {
+                              const poolsRes = await api.get<{ data: { id: string }[] }>(`/ip-pools?apn_id=${sim.apn_id}&limit=1`)
+                              const pool = poolsRes.data.data?.[0]
+                              if (!pool) { toast.error('No IP pool found for this APN'); return }
+                              await api.post(`/ip-pools/${pool.id}/addresses/reserve`, { sim_id: sim.id })
+                              toast.success('Static IP reserved')
+                              refetch()
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : 'Failed to reserve static IP')
+                            }
+                          },
+                        }] : []),
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -625,12 +994,19 @@ export default function SimListPage() {
         </div>
 
         {/* Bulk Action Bar */}
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-accent-dim border-t border-accent/20 animate-in slide-in-from-bottom-1">
-            <span className="text-sm font-semibold text-accent">
-              {selectedIds.size} selected
+        {(selectedIds.size > 0 || selectAllSegment) && (
+          <div
+            className={cn(
+              'fixed bottom-0 right-0 z-30 bg-accent-dim border-t border-accent/20 shadow-[var(--shadow-card)] animate-in slide-in-from-bottom-2 duration-200 flex items-center gap-3 px-4 py-2.5 flex-wrap gap-y-2 transition-[left]',
+              sidebarCollapsed ? 'left-16' : 'left-60',
+            )}
+          >
+            <span className="text-sm font-semibold text-accent tabular-nums">
+              {selectAllSegment
+                ? `${segmentCount?.count.toLocaleString() ?? '?'} selected (entire segment)`
+                : selectionLabel}
             </span>
-            <div className="flex gap-2 ml-2">
+            <div className="flex gap-2 ml-2 flex-wrap">
               <Button
                 variant="secondary"
                 size="sm"
@@ -651,7 +1027,7 @@ export default function SimListPage() {
                 variant="secondary"
                 size="sm"
                 className="text-xs gap-1.5"
-                onClick={() => navigate('/policies')}
+                onClick={() => setPolicyDialogOpen(true)}
               >
                 <Shield className="h-3 w-3" /> Assign Policy
               </Button>
@@ -663,6 +1039,8 @@ export default function SimListPage() {
                   const sims = allSims.filter((s) => selectedIds.has(s.id) && s.state === 'active' && !s.ip_address && s.apn_id)
                   if (sims.length === 0) return
                   const poolCache: Record<string, string> = {}
+                  let succeeded = 0
+                  const failed: { iccid: string; error: string }[] = []
                   for (const sim of sims) {
                     try {
                       if (!poolCache[sim.apn_id!]) {
@@ -670,8 +1048,21 @@ export default function SimListPage() {
                         poolCache[sim.apn_id!] = res.data.data?.[0]?.id ?? ''
                       }
                       const poolId = poolCache[sim.apn_id!]
-                      if (poolId) await api.post(`/ip-pools/${poolId}/addresses/reserve`, { sim_id: sim.id })
-                    } catch { /* skip */ }
+                      if (poolId) {
+                        await api.post(`/ip-pools/${poolId}/addresses/reserve`, { sim_id: sim.id })
+                        succeeded++
+                      } else {
+                        failed.push({ iccid: sim.iccid, error: 'No IP pool found for APN' })
+                      }
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : 'Reserve failed'
+                      failed.push({ iccid: sim.iccid, error: msg })
+                    }
+                  }
+                  if (failed.length === 0) {
+                    toast.success(`Reserved IPs for ${succeeded} SIM${succeeded !== 1 ? 's' : ''}`)
+                  } else {
+                    toast.error(`${succeeded} succeeded, ${failed.length} failed — check each SIM's APN pool`)
                   }
                   setSelectedIds(new Set())
                   refetch()
@@ -699,17 +1090,28 @@ export default function SimListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1 h-auto"
             >
               Load more SIMs
-            </button>
+            </Button>
           ) : allSims.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allSims.length} SIMs
             </p>
           ) : null}
+        </div>
+        <div className="px-4 py-2 border-t border-border-subtle flex items-center justify-end">
+          <DataFreshness
+            indicator={freshness.indicator}
+            label={freshness.label}
+            onRefresh={refetch}
+            autoRefresh={freshness.autoRefresh}
+            setAutoRefresh={freshness.setAutoRefresh}
+          />
         </div>
       </Card>
 
@@ -718,78 +1120,189 @@ export default function SimListPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-text-tertiary mr-1">Saved:</span>
           {segments.map((seg) => (
-            <button
+            <Button
               key={seg.id}
+              variant="ghost"
+              size="sm"
               onClick={() => handleSegmentSelect(seg.id === selectedSegmentId ? '' : seg.id)}
               className={cn(
-                'px-3 py-1 text-xs rounded-full border transition-colors',
+                'px-3 py-1 h-auto text-xs rounded-full border transition-colors',
                 selectedSegmentId === seg.id
-                  ? 'bg-accent-dim border-accent/30 text-accent'
+                  ? 'bg-accent-dim border-accent/30 text-accent hover:bg-accent-dim hover:text-accent'
                   : 'bg-bg-surface border-border text-text-secondary hover:border-accent hover:text-accent',
               )}
             >
               {seg.name}
-            </button>
+            </Button>
           ))}
         </div>
       )}
 
-      {/* Bulk Action SlidePanel */}
-      <SlidePanel
-        open={!!bulkDialog}
-        onOpenChange={() => setBulkDialog(null)}
-        title={`${bulkDialog?.label} ${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}?`}
-        description={`This action will ${bulkDialog?.label.toLowerCase()} the selected SIMs. This may take a moment for large selections.`}
-        width="md"
-      >
-        <div>
-          <label className="text-xs font-medium text-text-secondary block mb-1.5">
-            Reason (optional)
-          </label>
-          <Input
-            value={bulkReason}
-            onChange={(e) => setBulkReason(e.target.value)}
-            placeholder="Enter reason..."
-          />
-        </div>
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
-          <Button variant="outline" onClick={() => setBulkDialog(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant={bulkDialog?.action === 'terminated' ? 'destructive' : 'default'}
-            onClick={handleBulkAction}
-            disabled={bulkMutation.isPending}
-            className="gap-2"
-          >
-            {bulkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {bulkDialog?.label}
-          </Button>
-        </div>
-      </SlidePanel>
+      {/* Bulk Action Dialog */}
+      <Dialog open={!!bulkDialog} onOpenChange={(o) => !o && setBulkDialog(null)}>
+        <DialogContent onClose={() => setBulkDialog(null)}>
+          <DialogHeader>
+            <DialogTitle>{`${bulkDialog?.label} ${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}?`}</DialogTitle>
+            <DialogDescription>{`This action will ${bulkDialog?.label?.toLowerCase()} the selected SIMs. This may take a moment for large selections.`}</DialogDescription>
+          </DialogHeader>
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">
+              Reason (optional)
+            </label>
+            <Input
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+              placeholder="Enter reason..."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={bulkDialog?.action === 'terminated' ? 'destructive' : 'default'}
+              onClick={handleBulkAction}
+              disabled={bulkMutation.isPending}
+              className="gap-2"
+            >
+              {bulkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {bulkDialog?.label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Import SIMs SlidePanel */}
-      <SlidePanel open={importOpen} onOpenChange={setImportOpen} title="Import SIMs" description="Paste CSV data or upload a file. A background job will process the import." width="lg">
+      <SlidePanel open={importOpen} onOpenChange={setImportOpen} title="Import SIMs" description="Paste CSV data or upload a file. Preview validates before commit." width="lg">
         {importResult ? (
-          <div className="rounded-[var(--radius-sm)] border border-success/30 bg-success-dim p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <Check className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-text-primary">Import job created</span>
-            </div>
-            <div className="text-xs text-text-secondary space-y-1">
-              <p>Rows parsed: <span className="font-mono text-text-primary">{importResult.rows_parsed}</span></p>
-              <p>Job ID: <span className="font-mono text-text-tertiary">{importResult.job_id.slice(0, 12)}...</span></p>
-              {importResult.errors.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-warning font-medium">{importResult.errors.length} validation errors:</p>
-                  <ul className="list-disc pl-4 text-text-tertiary mt-1">
-                    {importResult.errors.slice(0, 5).map((err, i) => <li key={i}>{err}</li>)}
-                    {importResult.errors.length > 5 && <li>...and {importResult.errors.length - 5} more</li>}
-                  </ul>
+          <div className="space-y-4">
+            <div className="rounded-[var(--radius-sm)] border border-success/30 bg-success-dim p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-success" />
+                <span className="text-sm font-medium text-text-primary">Import job queued</span>
+              </div>
+              <div className="text-xs text-text-secondary space-y-1">
+                <p>Job ID: <span className="font-mono text-text-tertiary">{importResult.job_id.slice(0, 12)}...</span></p>
+                <p>Status: <span className="font-mono text-text-primary capitalize">{importJobPolling.data?.state ?? importResult.status}</span></p>
+                {importJobPolling.data && (importJobPolling.data.state === 'running' || importJobPolling.data.state === 'completed') && (
+                  <p>
+                    Progress: <span className="font-mono text-text-primary">{importJobPolling.data.processed_items}</span>
+                    {importJobPolling.data.total_items > 0 && ` / ${importJobPolling.data.total_items}`}
+                    {importJobPolling.data.failed_items > 0 && (
+                      <span className="text-warning ml-1">({importJobPolling.data.failed_items} failed)</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              {importJobPolling.data?.state === 'running' && (
+                <div className="flex items-center gap-2 text-xs text-text-tertiary">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Processing import...
                 </div>
               )}
+              {importJobPolling.data?.state === 'completed' && importJobPolling.data.failed_items > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-warning/30 text-warning hover:bg-warning/10"
+                  onClick={() => navigate(`/jobs/${importResult.job_id}`)}
+                >
+                  <Download className="h-3 w-3" />
+                  View failed rows
+                </Button>
+              )}
             </div>
-            <p className="text-xs text-text-tertiary">Check the Jobs page for progress.</p>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => navigate(`/jobs/${importResult.job_id}`)}>
+              View job details
+            </Button>
+          </div>
+        ) : importPreview ? (
+          <div className="space-y-4">
+            <div className={cn(
+              'rounded-[var(--radius-sm)] border p-3 space-y-1',
+              importPreview.errors.length > 0 ? 'border-danger/30 bg-danger-dim' : 'border-success/30 bg-success-dim',
+            )}>
+              <div className="flex items-center gap-2">
+                {importPreview.errors.length > 0
+                  ? <AlertCircle className="h-4 w-4 text-danger" />
+                  : <Check className="h-4 w-4 text-success" />}
+                <span className="text-sm font-medium text-text-primary">
+                  {importPreview.errors.length > 0
+                    ? `${importPreview.errors.length} validation error${importPreview.errors.length !== 1 ? 's' : ''}`
+                    : `${importPreview.rows.length} row${importPreview.rows.length !== 1 ? 's' : ''} ready to import`}
+                </span>
+              </div>
+              {importPreview.errors.length > 0 && (
+                <ul className="list-disc pl-5 text-xs text-danger space-y-0.5 max-h-32 overflow-y-auto">
+                  {importPreview.errors.map((e, i) => <li key={i}>{e.message}</li>)}
+                </ul>
+              )}
+            </div>
+
+            {importPreview.rows.length > 0 && (
+              <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-border">
+                <Table>
+                  <TableHeader className="bg-bg-elevated">
+                    <TableRow>
+                      {importPreview.headers.map((h) => (
+                        <TableHead key={h} className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">
+                          {h}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importPreview.rows.slice(0, 10).map((row, i) => (
+                      <TableRow key={i}>
+                        {row.map((cell, j) => (
+                          <TableCell key={j} className="font-mono text-xs text-text-secondary py-1.5">
+                            {cell || <span className="text-text-tertiary italic">—</span>}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {importPreview.rows.length > 10 && (
+                  <p className="text-[10px] text-text-tertiary text-center py-1.5 border-t border-border">
+                    …and {importPreview.rows.length - 10} more rows
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-4 border-t border-border">
+              <Button variant="outline" size="sm" onClick={() => setImportPreview(null)}>
+                Back
+              </Button>
+              <div className="flex items-center gap-3">
+                <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={async () => {
+                    let file: File
+                    if (importTab === 'paste') {
+                      const normalized = pasteContent.includes('\t') ? pasteContent.replace(/\t/g, ',') : pasteContent
+                      file = new File([normalized], 'import.csv', { type: 'text/csv' })
+                    } else {
+                      if (!importFile) return
+                      file = importFile
+                    }
+                    try {
+                      const result = await importMutation.mutateAsync({ file, reserveStaticIP: reserveOnImport })
+                      setImportResult(result)
+                      setImportJobId(result.job_id)
+                    } catch {
+                      // handled by api interceptor
+                    }
+                  }}
+                  disabled={importPreview.errors.some((e) => e.row === 0) || importMutation.isPending}
+                  className="gap-2"
+                >
+                  {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Commit Import
+                </Button>
+              </div>
+            </div>
           </div>
         ) : (
           <Tabs value={importTab} onValueChange={(v) => setImportTab(v as 'paste' | 'file')}>
@@ -806,27 +1319,27 @@ export default function SimListPage() {
 
             <div className="mt-3">
               <div className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated p-2.5 mb-3">
-                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Required Columns</p>
-                <pre className="font-mono text-[11px] text-text-secondary">iccid, imsi, msisdn, operator_code, apn_name</pre>
-                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers.</p>
+                <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1">Required columns</p>
+                <pre className="font-mono text-[11px] text-text-secondary">iccid, imsi, msisdn, operator_code, apn_name, <span className="text-text-tertiary">ip_address</span></pre>
+                <p className="text-[10px] text-text-tertiary mt-1">Comma or tab delimited. First row must be headers. <span className="text-text-tertiary">ip_address</span> is optional.</p>
               </div>
 
               <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                <input
+                <Input
                   type="checkbox"
                   checked={reserveOnImport}
                   onChange={(e) => setReserveOnImport(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-accent"
+                  className="h-4 w-4 rounded border-border accent-accent w-4 flex-none"
                 />
                 <span className="text-xs text-text-secondary">Reserve static IP for each SIM from APN's pool</span>
               </label>
 
               <TabsContent value="paste" className="mt-0">
-                <textarea
+                <Textarea
                   value={pasteContent}
                   onChange={(e) => setPasteContent(e.target.value)}
-                  placeholder={`iccid,imsi,msisdn,operator_code,apn_name\n8990010000000001,286010000000001,905301000001,turkcell,iot.demo\n8990010000000002,286010000000002,905301000002,turkcell,m2m.demo`}
-                  className="w-full h-48 bg-bg-primary border border-border rounded-[var(--radius-sm)] p-3 font-mono text-xs text-text-primary placeholder:text-text-tertiary/40 resize-none focus:outline-none focus:border-accent/50 transition-colors"
+                  placeholder={`iccid,imsi,msisdn,operator_code,apn_name,ip_address\n8990010000000001,286010000000001,905301000001,turkcell,iot.demo,10.0.0.10\n8990010000000002,286010000000002,905301000002,turkcell,m2m.demo,`}
+                  className="h-48 font-mono text-xs placeholder:text-text-tertiary/40"
                   spellCheck={false}
                 />
                 <div className="flex items-center justify-between mt-2">
@@ -837,7 +1350,7 @@ export default function SimListPage() {
               </TabsContent>
 
               <TabsContent value="file" className="mt-0">
-                <input
+                <Input
                   ref={fileInputRef}
                   type="file"
                   accept=".csv,.tsv,.txt"
@@ -847,12 +1360,13 @@ export default function SimListPage() {
                     if (f) setImportFile(f)
                   }}
                 />
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
-                    'w-full flex flex-col items-center justify-center py-10 rounded-[var(--radius-md)] border-2 border-dashed transition-colors cursor-pointer',
+                    'w-full h-auto flex flex-col items-center justify-center py-10 rounded-[var(--radius-md)] border-2 border-dashed transition-colors cursor-pointer',
                     importFile
-                      ? 'border-accent/30 bg-accent-dim'
+                      ? 'border-accent/30 bg-accent-dim hover:bg-accent-dim'
                       : 'border-border hover:border-accent/30 hover:bg-bg-hover',
                   )}
                 >
@@ -868,45 +1382,122 @@ export default function SimListPage() {
                       <p className="text-[10px] text-text-tertiary mt-1">.csv, .tsv, .txt — max 50MB</p>
                     </>
                   )}
-                </button>
+                </Button>
               </TabsContent>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+              <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+              <Button
+                onClick={async () => {
+                  let content: string
+                  if (importTab === 'paste') {
+                    if (!pasteContent.trim()) return
+                    content = pasteContent
+                  } else {
+                    if (!importFile) return
+                    content = await importFile.text()
+                  }
+                  const preview = parseCSVPreview(content)
+                  if (preview) setImportPreview(preview)
+                }}
+                disabled={(importTab === 'paste' ? !pasteContent.trim() : !importFile)}
+                className="gap-2"
+              >
+                <Check className="h-4 w-4" />
+                Preview & Validate
+              </Button>
             </div>
           </Tabs>
         )}
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
-          <Button variant="outline" onClick={() => setImportOpen(false)}>
-            {importResult ? 'Close' : 'Cancel'}
-          </Button>
-          {!importResult && (
-            <Button
-              onClick={async () => {
-                let file: File
-                if (importTab === 'paste') {
-                  if (!pasteContent.trim()) return
-                  const normalized = pasteContent.includes('\t')
-                    ? pasteContent.replace(/\t/g, ',')
-                    : pasteContent
-                  file = new File([normalized], 'import.csv', { type: 'text/csv' })
-                } else {
-                  if (!importFile) return
-                  file = importFile
-                }
-                try {
-                  const result = await importMutation.mutateAsync({ file, reserveStaticIP: reserveOnImport })
-                  setImportResult(result)
-                } catch {
-                  // handled by api interceptor
-                }
-              }}
-              disabled={(importTab === 'paste' ? !pasteContent.trim() : !importFile) || importMutation.isPending}
-              className="gap-2"
-            >
-              {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Import
-            </Button>
+        {importResult && (
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+            <Button variant="outline" onClick={() => setImportOpen(false)}>Close</Button>
+          </div>
+        )}
+      </SlidePanel>
+
+      {/* Bulk Assign Policy SlidePanel */}
+      <SlidePanel
+        open={policyDialogOpen}
+        onOpenChange={setPolicyDialogOpen}
+        title={`Assign Policy to ${selectAllSegment ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)` : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}`}
+        description="Select an active policy version. Will be assigned to all selected SIMs."
+        width="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">
+              Select Policy
+            </label>
+            <Select
+              value={selectedPolicyVersionId}
+              onChange={(e) => setSelectedPolicyVersionId(e.target.value)}
+              placeholder="Choose a policy..."
+              options={activePolicies.map((p) => ({
+                value: p.current_version_id!,
+                label: `${p.name} v${p.active_version}`,
+              }))}
+            />
+          </div>
+
+          {selectedPolicyVersionId && (
+            <div className="rounded-[var(--radius-sm)] border border-border bg-bg-primary p-3 space-y-1">
+              <p className="text-xs text-text-tertiary">Preview</p>
+              <p className="text-sm text-text-primary font-medium">
+                {activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.name ?? 'Policy'}{' '}
+                <span className="text-text-secondary font-normal">
+                  v{activePolicies.find((p) => p.current_version_id === selectedPolicyVersionId)?.active_version}
+                </span>
+              </p>
+              <p className="text-xs text-text-secondary">
+                Will be assigned to{' '}
+                <span className="font-semibold text-text-primary">
+                  {selectAllSegment
+                    ? `${segmentCount?.count.toLocaleString() ?? '?'} SIMs (entire segment)`
+                    : `${selectedIds.size} SIM${selectedIds.size !== 1 ? 's' : ''}`}
+                </span>
+              </p>
+            </div>
           )}
         </div>
+
+        <SlidePanelFooter>
+          <Button variant="outline" onClick={() => { setPolicyDialogOpen(false); setSelectedPolicyVersionId('') }}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!selectedPolicyVersionId || bulkPolicyAssignMutation.isPending}
+            className="gap-2"
+            onClick={async () => {
+              const ids = selectAllSegment ? [] : Array.from(selectedIds)
+              if (!selectAllSegment) setProcessingIds(new Set(ids))
+              try {
+                const result = await bulkPolicyAssignMutation.mutateAsync({
+                  ...(selectAllSegment
+                    ? { segmentId: selectedSegmentId }
+                    : { simIds: ids }),
+                  policyVersionId: selectedPolicyVersionId,
+                })
+                if (result?.job_id) {
+                  setActiveBulkJobId(result.job_id)
+                } else {
+                  setProcessingIds(new Set())
+                }
+                setSelectedIds(new Set())
+                setSelectAllSegment(false)
+                setPolicyDialogOpen(false)
+                setSelectedPolicyVersionId('')
+              } catch {
+                setProcessingIds(new Set())
+              }
+            }}
+          >
+            {bulkPolicyAssignMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Confirm
+          </Button>
+        </SlidePanelFooter>
       </SlidePanel>
     </div>
   )

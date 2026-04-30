@@ -1,0 +1,21 @@
+2026-04-30T07:32:19Z STEP_1 PLAN: STARTED | story=FIX-238 | mode=AUTOPILOT | wave=10
+2026-04-30T07:38:12Z STEP_1 PLAN: EXECUTED | items=5 tasks across 5 waves (W1: 3 migrations/seed/AC-10 archiver; W2: 4 BE removals; W3: 1 DSL grammar; W4: 4 FE removals; W5: 2 catalog/docs/regression-gate) total=14 tasks | evidence=docs/stories/fix-ui-review/FIX-238-plan.md | result=PASS
+2026-04-30T07:50:00Z STEP_2 DEV T1: EXECUTED | files=2 drop=PASS | result=PASS
+2026-04-30T07:50:00Z STEP_2 DEV T2: EXECUTED | files=1 seed_clean=PASS | result=PASS
+2026-04-30T07:50:00Z STEP_2 DEV T3: EXECUTED | files=2 archiver=ready main_wired=YES | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T4: EXECUTED | files=4 deleted=2 mod=2 | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T5: EXECUTED | files=2 deleted=2 config_fields=2 | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T6: EXECUTED | router_routes=6 main_lines=multiple ac10_archiver=PRESERVED | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T7: EXECUTED | sor_audit_done preserve=cost_opt+imsi+rat+cb | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T8: EXECUTED | dsl_grammar=removed parser+evaluator+tests | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T9: EXECUTED | files_deleted=4 dir_removed=roaming | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T10: EXECUTED | router=2_routes sidebar=1_entry+Handshake_icon | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T11: EXECUTED | tab_removed=agreements redirect=agreements->overview_via_alias | result=PASS
+2026-04-27T00:00:00Z STEP_2 DEV T12: EXECUTED | bonus_refs_cleaned=8 | result=PASS
+2026-04-30T00:00:00Z STEP_2 DEV T13: EXECUTED | catalog=cleaned(roaming.agreement.renewal_due removed) tiers=cleaned notification=cleaned bench=cleaned(Field:roaming→max_sessions) | result=PASS
+2026-04-30T00:00:00Z STEP_2 DEV T14: EXECUTED | docs=6(PRODUCT.md,ARCHITECTURE.md-db,services/_index.md,migrations-notes.md,decisions.md,bug-patterns.md) grep_zero=YES(archiver+comments allowed) go_build=PASS go_test=3803 tsc=PASS vite=PASS | result=PASS
+2026-04-30T08:10:59Z STEP_2.5 LINT: EXECUTED | go_build=PASS go_vet=PASS go_test=3803 tsc=PASS vite=PASS grep=intentional_only | result=PASS
+2026-04-30T08:23:42Z STEP_3 GATE: EXECUTED | scouts=3 findings=4 fixes=14 | result=PASS
+2026-04-30T09:15:00Z STEP_4 REVIEW: EXECUTED | items=14 | evidence=docs/stories/fix-ui-review/FIX-238-review.md | result=PASS
+2026-04-30T08:34:49Z STEP_5 COMMIT: EXECUTED | items=1 commit=e0059f9 | result=PASS
+2026-04-30T08:34:49Z STEP_6 POSTPROC: EXECUTED | items=6 checks | evidence=persistence-verified | result=PASS

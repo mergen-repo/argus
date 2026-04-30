@@ -15,6 +15,10 @@ export interface APN {
   updated_at: string
   created_by?: string
   updated_by?: string
+  sim_count?: number | null
+  traffic_24h_bytes?: number | null
+  pool_used?: number | null
+  pool_total?: number | null
 }
 
 export interface IPPool {

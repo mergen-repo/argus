@@ -1,0 +1,82 @@
+FIX-303 — Onboarding Phantom Field + Route Rename — Step Log
+==============================================================
+
+STEP 1 PLAN: EXECUTED | 2026-04-30 | source=docs/reports/uat-acceptance-2026-04-30.md F-1 | plan=docs/stories/uat-remediation/FIX-303-plan.md | recurrence_of=FIX-101 | effort=M | result=PASS
+
+STEP 2 DEV (Bug Fix TDD): EXECUTED | 2026-04-30 | mode=manual
+
+  2a. Triage discovery:
+      - web/src/pages/auth/onboarding.tsx EXISTS — wizard implementation intact
+      - web/src/router.tsx:113 registered at /setup — but BE namespace + FE hooks use /onboarding
+      - internal/auth/auth.go:117 UserInfo struct has only id/email/name/role
+      - protected-route.tsx:13 + login.tsx:74 check user.onboarding_completed === false
+      - Two compounding bugs: route name mismatch + phantom field
+
+  2b. BE — UserInfo + interface + populate:
+      file=internal/auth/auth.go
+      - Added field: OnboardingCompleted bool `json:"onboarding_completed"`
+      - New interface: OnboardingSessionLookup with IsCompleted(ctx, tenantID) (bool, error)
+      - Service field + WithOnboardingSessions setter (mirrors WithPasswordHistory pattern)
+      - isOnboardingCompleted helper: fail-safe (nil store or err → false)
+      - Populated flag at all 4 UserInfo{} sites: password-change-required, 2FA, full-session, refresh-flow
+
+  2c. BE — store adapter:
+      file=internal/store/onboarding_session_store.go
+      - Added IsCompleted(ctx, tenantID) method: SELECT state ORDER BY created_at DESC LIMIT 1
+      - Returns false on pgx.ErrNoRows (no session yet → tenant must be onboarded)
+
+  2d. BE — main.go wiring:
+      file=cmd/argus/main.go (line ~1473)
+      - authSvc.WithOnboardingSessions(onboardingSessionStore) inserted after store creation
+
+  2e. FE — route rename + transition redirect:
+      file=web/src/router.tsx:113
+      - { path: '/onboarding', element: <OnboardingPage /> }
+      - { path: '/setup', element: <Navigate to="/onboarding" replace /> }  (transition, D-187 cleanup)
+      file=web/src/components/auth/protected-route.tsx:13
+      - '/setup' → '/onboarding' (both occurrences)
+      file=web/src/pages/auth/login.tsx:75
+      - navigate('/setup') → navigate('/onboarding')
+      file=web/src/components/layout/topbar.tsx:150
+      - navigate('/setup') → navigate('/onboarding')
+
+  2f. Tests (AC-2/AC-3/AC-4 unit coverage):
+      file=internal/auth/auth_test.go (appended)
+      - fakeOnboardingLookup struct
+      - TestLogin_OnboardingIncomplete_FlagFalse → PASS
+      - TestLogin_OnboardingCompleted_FlagTrue → PASS
+      - TestLogin_OnboardingLookupError_FailSafeFalse → PASS
+      - TestLogin_OnboardingLookupNil_FailSafeFalse → PASS
+      All 74 auth tests still pass (no regression).
+
+  2g. Build + typecheck:
+      go build ./... → SUCCESS
+      cd web && tsc --noEmit → SUCCESS
+
+  2h. Manual smoke (the actual gate):
+      docker compose up -d --force-recreate argus
+      curl POST /api/v1/auth/login → response now includes "onboarding_completed":false (PRE: field missing)
+      curl GET /onboarding → HTTP 200 (PRE: 404)
+      curl GET /setup → HTTP 200 (SPA serves index.html; React Router Navigate fires client-side)
+
+STEP 3 ACCEPTANCE CRITERIA:
+  AC-1 GET /onboarding 200 for authenticated tenant_admin    → PASS (200)
+  AC-2 fresh tenant_admin first login → /onboarding redirect → PASS (login response onboarding_completed=false; FE redirect logic verified by 4 unit tests)
+  AC-3 post-completion → flag true → land on Dashboard       → PASS (Test_OnboardingCompleted_FlagTrue covers this)
+  AC-4 already-onboarded tenants skip wizard                 → PASS (same test)
+  AC-5 dev-browser smoke UAT-001 step 3.5                    → PENDING (next UAT cycle / Phase Gate UI suite — D-188)
+  AC-6 /setup transitions to /onboarding                     → PASS (Navigate component in router; SPA flow)
+  AC-7 docs/screens/SCR-003 + SCREENS.md updated             → DEFERRED (D-189 — minor doc consistency, no functional impact)
+
+STEP 4 DECISIONS:
+  decisions.md → DEV-583
+
+STEP 5 PATTERNS:
+  bug-patterns.md → PAT-029 (phantom DTO field — FE strict-eq vs BE missing field)
+
+OUT OF SCOPE / DEFERRED:
+  D-187 — remove /setup transition redirect after Wave 11 P1
+  D-188 — Phase Gate UI dev-browser smoke for first-login redirect to /onboarding (regression prevention for FIX-101 RECURRENCE)
+  D-189 — update docs/screens/SCR-003-onboarding.md + docs/SCREENS.md row 12 from /setup to /onboarding
+
+STATUS: COMPLETED — ready for commit

@@ -2,8 +2,27 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { wsClient } from '@/lib/ws'
-import type { Session, SessionStats, SessionStartedEvent, SessionEndedEvent } from '@/types/session'
+import type { Session, SessionDetail, SessionStats, SessionStartedEvent, SessionEndedEvent } from '@/types/session'
 import type { ListResponse, ApiResponse } from '@/types/sim'
+
+export type { SessionDetail }
+
+export function useSession(id: string | undefined) {
+  return useQuery({
+    queryKey: ['sessions', 'detail', id],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<SessionDetail>>(`/sessions/${id}`)
+      return res.data.data
+    },
+    enabled: !!id,
+    staleTime: 15_000,
+    retry: (failureCount, error: unknown) => {
+      const err = error as { status?: number }
+      if (err?.status === 404) return false
+      return failureCount < 2
+    },
+  })
+}
 
 const SESSIONS_KEY = ['sessions'] as const
 
@@ -53,7 +72,15 @@ export function useDisconnectSession() {
   })
 }
 
-export function useRealtimeSessionStarted() {
+type SessionFilters = { operator_id?: string; apn_id?: string }
+
+function sessionMatchesFilters(session: Session, filters: SessionFilters): boolean {
+  if (filters.operator_id && session.operator_id !== filters.operator_id) return false
+  if (filters.apn_id && session.apn_id !== filters.apn_id) return false
+  return true
+}
+
+export function useRealtimeSessionStarted(filters: SessionFilters = {}) {
   const queryClient = useQueryClient()
   const newSessionIdsRef = useRef<Set<string>>(new Set())
 
@@ -84,24 +111,26 @@ export function useRealtimeSessionStarted() {
         started_at: event.started_at,
       }
 
-      queryClient.setQueryData<{ pages: ListResponse<Session>[]; pageParams: string[] }>(
-        [...SESSIONS_KEY, 'list', {}],
-        (old) => {
-          if (!old || !old.pages || old.pages.length === 0) return old
-          const firstPage = old.pages[0]
-          return {
-            ...old,
-            pages: [
-              { ...firstPage, data: [newSession, ...firstPage.data] },
-              ...old.pages.slice(1),
-            ],
-          }
-        },
-      )
+      if (sessionMatchesFilters(newSession, filters)) {
+        queryClient.setQueryData<{ pages: ListResponse<Session>[]; pageParams: string[] }>(
+          [...SESSIONS_KEY, 'list', filters],
+          (old) => {
+            if (!old || !old.pages || old.pages.length === 0) return old
+            const firstPage = old.pages[0]
+            return {
+              ...old,
+              pages: [
+                { ...firstPage, data: [newSession, ...firstPage.data] },
+                ...old.pages.slice(1),
+              ],
+            }
+          },
+        )
+      }
 
       queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'stats'] })
     },
-    [queryClient],
+    [queryClient, filters],
   )
 
   useEffect(() => {
@@ -112,7 +141,7 @@ export function useRealtimeSessionStarted() {
   return newSessionIdsRef
 }
 
-export function useRealtimeSessionEnded() {
+export function useRealtimeSessionEnded(filters: SessionFilters = {}) {
   const queryClient = useQueryClient()
   const endedSessionIdsRef = useRef<Set<string>>(new Set())
 
@@ -125,12 +154,12 @@ export function useRealtimeSessionEnded() {
 
       setTimeout(() => {
         endedSessionIdsRef.current.delete(event.session_id)
-        queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'list'] })
+        queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'list', filters] })
       }, 2000)
 
       queryClient.invalidateQueries({ queryKey: [...SESSIONS_KEY, 'stats'] })
     },
-    [queryClient],
+    [queryClient, filters],
   )
 
   useEffect(() => {

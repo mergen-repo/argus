@@ -139,3 +139,91 @@ GROUP BY bucket, tenant_id, operator_id, apn_id, rat_type;
 ```
 
 All three continuous aggregates have `materialized_only = false` (real-time aggregation) enabled, ensuring queries return current data by combining materialized results with recent un-aggregated rows.
+
+---
+
+## TBL-27: sla_reports
+
+Monthly SLA rollup records per operator per tenant.
+
+Retention: 24 months minimum (no cleanup cron). Per FIX-215 compliance requirement (AC-7). With one row per operator per month, storage is effectively unlimited by default (~240 rows/tenant for 10 operators × 24 months).
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Row identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant (FK → tenants.id) |
+| operator_id | UUID | NULL | — | Operator (FK → operators.id, nullable for tenant-wide rows) |
+| report_type | TEXT | NOT NULL | — | Report type (e.g., `monthly`) |
+| window_start | TIMESTAMPTZ | NOT NULL | — | Start of the reporting window |
+| window_end | TIMESTAMPTZ | NOT NULL | — | End of the reporting window |
+| uptime_pct | DECIMAL(5,2) | NULL | — | Computed uptime percentage for the window |
+| mttr_seconds | INTEGER | NULL | — | Mean time to recover (seconds) |
+| incident_count | INTEGER | NOT NULL | 0 | Number of incidents in the window |
+| details | JSONB | NOT NULL | `{}` | Structured SLA payload (breach_minutes, latency_p95, etc.) |
+| generated_at | TIMESTAMPTZ | NOT NULL | now() | When the report was generated |
+| created_at | TIMESTAMPTZ | NOT NULL | now() | Record creation time |
+
+### Indexes
+
+- `idx_sla_reports_tenant_operator_window` on (tenant_id, operator_id, window_start DESC)
+- `idx_sla_reports_tenant_window` on (tenant_id, window_start DESC)
+
+### Partitioning
+
+None (plain table — row count is small: ~N_operators × 24 months per tenant).
+
+### Related
+
+- TBL-01 tenants (tenant_id FK)
+- TBL-05 operators (operator_id FK, nullable)
+- SVC-07 analytics — `SLAReportProcessor` job writes monthly rollup rows
+- `internal/store/sla_report.go` — store layer
+
+---
+
+## TBL-28: anomalies
+
+Anomaly detection records for fraud, usage spikes, and connectivity issues flagged by the analytics engine.
+
+### Columns
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | UUID | NOT NULL | gen_random_uuid() | Anomaly identifier |
+| tenant_id | UUID | NOT NULL | — | Tenant (FK → tenants.id) |
+| sim_id | UUID | NULL | — | Affected SIM (nullable; null for tenant-wide anomalies) |
+| type | TEXT | NOT NULL | — | Anomaly type: `sim_cloning`, `data_spike`, `auth_flood`, `nas_flood` |
+| severity | TEXT | NOT NULL | — | `critical`, `high`, `medium`, `low` |
+| state | TEXT | NOT NULL | `open` | Lifecycle state: `open`, `acknowledged`, `resolved`, `false_positive` |
+| details | JSONB | NOT NULL | `{}` | Structured anomaly payload (thresholds, observed values, evidence) |
+| source | TEXT | NULL | — | Detection source (e.g., rule engine, ML model identifier) |
+| detected_at | TIMESTAMPTZ | NOT NULL | now() | When the anomaly was detected |
+| acknowledged_at | TIMESTAMPTZ | NULL | — | When the anomaly was acknowledged |
+| resolved_at | TIMESTAMPTZ | NULL | — | When the anomaly was resolved or dismissed |
+| created_at | TIMESTAMPTZ | NOT NULL | now() | Record creation time |
+| updated_at | TIMESTAMPTZ | NOT NULL | now() | Last modification time |
+
+CHECK constraints: `type IN ('sim_cloning', 'data_spike', 'auth_flood', 'nas_flood')`, `severity IN ('critical', 'high', 'medium', 'low')`, `state IN ('open', 'acknowledged', 'resolved', 'false_positive')`
+
+### Indexes
+
+- `idx_anomalies_tenant_id` on (tenant_id)
+- `idx_anomalies_sim_id` on (sim_id) WHERE sim_id IS NOT NULL
+- `idx_anomalies_type` on (type)
+- `idx_anomalies_severity` on (severity)
+- `idx_anomalies_state` on (state)
+- `idx_anomalies_detected_at` on (detected_at DESC)
+- `idx_anomalies_tenant_state` on (tenant_id, state)
+
+### Partitioning
+
+None.
+
+### Related
+
+- TBL-01 tenants (tenant_id FK)
+- TBL-10 sims (sim_id, nullable — anomaly may apply to a specific SIM or the entire tenant)
+- SVC-07 analytics — anomaly detection engine writes records here
+- TBL-21 notifications — anomaly events trigger `anomaly_detected` notifications

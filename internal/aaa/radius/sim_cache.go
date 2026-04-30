@@ -72,6 +72,13 @@ func (c *SIMCache) GetByIMSI(ctx context.Context, imsi string) (*store.SIM, erro
 }
 
 func (c *SIMCache) InvalidateIMSI(ctx context.Context, imsi string) error {
+	// Mirror the nil-redis guard in GetByIMSI (sim_cache.go:36) — STORY-092
+	// D-038 closure keeps enforcer/SIMCache usable with nil redis on the
+	// RADIUS happy path. Without this guard the DB-fall-through auth path
+	// would panic on first dynamic IP allocation.
+	if c.redis == nil {
+		return nil
+	}
 	key := simIMSICachePrefix + imsi
 	if err := c.redis.Del(ctx, key).Err(); err != nil {
 		return fmt.Errorf("sim_cache: invalidate %s: %w", imsi, err)

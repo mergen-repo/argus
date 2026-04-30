@@ -1,0 +1,74 @@
+# FIX-213 Step Log
+
+STEP_1 PLAN: EXECUTED | 2026-04-21 | evidence=docs/stories/fix-ui-review/FIX-213-plan.md | tasks=12 | result=PASS
+STEP_2 DEV: EXECUTED | 2026-04-21 | tasks=1..12 | files_changed=11 | result=PASS
+STEP_2.5 LINT: EXECUTED | 2026-04-21 | tsc=clean | vet=clean | build=clean | eslint=none | result=PASS
+
+## Files touched
+- web/package.json, web/package-lock.json (T1: +@tanstack/react-virtual@^3)
+- web/src/stores/events.ts (T2: envelope fields on LiveEvent, paused+queuedEvents, filters+sessionStartTs, eventMatchesFilters predicate, localStorage sync)
+- web/src/components/layout/dashboard-layout.tsx (T3: envelope-aware normalizer; meta-first merge with legacy fallback; severity coercion; dev warn for legacy shape)
+- web/src/lib/format.ts (T4: formatRelativeTime — second-precision relative string)
+- web/src/hooks/use-event-catalog.ts [NEW] (T5: TanStack Query hook, 5min staleTime, derives {types, entityTypes, sources} arrays)
+- web/src/components/ui/popover.tsx [NEW] (pre-req: hand-rolled Popover primitive — shadcn Radix not wired, see advisor note)
+- web/src/components/event-stream/event-filter-bar.tsx [NEW] (T6: sticky chip groups — Type/Severity/Entity/Source/DateRange; catalog-backed for 3, hardcoded severity)
+- web/src/components/event-stream/event-entity-button.tsx [NEW] (T7: D13 route map, ChevronRight icon, stopPropagation)
+- web/src/components/event-stream/event-source-chips.tsx [NEW] (T8: extracted + bytes chip with ↓/↑ + formatBytes for session.* events)
+- web/src/components/event-stream/event-row.tsx [NEW] (T9: title/message split, alert_id-gated Details link, entity button line, source chips line)
+- web/src/components/event-stream/event-stream-drawer.tsx (T10: rebuilt — selector-scoped state, virtualizer@100+, pause/resume/clear/queue-badge, 15s relative-time tick scoped to drawer-open, Turkish chrome)
+- web/src/__tests__/event-stream.smoke.test.tsx [NEW] (T11: type-level smoke — 7 filter predicate cases + 5 formatRelativeTime cases + PAT-015 imports)
+
+## PAT-015 gate
+grep "from '@/types/events'" web/src → 4 files (req ≥3):
+  stores/events.ts, hooks/use-event-catalog.ts, components/event-stream/event-filter-bar.tsx, __tests__/event-stream.smoke.test.tsx
+
+## AC mapping
+- AC-1 Filter chips (type/sev/entity/source/date) → T5+T6. catalog-backed for type/entity/source; hardcoded FIX-211 5-level severity.
+- AC-2 Event card: severity+type+entity+title+message+abs+rel → T3+T9+T7+T4. Row layout: abs HH:MM:SS + title · src/type/rel · entity button · message body · chips · details.
+- AC-3 Bytes in/out on session.* → T3 meta passthrough + T8 bytes chip (↓/↑ formatBytes). Duration deferred per D4.
+- AC-4 Alert expanded (severity+source+description+Details link) → T9 details link gated on meta.alert_id presence (future-proof, no type allowlist).
+- AC-5 Sticky filter header → T6 (sticky top-0 z-10 backdrop-blur-md).
+- AC-6 Pause/Resume + N yeni olay badge → T2 paused+queuedEvents state, T10 buttons+badge; histograms keep updating when paused.
+- AC-7 Clear → T2 clearEvents() wipes events+queue+filters+localStorage; T10 wires Temizle button.
+- AC-8 500-event buffer → T2 BUFFER_CAP=500 (raised from 100).
+- AC-9 Virtualization > 100 → T10 @tanstack/react-virtual, overscan=5, measureElement, estimateSize=88.
+
+## Findings fixed
+- F-09 Alert row generic body → T3 envelope title/message + T9 split-row layout renders real title.
+- F-12 No bytes on session rows → T3 meta.bytes_in/out passthrough + T8 ↓/↑ accent chips.
+- F-19 Entity not clickable → T7 EventEntityButton with D13 route map + drawer-close on nav.
+- F-20 No filter chips → T5 catalog hook + T6 sticky filter bar.
+
+## Deferred (commit body)
+- D4 session.ended duration_seconds in meta (publisher-side, follow-up story).
+- D3 grace window: flat-shape legacy fields kept on LiveEvent for one release; dev-only console.debug("[events] legacy shape") surfaces migration gaps.
+- Unit-test runner (vitest) not installed — project uses type-level smoke tests (advisor blind-spot #1). Runtime verification deferred to manual browser walkthrough per T11 step-log.
+
+## Decisions applied
+- D1 paths: refactored existing event-stream/ tree (not live-event-stream/).
+- D2 kept Sheet drawer (not new page).
+- D3 normalizer patched (keystone) — envelope wins, legacy fallback.
+- D4 bytes chips only; duration deferred.
+- D5 Details link gated on meta.alert_id presence (future-proof, no allowlist).
+- D6 paused→queue; histogram still live.
+- D7 buffer raised to 500.
+- D8 virtualize > 100 via @tanstack/react-virtual.
+- D9 formatRelativeTime in lib/format.ts (no date-fns).
+- D10 catalog hook for types/entityTypes/sources; severity hardcoded from FIX-211 taxonomy.
+- D11 localStorage key argus.events.filters.v1 with versioned rehydrate + try/catch fallback.
+- D12 session = sessionStartTs captured on store init (not persisted).
+- D13 route map — 14 entity types + graceful unknown span.
+- D14 Turkish chrome; English event-type identifiers.
+- D15 flat row (no accordion).
+
+## Verify results
+- npx tsc --noEmit: clean
+- npm run build: PASS (vite 2.6s, all chunks built)
+- go build ./...: Success
+- go vet ./...: clean
+- PAT-015 grep: 4 consumers (≥3 req) PASS
+
+STEP_3 GATE: EXECUTED | 2026-04-21 | findings=23 | fixed=17 | deferred=2 | result=PASS
+STEP_4 REVIEW: EXECUTED | 2026-04-21 | checks=14 | docs_updated=6 | unresolved=0 | result=PASS
+STEP_5 COMMIT: EXECUTED | 2026-04-21 | hash=6130b32 | files=26 | +2311/-165 | result=PASS
+STEP_6 HANDOFF: EXECUTED | 2026-04-21 | status=DONE | next=FIX-214 | result=PASS

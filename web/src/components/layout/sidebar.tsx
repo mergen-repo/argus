@@ -14,7 +14,6 @@ import {
   Users,
   Key,
   Globe,
-  BellRing,
   HeartPulse,
   Building,
   ChevronLeft,
@@ -27,8 +26,21 @@ import {
   HardDrive,
   Star,
   Clock,
+
+  Gauge,
+  XCircle,
+  Antenna,
+  Server,
+  Archive,
+  Rocket,
+  History,
+  PackageSearch,
+  MessageSquare,
+  Settings,
 } from 'lucide-react'
+import { hasMinRole } from '@/lib/rbac'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 
@@ -36,58 +48,59 @@ interface NavItem {
   label: string
   icon: React.ElementType
   path: string
+  minRole?: string
 }
 
 interface NavGroup {
   title: string
   items: NavItem[]
-  minRole?: 'tenant_admin' | 'super_admin'
+  minRole?: string
 }
-
-const ADMIN_ROLES = ['tenant_admin', 'super_admin']
 
 const navGroups: NavGroup[] = [
   {
     title: 'OVERVIEW',
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-      { label: 'Analytics', icon: BarChart3, path: '/analytics' },
-      { label: 'Alerts', icon: AlertTriangle, path: '/alerts' },
-      { label: 'SLA', icon: ShieldCheck, path: '/sla' },
+      { label: 'Analytics', icon: BarChart3, path: '/analytics', minRole: 'analyst' },
+      { label: 'Alerts', icon: AlertTriangle, path: '/alerts', minRole: 'analyst' },
+      { label: 'SLA', icon: ShieldCheck, path: '/sla', minRole: 'analyst' },
     ],
   },
   {
     title: 'MANAGEMENT',
     items: [
-      { label: 'SIM Cards', icon: CardSim, path: '/sims' },
-      { label: 'APNs', icon: Network, path: '/apns' },
+      { label: 'SIM Cards', icon: CardSim, path: '/sims', minRole: 'sim_manager' },
+      { label: 'APNs', icon: Network, path: '/apns', minRole: 'sim_manager' },
       { label: 'Operators', icon: Building2, path: '/operators' },
-      { label: 'Sessions', icon: Radio, path: '/sessions' },
-      { label: 'Policies', icon: Shield, path: '/policies' },
-      { label: 'Violations', icon: AlertTriangle, path: '/violations' },
-      { label: 'eSIM', icon: Smartphone, path: '/esim' },
-      { label: 'Topology', icon: GitBranch, path: '/topology' },
+      { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools', minRole: 'operator_manager' },
+      { label: 'Sessions', icon: Radio, path: '/sessions', minRole: 'sim_manager' },
+      { label: 'CDRs', icon: FileBarChart, path: '/cdrs', minRole: 'analyst' },
+      { label: 'Policies', icon: Shield, path: '/policies', minRole: 'policy_editor' },
+      { label: 'Violations', icon: AlertTriangle, path: '/violations', minRole: 'sim_manager' },
+      { label: 'eSIM', icon: Smartphone, path: '/esim', minRole: 'sim_manager' },
+      { label: 'Topology', icon: GitBranch, path: '/topology', minRole: 'operator_manager' },
     ],
   },
   {
     title: 'OPERATIONS',
+    minRole: 'sim_manager',
     items: [
-      { label: 'Jobs', icon: ListTodo, path: '/jobs' },
-      { label: 'Audit Log', icon: ScrollText, path: '/audit' },
+      { label: 'Jobs', icon: ListTodo, path: '/jobs', minRole: 'sim_manager' },
+      { label: 'Audit Log', icon: ScrollText, path: '/audit', minRole: 'tenant_admin' },
       { label: 'Notifications', icon: Bell, path: '/notifications' },
-      { label: 'Reports', icon: FileBarChart, path: '/reports' },
-      { label: 'Capacity', icon: HardDrive, path: '/capacity' },
-      { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
+      { label: 'Reports', icon: FileBarChart, path: '/reports', minRole: 'analyst' },
+      { label: 'Capacity', icon: HardDrive, path: '/capacity', minRole: 'analyst' },
+
     ],
   },
   {
     title: 'SETTINGS',
     minRole: 'tenant_admin',
     items: [
+      { label: 'Settings', icon: Settings, path: '/settings' },
       { label: 'Users & Roles', icon: Users, path: '/settings/users' },
-      { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
-      { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools' },
-      { label: 'Notifications', icon: BellRing, path: '/settings/notifications' },
+      { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },
   {
@@ -98,13 +111,32 @@ const navGroups: NavGroup[] = [
       { label: 'Tenants', icon: Building, path: '/system/tenants' },
     ],
   },
+  {
+    title: 'ADMIN',
+    minRole: 'tenant_admin',
+    items: [
+      { label: 'Tenant Usage', icon: Gauge, path: '/admin/tenant-usage' },
+      { label: 'Security Events', icon: Shield, path: '/admin/security-events', minRole: 'super_admin' },
+      { label: 'API Usage', icon: Key, path: '/admin/api-usage', minRole: 'super_admin' },
+      { label: 'Purge History', icon: PackageSearch, path: '/admin/purge-history', minRole: 'super_admin' },
+      { label: 'Delivery Status', icon: MessageSquare, path: '/admin/delivery', minRole: 'super_admin' },
+    ],
+  },
+  {
+    title: 'OPERATIONS — SRE',
+    minRole: 'super_admin',
+    items: [
+      { label: 'Performance', icon: Gauge, path: '/ops/performance' },
+      { label: 'Errors', icon: XCircle, path: '/ops/errors' },
+      { label: 'AAA Live', icon: Antenna, path: '/ops/aaa-traffic' },
+      { label: 'Infra', icon: Server, path: '/ops/infra' },
+      { label: 'Job Queue', icon: ListTodo, path: '/ops/jobs' },
+      { label: 'Backups', icon: Archive, path: '/ops/backup' },
+      { label: 'Deploys', icon: Rocket, path: '/ops/deploys' },
+      { label: 'Incidents', icon: History, path: '/ops/incidents' },
+    ],
+  },
 ]
-
-function hasMinRole(userRole: string | undefined, minRole: 'tenant_admin' | 'super_admin'): boolean {
-  if (!userRole) return false
-  if (minRole === 'super_admin') return userRole === 'super_admin'
-  return ADMIN_ROLES.includes(userRole)
-}
 
 export function Sidebar() {
   const location = useLocation()
@@ -116,9 +148,13 @@ export function Sidebar() {
     return location.pathname.startsWith(path)
   }
 
-  const visibleGroups = navGroups.filter(
-    (group) => !group.minRole || hasMinRole(userRole, group.minRole),
-  )
+  const visibleGroups = navGroups
+    .filter((group) => !group.minRole || hasMinRole(userRole, group.minRole))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.minRole || hasMinRole(userRole, item.minRole)),
+    }))
+    .filter((group) => group.items.length > 0)
 
   return (
     <aside
@@ -219,9 +255,11 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-border p-3">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
           onClick={toggleSidebar}
-          className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          className="flex w-full items-center justify-start gap-3 h-auto px-2 py-1.5 text-sm"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {sidebarCollapsed ? (
@@ -232,7 +270,7 @@ export function Sidebar() {
               <span>Collapse</span>
             </>
           )}
-        </button>
+        </Button>
       </div>
     </aside>
   )

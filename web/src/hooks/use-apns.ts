@@ -2,6 +2,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { api } from '@/lib/api'
 import type { APN, IPPool, APNListFilters } from '@/types/apn'
 import type { SIM, ListResponse, ApiResponse } from '@/types/sim'
+import type { PolicyListItem } from '@/types/policy'
 
 const APNS_KEY = ['apns'] as const
 
@@ -56,6 +57,7 @@ export interface CreateAPNData {
   apn_type: string
   supported_rat_types: string[]
   display_name?: string
+  ip_pool_ids?: string[]
 }
 
 export function useCreateAPN() {
@@ -111,6 +113,18 @@ export function useAPNSims(apnId: string) {
     getNextPageParam: (lastPage) =>
       lastPage.meta.has_more ? lastPage.meta.cursor : undefined,
     enabled: !!apnId,
+  })
+}
+
+export function useAPNReferencingPolicies(apnId: string) {
+  return useQuery({
+    queryKey: [...APNS_KEY, 'referencing-policies', apnId],
+    queryFn: async () => {
+      const res = await api.get<ListResponse<PolicyListItem>>(`/apns/${apnId}/referencing-policies?limit=50`)
+      return res.data.data
+    },
+    enabled: !!apnId,
+    staleTime: 60_000,
   })
 }
 

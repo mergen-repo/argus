@@ -1,0 +1,88 @@
+=== SIMs with IP addresses ===
+ sims_with_ip 
+--------------
+          129
+(1 row)
+
+=== Total SIMs ===
+ sims_total 
+------------
+        162
+(1 row)
+
+=== IP pools with non-zero used_addresses ===
+                  id                  |       name       | total_addresses | used_addresses | state  
+--------------------------------------+------------------+-----------------+----------------+--------
+ 70000000-0000-0000-0000-000000000001 | Fleet IPv4 Pool  |            1022 |             25 | active
+ 07000000-0000-0000-0000-000000000001 | Demo IoT Pool    |            1022 |             23 | active
+ 70000000-0000-0000-0000-000000000002 | Meter IPv4 Pool  |             254 |             23 | active
+ 07000000-0000-0000-0000-000000000002 | Demo M2M Pool    |             254 |             15 | active
+ 70000000-0000-0000-0000-000000000011 | City IoT Pool    |            1022 |              8 | active
+ 70000000-0000-0000-0000-000000000003 | Sensor IPv4 Pool |             510 |              6 | active
+ 70000000-0000-0000-0000-000000000005 | Industrial Pool  |             254 |              5 | active
+ 07000000-0000-0000-0000-000000000003 | Demo Data Pool   |             254 |              5 | active
+ 70000000-0000-0000-0000-000000000004 | Camera IPv4 Pool |             126 |              4 | active
+ 70000000-0000-0000-0000-000000000012 | Agri Pool        |             254 |              4 | active
+(10 rows)
+
+=== Active RADIUS sessions with framed_ip ===
+ERROR:  relation "radius_sessions" does not exist
+LINE 1: ...T COUNT(*) AS active_sessions_with_framed_ip FROM radius_ses...
+                                                             ^
+=== Active RADIUS sessions without framed_ip ===
+ERROR:  relation "radius_sessions" does not exist
+LINE 1: ...OUNT(*) AS active_sessions_without_framed_ip FROM radius_ses...
+                                                             ^
+=== Active sessions with framed_ip ===
+ active_with_ip 
+----------------
+            123
+(1 row)
+
+=== Active sessions without framed_ip ===
+ active_without_ip 
+-------------------
+                16
+(1 row)
+
+=== sessions columns ===
+                                      Table "public.sessions"
+       Column       |           Type           | Collation | Nullable |           Default           
+--------------------+--------------------------+-----------+----------+-----------------------------
+ id                 | uuid                     |           | not null | gen_random_uuid()
+ sim_id             | uuid                     |           | not null | 
+ tenant_id          | uuid                     |           | not null | 
+ operator_id        | uuid                     |           | not null | 
+ apn_id             | uuid                     |           |          | 
+ nas_ip             | inet                     |           |          | 
+ framed_ip          | inet                     |           |          | 
+ calling_station_id | character varying(50)    |           |          | 
+ called_station_id  | character varying(100)   |           |          | 
+ rat_type           | character varying(10)    |           |          | 
+ session_state      | character varying(20)    |           | not null | 'active'::character varying
+ auth_method        | character varying(20)    |           |          | 
+ policy_version_id  | uuid                     |           |          | 
+ acct_session_id    | character varying(100)   |           |          | 
+ started_at         | timestamp with time zone |           | not null | now()
+ ended_at           | timestamp with time zone |           |          | 
+ terminate_cause    | character varying(50)    |           |          | 
+ bytes_in           | bigint                   |           | not null | 0
+ bytes_out          | bigint                   |           | not null | 0
+ packets_in         | bigint                   |           | not null | 0
+ packets_out        | bigint                   |           | not null | 0
+ last_interim_at    | timestamp with time zone |           |          | 
+ protocol_type      | character varying(20)    |           | not null | 'radius'::character varying
+ slice_info         | jsonb                    |           |          | 
+ sor_decision       | jsonb                    |           |          | 
+Indexes:
+    "idx_sessions_acct_active" btree (acct_session_id, started_at DESC) WHERE session_state::text = 'active'::text AND acct_session_id IS NOT NULL
+    "idx_sessions_acct_session" btree (acct_session_id) WHERE acct_session_id IS NOT NULL
+    "idx_sessions_protocol_type" btree (protocol_type) WHERE session_state::text = 'active'::text
+    "idx_sessions_sim_active" btree (sim_id) WHERE session_state::text = 'active'::text
+    "idx_sessions_sim_started" btree (sim_id, started_at DESC)
+    "idx_sessions_state" btree (session_state) WHERE session_state::text = 'active'::text
+    "idx_sessions_tenant_active" btree (tenant_id) WHERE session_state::text = 'active'::text
+    "idx_sessions_tenant_operator" btree (tenant_id, operator_id, started_at DESC)
+    "sessions_started_at_idx" btree (started_at DESC)
+Number of child tables: 2 (Use \d+ to list them.)
+

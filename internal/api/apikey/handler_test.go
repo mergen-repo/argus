@@ -315,6 +315,143 @@ func TestDeleteInvalidID(t *testing.T) {
 	}
 }
 
+func TestAllowedIPsValidation(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, 20, logger)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "invalid cidr entry",
+			body:       `{"name":"k","scopes":["*"],"allowed_ips":["not-a-cidr"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeInvalidCIDR,
+		},
+		{
+			name:       "invalid partial cidr",
+			body:       `{"name":"k","scopes":["*"],"allowed_ips":["192.168.1.0/33"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeInvalidCIDR,
+		},
+		{
+			name:       "mixed valid invalid",
+			body:       `{"name":"k","scopes":["*"],"allowed_ips":["10.0.0.1","bad"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeInvalidCIDR,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			h.Create(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d (body: %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+
+			var resp apierr.ErrorResponse
+			json.NewDecoder(rr.Body).Decode(&resp)
+			if resp.Error.Code != tt.wantCode {
+				t.Errorf("code = %q, want %q", resp.Error.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestAllowedIPsUpdateValidation(t *testing.T) {
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	h := NewHandler(nil, nil, nil, 20, logger)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "invalid cidr in update",
+			body:       `{"allowed_ips":["not-a-cidr"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeInvalidCIDR,
+		},
+		{
+			name:       "invalid cidr in update second entry",
+			body:       `{"allowed_ips":["10.0.0.1","not-valid"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   apierr.CodeInvalidCIDR,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idStr := uuid.New().String()
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/api-keys/"+idStr, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, apierr.TenantIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.UserIDKey, uuid.New())
+			ctx = context.WithValue(ctx, apierr.RoleKey, "tenant_admin")
+			req = req.WithContext(ctx)
+
+			req = withChiURLParam(req, "id", idStr)
+
+			rr := httptest.NewRecorder()
+			h.Update(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d (body: %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+
+			var resp apierr.ErrorResponse
+			json.NewDecoder(rr.Body).Decode(&resp)
+			if resp.Error.Code != tt.wantCode {
+				t.Errorf("code = %q, want %q", resp.Error.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestValidateIPEntry(t *testing.T) {
+	tests := []struct {
+		entry string
+		valid bool
+	}{
+		{"192.168.1.0/24", true},
+		{"10.0.0.5", true},
+		{"10.0.0.5/32", true},
+		{"::1", true},
+		{"2001:db8::/32", true},
+		{"not-a-cidr", false},
+		{"192.168.1.0/33", false},
+		{"999.999.999.999", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.entry, func(t *testing.T) {
+			got := validateIPEntry(tt.entry)
+			if got != tt.valid {
+				t.Errorf("validateIPEntry(%q) = %v, want %v", tt.entry, got, tt.valid)
+			}
+		})
+	}
+}
+
 func TestHashAPIKeyConsistency(t *testing.T) {
 	key := "argus_ab_1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	hash1 := HashAPIKey(key)

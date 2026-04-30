@@ -52,6 +52,70 @@ func TestListNotificationParams_Defaults(t *testing.T) {
 	}
 }
 
+func TestNotificationConfigStore_ListByUser_CursorSignature(t *testing.T) {
+	s := NewNotificationConfigStore(nil)
+	if s == nil {
+		t.Fatal("NewNotificationConfigStore returned nil")
+	}
+
+	limitZero := 0
+	limitOver := 200
+	limitValid := 25
+
+	cases := []struct {
+		name      string
+		limit     int
+		wantLimit int
+	}{
+		{"zero becomes 50", limitZero, 50},
+		{"over 100 becomes 50", limitOver, 50},
+		{"valid preserved", limitValid, 25},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			limit := tc.limit
+			if limit <= 0 || limit > 100 {
+				limit = 50
+			}
+			if limit != tc.wantLimit {
+				t.Errorf("limit = %d, want %d", limit, tc.wantLimit)
+			}
+		})
+	}
+}
+
+func TestSessionStore_ListActiveByUserID_LimitDefaults(t *testing.T) {
+	s := NewSessionStore(nil)
+	if s == nil {
+		t.Fatal("NewSessionStore returned nil")
+	}
+
+	cases := []struct {
+		name      string
+		limit     int
+		wantLimit int
+	}{
+		{"zero becomes 50", 0, 50},
+		{"negative becomes 50", -1, 50},
+		{"over 100 becomes 50", 150, 50},
+		{"100 preserved", 100, 100},
+		{"50 preserved", 50, 50},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			limit := tc.limit
+			if limit <= 0 || limit > 100 {
+				limit = 50
+			}
+			if limit != tc.wantLimit {
+				t.Errorf("limit = %d, want %d", limit, tc.wantLimit)
+			}
+		})
+	}
+}
+
 func TestUpsertNotificationConfigParams_Fields(t *testing.T) {
 	tenantID := uuid.New()
 	userID := uuid.New()

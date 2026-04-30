@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE ip_addresses DROP COLUMN IF EXISTS last_seen_at;
+COMMIT;

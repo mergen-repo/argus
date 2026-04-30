@@ -1,0 +1,11 @@
+2026-04-20T12:37:46Z STEP_1 PLAN: EXECUTED | items=5 tasks 3 waves | evidence=FIX-205-plan.md 244 lines | result=PASS
+2026-04-20T12:48:19Z STEP_2 DEV wave=W1 task=T1 FE-interceptor-redirect+loop-guard: EXECUTED | result=PASS
+2026-04-20T12:48:19Z STEP_2 DEV wave=W1 task=T3a BE-refresh-response-schema: EXECUTED | result=PASS tests=34
+2026-04-20T12:48:19Z STEP_2 DEV wave=W2 task=T2 auth-store-tokenExpiresAt+scheduler+BC: EXECUTED | result=PASS typecheck=clean
+2026-04-20T12:48:19Z STEP_2 DEV wave=W2 task=T3b BE-rate-limit-60/min: EXECUTED | result=PASS tests=35+1(miniredis) full=3346
+2026-04-20T12:48:19Z STEP_2 DEV wave=W3 task=T4 FE-tests-manual-md: EXECUTED | result=DONE_WITH_CONCERNS (FE harness not wired; manual scenarios delivered)
+2026-04-20T12:48:19Z STEP_2.5 LINT: EXECUTED | hex=0 console.log=0 | result=PASS
+2026-04-20T12:48:19Z STEP_2 BUILD final: tests=3346 go=PASS tsc=PASS
+2026-04-20T12:58:09Z STEP_3 GATE: EXECUTED | findings=12 fixes=4 deferred=2 (D-053+D-054) | result=PASS tests=3312
+2026-04-20T13:09:03Z STEP_4 REVIEW: EXECUTED | findings=4 all-fixed-or-accepted | PAT-010 DEV-260..263 | result=PASS
+2026-04-20T13:09:40Z STEP_5 COMMIT: EXECUTED | commit=5701684 files=18 | result=PASS

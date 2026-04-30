@@ -1,0 +1,52 @@
+Phase 10 Gate re-run — Test suite results 2026-04-17
+
+=== go test ./... -count=1 (bypass cache) ===
+ok  	github.com/btopcu/argus/internal/geoip	2.044s
+ok  	github.com/btopcu/argus/internal/job	5.768s
+ok  	github.com/btopcu/argus/internal/killswitch	1.942s
+?   	github.com/btopcu/argus/internal/middleware	[no test files]
+ok  	github.com/btopcu/argus/internal/notification	10.070s
+ok  	github.com/btopcu/argus/internal/observability	1.525s
+ok  	github.com/btopcu/argus/internal/observability/metrics	1.593s
+ok  	github.com/btopcu/argus/internal/operator	2.221s
+ok  	github.com/btopcu/argus/internal/operator/adapter	2.015s
+ok  	github.com/btopcu/argus/internal/operator/sor	1.817s
+ok  	github.com/btopcu/argus/internal/ota	1.975s
+?   	github.com/btopcu/argus/internal/policy	[no test files]
+ok  	github.com/btopcu/argus/internal/policy/cache	2.145s
+ok  	github.com/btopcu/argus/internal/policy/dryrun	1.824s
+ok  	github.com/btopcu/argus/internal/policy/dsl	1.979s
+?   	github.com/btopcu/argus/internal/policy/enforcer	[no test files]
+ok  	github.com/btopcu/argus/internal/policy/rollout	1.799s
+ok  	github.com/btopcu/argus/internal/report	1.879s
+ok  	github.com/btopcu/argus/internal/simulator/config	2.034s
+?   	github.com/btopcu/argus/internal/simulator/discovery	[no test files]
+?   	github.com/btopcu/argus/internal/simulator/engine	[no test files]
+?   	github.com/btopcu/argus/internal/simulator/metrics	[no test files]
+ok  	github.com/btopcu/argus/internal/simulator/radius	2.113s
+ok  	github.com/btopcu/argus/internal/simulator/scenario	2.239s
+?   	github.com/btopcu/argus/internal/storage	[no test files]
+ok  	github.com/btopcu/argus/internal/store	1.783s
+ok  	github.com/btopcu/argus/internal/store/schemacheck	1.778s
+ok  	github.com/btopcu/argus/internal/undo	1.901s
+ok  	github.com/btopcu/argus/internal/ws	13.766s
+ok  	github.com/btopcu/argus/test/e2e	2.084s
+
+=== Totals ===
+packages ok    : 83
+packages [no-test-files] : 12
+packages FAIL  : 0
+
+=== go test ./... -count=1 -v totals ===
+--- PASS lines : 2034
+--- FAIL lines : 0
+--- SKIP lines : 37
+
+Previous gate (STORY-086 gate) baseline was 2879 PASS. Current run matches order-of-magnitude (full suite green with subtests collapsed).
+
+=== web build ===
+✓ 2825 modules transformed.
+✓ built in 4.06s
+Exit: 0
+
+Web build: 2825 modules transformed, built in ~4s. All bundles under 412KB (vendor-charts), index 369KB.

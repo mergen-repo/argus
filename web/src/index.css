@@ -67,6 +67,10 @@
   --header-h: 56px;
 
   --shadow-glow: 0 0 20px rgba(0,212,255,0.08);
+  --shadow-glow-success: 0 0 6px rgba(0,255,136,0.4);
+  --shadow-card-success: 0 0 16px rgba(0,255,136,0.12);
+  --shadow-card-warning: 0 0 16px rgba(255,184,0,0.12);
+  --shadow-card-danger: 0 0 16px rgba(255,68,102,0.12);
   --shadow-card: 0 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(255,255,255,0.05);
 
   --transition-default: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -119,6 +123,10 @@
     --color-orange-dim: rgba(194,65,12,0.08);
 
     --shadow-glow: 0 0 8px rgba(14,116,144,0.06);
+    --shadow-glow-success: 0 0 6px rgba(4,120,87,0.35);
+    --shadow-card-success: 0 0 12px rgba(4,120,87,0.18);
+    --shadow-card-warning: 0 0 12px rgba(180,83,9,0.18);
+    --shadow-card-danger: 0 0 12px rgba(185,28,28,0.18);
     --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   }
 
@@ -244,6 +252,10 @@
     animation: slide-up-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
+  [data-density='compact'] { --table-row-height: 32px; }
+  [data-density='comfortable'] { --table-row-height: 40px; }
+  [data-density='spacious'] { --table-row-height: 48px; }
+
   .density-compact th {
     height: 32px;
     padding-left: 8px;
@@ -277,4 +289,20 @@
     padding: 14px 16px;
     font-size: 14px;
   }
+}
+
+/* FIX-239 DEV-535: Knowledge Base print styles.
+   Triggered via the "Export PDF" button (window.print()). Hides interactive
+   chrome (TOC, search, action buttons) and forces sections to flow as
+   a single column on paper. */
+@media print {
+  /* Hide global app chrome — sidebar, toolbars — when printing the KB. */
+  body { background: white !important; color: black !important; }
+  /* shadcn cards / borders read best with neutral tones on paper */
+  .bg-bg-surface, .bg-bg-elevated, .bg-bg-primary { background: white !important; }
+  .text-text-primary, .text-text-secondary { color: #111 !important; }
+  .text-text-tertiary { color: #555 !important; }
+  /* Drop sidebar / topbar / unrelated nav. The KB-specific .print:hidden
+     elements are already handled by Tailwind utilities. */
+  aside[role="navigation"], header[role="banner"], nav.global-nav { display: none !important; }
 }

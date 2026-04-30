@@ -32,11 +32,28 @@ multiplier_block = "rat_type_multiplier" "{" multiplier_entry+ "}" ;
 multiplier_entry = identifier "=" number ;
 
 (* Conditions *)
-condition       = simple_condition | compound_condition ;
+condition       = simple_condition | compound_condition | device_predicate | sim_binding_predicate | pool_membership_predicate ;
 simple_condition = identifier operator value_list ;
 compound_condition = condition ("AND" | "OR") condition ;
                    | "NOT" condition
                    | "(" condition ")" ;
+
+(* Device & SIM-binding predicates — Phase 11, see ADR-004 *)
+device_predicate = device_field operator value ;
+device_field    = "device.imei"
+                | "device.tac"
+                | "device.imeisv"
+                | "device.software_version"
+                | "device.binding_status" ;
+sim_binding_predicate = sim_binding_field operator value ;
+sim_binding_field = "sim.binding_mode"
+                  | "sim.bound_imei"
+                  | "sim.binding_verified_at" ;
+binding_status_value = "verified" | "pending" | "mismatch" | "unbound" | "disabled" ;
+binding_mode_value   = "strict" | "allowlist" | "first-use" | "tac-lock" | "grace-period" | "soft" | "null" ;
+pool_membership_predicate = "device.imei_in_pool" "(" pool_kind ")" ;
+pool_kind        = '"whitelist"' | '"greylist"' | '"blacklist"' ;
+tac_function     = "tac" "(" device_field ")" ;
 
 (* Operators *)
 operator        = "IN" | ">" | ">=" | "<" | "<=" | "=" | "!=" | "BETWEEN" ;
@@ -97,15 +114,17 @@ The MATCH block determines which SIMs/sessions a policy applies to. All clauses 
 | `operator` | string | `IN`, `=` | Operator names | Match by operator |
 | `rat_type` | enum | `IN`, `=` | `nb_iot`, `lte_m`, `lte`, `nr_5g` | Match by RAT type |
 | `sim_type` | enum | `IN`, `=` | `physical`, `esim` | Match by SIM type |
-| `roaming` | boolean | `=` | `true`, `false` | Match roaming status |
 | `metadata.*` | string | `=`, `!=`, `IN` | Any string | Match by SIM metadata field |
+
+> Note: the `roaming` boolean match field was removed by FIX-238 (2026-04-30)
+> alongside the roaming agreements feature. Existing policies referencing it
+> are auto-archived at boot by `internal/job/roaming_keyword_archiver.go`.
 
 Example:
 ```
 MATCH {
     apn IN ("iot.fleet", "iot.meter")
     rat_type IN (nb_iot, lte_m)
-    roaming = false
     metadata.fleet_id = "fleet-alpha"
 }
 ```
@@ -121,11 +140,20 @@ WHEN blocks inside the RULES section define conditional behavior based on runtim
 | `rat_type` | enum | `IN`, `=` | `nb_iot`, `lte_m`, `lte`, `nr_5g` | Current session RAT type |
 | `apn` | string | `IN`, `=` | APN names | Current session APN |
 | `operator` | string | `IN`, `=` | Operator names | Current session operator |
-| `roaming` | boolean | `=` | `true`, `false` | Is session roaming |
 | `session_count` | integer | `>`, `>=`, `<`, `<=`, `=` | Number | Active session count for this SIM |
 | `bandwidth_used` | data rate | `>`, `>=`, `<`, `<=` | Number + rate unit (kbps/mbps/gbps) | Current bandwidth utilization |
 | `session_duration` | duration | `>`, `>=`, `<`, `<=` | Number + time unit (s/min/h/d) | Current session duration |
 | `day_of_week` | enum | `IN`, `=` | `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` | Current day of week |
+| `device.imei` | string | `=`, `!=`, `IN` | 15-digit IMEI | Device IMEI from current auth (RADIUS 3GPP-IMEISV / Diameter S6a Terminal-Information / 5G PEI). Empty/null when capture failed. |
+| `device.tac` | string | `=`, `!=`, `IN` | 8-digit TAC | Type Allocation Code — first 8 digits of IMEI; identifies device model. Computed by Argus, not transmitted on the wire. |
+| `device.imeisv` | string | `=`, `!=` | 16-digit IMEISV | Concatenated IMEI + Software-Version (16 digits). Phase 11. |
+| `device.software_version` | string | `=`, `!=`, `IN` | 2-digit SV | Device firmware revision sub-field (last 2 digits of IMEISV). Phase 11. |
+| `device.binding_status` | enum | `=`, `IN` | `verified`, `pending`, `mismatch`, `unbound`, `disabled` | Result of the binding pre-check — `disabled` when SIM has `binding_mode=NULL`; otherwise reflects the pre-check verdict for the current auth. Phase 11. |
+| `device.imei_in_pool('<kind>')` | predicate | (call) | `whitelist`, `greylist`, `blacklist` | Membership check against `imei_whitelist`/`imei_greylist`/`imei_blacklist`. Returns boolean. Phase 11, STORY-095. |
+| `sim.binding_mode` | enum | `=`, `IN`, `!=` | `strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`, `null` | Per-SIM binding posture (`null` = binding disabled). Phase 11, STORY-094. |
+| `sim.bound_imei` | string | `=`, `!=` | 15-digit IMEI or empty | The IMEI this SIM is currently locked to (relevant for `strict`, `first-use`, `tac-lock`, `grace-period`). |
+| `sim.binding_verified_at` | timestamp | `>`, `>=`, `<`, `<=` | ISO-8601 / relative duration | Last successful verification timestamp; useful for staleness rules in `grace-period` mode. |
+| `tac(<device-field>)` | function | (returns string) | `device.imei` only | Extracts TAC (first 8 digits) from an IMEI field, e.g., `tac(device.imei) = "35982110"`. Phase 11. |
 
 ### Compound Conditions
 
@@ -138,10 +166,6 @@ WHEN usage > 500MB AND rat_type = lte {
 
 WHEN (time_of_day IN (00:00-06:00) OR day_of_week IN (sat, sun)) AND usage < 1GB {
     bandwidth_down = 4mbps  # weekend/off-peak bonus
-}
-
-WHEN NOT roaming = true {
-    bandwidth_down = 2mbps
 }
 ```
 
@@ -245,13 +269,6 @@ POLICY "iot-fleet-standard" {
             bandwidth_up = 512kbps
         }
 
-        # Roaming restrictions
-        WHEN roaming = true {
-            bandwidth_down = 256kbps
-            bandwidth_up = 128kbps
-            ACTION notify(roaming_detected, 0%)
-        }
-
         # Anti-abuse: too many sessions
         WHEN session_count > 3 {
             ACTION notify(anomaly_detected, 0%)
@@ -271,6 +288,59 @@ POLICY "iot-fleet-standard" {
             lte_m  = 1.0
             lte    = 2.0
             nr_5g  = 3.0
+        }
+    }
+}
+```
+
+## Device Binding Examples (Phase 11)
+
+> See ADR-004. The `device.*` and `sim.*` namespaces run AFTER the AAA capture pipeline has populated SessionContext but the **binding pre-check** itself is enforced in the AAA engine BEFORE policy DSL evaluation when `sim.binding_mode IS NOT NULL`. DSL rules below operate on the post-pre-check `binding_status` and are intended for **post-policy** enrichment (notify on soft mismatch, log + tag on TAC change, etc.) — they cannot weaken a hard reject already issued by the pre-check in `strict`/`allowlist`/`first-use`/`tac-lock` modes.
+
+```
+# Soft-mode tenant: never reject, but flag every device change as a high-severity audit event.
+POLICY "m2m-fleet-soft-binding" {
+    MATCH {
+        apn IN ("m2m.industrial")
+        metadata.binding_profile = "soft"
+    }
+    RULES {
+        WHEN device.binding_status = "mismatch" {
+            ACTION notify(device_mismatch, 0%)
+            ACTION log("IMEI mismatch under soft binding")
+            ACTION tag("last_mismatch_at", now())
+        }
+    }
+}
+
+# TAC-lock tenant: alert when a device of a different model is observed (different TAC).
+POLICY "m2m-meters-taclock" {
+    MATCH {
+        apn IN ("m2m.water", "m2m.electric")
+    }
+    RULES {
+        WHEN sim.binding_mode = "tac-lock" AND tac(device.imei) != tac(sim.bound_imei) {
+            ACTION notify(device_mismatch, 0%)
+            ACTION log("TAC drift — different device model on locked SIM")
+        }
+    }
+}
+
+# Defensive layer on top of pool enforcement: belt-and-suspenders block of greylisted devices.
+POLICY "iot-fleet-greylist-quarantine" {
+    MATCH {
+        apn IN ("iot.fleet")
+    }
+    RULES {
+        WHEN device.imei_in_pool("greylist") = true {
+            bandwidth_down = 64kbps
+            bandwidth_up  = 32kbps
+            ACTION notify(device_greylisted, 0%)
+            ACTION log("Greylist quarantine throttle applied")
+        }
+        WHEN device.imei_in_pool("blacklist") = true {
+            ACTION block()
+            ACTION notify(device_blacklisted, 100%)
         }
     }
 }
@@ -368,3 +438,37 @@ The parser provides precise error locations for syntax and semantic errors:
 6. **Time range format**: Must be HH:MM-HH:MM in 24-hour format. Range wrapping past midnight is allowed (e.g., `22:00-06:00`).
 7. **RAT type values**: Must be one of `nb_iot`, `lte_m`, `lte`, `nr_5g`.
 8. **Action parameter types**: Each action has a fixed parameter signature; mismatched types are errors.
+
+## Predicate Execution (SQL Backend)
+
+`dsl.ToSQLPredicate` is the canonical builder that translates a compiled MATCH block into a parameterized SQL WHERE fragment. It is the **only** permitted way to produce SQL from DSL — callers must never construct predicates manually.
+
+### Whitelisted Fields
+
+| Field | SQL Fragment | Notes |
+|-------|-------------|-------|
+| `apn` | `s.apn_id = (SELECT id FROM apns WHERE tenant_id = $T AND name = $N)` | Tenant-scoped sub-select |
+| `operator` | `s.operator_id = (SELECT id FROM operators WHERE code = $N)` | Global — no tenant_id on operators |
+| `imsi_prefix` | `s.imsi LIKE $N` | Value appended with `%` before binding |
+| `rat_type` | `s.rat_type = $N` | Direct string column |
+| `sim_type` | `s.sim_type = $N` | Direct string column |
+| `sim.binding_mode` | `s.binding_mode = $N` | Phase 11 — used by SIM list cohort filters; NULL never matches via `=` (use `IS NULL` form when adding to MATCH). |
+| `sim.bound_imei` | `s.bound_imei = $N` | Phase 11 — exact-match only; cohort/forensics use case. |
+
+> **Runtime-only fields**: `device.imei`, `device.tac`, `device.imeisv`, `device.software_version`, `device.binding_status`, and `device.imei_in_pool(...)` are session-context predicates evaluated by `dsl.EvaluateCompiled` at AAA time only — they are NOT permitted in MATCH→SQL and the whitelist explicitly rejects them. The `tac()` function is also runtime-only.
+
+### Rules
+
+- **Unknown field** → `err = fmt.Errorf("dsl: field %q not allowed in MATCH→SQL", field)`. The API handler returns HTTP 422 INVALID_DSL. The field name is NEVER concatenated into SQL.
+- **All values** bound via `$N` pgx placeholders — never via `fmt.Sprintf` string interpolation. This makes SQL injection structurally impossible through this path.
+- **Empty MATCH** (`match == nil` or zero conditions) → returns `("TRUE", nil, nextArgIdx, nil)`. AND-joined with the base query predicate; effectively no SIM narrowing.
+- **Multiple conditions** → joined with ` AND `.
+- **Fail-closed**: if `dsl.CompileSource` returns error-severity diagnostics, `compiledMatchFromVersion` returns a non-nil error rather than falling back to `TRUE` (which would migrate ALL active tenant SIMs).
+
+### Usage Pattern
+
+```go
+predicate, args, _, err := dsl.ToSQLPredicate(&compiled.Match, tenantArgIdx, startArgIdx)
+// predicate is safe to embed in WHERE clause; args bound by pgx
+count, err := simStore.CountWithPredicate(ctx, tenantID, predicate, args)
+```

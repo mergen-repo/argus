@@ -1,0 +1,292 @@
+# ci.yml — Argus CI/CD Pipeline
+#
+# Required repository secrets:
+#   STAGING_SSH_HOST   — Hostname/IP of the staging server
+#   STAGING_SSH_USER   — SSH username for staging access
+#   STAGING_SSH_KEY    — Private SSH key for staging access (PEM format)
+#   GHCR_USERNAME      — GitHub Container Registry username
+#   GHCR_TOKEN         — GitHub Container Registry token (PAT with write:packages)
+#   TEST_TENANT_TOKEN  — Bearer token for authenticated smoke-test endpoints
+#
+# NOTE: Merge protections MUST require this workflow to pass before merging.
+# Configure in: Settings → Branches → Branch protection rules → "Require status checks to pass"
+# Required checks: go-lint, web-lint, go-test, web-test, govulncheck, gosec, web-audit, build-image
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  # ── Stage 1: Lint (parallel) ──────────────────────────────────────────────
+
+  go-lint:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: ./...
+
+  web-lint:
+    name: Web Lint & Type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: ESLint
+        run: cd web && npm run lint
+
+      - name: TypeScript type-check
+        run: cd web && npm run type-check
+
+  # ── Stage 2: Test (parallel, after lint) ──────────────────────────────────
+
+  go-test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    needs: [go-lint, web-lint]
+
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests
+        run: go test ./... -race -cover -timeout=10m -short
+        env:
+          POSTGRES_DSN: postgres://argus:argus@localhost:5432/argus_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          NATS_URL: nats://localhost:4222
+
+  web-test:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    needs: [go-lint, web-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: Run tests
+        run: cd web && npm test -- --run
+
+  # ── Stage 3: Security scans (parallel, after tests) ───────────────────────
+
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    needs: [go-test, web-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  gosec:
+    name: Go Security Scan (gosec)
+    runs-on: ubuntu-latest
+    needs: [go-test, web-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: gosec ./...
+
+  web-audit:
+    name: Web Dependency Audit
+    runs-on: ubuntu-latest
+    needs: [go-test, web-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: npm audit (high+critical only)
+        run: cd web && npm audit --audit-level=high
+
+  # ── Stage 4: Docker image build (after security scans) ────────────────────
+
+  build-image:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [govulncheck, gosec, web-audit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute short SHA
+        id: meta
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=${GITHUB_REF_NAME}
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr -cd '[:alnum:]-.')
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "safe_branch=${SAFE_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "build_time=${BUILD_TIME}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${{ github.repository_owner }}/argus" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.argus
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.safe_branch }}
+            ${{ steps.meta.outputs.image }}:latest
+          build-args: |
+            VERSION=${{ steps.meta.outputs.safe_branch }}-${{ steps.meta.outputs.short_sha }}
+            GIT_SHA=${{ steps.meta.outputs.short_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build only (PR)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.argus
+          push: false
+          tags: |
+            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image }}:pr-${{ github.event.number }}
+          build-args: |
+            VERSION=pr-${{ github.event.number }}-${{ steps.meta.outputs.short_sha }}
+            GIT_SHA=${{ steps.meta.outputs.short_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Stage 5: Deploy to staging (main branch only, after image build) ──────
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute short SHA
+        id: meta
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: SSH deploy to staging
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/argus
+            make deploy-staging
+
+      - name: Wait for staging to stabilise
+        run: sleep 60
+
+      - name: Smoke test staging
+        run: |
+          chmod +x deploy/scripts/smoke-test.sh
+          deploy/scripts/smoke-test.sh "${{ secrets.STAGING_SSH_HOST }}:8084" "${{ steps.meta.outputs.short_sha }}"
+        env:
+          TEST_TENANT_TOKEN: ${{ secrets.TEST_TENANT_TOKEN }}
+
+      - name: Tag successful deploy
+        run: |
+          ISO_TS=$(date -u +"%Y%m%dT%H%M%SZ")
+          git tag "deploy-staging-${ISO_TS}"
+          git push origin "deploy-staging-${ISO_TS}"

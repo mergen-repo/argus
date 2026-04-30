@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity,
   Clock,
@@ -12,11 +12,15 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
+  Download,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import {
   Table,
   TableHeader,
@@ -46,6 +50,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { Session } from '@/types/session'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatDuration, formatNumber } from '@/lib/format'
+import { RATBadge } from '@/components/ui/rat-badge'
+import { EntityLink } from '@/components/shared'
 
 function LiveDot() {
   return (
@@ -85,6 +91,8 @@ function SessionRow({
   onDisconnect,
   onRowClick,
   onIMSIClick,
+  onNavigateDetail,
+  rowIndex,
 }: {
   session: Session
   isNew: boolean
@@ -92,6 +100,8 @@ function SessionRow({
   onDisconnect: (session: Session) => void
   onRowClick: (session: Session) => void
   onIMSIClick: (simId: string) => void
+  onNavigateDetail?: (session: Session) => void
+  rowIndex?: number
 }) {
   const [elapsed, setElapsed] = useState(session.duration_sec)
 
@@ -112,23 +122,33 @@ function SessionRow({
         isEnded && 'opacity-40',
       )}
       onClick={() => onRowClick(session)}
+      data-row-index={rowIndex}
+      data-href={`/sessions/${session.id}`}
     >
       <TableCell>
+        <span className="font-mono text-xs text-accent">{session.iccid || '-'}</span>
+      </TableCell>
+      <TableCell>
         <span
-          className="font-mono text-xs text-accent hover:underline cursor-pointer"
+          className="font-mono text-xs text-text-secondary hover:underline cursor-pointer"
           onClick={(e) => { e.stopPropagation(); if (session.sim_id) onIMSIClick(session.sim_id) }}
         >
           {session.imsi}
         </span>
       </TableCell>
       <TableCell>
-        <span className="font-mono text-xs text-text-tertiary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
+        <span className="font-mono text-xs text-text-secondary">{session.msisdn || '-'}</span>
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.operator_name || session.operator_id.slice(0, 8)}</span>
+        <span className="font-mono text-xs text-text-secondary">{session.ip_address ?? session.framed_ip ?? '-'}</span>
       </TableCell>
       <TableCell>
-        <span className="text-xs text-text-secondary">{session.apn_name || (session.apn_id?.slice(0, 8) ?? '-')}</span>
+        <EntityLink entityType="operator" entityId={session.operator_id} label={session.operator_name} />
+      </TableCell>
+      <TableCell>
+        {session.apn_id
+          ? <EntityLink entityType="apn" entityId={session.apn_id} label={session.apn_name} />
+          : <span className="text-xs text-text-secondary">-</span>}
       </TableCell>
       <TableCell>
         <span className="font-mono text-xs text-text-tertiary">{session.nas_ip}</span>
@@ -143,13 +163,7 @@ function SessionRow({
         <span className="font-mono text-xs text-accent">{formatBytes(session.bytes_out)}</span>
       </TableCell>
       <TableCell>
-        {session.rat_type ? (
-          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">
-            {session.rat_type}
-          </span>
-        ) : (
-          <span className="text-text-tertiary text-xs">-</span>
-        )}
+        <RATBadge ratType={session.rat_type} />
       </TableCell>
       <TableCell>
         <Button
@@ -166,15 +180,31 @@ function SessionRow({
           Disconnect
         </Button>
       </TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <RowActionsMenu
+          actions={[
+            { label: 'View Details', onClick: () => onNavigateDetail ? onNavigateDetail(session) : onRowClick(session) },
+            { label: 'View SIM', onClick: () => session.sim_id && onIMSIClick(session.sim_id), disabled: !session.sim_id },
+          ]}
+        />
+      </TableCell>
     </TableRow>
   )
 }
 
 export default function SessionListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [disconnectTarget, setDisconnectTarget] = useState<Session | null>(null)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
-  const [filterText, setFilterText] = useState('')
+  const filterText = searchParams.get('q') ?? ''
+  const setFilterText = useCallback((val: string) => {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (val) p.set('q', val); else p.delete('q')
+      return p
+    }, { replace: true })
+  }, [setSearchParams])
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -189,9 +219,11 @@ export default function SessionListPage() {
     isFetchingNextPage,
   } = useSessionList({})
 
+  const { exportCSV, exporting } = useExport('sessions')
+  const sessionFilters = useMemo(() => ({}), [])
   const disconnectMutation = useDisconnectSession()
-  const newSessionIds = useRealtimeSessionStarted()
-  const endedSessionIds = useRealtimeSessionEnded()
+  const newSessionIds = useRealtimeSessionStarted(sessionFilters)
+  const endedSessionIds = useRealtimeSessionEnded(sessionFilters)
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -262,10 +294,16 @@ export default function SessionListPage() {
           <h1 className="text-[16px] font-semibold text-text-primary">Live Sessions</h1>
           <LiveDot />
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -279,12 +317,15 @@ export default function SessionListPage() {
             className="pl-9 h-8 text-sm"
           />
           {filterText && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Clear search"
               onClick={() => setFilterText('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors h-5 w-5"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
         {filterText && (
@@ -319,7 +360,7 @@ export default function SessionListPage() {
             />
             {topOperators.length > 0 && (
               <StatCard
-                label={`Top: ${topOperators[0][0].slice(0, 8)}`}
+                label={`Top: ${stats?.top_operator?.name ?? topOperators[0][0].slice(0, 8)}`}
                 value={formatNumber(topOperators[0][1])}
                 icon={<Users className="h-4 w-4" />}
                 color="var(--color-purple)"
@@ -341,7 +382,9 @@ export default function SessionListPage() {
           <Table>
             <TableHeader className="bg-bg-elevated">
               <TableRow>
+                <TableHead>ICCID</TableHead>
                 <TableHead>IMSI</TableHead>
+                <TableHead>MSISDN</TableHead>
                 <TableHead>IP Address</TableHead>
                 <TableHead>Operator</TableHead>
                 <TableHead>APN</TableHead>
@@ -351,13 +394,14 @@ export default function SessionListPage() {
                 <TableHead>Bytes Out</TableHead>
                 <TableHead>RAT</TableHead>
                 <TableHead className="w-24" />
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 10 }).map((_, j) => (
+                    {Array.from({ length: 13 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
@@ -365,19 +409,17 @@ export default function SessionListPage() {
 
               {!isLoading && filteredSessions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Wifi className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No active sessions</h3>
-                        <p className="text-xs text-text-secondary">Sessions will appear here as devices connect.</p>
-                      </div>
-                    </div>
+                  <TableCell colSpan={13}>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No active sessions"
+                      description="Sessions will appear here as devices connect."
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {filteredSessions.map((session) => (
+              {filteredSessions.map((session, idx) => (
                 <SessionRow
                   key={session.id}
                   session={session}
@@ -386,6 +428,8 @@ export default function SessionListPage() {
                   onDisconnect={setDisconnectTarget}
                   onRowClick={(s) => setSelectedSession(s)}
                   onIMSIClick={(simId) => navigate(`/sims/${simId}`)}
+                  onNavigateDetail={(s) => navigate(`/sessions/${s.id}`)}
+                  rowIndex={idx}
                 />
               ))}
             </TableBody>
@@ -399,12 +443,13 @@ export default function SessionListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more sessions
-            </button>
+            </Button>
           ) : filteredSessions.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {filteredSessions.length} active sessions
@@ -461,11 +506,17 @@ export default function SessionListPage() {
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">Operator</div>
-                <div className="text-xs text-text-primary">{selectedSession.operator_name || selectedSession.operator_id.slice(0, 12)}</div>
+                <div className="text-xs text-text-primary">
+                  <EntityLink entityType="operator" entityId={selectedSession.operator_id} label={selectedSession.operator_name} />
+                </div>
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">APN</div>
-                <div className="text-xs text-text-primary">{selectedSession.apn_name || selectedSession.apn_id || '-'}</div>
+                <div className="text-xs text-text-primary">
+                  {selectedSession.apn_id
+                    ? <EntityLink entityType="apn" entityId={selectedSession.apn_id} label={selectedSession.apn_name} />
+                    : '-'}
+                </div>
               </div>
               <div className="rounded-[var(--radius-sm)] border border-border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">NAS IP</div>

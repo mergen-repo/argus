@@ -1,0 +1,9 @@
+{
+  "unexpectedError": "Beklenmeyen bir hata oluştu",
+  "networkError": "Ağ hatası — bağlantınızı kontrol edin",
+  "forbidden": "Bu işlemi gerçekleştirme izniniz yok",
+  "notFound": "İstenen kaynak bulunamadı",
+  "sessionExpired": "Oturumunuz sona erdi. Lütfen tekrar giriş yapın",
+  "exportFailed": "Dışa aktarma başarısız",
+  "undoFailed": "Geri alma başarısız"
+}

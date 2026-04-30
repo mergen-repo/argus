@@ -6,7 +6,16 @@ export interface TenantUser {
   role: string
   status: 'active' | 'invited' | 'deactivated'
   last_login_at?: string
+  locked_until?: string
   created_at: string
+}
+
+export interface AuthSessionItem {
+  id: string
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+  expires_at: string
 }
 
 export interface ApiKey {
@@ -16,6 +25,7 @@ export interface ApiKey {
   prefix: string
   scopes: string[]
   rate_limit: number
+  allowed_ips: string[]
   expires_at?: string
   last_used_at?: string
   created_at: string
@@ -28,6 +38,7 @@ export interface ApiKeyCreateResult {
   prefix: string
   scopes: string[]
   rate_limit: number
+  allowed_ips: string[]
   expires_at?: string
   created_at: string
 }
@@ -35,12 +46,18 @@ export interface ApiKeyCreateResult {
 export interface IpPool {
   id: string
   tenant_id: string
-  apn_id?: string
+  apn_id: string
   name: string
-  cidr: string
+  cidr_v4: string | null
+  cidr_v6: string | null
   total_addresses: number
   used_addresses: number
   available_addresses: number
+  utilization_pct: number
+  alert_threshold_warning: number
+  alert_threshold_critical: number
+  reclaim_grace_period_days: number
+  state: string
   created_at: string
 }
 
@@ -56,6 +73,7 @@ export interface IpAddress {
   sim_imsi?: string
   sim_msisdn?: string
   allocated_at?: string
+  last_seen_at?: string
 }
 
 export interface NotificationConfig {
@@ -65,6 +83,8 @@ export interface NotificationConfig {
     webhook: boolean
     sms: boolean
   }
+  webhookUrl?: string
+  webhookSecret?: string
   subscriptions: EventSubscription[]
   thresholds: ThresholdConfig[]
 }
@@ -112,13 +132,20 @@ export interface Tenant {
   id: string
   name: string
   slug: string
-  plan?: string
+  domain?: string | null
+  contact_email: string
+  contact_phone?: string | null
+  max_sims: number
+  max_apns: number
+  max_users: number
+  settings?: unknown
+  state: string
   sim_count: number
   user_count: number
-  retention_days: number
-  max_sims: number
-  max_users: number
-  max_api_keys: number
+  apn_count?: number | null
   created_at: string
   updated_at: string
+  plan?: string
+  retention_days?: number
+  max_api_keys?: number
 }

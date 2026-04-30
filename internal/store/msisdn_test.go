@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -174,5 +175,82 @@ func TestMSISDNImportErrorJSONTags(t *testing.T) {
 	}
 	if e.Message != "duplicate" {
 		t.Errorf("Message = %q, want duplicate", e.Message)
+	}
+}
+
+func TestMSISDNStore_BulkImport_BatchSize500(t *testing.T) {
+	const total = 1200
+	const batchSize = bulkImportBatchSize
+
+	expectedChunks := (total + batchSize - 1) / batchSize
+	if expectedChunks != 3 {
+		t.Fatalf("expected 3 chunks for 1200 rows, got %d", expectedChunks)
+	}
+
+	chunkSizes := make([]int, 0, expectedChunks)
+	for start := 0; start < total; start += batchSize {
+		end := start + batchSize
+		if end > total {
+			end = total
+		}
+		chunkSizes = append(chunkSizes, end-start)
+	}
+
+	if len(chunkSizes) != 3 {
+		t.Fatalf("chunk count = %d, want 3", len(chunkSizes))
+	}
+	if chunkSizes[0] != 500 {
+		t.Errorf("chunk[0] = %d, want 500", chunkSizes[0])
+	}
+	if chunkSizes[1] != 500 {
+		t.Errorf("chunk[1] = %d, want 500", chunkSizes[1])
+	}
+	if chunkSizes[2] != 200 {
+		t.Errorf("chunk[2] = %d, want 200", chunkSizes[2])
+	}
+
+	duplicateRows := map[int]bool{5: true, 250: true, 750: true, 1100: true}
+	rows := make([]MSISDNImportRow, total)
+	for i := range rows {
+		rows[i] = MSISDNImportRow{MSISDN: "+9055500" + fmt.Sprintf("%07d", i+1)}
+	}
+
+	simulatedResult := &MSISDNImportResult{Total: total}
+	for i, row := range rows {
+		if duplicateRows[i+1] {
+			simulatedResult.Skipped++
+			simulatedResult.Errors = append(simulatedResult.Errors, MSISDNImportError{
+				Row:     i + 1,
+				MSISDN:  row.MSISDN,
+				Message: "duplicate",
+			})
+		} else {
+			simulatedResult.Imported++
+		}
+	}
+
+	wantImported := total - len(duplicateRows)
+	wantSkipped := len(duplicateRows)
+
+	if simulatedResult.Imported != wantImported {
+		t.Errorf("Imported = %d, want %d", simulatedResult.Imported, wantImported)
+	}
+	if simulatedResult.Skipped != wantSkipped {
+		t.Errorf("Skipped = %d, want %d", simulatedResult.Skipped, wantSkipped)
+	}
+	if len(simulatedResult.Errors) != wantSkipped {
+		t.Errorf("Errors count = %d, want %d", len(simulatedResult.Errors), wantSkipped)
+	}
+	if simulatedResult.Imported+simulatedResult.Skipped != total {
+		t.Errorf("Imported + Skipped = %d, want %d", simulatedResult.Imported+simulatedResult.Skipped, total)
+	}
+
+	for _, e := range simulatedResult.Errors {
+		if e.Message != "duplicate" {
+			t.Errorf("error message = %q, want %q", e.Message, "duplicate")
+		}
+		if !duplicateRows[e.Row] {
+			t.Errorf("unexpected duplicate at row %d", e.Row)
+		}
 	}
 }

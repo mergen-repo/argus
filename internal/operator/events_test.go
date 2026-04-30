@@ -102,8 +102,14 @@ func TestSeverityConstants(t *testing.T) {
 	if SeverityCritical != "critical" {
 		t.Errorf("SeverityCritical = %s", SeverityCritical)
 	}
-	if SeverityWarning != "warning" {
-		t.Errorf("SeverityWarning = %s", SeverityWarning)
+	if SeverityHigh != "high" {
+		t.Errorf("SeverityHigh = %s", SeverityHigh)
+	}
+	if SeverityMedium != "medium" {
+		t.Errorf("SeverityMedium = %s", SeverityMedium)
+	}
+	if SeverityLow != "low" {
+		t.Errorf("SeverityLow = %s", SeverityLow)
 	}
 	if SeverityInfo != "info" {
 		t.Errorf("SeverityInfo = %s", SeverityInfo)

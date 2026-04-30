@@ -11,6 +11,7 @@ import (
 
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
 
@@ -27,6 +28,12 @@ type ServerDeps struct {
 	SessionMgr  *session.Manager
 	EventBus    *bus.EventBus
 	SIMResolver SIMResolver
+	// IPPoolStore and SIMStore are used by the Gx handler for Framed-IP-Address
+	// allocation on CCR-I and release on CCR-T (STORY-092 Wave 2). Optional —
+	// when either is nil the handler skips IP handling and the CCA-I is built
+	// without a Framed-IP-Address AVP (matches pre-STORY-092 behaviour).
+	IPPoolStore *store.IPPoolStore
+	SIMStore    *store.SIMStore
 	Logger      zerolog.Logger
 }
 
@@ -133,7 +140,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		stopCh:     make(chan struct{}),
 	}
 
-	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
+	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, deps.IPPoolStore, deps.SIMStore, stateMap, logger)
 	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
 
 	s.hopID.Store(uint32(time.Now().UnixNano() & 0xFFFFFFFF))
@@ -496,13 +503,24 @@ func (s *Server) watchdogLoop(peer *Peer, done chan struct{}) {
 				peer.conn.Close()
 
 				if s.eventBus != nil {
-					s.eventBus.Publish(context.Background(), bus.SubjectOperatorHealthChanged, map[string]interface{}{
-						"peer_host":  peer.originHost,
-						"peer_realm": peer.originRealm,
-						"status":     "down",
-						"reason":     "watchdog_timeout",
-						"timestamp":  time.Now().UTC(),
-					})
+					// FIX-212 AC-2: migrate raw-map publish to canonical bus.Envelope.
+					// Watchdog-timeout events are infra-global (no owning tenant),
+					// so tenant_id=SystemTenantID per D5 (publisher-authored
+					// sentinel). The peer remains the primary entity; the
+					// originRealm travels via meta.
+					env := bus.NewEnvelope("operator.health_changed", bus.SystemTenantID.String(), "high").
+						WithSource("operator").
+						WithTitle(fmt.Sprintf("Diameter peer %s watchdog timeout", peer.originHost)).
+						WithMessage("Peer marked DOWN after exceeding watchdog interval").
+						SetEntity("operator", peer.originHost, peer.originHost).
+						WithMeta("peer_host", peer.originHost).
+						WithMeta("peer_realm", peer.originRealm).
+						WithMeta("current_status", "down").
+						WithMeta("previous_status", "up").
+						WithMeta("reason", "watchdog_timeout")
+					if pubErr := s.eventBus.Publish(context.Background(), bus.SubjectOperatorHealthChanged, env); pubErr != nil {
+						s.logger.Warn().Err(pubErr).Str("peer", peer.originHost).Msg("publish peer watchdog timeout event failed")
+					}
 				}
 				return
 			}

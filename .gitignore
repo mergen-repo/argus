@@ -45,6 +45,9 @@ backups/
 tmp/
 *.tmp
 
+# MCP browser automation artifacts
+.playwright-mcp/
+
 # Secrets
 *.pem
 *.key
@@ -52,3 +55,9 @@ tmp/
 !deploy/nginx/*.conf
 !deploy/nginx/ssl/server.crt
 !deploy/nginx/ssl/server.key
+
+# Deploy snapshots (runtime JSON, not for version control)
+deploy/snapshots/*.json
+!deploy/snapshots/.gitkeep
+/simulator
+/operator-sim

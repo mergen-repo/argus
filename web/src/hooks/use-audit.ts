@@ -27,7 +27,7 @@ export function useAuditList(filters: AuditFilters) {
       if (filters.user_id) params.set('user_id', filters.user_id)
       if (filters.from) params.set('from', filters.from)
       if (filters.to) params.set('to', filters.to)
-      const res = await api.get<ListResponse<AuditLog>>(`/audit-logs?${params.toString()}`)
+      const res = await api.get<ListResponse<AuditLog>>(`/audit?${params.toString()}`)
       return res.data
     },
     initialPageParam: '' as string,

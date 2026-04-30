@@ -1,0 +1,91 @@
+=== STORY-086 PROBE 2: GET /api/v1/sms/history ===
+{"status":"success","data":[{"id":"1d1be7c1-f345-4f0f-a2d0-e8f06e4a89b6","sim_id":"060d2b15-0847-4f4f-a351-b6f68ed9cae9","msisdn":"+905550000102","text_hash":"hashpag2","text_preview":"Pagination test","status":"queued","queued_at":"2026-04-17T07:42:11Z"},{"id":"99bcf5b1-5640-4967-929e-ac5bbe981ed8","sim_id":"060d2b15-0847-4f4f-a351-b6f68ed9cae9","msisdn":"+905550000101","text_hash":"hashpag1","text_preview":"Pagination test","status":"queued","queued_at":"2026-04-17T07:42:11Z"},{"id":"06e95b31-8706-4d1e-861a-4ff472f20ba2","sim_id":"060d2b15-0847-4f4f-a351-b6f68ed9cae9","msisdn":"+905550000100
+=== DEV-191: GET /api/v1/status/details (check recent_error_5m field) ===
+Extra data: line 3 column 1 (char 911)
+
+=== STORY-078: sims/compare endpoint (F-4 follow-up check) ===
+{"status":"error","error":{"code":"NOT_FOUND","message":"SIM not found","details":[{"field":"sim_id_a","value":"11111111-1111-1111-1111-111111111111"}]}}
+
+HTTP 404
+
+=== STORY-077: saved views (F-3 follow-up check) ===
+{"status":"error","error":{"code":"VALIDATION_ERROR","message":"page query param required"}}
+
+HTTP 400
+
+=== STORY-077: announcements (F-3 follow-up check) ===
+{"status":"success","data":[]}
+
+HTTP 200
+
+=== STORY-078: system config (with secrets_redacted) ===
+Extra data: line 3 column 1 (char 1257)
+
+=== /api/v1/auth/me: role check ===
+404 page not found
+
+HTTP 404
+
+=== DEV-191 RAW: GET /api/v1/status/details ===
+{"status":"success","data":{"service":"argus","overall":"healthy","version":"dev","git_sha":"unknown","build_time":"unknown","uptime":"13h26m9s","active_tenants":2,"recent_error_5m":0},"meta":{"details":{"state":"healthy","db":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:06:48.203834337Z"},"redis":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:06:48.204081671Z"},"nats":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:06:48.204090379Z"},"aaa":{"radius":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:06:48.204095212Z"},"diameter":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:06:48.204598504Z"},"sessions_active":428},"disks":[{"mount":"/var/lib/postgresql/data","used_pct":0,"status":"missing"},{"mount":"/app/logs","used_pct":0,"status":"missing"},{"mount":"/data","used_pct":0,"status":"missing"}],"uptime":"13h26m9s"}}}
+
+=== HTTP code separate: ===
+HTTP 200
+
+=== /api/v1/system/config raw ===
+{"status":"success","data":{"app_env":"development","deployment_mode":"single","feature_flags":{"sba_enabled":false,"tls_enabled":false,"backup_enabled":false,"metrics_enabled":true,"rate_limit_enabled":true,"security_headers_enabled":true,"cron_enabled":true,"pprof_enabled":false},"protocols":{"radius_auth_port":1812,"radius_acct_port":1813,"radius_coa_port":3799,"diameter_port":3868,"diameter_tls_enabled":false,"sba_port":8443,"sba_enabled":false,"radsec_port":2083},"limits":{"rate_limit_per_minute":1000,"request_body_max_mb":10,"default_max_sims":1000000,"job_max_concurrent_per_tenant":5},"retention":{"purge_days":90,"audit_days":365,"cdr_days":180},"secrets_redacted":["JWT_SECRET","JWT_SECRET_PREVIOUS","ENCRYPTION_KEY","DATABASE_URL","DATABASE_READ_REPLICA_URL","REDIS_URL","NATS_URL","SMTP_PASSWORD","TELEGRAM_BOT_TOKEN","S3_ACCESS_KEY","S3_SECRET_KEY","ESIM_SMDP_API_KEY","ESIM_SMDP_CLIENT_CERT_PATH","ESIM_SMDP_CLIENT_KEY_PATH","SMS_AUTH_TOKEN","RADIUS_SECRET","PPROF_TOKEN","TLS_CERT_PATH","TLS_KEY_PATH","RADSEC_CERT_PATH","RADSEC_KEY_PATH","RADSEC_CA_PATH","DIAMETER_TLS_CERT_PATH","DIAMETER_TLS_KEY_PATH","DIAMETER_TLS_CA_PATH"],"version":"dev","git_sha":"unknown","build_time":"unknown","started_at":"2026-04-15T20:04:25.30435096Z"}}
+
+=== HTTP code separate ===
+HTTP 200
+
+=== Saved views (needs page param) ===
+{"status":"error","error":{"code":"VALIDATION_ERROR","message":"invalid page value"}}
+
+HTTP 400
+
+=== Sessions export CSV ===
+HTTP 200 content-type: text/csv; charset=utf-8
+
+=== SIMs list to get real UUIDs for compare ===
+{"status":"success","data":[{"id":"ffd8afbf-7e67-4088-992d-89f456b66b31","tenant_id":"00000000-0000-0000-0000-000000000001","operator_id":"00000000-0000-0000-0000-000000000102","operator_name":"Vodafone TR","apn_id":"00000000-0000-0000-0000-000000000302","apn_name":"XYZ M2M","iccid":"8990286020000100121001","imsi":"286020100121","msisdn":"+905320000021","ip_address_id":"16dbd782-a9c4-4932-9aea-a8303b433a97","ip_address":"10.100.4.25/32","ip_pool_name":"XYZ-M2M-Pool","sim_type":"physical","state":"active","rat_type":"nr_5g","max_concurrent_sessions":1,"session_idle_timeout_sec":3600,"session_hard_timeout_sec":86400,"metadata":{},"activated_at":"2026-04-15T10:02:34.173363Z","created_at":"2026-04-15T10:02:34.173363Z","updated_at":"2026-04-15T10:02:34.173363Z"},{"id":"ff3bc658-585c-40a9-9524-214263993b23","tenant_id":"00000000-0000-0000-0000-000000000001","operator_id":"00000000-0000-0000-0000-000000000101","operator_name":"Turkcell","apn_id":"00000000-0000-0000-0000-000000000301","apn_name":"XYZ IoT","iccid":"8990286010000100118001","imsi":"286010100118","msisdn":"+905310000118","ip_address_id":"6f991dbe-2ccb-4055-a9de-a42b5fd34b24","ip_address":"10.100.0.22/32","ip_pool_name":"XYZ-IoT-Pool","sim_type":"physical","state":"active","rat_type":"nb_iot","max_concurrent_sessions":1,"session_idle_timeout_sec":3600,"session_hard_timeout_sec":86400,"metadata":{},"activated_at":"2026-04-15T10:02:34.173363Z","created_at":"2026-04-15T10:02:34.173363Z","updated_at":"2026-04-15T10:02:34.1733
+=== STORY-078 sims/compare with real UUIDs ===
+{"status":"success","data":{"sim_a":{"id":"ffd8afbf-7e67-4088-992d-89f456b66b31","tenant_id":"00000000-0000-0000-0000-000000000001","operator_id":"00000000-0000-0000-0000-000000000102","operator_name":"Vodafone TR","apn_id":"00000000-0000-0000-0000-000000000302","apn_name":"XYZ M2M","iccid":"8990286020000100121001","imsi":"286020100121","msisdn":"+905320000021","ip_address_id":"16dbd782-a9c4-4932-9aea-a8303b433a97","ip_address":"10.100.4.25/32","ip_pool_name":"XYZ-M2M-Pool","sim_type":"physical","state":"active","rat_type":"nr_5g","max_concurrent_sessions":1,"session_idle_timeout_sec":3600,"session_hard_timeout_sec":86400,"metadata":{},"activated_at":"2026-04-15T10:02:34.173363Z","created_at":"2026-04-15T10:02:34.173363Z","updated_at":"2026-04-15T10:02:34.173363Z"},"sim_b":{"id":"ff3bc658-585c-40a9-9524-214263993b23","tenant_id":"00000000-0000-0000-0000-000000000001","operator_id":"00000000-0000-0000-0000-000000000101","operator_name":"Turkcell","apn_id":"00000000-0000-0000-0000-000000000301","apn_name":"XYZ IoT","iccid":"8990286010000100118001","imsi":"286010100118","msisdn":"+905310000118","ip_address_id":"6f991dbe-2ccb-4055-a9de-a42b5fd34b24","ip_address":"10.100.0.22/32","ip_pool_name":"XYZ-IoT-Pool","sim_type":"physical","state":"active","rat_type":"nb_iot","max_concurrent_sessions":1,"session_idle_timeout_sec":3600,"session_hard_timeout_sec":86400,"metadata":{},"activated_at":"2026-04-15T10:02:34.173363Z","created_at":"2026-04-15T10:02:34.173363Z","updated_at":"2026-04-15T10:02:34.173363Z"},"diff":[{"field":"iccid","value_a":"8990286020000100121001","value_b":"8990286010000100118001","equal":false},{"field":"imsi","value_a":"286020100121","value_b":"286010100118","equal":false},{"field":"msisdn","value_a":"+905320000021","value_b":"+905310000118","equal":false},{"field":"state","value_a":"active","value_b":"active","equal":true},{"field":"state_changed_at","value_a":"2026-04-15T10:02:34Z","value_b":"2026-04-15T10:02:34Z","equal":false},{"field":"operator_id","
+HTTP 200
+
+=== STORY-077 saved views with proper page ===
+{"status":"error","error":{"code":"VALIDATION_ERROR","message":"page query param required"}}
+
+HTTP 400
+
+=== STORY-076 universal search ===
+{"status":"success","data":{"apns":[],"operators":[],"policies":[],"sims":[],"users":[{"type":"user","id":"00000000-0000-0000-0000-000000000010","label":"System Admin","sub":"admin@argus.io","role":"super_admin"}]}}
+
+HTTP 200
+
+=== STORY-079 F-1: argus migrate subcommand ===
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mpprof server starting (endpoints: /debug/pprof/)[0m [36maddr=[0m:6060 [36mmode=[0mopen [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mstarting argus[0m [36menv=[0mdevelopment [36mport=[0m8080 [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1margus build info[0m [36mbuild_time=[0munknown [36mgit_sha=[0munknown [36mservice=[0margus [36mversion=[0mdev
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mobservability: OTLP endpoint not configured, using noop TracerProvider[0m [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [31mERR[0m [1mpprof server error[0m [36merror=[0m[31m[1m"listen tcp :6060: bind: address already in use"[0m[0m [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mpostgres connected[0m [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mredis connected[0m [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mnats connected[0m [36mcomponent=[0mbus [36mservice=[0margus [36murl=[0mnats://nats:4222
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mjetstream stream ready[0m [36mcomponent=[0mbus [36mservice=[0margus [36mstream=[0mEVENTS
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mjetstream stream ready[0m [36mcomponent=[0mbus [36mservice=[0margus [36mstream=[0mJOBS
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1maudit consumer started[0m [36mcomponent=[0maudit_service [36mservice=[0margus [36msubject=[0margus.events.audit.create
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcdr consumer started[0m [36mcomponent=[0mcdr_consumer [36mservice=[0margus [36msubjects=[0m["argus.events.session.started","argus.events.session.updated","argus.events.session.ended"]
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1manomaly engine started[0m [36mcomponent=[0manomaly_engine [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mjob runner started[0m [36mcomponent=[0mjob_runner [36mmax_concurrent=[0m5 [36mservice=[0margus [36mworker_id=[0mworker-c8b923f6bb29-28914
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mjob timeout detector started[0m [36mcomponent=[0mjob_timeout [36minterval=[0m300000 [36mservice=[0margus [36mtimeout=[0m1800000
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcron entry registered[0m [36mcomponent=[0mcron_scheduler [36mjob_type=[0mpurge_sweep [36mname=[0mpurge_sweep [36mschedule=[0m@daily [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcron entry registered[0m [36mcomponent=[0mcron_scheduler [36mjob_type=[0mip_reclaim [36mname=[0mip_reclaim [36mschedule=[0m@hourly [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcron entry registered[0m [36mcomponent=[0mcron_scheduler [36mjob_type=[0msla_report [36mname=[0msla_report [36mschedule=[0m@daily [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcron entry registered[0m [36mcomponent=[0mcron_scheduler [36mjob_type=[0manomaly_batch_detection [36mname=[0manomaly_batch_detection [36mschedule=[0m@hourly [36mservice=[0margus
+[90m2026-04-17T08:07:07Z[0m [32mINF[0m [1mcron entry registered[0m [36mcomponent=[0mcron_scheduler [36mjob_type=[0mstorage_monitor [36mname=[0mstorage_monitor [36mschedule=[0m@hourly [36mservice=[0margus
+
+=== STORY-086 SMS send dry-run (trigger functional check) ===
+404 page not found
+
+HTTP 404
+

@@ -1,5 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  getStoredSessionID,
+  setStoredSessionID,
+  useStartOnboarding,
+  useSubmitOnboardingStep,
+  useCompleteOnboarding,
+  useOnboardingSession,
+} from '@/hooks/use-onboarding'
 import {
   Building2,
   Network,
@@ -17,12 +25,15 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { FileInput } from '@/components/ui/file-input'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
-import { useOperatorList, useTestConnection } from '@/hooks/use-operators'
+import { useOperatorList } from '@/hooks/use-operators'
+import { api } from '@/lib/api'
+import type { ApiResponse } from '@/types/sim'
 
 interface StepConfig {
   id: number
@@ -73,17 +84,17 @@ const POLICY_TEMPLATES = [
 
 function StepIndicator({ steps, currentStep, completedSteps }: { steps: StepConfig[]; currentStep: number; completedSteps: Set<number> }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-6">
-      {steps.map((step, idx) => {
-        const isCompleted = completedSteps.has(step.id)
-        const isCurrent = step.id === currentStep
-        const Icon = step.icon
-        return (
-          <div key={step.id} className="flex items-center">
-            <div className="flex flex-col items-center">
+    <div className="py-6">
+      <div className="flex items-center justify-center">
+        {steps.map((step, idx) => {
+          const isCompleted = completedSteps.has(step.id)
+          const isCurrent = step.id === currentStep
+          const Icon = step.icon
+          return (
+            <div key={step.id} className="flex items-center">
               <div
                 className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-200',
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
                   isCompleted && 'border-success bg-success text-white',
                   isCurrent && !isCompleted && 'border-accent bg-accent-dim text-accent',
                   !isCurrent && !isCompleted && 'border-border bg-bg-surface text-text-tertiary',
@@ -91,16 +102,31 @@ function StepIndicator({ steps, currentStep, completedSteps }: { steps: StepConf
               >
                 {isCompleted ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
               </div>
-              <span className={cn('mt-1.5 text-[10px] font-medium', isCurrent ? 'text-text-primary' : 'text-text-tertiary')}>
-                {step.title}
-              </span>
+              {idx < steps.length - 1 && (
+                <div className={cn('mx-1.5 h-0.5 w-12 rounded-full transition-colors', isCompleted ? 'bg-success' : 'bg-border')} />
+              )}
             </div>
-            {idx < steps.length - 1 && (
-              <div className={cn('mx-2 h-0.5 w-8 rounded-full transition-colors', isCompleted ? 'bg-success' : 'bg-border')} />
-            )}
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+      <div className="flex justify-center mt-2">
+        {steps.map((step, idx) => {
+          const isCurrent = step.id === currentStep
+          return (
+            <div key={step.id} className="flex items-center">
+              <span
+                className={cn(
+                  'w-10 text-center text-[10px] leading-tight font-medium',
+                  isCurrent ? 'text-text-primary' : 'text-text-tertiary',
+                )}
+              >
+                {step.title.split(' ').map((w, i) => <span key={i} className="block">{w}</span>)}
+              </span>
+              {idx < steps.length - 1 && <div className="mx-1.5 w-12" />}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -109,8 +135,8 @@ function Step1TenantProfile({
   data,
   onChange,
 }: {
-  data: { companyName: string; timezone: string; retentionDays: string }
-  onChange: (data: { companyName: string; timezone: string; retentionDays: string }) => void
+  data: { companyName: string; timezone: string; retentionDays: string; contactEmail: string; locale: string }
+  onChange: (data: { companyName: string; timezone: string; retentionDays: string; contactEmail: string; locale: string }) => void
 }) {
   return (
     <div className="space-y-4">
@@ -124,12 +150,31 @@ function Step1TenantProfile({
         />
       </div>
       <div className="space-y-1.5">
-        <label className="block text-xs font-medium text-text-secondary">Timezone</label>
-        <Select
-          value={data.timezone}
-          onChange={(e) => onChange({ ...data, timezone: e.target.value })}
-          options={TIMEZONES}
+        <label className="block text-xs font-medium text-text-secondary">Contact Email *</label>
+        <Input
+          type="email"
+          value={data.contactEmail}
+          onChange={(e) => onChange({ ...data, contactEmail: e.target.value })}
+          placeholder="admin@company.com"
         />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-text-secondary">Language</label>
+          <Select
+            value={data.locale}
+            onChange={(e) => onChange({ ...data, locale: e.target.value })}
+            options={[{ value: 'en', label: 'English' }, { value: 'tr', label: 'Türkçe' }]}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-text-secondary">Timezone</label>
+          <Select
+            value={data.timezone}
+            onChange={(e) => onChange({ ...data, timezone: e.target.value })}
+            options={TIMEZONES}
+          />
+        </div>
       </div>
       <div className="space-y-1.5">
         <label className="block text-xs font-medium text-text-secondary">Data Retention</label>
@@ -147,85 +192,90 @@ function Step2OperatorConnection({
   data,
   onChange,
 }: {
-  data: { operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }
-  onChange: (data: { operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }) => void
+  data: { operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }
+  onChange: (data: { operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }) => void
 }) {
   const { data: operators } = useOperatorList()
-  const testConnection = useTestConnection(data.operatorId)
 
-  const operatorOptions = (operators || []).map((op) => ({
-    value: op.id,
-    label: `${op.name} (${op.code})`,
-  }))
+  const toggleOperator = (id: string) => {
+    const ids = data.operatorIds.includes(id)
+      ? data.operatorIds.filter((x) => x !== id)
+      : [...data.operatorIds, id]
+    onChange({ ...data, operatorIds: ids })
+  }
 
-  const handleTest = async () => {
-    if (!data.operatorId) return
-    onChange({ ...data, testResult: 'loading', testError: undefined })
+  const handleTest = async (opId: string) => {
+    onChange({ ...data, testResults: { ...data.testResults, [opId]: 'loading' }, testErrors: { ...data.testErrors, [opId]: '' } })
     try {
-      const result = await testConnection.mutateAsync()
+      const res = await api.post<ApiResponse<{ success: boolean; error?: string }>>(`/operators/${opId}/test`)
+      const result = res.data.data
       if (result.success) {
-        onChange({ ...data, testResult: 'success', testError: undefined })
+        onChange({ ...data, testResults: { ...data.testResults, [opId]: 'success' } })
       } else {
-        onChange({ ...data, testResult: 'error', testError: result.error || 'Connection test failed' })
+        onChange({ ...data, testResults: { ...data.testResults, [opId]: 'error' }, testErrors: { ...data.testErrors, [opId]: result.error || 'Failed' } })
       }
     } catch {
-      onChange({ ...data, testResult: 'error', testError: 'Failed to test connection' })
+      onChange({ ...data, testResults: { ...data.testResults, [opId]: 'error' }, testErrors: { ...data.testErrors, [opId]: 'Connection failed' } })
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <label className="block text-xs font-medium text-text-secondary">Select Operator *</label>
-        <Select
-          value={data.operatorId}
-          onChange={(e) => onChange({ ...data, operatorId: e.target.value, testResult: 'idle', testError: undefined })}
-          options={operatorOptions}
-          placeholder="Choose an operator"
-        />
-      </div>
-
-      {data.operatorId && (
-        <div className="space-y-3">
-          <Button
-            variant="outline"
-            onClick={handleTest}
-            disabled={data.testResult === 'loading'}
-            className="w-full gap-2"
-          >
-            {data.testResult === 'loading' ? (
-              <>
-                <Spinner />
-                Testing connection...
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4" />
-                Test Connection
-              </>
-            )}
-          </Button>
-
-          {data.testResult === 'success' && (
-            <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success-dim px-3 py-2 text-sm text-success">
-              <CheckCircle2 className="h-4 w-4" />
-              Connection successful
-            </div>
-          )}
-
-          {data.testResult === 'error' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
-                <AlertCircle className="h-4 w-4" />
-                {data.testError}
+    <div className="space-y-3">
+      <label className="block text-xs font-medium text-text-secondary">Select Operators * (one or more)</label>
+      {!operators?.length ? (
+        <p className="text-xs text-text-tertiary">No operators available. Ask a super_admin to create operators first.</p>
+      ) : (
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {operators.map((op) => {
+            const selected = data.operatorIds.includes(op.id)
+            const testState = data.testResults[op.id] || 'idle'
+            return (
+              <div
+                key={op.id}
+                className={cn(
+                  'flex items-center justify-between rounded-[var(--radius-md)] border px-3 py-2.5 cursor-pointer transition-colors',
+                  selected ? 'border-accent bg-accent/5' : 'border-border bg-bg-surface hover:border-text-tertiary',
+                )}
+                onClick={() => toggleOperator(op.id)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={cn('h-4 w-4 rounded border flex items-center justify-center', selected ? 'border-accent bg-accent text-white' : 'border-border')}>
+                    {selected && <Check className="h-3 w-3" />}
+                  </div>
+                  <div>
+                    <span className="text-sm text-text-primary font-medium">{op.name}</span>
+                    <span className="ml-2 text-xs text-text-tertiary font-mono">{op.code}</span>
+                  </div>
+                </div>
+                {selected && (
+                  <div className="flex items-center gap-2">
+                    {testState === 'success' && <CheckCircle2 className="h-4 w-4 text-success" />}
+                    {testState === 'error' && <AlertCircle className="h-4 w-4 text-danger" />}
+                    {testState === 'loading' && <Spinner />}
+                    {(testState === 'idle' || testState === 'error') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs gap-1"
+                        onClick={(e) => { e.stopPropagation(); handleTest(op.id) }}
+                      >
+                        <Zap className="h-3 w-3" />
+                        Test
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
-              <Button variant="outline" size="sm" onClick={handleTest} className="gap-1.5">
-                Retry
-              </Button>
-            </div>
-          )}
+            )
+          })}
         </div>
       )}
+      {Object.entries(data.testErrors).filter(([, v]) => v).map(([id, err]) => (
+        <div key={id} className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger-dim px-3 py-1.5 text-xs text-danger">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {operators?.find((o) => o.id === id)?.name}: {err}
+        </div>
+      ))}
     </div>
   )
 }
@@ -305,8 +355,7 @@ function Step4SIMImport({
               <Upload className="mx-auto mb-2 h-8 w-8 text-text-tertiary" />
               <label className="cursor-pointer text-sm text-accent hover:underline">
                 Choose file
-                <input
-                  type="file"
+                <FileInput
                   accept=".csv"
                   className="hidden"
                   onChange={(e) => onChange({ ...data, csvFile: e.target.files?.[0] || null })}
@@ -322,12 +371,12 @@ function Step4SIMImport({
       ) : (
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-text-secondary">ICCIDs (one per line)</label>
-          <textarea
+          <Textarea
             value={data.manualICCIDs}
             onChange={(e) => onChange({ ...data, manualICCIDs: e.target.value })}
             placeholder="8901260882168430001&#10;8901260882168430002&#10;8901260882168430003"
             rows={5}
-            className="flex w-full rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent font-mono"
+            className="font-mono"
           />
         </div>
       )}
@@ -366,12 +415,12 @@ function Step5PolicySetup({
       </div>
       <div className="space-y-1.5">
         <label className="block text-xs font-medium text-text-secondary">Policy DSL</label>
-        <textarea
+        <Textarea
           value={data.dslSource}
           onChange={(e) => onChange({ ...data, dslSource: e.target.value })}
           placeholder="WHEN subscriber.state = &quot;active&quot;&#10;THEN ALLOW&#10;  rate_limit = 10mbps"
           rows={6}
-          className="flex w-full rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent font-mono"
+          className="font-mono"
         />
       </div>
     </div>
@@ -382,13 +431,46 @@ export function OnboardingWizard() {
   const navigate = useNavigate()
   const setOnboardingCompleted = useAuthStore((s) => s.setOnboardingCompleted)
 
+  const [sessionID, setSessionID] = useState<string | null>(() => getStoredSessionID())
+  const start = useStartOnboarding()
+  const session = useOnboardingSession(sessionID)
+  const submitStep = useSubmitOnboardingStep(sessionID)
+  const completeOnboarding = useCompleteOnboarding(sessionID)
+
   const [currentStep, setCurrentStep] = useState(1)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90' })
-  const [step2, setStep2] = useState<{ operatorId: string; testResult: 'idle' | 'loading' | 'success' | 'error'; testError?: string }>({ operatorId: '', testResult: 'idle' })
+  // Bootstrap: create or resume an onboarding session on mount.
+  useEffect(() => {
+    if (sessionID) return
+    start
+      .mutateAsync()
+      .then((res) => {
+        setSessionID(res.session_id)
+        setCurrentStep(res.current_step || 1)
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Failed to start onboarding session'
+        setError(msg)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Resume: when the session loads, jump to its current step.
+  useEffect(() => {
+    if (!session.data) return
+    if (session.data.current_step) {
+      setCurrentStep(session.data.current_step)
+    }
+    if (session.data.current_step && session.data.current_step > 1) {
+      setCompletedSteps(new Set(Array.from({ length: session.data.current_step - 1 }, (_, i) => i + 1)))
+    }
+  }, [session.data])
+
+  const [step1, setStep1] = useState({ companyName: '', timezone: 'UTC', retentionDays: '90', contactEmail: '', locale: 'en' })
+  const [step2, setStep2] = useState<{ operatorIds: string[]; testResults: Record<string, 'idle' | 'loading' | 'success' | 'error'>; testErrors: Record<string, string> }>({ operatorIds: [], testResults: {}, testErrors: {} })
   const [step3, setStep3] = useState({ apnName: '', apnType: 'internet', ipCidr: '' })
   const [step4, setStep4] = useState<{ importMode: 'csv' | 'manual'; csvFile: File | null; manualICCIDs: string }>({ importMode: 'csv', csvFile: null, manualICCIDs: '' })
   const [step5, setStep5] = useState({ policyName: '', template: 'basic-internet', dslSource: POLICY_TEMPLATES[0].dsl })
@@ -396,9 +478,9 @@ export function OnboardingWizard() {
   function canProceed(): boolean {
     switch (currentStep) {
       case 1:
-        return step1.companyName.trim().length > 0
+        return step1.companyName.trim().length > 0 && step1.contactEmail.trim().length > 0 && step1.contactEmail.includes('@')
       case 2:
-        return step2.operatorId.length > 0 && step2.testResult === 'success'
+        return step2.operatorIds.length > 0 && step2.operatorIds.every((id) => step2.testResults[id] === 'success')
       case 3:
         return step3.apnName.trim().length > 0
       case 4:
@@ -414,62 +496,54 @@ export function OnboardingWizard() {
     return !STEPS[currentStep - 1].mandatory
   }
 
+  function payloadForStep(step: number): Record<string, unknown> {
+    switch (step) {
+      case 1:
+        return {
+          company_name: step1.companyName,
+          contact_email: step1.contactEmail,
+          locale: step1.locale,
+          timezone: step1.timezone,
+          data_retention_days: parseInt(step1.retentionDays, 10),
+        }
+      case 2:
+        return {
+          operator_grants: step2.operatorIds.map((id) => ({ operator_id: id, rat_types: [] })),
+        }
+      case 3:
+        return {
+          apn_name: step3.apnName,
+          apn_type: step3.apnType,
+          ip_cidr: step3.ipCidr,
+        }
+      case 4:
+        return {
+          import_mode: step4.importMode,
+          iccids: step4.importMode === 'manual'
+            ? step4.manualICCIDs.trim().split('\n').filter(Boolean)
+            : [],
+          csv_s3_key: '',
+        }
+      case 5:
+        return {
+          policy_name: step5.policyName,
+          dsl_source: step5.dslSource,
+        }
+      default:
+        return {}
+    }
+  }
+
   async function handleNext() {
+    if (!sessionID) {
+      setError('Onboarding session is not ready')
+      return
+    }
     setError(null)
     setSubmitting(true)
 
     try {
-      switch (currentStep) {
-        case 1:
-          await api.patch('/tenants/current', {
-            name: step1.companyName,
-            timezone: step1.timezone,
-            retention_days: parseInt(step1.retentionDays),
-          })
-          break
-        case 2:
-          break
-        case 3:
-          await api.post('/apns', {
-            name: step3.apnName,
-            apn_type: step3.apnType,
-            operator_id: step2.operatorId,
-            settings: {},
-          })
-          if (step3.ipCidr) {
-            await api.post('/ip-pools', {
-              name: `${step3.apnName}-pool`,
-              cidr: step3.ipCidr,
-            })
-          }
-          break
-        case 4:
-          if (step4.importMode === 'csv' && step4.csvFile) {
-            const formData = new FormData()
-            formData.append('file', step4.csvFile)
-            await api.post('/sims/import', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            })
-          } else if (step4.importMode === 'manual' && step4.manualICCIDs.trim()) {
-            const iccids = step4.manualICCIDs.trim().split('\n').filter(Boolean)
-            if (iccids.length > 0) {
-              await api.post('/sims/import', {
-                sims: iccids.map((iccid) => ({ iccid: iccid.trim() })),
-              })
-            }
-          }
-          break
-        case 5:
-          if (step5.policyName.trim() && step5.dslSource.trim()) {
-            await api.post('/policies', {
-              name: step5.policyName,
-              scope: 'global',
-              dsl_source: step5.dslSource,
-            })
-          }
-          break
-      }
-
+      await submitStep.mutateAsync({ step: currentStep, payload: payloadForStep(currentStep) })
       setCompletedSteps((prev) => new Set([...prev, currentStep]))
 
       if (currentStep < 5) {
@@ -503,10 +577,11 @@ export function OnboardingWizard() {
 
   async function completeSetup() {
     try {
-      await api.post('/onboarding/complete')
+      await completeOnboarding.mutateAsync()
     } catch {
-      // not critical
+      // even on completion error we navigate — server-side state may have advanced
     }
+    setStoredSessionID(null)
     setOnboardingCompleted(true)
     navigate('/', { replace: true })
   }
@@ -529,9 +604,20 @@ export function OnboardingWizard() {
         </div>
 
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-[var(--radius-sm)] border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
+          <div className="mb-4 flex items-start gap-2 rounded-[var(--radius-sm)] border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p>{error}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleNext}
+                disabled={submitting}
+                className="mt-1.5 h-auto px-0 text-xs underline underline-offset-2 hover:no-underline text-danger"
+              >
+                Retry this step
+              </Button>
+            </div>
           </div>
         )}
 

@@ -198,7 +198,7 @@ func TestParser_CompoundConditions(t *testing.T) {
 		},
 		{
 			name: "OR",
-			cond: "roaming = true OR usage > 1GB",
+			cond: "rat_type = lte OR usage > 1GB",
 			op:   "OR",
 		},
 	}
@@ -240,7 +240,7 @@ func TestParser_NotCondition(t *testing.T) {
 	src := `POLICY "test" {
     MATCH { apn = "test" }
     RULES {
-        WHEN NOT roaming = true {
+        WHEN NOT rat_type = lte {
             bandwidth_down = 2mbps
         }
     }
@@ -271,7 +271,7 @@ func TestParser_ParenthesizedCondition(t *testing.T) {
 	src := `POLICY "test" {
     MATCH { apn = "test" }
     RULES {
-        WHEN (roaming = true OR usage > 1GB) AND rat_type = lte {
+        WHEN (sim_type = iot OR usage > 1GB) AND rat_type = lte {
             bandwidth_down = 64kbps
         }
     }
@@ -469,6 +469,40 @@ func TestParser_InvalidRATType(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected DSL_INVALID_RAT_TYPE error")
+	}
+}
+
+func TestParser_RATTypeAliasesAccepted(t *testing.T) {
+	// Only aliases that the DSL lexer can tokenize as a single identifier:
+	// must start with a letter/underscore; hyphens and digit-prefixes are not valid DSL identifier chars.
+	aliases := []string{
+		"nb_iot", "nbiot",
+		"lte_m", "cat_m1",
+		"lte", "eutran",
+		"nr_5g", "nr_5g_nsa",
+		"utran", "geran",
+		"unknown",
+	}
+
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			src := `POLICY "test" {
+    MATCH { apn = "test" }
+    RULES {}
+    CHARGING {
+        model = postpaid
+        rat_type_multiplier {
+            ` + alias + ` = 1.0
+        }
+    }
+}`
+			_, errs := parseSource(src)
+			for _, e := range errs {
+				if e.Code == "DSL_INVALID_RAT_TYPE" {
+					t.Errorf("alias %q rejected: %s", alias, e.Message)
+				}
+			}
+		})
 	}
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X, Command } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 interface Shortcut {
   keys: string[]
@@ -16,18 +17,20 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'NAVIGATION',
     shortcuts: [
       { keys: ['Ctrl', 'K'], description: 'Command palette' },
+      { keys: ['/'], description: 'Open search palette' },
       { keys: ['G', 'D'], description: 'Go to Dashboard' },
       { keys: ['G', 'S'], description: 'Go to SIM Cards' },
+      { keys: ['G', 'A'], description: 'Go to APNs' },
       { keys: ['G', 'O'], description: 'Go to Operators' },
       { keys: ['G', 'P'], description: 'Go to Policies' },
-      { keys: ['G', 'A'], description: 'Go to Alerts' },
+      { keys: ['G', 'J'], description: 'Go to Jobs' },
+      { keys: ['G', 'U'], description: 'Go to Audit Log' },
       { keys: ['G', 'N'], description: 'Go to Sessions' },
     ],
   },
   {
     title: 'TABLES',
     shortcuts: [
-      { keys: ['/'], description: 'Focus search' },
       { keys: ['J'], description: 'Next row' },
       { keys: ['K'], description: 'Previous row' },
       { keys: ['Enter'], description: 'Open detail' },
@@ -36,10 +39,17 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'DETAIL',
+    shortcuts: [
+      { keys: ['E'], description: 'Edit / open edit panel' },
+      { keys: ['Backspace'], description: 'Back to list' },
+      { keys: ['Ctrl', 'Enter'], description: 'Confirm / execute' },
+      { keys: ['Ctrl', 'S'], description: 'Save (in editors)' },
+    ],
+  },
+  {
     title: 'ACTIONS',
     shortcuts: [
-      { keys: ['Ctrl', 'S'], description: 'Save (in editors)' },
-      { keys: ['Ctrl', 'Enter'], description: 'Execute / Confirm' },
       { keys: ['Esc'], description: 'Close panel / Cancel' },
       { keys: ['?'], description: 'Show this help' },
     ],
@@ -85,9 +95,9 @@ function KeyboardShortcuts() {
               <Command className="h-4 w-4 text-accent" />
               <h2 className="text-[15px] font-semibold text-text-primary">Keyboard Shortcuts</h2>
             </div>
-            <button onClick={() => setOpen(false)} className="rounded-md p-1.5 text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors">
+            <Button variant="ghost" size="icon" onClick={() => setOpen(false)} className="h-7 w-7 text-text-tertiary hover:text-text-primary" aria-label="Close">
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
           <div className="p-5 grid grid-cols-2 gap-6 max-h-[70vh] overflow-y-auto">
             {SHORTCUT_GROUPS.map((group) => (

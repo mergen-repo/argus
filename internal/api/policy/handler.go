@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,17 +10,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btopcu/argus/internal/analytics/aggregates"
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/dsl"
-	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/store"
+	undopkg "github.com/btopcu/argus/internal/undo"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// simCounter is the subset of store.SIMStore needed by this handler.
+// Defined as an interface to allow mock substitution in tests.
+type simCounter interface {
+	CountWithPredicate(ctx context.Context, tenantID uuid.UUID, dslPredicate string, dslArgs []interface{}) (int, error)
+}
+
+// rolloutServicer is the subset of rollout.Service methods used by this handler.
+// Defined as an interface to allow mock substitution in tests.
+type rolloutServicer interface {
+	StartRollout(ctx context.Context, tenantID, versionID uuid.UUID, stagePcts []int, createdBy *uuid.UUID) (*store.PolicyRollout, error)
+	AdvanceRollout(ctx context.Context, tenantID, rolloutID uuid.UUID) (*store.PolicyRollout, error)
+	RollbackRollout(ctx context.Context, tenantID, rolloutID uuid.UUID, reason string) (*store.PolicyRollout, int, error)
+	AbortRollout(ctx context.Context, tenantID, rolloutID uuid.UUID, reason string) (*store.PolicyRollout, error)
+	GetProgress(ctx context.Context, tenantID, rolloutID uuid.UUID) (*store.PolicyRollout, error)
+}
 
 var validScopes = map[string]bool{
 	"global":   true,
@@ -35,25 +53,39 @@ var validPolicyStates = map[string]bool{
 }
 
 type Handler struct {
-	policyStore *store.PolicyStore
-	dryRunSvc   *dryrun.Service
-	rolloutSvc  *rollout.Service
-	jobStore    *store.JobStore
-	eventBus    *bus.EventBus
-	auditSvc    audit.Auditor
-	logger      zerolog.Logger
+	policyStore  *store.PolicyStore
+	dryRunSvc    *dryrun.Service
+	rolloutSvc   rolloutServicer
+	jobStore     *store.JobStore
+	eventBus     *bus.EventBus
+	auditSvc     audit.Auditor
+	undoRegistry *undopkg.Registry
+	agg          aggregates.Aggregates
+	simStore     simCounter
+	logger       zerolog.Logger
+}
+
+type HandlerOption func(*Handler)
+
+func WithAggregates(a aggregates.Aggregates) HandlerOption {
+	return func(h *Handler) { h.agg = a }
+}
+
+func WithSIMStore(s simCounter) HandlerOption {
+	return func(h *Handler) { h.simStore = s }
 }
 
 func NewHandler(
 	policyStore *store.PolicyStore,
 	dryRunSvc *dryrun.Service,
-	rolloutSvc *rollout.Service,
+	rolloutSvc rolloutServicer,
 	jobStore *store.JobStore,
 	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		policyStore: policyStore,
 		dryRunSvc:   dryRunSvc,
 		rolloutSvc:  rolloutSvc,
@@ -62,19 +94,28 @@ func NewHandler(
 		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "policy_handler").Logger(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+func (h *Handler) WithUndoRegistry(r *undopkg.Registry) *Handler {
+	h.undoRegistry = r
+	return h
 }
 
 type policyResponse struct {
-	ID               string              `json:"id"`
-	Name             string              `json:"name"`
-	Description      *string             `json:"description"`
-	Scope            string              `json:"scope"`
-	ScopeRefID       *string             `json:"scope_ref_id,omitempty"`
-	CurrentVersionID *string             `json:"current_version_id,omitempty"`
-	State            string              `json:"state"`
-	CreatedAt        string              `json:"created_at"`
-	UpdatedAt        string              `json:"updated_at"`
-	Versions         []versionResponse   `json:"versions,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Description      *string           `json:"description"`
+	Scope            string            `json:"scope"`
+	ScopeRefID       *string           `json:"scope_ref_id,omitempty"`
+	CurrentVersionID *string           `json:"current_version_id,omitempty"`
+	State            string            `json:"state"`
+	CreatedAt        string            `json:"created_at"`
+	UpdatedAt        string            `json:"updated_at"`
+	Versions         []versionResponse `json:"versions,omitempty"`
 }
 
 type versionResponse struct {
@@ -125,8 +166,8 @@ type updateVersionRequest struct {
 }
 
 type diffResponse struct {
-	Version1 int      `json:"version_1"`
-	Version2 int      `json:"version_2"`
+	Version1 int        `json:"version_1"`
+	Version2 int        `json:"version_2"`
 	Lines    []diffLine `json:"lines"`
 }
 
@@ -214,7 +255,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]policyListItem, 0, len(policies))
 	for _, p := range policies {
-		items = append(items, toPolicyListItem(&p))
+		item := toPolicyListItem(&p)
+		if h.agg != nil && tenantID != uuid.Nil {
+			if cnt, cntErr := h.agg.SIMCountByPolicy(r.Context(), tenantID, p.ID); cntErr == nil {
+				item.SimCount = cnt
+			} else {
+				h.logger.Warn().Err(cntErr).Str("policy_id", p.ID.String()).Msg("sim count by policy")
+			}
+		}
+		items = append(items, item)
 	}
 
 	apierr.WriteList(w, http.StatusOK, items, apierr.ListMeta{
@@ -440,9 +489,27 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.createAuditEntry(r, "policy.delete", id.String(), existing, nil)
+	meta := map[string]string{}
+	if h.undoRegistry != nil {
+		userID := userIDFromContext(r)
+		if userID != nil {
+			actionID, regErr := h.undoRegistry.Register(r.Context(), tenantID, *userID, "policy_restore", map[string]string{
+				"policy_id": id.String(),
+				"state":     existing.State,
+			})
+			if regErr != nil {
+				h.logger.Warn().Err(regErr).Str("policy_id", id.String()).Msg("register undo for policy delete")
+			} else {
+				meta["undo_action_id"] = actionID
+			}
+		}
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNoContent)
+	apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+		Status: "success",
+		Data:   map[string]bool{"deleted": true},
+		Meta:   meta,
+	})
 }
 
 func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
@@ -519,13 +586,40 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIX-230 AC-4: auto-populate affected_sim_count via DSL predicate.
+	// Empty match → predicate="TRUE" → counts all active tenant SIMs (AC-5).
+	predicate, predArgs, _, predErr := dsl.ToSQLPredicate(&compiled.Match, 1, 2)
+	if predErr != nil {
+		h.logger.Error().Err(predErr).Msg("dsl predicate translation failed")
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"policy match clause: "+predErr.Error())
+		return
+	}
+
+	var affectedSIMCount *int
+	countWarning := false
+	if h.simStore != nil {
+		count, countErr := h.simStore.CountWithPredicate(r.Context(), tenantID, predicate, predArgs)
+		if countErr != nil {
+			h.logger.Error().Err(countErr).Msg("count sims with predicate failed")
+			// FIX-230 Gate F-A2: non-fatal — version created with nil
+			// affected_sim_count; rollout will recompute. Surface a warning
+			// in the response meta so callers can distinguish "count pending"
+			// from "MATCH genuinely matches zero SIMs".
+			countWarning = true
+		} else {
+			affectedSIMCount = &count
+		}
+	}
+
 	userID := userIDFromContext(r)
 
 	version, err := h.policyStore.CreateVersion(r.Context(), store.CreateVersionParams{
-		PolicyID:      policyID,
-		DSLContent:    dslSource,
-		CompiledRules: compiledJSON,
-		CreatedBy:     userID,
+		PolicyID:         policyID,
+		DSLContent:       dslSource,
+		CompiledRules:    compiledJSON,
+		CreatedBy:        userID,
+		AffectedSIMCount: affectedSIMCount,
 	})
 	if err != nil {
 		h.logger.Error().Err(err).Str("policy_id", idStr).Msg("create version")
@@ -535,6 +629,16 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 
 	h.createAuditEntry(r, "policy_version.create", version.ID.String(), nil, version)
 
+	if countWarning {
+		apierr.WriteJSON(w, http.StatusCreated, apierr.SuccessResponse{
+			Status: "success",
+			Data:   toVersionResponse(version),
+			Meta: map[string]interface{}{
+				"warnings": []string{"affected_sim_count_pending"},
+			},
+		})
+		return
+	}
 	apierr.WriteSuccess(w, http.StatusCreated, toVersionResponse(version))
 }
 
@@ -951,15 +1055,17 @@ type rolloutResponse struct {
 	StartedAt         *string         `json:"started_at,omitempty"`
 	CompletedAt       *string         `json:"completed_at,omitempty"`
 	RolledBackAt      *string         `json:"rolled_back_at,omitempty"`
+	AbortedAt         *string         `json:"aborted_at,omitempty"`
 	CreatedAt         string          `json:"created_at"`
+	CoaCounts         map[string]int  `json:"coa_counts,omitempty"`
 }
 
 type advanceResponse struct {
-	RolloutID      string `json:"rollout_id"`
-	CurrentStagePct int   `json:"current_stage_pct"`
-	MigratedCount  int    `json:"migrated_count"`
-	TotalCount     int    `json:"total_count"`
-	State          string `json:"state"`
+	RolloutID       string `json:"rollout_id"`
+	CurrentStagePct int    `json:"current_stage_pct"`
+	MigratedCount   int    `json:"migrated_count"`
+	TotalCount      int    `json:"total_count"`
+	State           string `json:"state"`
 }
 
 type rollbackRequest struct {
@@ -967,10 +1073,19 @@ type rollbackRequest struct {
 }
 
 type rollbackResponse struct {
-	RolloutID    string  `json:"rollout_id"`
-	State        string  `json:"state"`
-	RevertedCount int    `json:"reverted_count"`
-	RolledBackAt *string `json:"rolled_back_at,omitempty"`
+	RolloutID     string  `json:"rollout_id"`
+	State         string  `json:"state"`
+	RevertedCount int     `json:"reverted_count"`
+	RolledBackAt  *string `json:"rolled_back_at,omitempty"`
+}
+
+type abortRequest struct {
+	Reason *string `json:"reason,omitempty"`
+}
+
+type abortResponse struct {
+	Status string          `json:"status"`
+	Data   rolloutResponse `json:"data"`
 }
 
 func toRolloutResponse(r *store.PolicyRollout) rolloutResponse {
@@ -1000,6 +1115,10 @@ func toRolloutResponse(r *store.PolicyRollout) rolloutResponse {
 	if r.RolledBackAt != nil {
 		s := r.RolledBackAt.Format(time.RFC3339Nano)
 		resp.RolledBackAt = &s
+	}
+	if r.AbortedAt != nil {
+		s := r.AbortedAt.Format(time.RFC3339Nano)
+		resp.AbortedAt = &s
 	}
 	return resp
 }
@@ -1201,6 +1320,73 @@ func (h *Handler) RollbackRollout(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
+func (h *Handler) AbortRollout(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	idStr := chi.URLParam(r, "id")
+	rolloutID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid rollout ID format")
+		return
+	}
+
+	if h.rolloutSvc == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Rollout service not available")
+		return
+	}
+
+	var req abortRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+			return
+		}
+	}
+
+	reason := ""
+	if req.Reason != nil {
+		if len(*req.Reason) > 500 {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Reason must not exceed 500 characters")
+			return
+		}
+		reason = *req.Reason
+	}
+
+	ro, err := h.rolloutSvc.AbortRollout(r.Context(), tenantID, rolloutID, reason)
+	if err != nil {
+		if errors.Is(err, store.ErrRolloutNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Rollout not found")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutCompleted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_COMPLETED",
+				"Cannot abort a completed rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutRolledBack) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ROLLED_BACK",
+				"Cannot abort a rolled back rollout")
+			return
+		}
+		if errors.Is(err, store.ErrRolloutAborted) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, "ROLLOUT_ABORTED",
+				"Rollout was already aborted")
+			return
+		}
+		h.logger.Error().Err(err).Str("rollout_id", idStr).Msg("abort rollout")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	resp := toRolloutResponse(ro)
+	if h.policyStore != nil {
+		if policyID, pErr := h.policyStore.GetPolicyIDForRollout(r.Context(), ro.ID); pErr == nil {
+			resp.PolicyID = policyID.String()
+		}
+	}
+	h.createAuditEntry(r, "policy_rollout.abort", ro.ID.String(), nil, resp)
+	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
 func (h *Handler) GetRollout(w http.ResponseWriter, r *http.Request) {
 	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
 	idStr := chi.URLParam(r, "id")
@@ -1232,6 +1418,214 @@ func (h *Handler) GetRollout(w http.ResponseWriter, r *http.Request) {
 			s := policyID.String()
 			resp.PolicyID = s
 		}
+		counts, cErr := h.policyStore.GetCoAStatusCountsByRollout(r.Context(), rolloutID)
+		if cErr != nil {
+			h.logger.Warn().Err(cErr).Str("rollout_id", rolloutID.String()).Msg("coa counts fetch failed; defaulting to nil")
+			counts = nil
+		}
+		resp.CoaCounts = counts
 	}
 	apierr.WriteSuccess(w, http.StatusOK, resp)
+}
+
+// rolloutSummaryDTO is the wire shape returned by ListRollouts.
+type rolloutSummaryDTO struct {
+	ID                  string         `json:"id"`
+	PolicyID            string         `json:"policy_id"`
+	PolicyVersionID     string         `json:"policy_version_id"`
+	PolicyName          string         `json:"policy_name"`
+	PolicyVersionNumber int            `json:"policy_version"`
+	State               string         `json:"state"`
+	CurrentStage        int            `json:"current_stage"`
+	TotalSIMs           int            `json:"total_sims"`
+	MigratedSIMs        int            `json:"migrated_sims"`
+	StartedAt           *string        `json:"started_at"`
+	CreatedAt           string         `json:"created_at"`
+	CoaCounts           map[string]int `json:"coa_counts,omitempty"`
+}
+
+var validRolloutStates = map[string]bool{
+	"pending":     true,
+	"in_progress": true,
+	"paused":      true,
+	"completed":   true,
+	"rolled_back": true,
+	"aborted":     true,
+}
+
+// ListRollouts handles GET /api/v1/policy-rollouts.
+//
+// Query params:
+//   - state: optional CSV of rollout states (whitelist: pending, in_progress, paused, completed, rolled_back, aborted); default "in_progress,paused"
+//   - limit: optional int in [1,100]; default 50
+//
+// No cursor pagination — active rollouts are bounded (cap 100 per request).
+// Returns a standard success envelope with a JSON array (never null — FIX-241 PAT-018).
+func (h *Handler) ListRollouts(w http.ResponseWriter, r *http.Request) {
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+
+	var states []string
+	if raw := r.URL.Query().Get("state"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			if !validRolloutStates[s] {
+				apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidParam,
+					fmt.Sprintf("state contains invalid value %q", s))
+				return
+			}
+			states = append(states, s)
+		}
+	}
+
+	limit := 50
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		n, err := strconv.Atoi(rawLimit)
+		if err != nil || n < 1 || n > 100 {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "limit must be an integer in [1,100]")
+			return
+		}
+		limit = n
+	}
+
+	if h.policyStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Policy store not available")
+		return
+	}
+
+	rs, err := h.policyStore.ListRollouts(r.Context(), tenantID, store.ListRolloutsParams{
+		States: states,
+		Limit:  limit,
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list rollouts")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	dtos := make([]rolloutSummaryDTO, 0, len(rs))
+	for _, row := range rs {
+		dto := rolloutSummaryDTO{
+			ID:                  row.ID.String(),
+			PolicyID:            row.PolicyID.String(),
+			PolicyVersionID:     row.PolicyVersionID.String(),
+			PolicyName:          row.PolicyName,
+			PolicyVersionNumber: row.PolicyVersionNumber,
+			State:               row.State,
+			CurrentStage:        row.CurrentStage,
+			TotalSIMs:           row.TotalSIMs,
+			MigratedSIMs:        row.MigratedSIMs,
+			CreatedAt:           row.CreatedAt.Format(time.RFC3339Nano),
+		}
+		if row.StartedAt != nil {
+			s := row.StartedAt.Format(time.RFC3339Nano)
+			dto.StartedAt = &s
+		}
+		// N+1: one query per rollout — acceptable because active rollouts are bounded
+		// (default cap 50). D-XXX candidate for batched query optimisation.
+		if counts, cErr := h.policyStore.GetCoAStatusCountsByRollout(r.Context(), row.ID); cErr != nil {
+			h.logger.Warn().Err(cErr).Str("rollout_id", row.ID.String()).Msg("coa counts fetch failed; defaulting to nil")
+		} else {
+			dto.CoaCounts = counts
+		}
+		dtos = append(dtos, dto)
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
+
+// Validate is a stateless DSL validator. POST /api/v1/policies/validate.
+// Returns 200 + {valid: true, compiled_rules, warnings} on success,
+// 422 + {valid: false, errors: [DSLError]} on failure.
+//
+// FIX-243 Wave A AC-1/AC-2: pure — no DB writes, no state mutation.
+// Safe at high frequency. Rate-limited 10/sec per IP at the router level
+// (see internal/gateway/router.go).
+func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DSLSource string `json:"dsl_source"`
+	}
+	formatRequested := r.URL.Query().Get("format") == "true"
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+	if strings.TrimSpace(req.DSLSource) == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "dsl_source is required")
+		return
+	}
+
+	// Parse → collect errors + warnings.
+	allDiags := dsl.Validate(req.DSLSource)
+	errSlice := make([]dsl.DSLError, 0, len(allDiags))
+	warnSlice := make([]dsl.DSLError, 0, len(allDiags))
+	for _, d := range allDiags {
+		switch d.Severity {
+		case "error":
+			errSlice = append(errSlice, d)
+		case "warning":
+			warnSlice = append(warnSlice, d)
+		}
+	}
+
+	if len(errSlice) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, "DSL_VALIDATION_FAILED",
+			"DSL validation failed", map[string]any{
+				"valid":  false,
+				"errors": errSlice,
+			})
+		return
+	}
+
+	// No errors — compile to surface compiled rules to the FE.
+	compiled, _, compileErr := dsl.CompileSource(req.DSLSource)
+	if compileErr != nil {
+		// Compile error not surfaced as a parse error — wrap as a synthetic DSLError.
+		apierr.WriteError(w, http.StatusUnprocessableEntity, "DSL_VALIDATION_FAILED",
+			"DSL compilation failed", map[string]any{
+				"valid": false,
+				"errors": []dsl.DSLError{{
+					Severity: "error",
+					Code:     "DSL_COMPILE_ERROR",
+					Message:  compileErr.Error(),
+				}},
+			})
+		return
+	}
+
+	response := map[string]any{
+		"valid":          true,
+		"compiled_rules": compiled,
+		"warnings":       warnSlice,
+	}
+
+	// AC-8 / DEV-515 — auto-format support via ?format=true.
+	// dsl.Format normalizes indentation/whitespace without changing
+	// semantics. On format failure (e.g. transient panic recovery in
+	// the lexer), fall back to echoing the source unchanged so the
+	// validate response stays useful.
+	if formatRequested {
+		formatted, ferr := dsl.Format(req.DSLSource)
+		if ferr != nil {
+			response["formatted_source"] = req.DSLSource
+		} else {
+			response["formatted_source"] = formatted
+		}
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, response)
+}
+
+// Vocab returns the canonical DSL vocabulary snapshot — match fields,
+// charging models, overage actions, billing cycles, units, rule
+// keywords, and action names — sourced from the parser whitelists.
+//
+// FIX-243 Wave D — backs the FE autocomplete; replaces the FE-side
+// hard-coded fallback list. Read-only, idempotent, cacheable; no rate
+// limit needed.
+func (h *Handler) Vocab(w http.ResponseWriter, r *http.Request) {
+	apierr.WriteSuccess(w, http.StatusOK, dsl.Vocab())
 }

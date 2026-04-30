@@ -1,0 +1,8 @@
+STEP_1 PLAN: EXECUTED | 2026-04-23 | evidence=docs/stories/fix-ui-review/FIX-218-plan.md | waves=1 tasks=2 | decisions=4pages-only(Sessions+IP-Pools-verified-no-op),Operators-Compare-removed(orphaned-entry),SavedViewsMenu-retained-for-AC-3,Policies+SIMs-checkboxes-out-of-scope | result=PASS
+STEP_2 DEV W1 T1: EXECUTED | 2026-04-23 | file=web/src/pages/operators/index.tsx | removed=Checkbox+SavedViewsMenu+selectedIds+toggleSelect+Compare-button(16-lines) | tsc=PASS | result=PASS
+STEP_2 DEV W1 T2: EXECUTED | 2026-04-23 | files=apns/index.tsx+policies/index.tsx+sims/index.tsx | removed=SavedViewsMenu-import+render(6-lines-total) | preserved=policies-selectedIds+sims-bulk-scaffolding | tsc=PASS | result=PASS
+STEP_2.5 LINT: EXECUTED | 2026-04-23 | raw-button-scan=0 hex-scan=0 | SavedViewsMenu-residual=0(pages) | tsc=PASS | web-build=PASS(2.56s) | result=PASS
+STEP_3 GATE: EXECUTED | 2026-04-23 | team=lead+3scouts | findings=4-LOW | fixes=3(USERTEST,GLOSSARY,ROUTEMAP-D-096) | intentional-orphans=2(plan-D-218-3) | tsc=PASS | build=PASS(2.64s) | evidence=docs/stories/fix-ui-review/FIX-218-gate.md | result=PASS
+STEP_4 REVIEW: EXECUTED | 2026-04-23 | findings=1 | updated=4(USERTEST-FIX-218-section,ROUTEMAP-changelog,CLAUDE.md-next-pointer,review-report) | unresolved=0 | impact=FIX-219(no-conflict-toolbar-only)+FIX-224(no-change-bulk-preserved) | evidence=docs/stories/fix-ui-review/FIX-218-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | 2026-04-23 | items=1 files=15 commit=b38538b | result=PASS
+STEP_6 POSTPROC: EXECUTED | 2026-04-23 | artifacts=plan+gate+review+step-log+USERTEST+GLOSSARY+ROUTEMAP-D-096 | step-log=PLAN+DEV+LINT+GATE+REVIEW+COMMIT-present | unresolved=0 | result=PASS

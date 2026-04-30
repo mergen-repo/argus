@@ -18,6 +18,7 @@ const (
 	SeverityHigh     = "high"
 	SeverityMedium   = "medium"
 	SeverityLow      = "low"
+	SeverityInfo     = "info"
 )
 
 const (

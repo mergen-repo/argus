@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btopcu/argus/internal/bus"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -186,6 +187,84 @@ func TestDefaultThresholds(t *testing.T) {
 	}
 	if !th.FilterBulkJobs {
 		t.Error("expected FilterBulkJobs true")
+	}
+}
+
+// TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage verifies that
+// the alert payload published to SubjectAlertTriggered carries:
+//   - top-level sim_id (populates alerts.sim_id via notification subscriber)
+//   - metadata.anomaly_id (links back to anomaly rows without a dedicated FK)
+//   - metadata.sim_id (defensive — meta is the durable JSONB snapshot)
+//
+// FIX-209: unified alerts ↔ anomalies linkage.
+func TestAnomalyEngine_Publish_IncludesSimIDAndAnomalyIDForLinkage(t *testing.T) {
+	pub := &mockPublisher{}
+	susp := &mockSuspender{}
+	anomalyStore := &mockAnomalyStore{}
+
+	bd := NewBatchDetector(
+		anomalyStore,
+		pub,
+		susp,
+		DefaultThresholds(),
+		"argus.events.alert.triggered",
+		"argus.events.anomaly.detected",
+		zerolog.Nop(),
+	)
+
+	detected, err := bd.RunDataSpikeDetection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detected != 1 {
+		t.Fatalf("detected = %d, want 1", detected)
+	}
+
+	// FIX-212: alert payload is now *bus.Envelope. sim_id lives in
+	// envelope.entity (primary) and meta.sim_id (duplicated for the
+	// persist layer lookup). anomaly_id lives in meta.
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	var alertEnv *bus.Envelope
+	for _, evt := range pub.events {
+		if evt.subject == "argus.events.alert.triggered" {
+			e, ok := evt.payload.(*bus.Envelope)
+			if !ok {
+				t.Fatalf("alert payload is not *bus.Envelope: %T", evt.payload)
+			}
+			alertEnv = e
+			break
+		}
+	}
+	if alertEnv == nil {
+		t.Fatal("no alert event captured")
+	}
+
+	if alertEnv.Entity == nil || alertEnv.Entity.Type != "sim" {
+		t.Fatalf("entity = %+v, want type=sim", alertEnv.Entity)
+	}
+	simIDStr := alertEnv.Entity.ID
+	if _, err := uuid.Parse(simIDStr); err != nil {
+		t.Errorf("entity.id not a valid UUID: %v", err)
+	}
+
+	anomalyIDStr, _ := alertEnv.Meta["anomaly_id"].(string)
+	if anomalyIDStr == "" {
+		t.Fatal("meta.anomaly_id missing")
+	}
+	anomalyStore.mu.Lock()
+	if len(anomalyStore.anomalies) != 1 {
+		t.Fatalf("stored anomalies = %d, want 1", len(anomalyStore.anomalies))
+	}
+	wantAnomalyID := anomalyStore.anomalies[0].id.String()
+	anomalyStore.mu.Unlock()
+	if anomalyIDStr != wantAnomalyID {
+		t.Errorf("meta.anomaly_id = %s, want %s", anomalyIDStr, wantAnomalyID)
+	}
+
+	metaSimIDStr, _ := alertEnv.Meta["sim_id"].(string)
+	if metaSimIDStr != simIDStr {
+		t.Errorf("meta.sim_id = %s, want %s (match entity.id)", metaSimIDStr, simIDStr)
 	}
 }
 

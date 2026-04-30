@@ -16,23 +16,26 @@ import (
 )
 
 type CDRExportProcessor struct {
-	jobs     *store.JobStore
-	cdrStore *store.CDRStore
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs         *store.JobStore
+	cdrStore     *store.CDRStore
+	readCDRStore *store.CDRStore
+	eventBus     *bus.EventBus
+	logger       zerolog.Logger
 }
 
 func NewCDRExportProcessor(
 	jobs *store.JobStore,
 	cdrStore *store.CDRStore,
+	readCDRStore *store.CDRStore,
 	eventBus *bus.EventBus,
 	logger zerolog.Logger,
 ) *CDRExportProcessor {
 	return &CDRExportProcessor{
-		jobs:     jobs,
-		cdrStore: cdrStore,
-		eventBus: eventBus,
-		logger:   logger.With().Str("processor", JobTypeCDRExport).Logger(),
+		jobs:         jobs,
+		cdrStore:     cdrStore,
+		readCDRStore: readCDRStore,
+		eventBus:     eventBus,
+		logger:       logger.With().Str("processor", JobTypeCDRExport).Logger(),
 	}
 }
 
@@ -41,10 +44,34 @@ func (p *CDRExportProcessor) Type() string {
 }
 
 type cdrExportPayload struct {
-	From       string  `json:"from"`
-	To         string  `json:"to"`
-	OperatorID *string `json:"operator_id,omitempty"`
-	Format     string  `json:"format"`
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	OperatorID *string  `json:"operator_id,omitempty"`
+	SimID      *string  `json:"sim_id,omitempty"`
+	APNID      *string  `json:"apn_id,omitempty"`
+	SessionID  *string  `json:"session_id,omitempty"`
+	RecordType *string  `json:"record_type,omitempty"`
+	RATType    *string  `json:"rat_type,omitempty"`
+	MinCost    *float64 `json:"min_cost,omitempty"`
+	Format     string   `json:"format"`
+}
+
+func parseUUIDPtr(s *string) *uuid.UUID {
+	if s == nil || *s == "" {
+		return nil
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (p *CDRExportProcessor) Process(ctx context.Context, job *store.Job) error {
@@ -62,14 +89,19 @@ func (p *CDRExportProcessor) Process(ctx context.Context, job *store.Job) error 
 		return fmt.Errorf("parse to time: %w", err)
 	}
 
-	var operatorID *uuid.UUID
-	if payload.OperatorID != nil && *payload.OperatorID != "" {
-		if parsed, parseErr := uuid.Parse(*payload.OperatorID); parseErr == nil {
-			operatorID = &parsed
-		}
+	listParams := store.ListCDRParams{
+		From:       &fromTime,
+		To:         &toTime,
+		OperatorID: parseUUIDPtr(payload.OperatorID),
+		SimID:      parseUUIDPtr(payload.SimID),
+		APNID:      parseUUIDPtr(payload.APNID),
+		SessionID:  parseUUIDPtr(payload.SessionID),
+		RecordType: derefString(payload.RecordType),
+		RATType:    derefString(payload.RATType),
+		MinCost:    payload.MinCost,
 	}
 
-	count, err := p.cdrStore.CountForExport(ctx, job.TenantID, fromTime, toTime, operatorID)
+	count, err := p.readCDRStore.CountForExport(ctx, job.TenantID, fromTime, toTime, listParams.OperatorID)
 	if err != nil {
 		return fmt.Errorf("count cdrs for export: %w", err)
 	}
@@ -89,7 +121,7 @@ func (p *CDRExportProcessor) Process(ctx context.Context, job *store.Job) error 
 	}
 
 	processed := 0
-	err = p.cdrStore.StreamForExport(ctx, job.TenantID, fromTime, toTime, operatorID, func(c store.CDR) error {
+	err = p.readCDRStore.StreamForExportFiltered(ctx, job.TenantID, listParams, func(c store.CDR) error {
 		row := []string{
 			fmt.Sprintf("%d", c.ID),
 			c.SessionID.String(),

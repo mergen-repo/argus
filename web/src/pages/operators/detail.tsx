@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useTabUrlSync } from '@/hooks/use-tab-url-sync'
 import {
   ArrowLeft,
   RefreshCw,
@@ -15,6 +16,10 @@ import {
   Clock,
   Pencil,
   Trash2,
+  Signal,
+  Layers,
+  Wifi,
+  Radio,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -31,6 +36,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { TimeframeSelector } from '@/components/ui/timeframe-selector'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -42,41 +48,59 @@ import {
 } from '@/components/ui/dialog'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/ui/table'
+import {
   useOperator,
   useOperatorHealth,
   useTestConnection,
   useRealtimeOperatorHealth,
   useUpdateOperator,
 } from '@/hooks/use-operators'
+import { useOperatorHealthHistory, useOperatorMetrics, useOperatorSessions, useOperatorTraffic } from '@/hooks/use-operator-detail'
+import { formatBytes } from '@/lib/format'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { api } from '@/lib/api'
+import { InfoRow } from '@/components/ui/info-row'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, RelatedViolationsTab, EntityLink, FavoriteToggle, EmptyState } from '@/components/shared'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
+import ESimTab from '@/pages/operators/_tabs/esim-tab'
+import { RowQuickPeek } from '@/components/shared/row-quick-peek'
+import { useSIMList } from '@/hooks/use-sims'
+import { KPICard } from '@/components/shared/kpi-card'
+import { stateVariant, stateLabel } from '@/lib/sim-utils'
+import { RATBadge } from '@/components/ui/rat-badge'
+import { ProtocolsPanel } from '@/components/operators/ProtocolsPanel'
+import { toast } from 'sonner'
+import { useUpdateOperatorSLA } from '@/hooks/use-sla'
 
 const ADAPTER_DISPLAY: Record<string, string> = {
   mock: 'Mock',
   radius: 'RADIUS',
   diameter: 'Diameter',
   sba: '5G SBA',
+  http: 'HTTP',
+}
+
+// STORY-090 Wave 3 Task 7c: primaryProtocol is the first protocol in
+// canonical order (server-computed). Empty list → '' → "—" label.
+function primaryProtocol(op: { enabled_protocols?: string[] }): string {
+  return op.enabled_protocols?.[0] ?? ''
 }
 
 const FAILOVER_DISPLAY: Record<string, string> = {
   reject: 'Reject',
   fallback_to_next: 'Fallback to Next',
   queue_with_timeout: 'Queue with Timeout',
-}
-
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <span className={cn('text-sm text-text-primary', mono && 'font-mono text-xs')}>
-        {value}
-      </span>
-    </div>
-  )
 }
 
 function healthColor(status: string) {
@@ -204,7 +228,7 @@ function OverviewTab({
             <InfoRow label="Name" value={operator.name} />
             <InfoRow label="Code" value={operator.code} mono />
             <InfoRow label="MCC / MNC" value={`${operator.mcc} / ${operator.mnc}`} mono />
-            <InfoRow label="Protocol" value={ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type} />
+            <InfoRow label="Primary Protocol" value={ADAPTER_DISPLAY[primaryProtocol(operator)] ?? primaryProtocol(operator) ?? '—'} />
             <InfoRow label="State" value={operator.state.toUpperCase()} />
             <InfoRow label="Health Check Interval" value={`${operator.health_check_interval_sec}s`} />
           </CardContent>
@@ -269,61 +293,96 @@ function OverviewTab({
   )
 }
 
-function HealthTimelineTab() {
-  const mockTimeline = useMemo(() => {
-    const entries = []
-    const statuses = ['healthy', 'degraded', 'down', 'healthy']
-    const now = Date.now()
-    for (let i = 0; i < 20; i++) {
-      const status = statuses[Math.floor(Math.random() * (i < 15 ? 1 : statuses.length))]
-      entries.push({
-        id: i,
-        status,
-        latency_ms: status === 'down' ? null : Math.floor(Math.random() * 200) + 10,
-        circuit_state: status === 'down' ? 'open' : status === 'degraded' ? 'half_open' : 'closed',
-        checked_at: new Date(now - i * 300_000).toISOString(),
-        error: status === 'down' ? 'Connection timeout' : undefined,
-      })
-    }
-    return entries
-  }, [])
+const HEALTH_HISTORY_OPTIONS = [
+  { value: '6', label: '6h' },
+  { value: '24', label: '24h' },
+  { value: '72', label: '3d' },
+  { value: '168', label: '7d' },
+]
+
+function HealthTimelineTab({ operatorId }: { operatorId: string }) {
+  const [hours, setHours] = useState(24)
+  const { data: history, isLoading, isError, refetch } = useOperatorHealthHistory(operatorId, hours)
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="space-y-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+            <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+            <p className="text-sm text-danger mb-3">Failed to load health history.</p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Health Check History</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>Health Check History</CardTitle>
+          <TimeframeSelector
+            options={HEALTH_HISTORY_OPTIONS}
+            value={String(hours)}
+            onChange={(v) => setHours(Number(typeof v === 'string' ? v : v.value))}
+            allowCustom={false}
+          />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="relative pl-6">
-          <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
-          {mockTimeline.map((entry) => (
-            <div key={entry.id} className="relative pb-4 last:pb-0">
-              <div
-                className="absolute left-[-13px] top-1 h-3 w-3 rounded-full border-2 border-bg-surface"
-                style={{ backgroundColor: healthColor(entry.status) }}
-              />
-              <div className="ml-4">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <Badge variant={healthVariant(entry.status)} className="text-[10px]">
-                    {entry.status.toUpperCase()}
-                  </Badge>
-                  {entry.latency_ms != null && (
-                    <span className="font-mono text-[10px] text-text-tertiary">{entry.latency_ms}ms</span>
-                  )}
-                  <span className={cn('text-[10px]', circuitColor(entry.circuit_state))}>
-                    CB: {entry.circuit_state.replace('_', '-')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-secondary">
-                  <span>{new Date(entry.checked_at).toLocaleString()}</span>
-                </div>
-                {entry.error && (
-                  <p className="text-xs text-danger mt-1">{entry.error}</p>
-                )}
-              </div>
+        {(!history || history.length === 0) ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <div className="h-12 w-12 rounded-xl bg-bg-hover border border-border flex items-center justify-center">
+              <Activity className="h-6 w-6 text-text-tertiary" />
             </div>
-          ))}
-        </div>
+            <p className="text-sm text-text-secondary">No health checks recorded for this window.</p>
+          </div>
+        ) : (
+          <div className="relative pl-6">
+            <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
+            {history.map((entry, i) => (
+              <div key={i} className="relative pb-4 last:pb-0">
+                <div
+                  className="absolute left-[-13px] top-1 h-3 w-3 rounded-full border-2 border-bg-surface"
+                  style={{ backgroundColor: healthColor(entry.status) }}
+                />
+                <div className="ml-4">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Badge variant={healthVariant(entry.status)} className="text-[10px]">
+                      {entry.status.toUpperCase()}
+                    </Badge>
+                    {entry.latency_ms != null && (
+                      <span className="font-mono text-[10px] text-text-tertiary">{entry.latency_ms}ms</span>
+                    )}
+                    <span className={cn('text-[10px]', circuitColor(entry.circuit_state))}>
+                      CB: {entry.circuit_state.replace('_', '-')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-text-secondary">
+                    <span>{new Date(entry.checked_at).toLocaleString()}</span>
+                  </div>
+                  {entry.error_message && (
+                    <p className="text-xs text-danger mt-1">{entry.error_message}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -434,141 +493,344 @@ function CircuitBreakerTab({
   )
 }
 
-function TrafficTab() {
-  const mockAuthData = useMemo(() => {
-    return Array.from({ length: 24 }, (_, i) => ({
-      hour: `${String(i).padStart(2, '0')}:00`,
-      auth_rate: Math.floor(Math.random() * 500) + 50,
-      error_rate: Math.floor(Math.random() * 20),
-    }))
-  }, [])
+const TRAFFIC_OPTIONS = [
+  { value: '1h', label: '1h' },
+  { value: '6h', label: '6h' },
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
+]
+
+const tooltipStyle = {
+  backgroundColor: 'var(--color-bg-elevated)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--color-text-primary)',
+  fontSize: '12px',
+}
+
+function TrafficTab({ operatorId }: { operatorId: string }) {
+  const [period, setPeriod] = useState('24h')
+  const { data: trafficSeries = [], isLoading: trafficLoading, isError: trafficError } = useOperatorTraffic(operatorId, period)
+  const { data: metricsData, isError: metricsError } = useOperatorMetrics(operatorId, period === '7d' || period === '30d' ? '24h' : period)
+
+  const series = useMemo(() => trafficSeries.map((b) => ({
+    label: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    ts: b.ts,
+    bytes_in: b.bytes_in,
+    bytes_out: b.bytes_out,
+    total: b.bytes_in + b.bytes_out,
+    auth_count: b.auth_count,
+  })), [trafficSeries])
+
+  const totals = useMemo(() => {
+    const tIn = series.reduce((a, b) => a + b.bytes_in, 0)
+    const tOut = series.reduce((a, b) => a + b.bytes_out, 0)
+    const tRec = series.reduce((a, b) => a + b.auth_count, 0)
+    return { tIn, tOut, tTotal: tIn + tOut, tRec }
+  }, [series])
+
+  const errorPct = useMemo(() => {
+    if (!metricsData?.buckets || metricsData.buckets.length === 0) return null
+    const totalAuth = metricsData.buckets.reduce((a, b) => a + b.auth_rate_per_sec, 0)
+    const totalErr = metricsData.buckets.reduce((a, b) => a + b.error_rate_per_sec, 0)
+    if (totalAuth === 0) return 0
+    return Math.round((totalErr / totalAuth) * 1000) / 10
+  }, [metricsData])
+
+  if (trafficError && metricsError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load traffic metrics.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Authentication Rate (24h)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockAuthData}>
-                <defs>
-                  <linearGradient id="opGradAuth" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value, name) => [value, name === 'auth_rate' ? 'Auth/s' : 'Errors/s']}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="auth_rate"
-                  stroke="var(--color-accent)"
-                  fill="url(#opGradAuth)"
-                  strokeWidth={2}
-                  name="auth_rate"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Header with period selector */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
+          <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
+        </div>
+        <TimeframeSelector
+          options={TRAFFIC_OPTIONS}
+          value={period}
+          onChange={(v) => setPeriod(typeof v === 'string' ? v : v.value)}
+          allowCustom={false}
+        />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Error Rate (24h)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mockAuthData}>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value) => [value, 'Errors/s']}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="error_rate"
-                  stroke="var(--color-danger)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="error_rate"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-4 gap-3">
         <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">
-              {Math.round(mockAuthData.reduce((a, d) => a + d.auth_rate, 0) / mockAuthData.length)}/s
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-accent" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes In</div>
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Avg Auth Rate</div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tIn)}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-danger">
-              {Math.round(mockAuthData.reduce((a, d) => a + d.error_rate, 0) / mockAuthData.length)}/s
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-success" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes Out</div>
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Avg Error Rate</div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tOut)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <BarChart3 className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Total Volume</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tTotal)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Signal className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">CDR Records</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{totals.tRec.toLocaleString()}</div>
+            {errorPct !== null && (
+              <div className={`text-[10px] mt-1 ${errorPct > 1 ? 'text-warning' : 'text-text-tertiary'}`}>
+                {errorPct}% error rate
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Main traffic chart — bytes in/out stacked area */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Bytes Over Time</CardTitle>
+            <div className="flex items-center gap-3 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-accent" /><span className="text-text-tertiary">In</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-success" /><span className="text-text-tertiary">Out</span>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {trafficLoading ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[280px] flex flex-col items-center justify-center gap-2">
+              <BarChart3 className="h-8 w-8 text-text-tertiary opacity-40" />
+              <p className="text-[12px] text-text-secondary">No traffic in this period</p>
+              <p className="text-[10px] text-text-tertiary">CDR rollups refresh every 30 minutes</p>
+            </div>
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series}>
+                  <defs>
+                    <linearGradient id="opBytesInHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="opBytesOutHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(series.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => formatBytes(v)}
+                    width={70}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatBytes(Number(value)), name]} />
+                  <Area type="monotone" dataKey="bytes_in" stackId="1" stroke="var(--color-accent)" fill="url(#opBytesInHero)" strokeWidth={2} name="In" />
+                  <Area type="monotone" dataKey="bytes_out" stackId="1" stroke="var(--color-success)" fill="url(#opBytesOutHero)" strokeWidth={2} name="Out" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Record count chart */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>CDR Records Per Bucket</CardTitle>
+            <span className="text-[10px] text-text-tertiary">Auth + Accounting events</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {trafficLoading ? (
+            <Skeleton className="h-[180px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-[12px] text-text-tertiary">
+              No records yet
+            </div>
+          ) : (
+            <div className="h-[180px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={series}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(series.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={40}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Records']} />
+                  <Line type="monotone" dataKey="auth_count" stroke="var(--color-accent)" strokeWidth={2} dot={false} name="Records" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-const ADAPTER_OPTIONS = [
-  { value: 'mock', label: 'Mock' },
-  { value: 'radius', label: 'RADIUS' },
-  { value: 'diameter', label: 'Diameter' },
-  { value: 'sba', label: '5G SBA' },
-]
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m < 60) return `${m}m ${s}s`
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return `${h}h ${mm}m`
+}
+
+function SessionsTab({ operatorId }: { operatorId: string }) {
+  const navigate = useNavigate()
+  const { data: sessions = [], isLoading, isError } = useOperatorSessions(operatorId, 50)
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center mt-4">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load active sessions</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium">Active Sessions</p>
+        <span className="text-[11px] text-text-tertiary">{sessions.length} active</span>
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-bg-elevated">
+              <TableRow>
+                <TableHead>ICCID</TableHead>
+                <TableHead>IMSI</TableHead>
+                <TableHead>MSISDN</TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="text-right">Bytes In</TableHead>
+                <TableHead className="text-right">Bytes Out</TableHead>
+                <TableHead>Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading && Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                </TableRow>
+              ))}
+
+              {!isLoading && sessions.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No active sessions"
+                      description="No sessions are currently active for this operator."
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {sessions.map((s, idx) => (
+                <TableRow
+                  key={s.id}
+                  data-row-index={idx}
+                  data-href={`/sessions/${s.id}`}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/sessions/${s.id}`)}
+                >
+                  <TableCell>
+                    <span className="font-mono text-xs text-accent">{s.iccid || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.imsi || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.msisdn || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{s.framed_ip || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={s.session_state === 'active' ? 'default' : 'default'} className="gap-1">
+                      {s.session_state === 'active' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                      )}
+                      {s.session_state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-mono text-xs text-accent">{formatBytes(s.bytes_in || 0)}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-mono text-xs text-success">{formatBytes(s.bytes_out || 0)}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{formatDuration(s.duration_sec || 0)}</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
+  )
+}
 
 const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
@@ -588,7 +850,6 @@ function EditOperatorDialog({
     code: operator.code,
     mcc: operator.mcc,
     mnc: operator.mnc,
-    adapter_type: operator.adapter_type,
     supported_rat_types: [...operator.supported_rat_types],
   })
   const [error, setError] = useState<string | null>(null)
@@ -612,7 +873,6 @@ function EditOperatorDialog({
         code: form.code.trim(),
         mcc: form.mcc.trim(),
         mnc: form.mnc.trim(),
-        adapter_type: form.adapter_type,
         supported_rat_types: form.supported_rat_types,
       })
       onSuccess()
@@ -621,6 +881,8 @@ function EditOperatorDialog({
       setError(msg ?? 'Failed to update operator')
     }
   }
+
+  const primary = primaryProtocol(operator)
 
   return (
     <SlidePanel open={open} onOpenChange={(v) => { if (!v) onClose() }} title="Edit Operator" description="Update operator configuration." width="md">
@@ -644,26 +906,40 @@ function EditOperatorDialog({
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
-          <Select value={form.adapter_type} onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))} className="h-8 text-sm" options={ADAPTER_OPTIONS} />
+          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Primary Protocol</label>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {primary ? ADAPTER_DISPLAY[primary] ?? primary : '—'}
+            </Badge>
+            {operator.enabled_protocols && operator.enabled_protocols.length > 1 && (
+              <span className="text-xs text-text-tertiary">
+                +{operator.enabled_protocols.length - 1} more
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-text-tertiary mt-1">
+            Configure protocols from the Protocols tab.
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors h-auto',
                   form.supported_rat_types.includes(rat)
                     ? 'border-accent bg-accent-dim text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -680,10 +956,143 @@ function EditOperatorDialog({
   )
 }
 
+function OperatorSimsTab({ operatorId }: { operatorId: string }) {
+  const navigate = useNavigate()
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useSIMList({ operator_id: operatorId })
+  const sims = data?.pages.flatMap((p) => p.data) ?? []
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium">
+          Connected SIMs — {sims.length}{hasNextPage ? '+' : ''} total
+        </p>
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-bg-elevated">
+              <TableRow>
+                <TableHead><InfoTooltip term="ICCID">ICCID</InfoTooltip></TableHead>
+                <TableHead><InfoTooltip term="IMSI">IMSI</InfoTooltip></TableHead>
+                <TableHead><InfoTooltip term="MSISDN">MSISDN</InfoTooltip></TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead><InfoTooltip term="APN">APN</InfoTooltip></TableHead>
+                <TableHead>RAT</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading &&
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-14" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  </TableRow>
+                ))}
+
+              {!isLoading && sims.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Wifi}
+                      title="No SIMs connected"
+                      description="No SIM cards are connected to this operator."
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {sims.map((sim, idx) => (
+                <TableRow
+                  key={sim.id}
+                  data-row-index={idx}
+                  data-href={`/sims/${sim.id}`}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/sims/${sim.id}`)}
+                >
+                  <TableCell>
+                    <RowQuickPeek
+                      title={sim.iccid}
+                      fields={[
+                        { label: 'IMSI', value: sim.imsi },
+                        { label: 'State', value: sim.state },
+                        { label: 'APN', value: sim.apn_name || '—' },
+                        { label: 'Created', value: new Date(sim.created_at).toLocaleDateString() },
+                      ]}
+                    >
+                      <span className="font-mono text-xs text-accent hover:underline">{sim.iccid}</span>
+                    </RowQuickPeek>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.imsi}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.msisdn ?? '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs text-text-secondary">{sim.ip_address || '—'}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={stateVariant(sim.state)} className="gap-1">
+                      {sim.state === 'active' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+                      )}
+                      {stateLabel(sim.state)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-secondary truncate max-w-[120px] block">
+                      {sim.apn_name || <span className="text-text-tertiary">—</span>}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <RATBadge ratType={sim.rat_type} />
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-text-secondary">
+                      {new Date(sim.created_at).toLocaleDateString()}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      {hasNextPage && (
+        <div className="text-center">
+          <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+            {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const OPERATOR_TABS = [
+  'overview', 'protocols', 'health', 'traffic', 'sessions',
+  'sims', 'esim', 'alerts', 'audit',
+] as const
+
 export default function OperatorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useTabUrlSync({
+    defaultTab: 'overview',
+    aliases: { circuit: 'health', notifications: 'alerts', agreements: 'overview' },
+    validTabs: [...OPERATOR_TABS],
+  })
   const [testResult, setTestResult] = useState<{ success: boolean; latency_ms: number; error?: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -693,6 +1102,35 @@ export default function OperatorDetailPage() {
   const testMutation = useTestConnection(id ?? '')
   useRealtimeOperatorHealth()
   const addRecentItem = useUIStore((s) => s.addRecentItem)
+
+  // KPI row data
+  const { data: simListData } = useSIMList({ operator_id: id ?? '' })
+  const { data: metricsData } = useOperatorMetrics(id ?? '', '1h')
+  const { data: healthHistory } = useOperatorHealthHistory(id ?? '', 24)
+  const { data: sessionsData } = useOperatorSessions(id ?? '', 50)
+
+  const simPages = simListData?.pages ?? []
+  const simLoadedCount = simPages.flatMap((p) => p.data).length
+  const simHasMore = simListData?.pages[simListData.pages.length - 1]?.meta?.has_more ?? false
+  const simTotal = simLoadedCount
+
+  const authRateSparkline = useMemo<number[]>(() => {
+    if (!metricsData?.buckets || metricsData.buckets.length === 0) return []
+    return metricsData.buckets.slice(-12).map((b) => b.auth_rate_per_sec)
+  }, [metricsData])
+
+  const avgAuthRate = useMemo<number>(() => {
+    if (authRateSparkline.length === 0) return 0
+    return authRateSparkline.reduce((a, b) => a + b, 0) / authRateSparkline.length
+  }, [authRateSparkline])
+
+  const uptimePct = useMemo<number>(() => {
+    if (!healthHistory || healthHistory.length === 0) return 0
+    const upCount = healthHistory.filter((e) => e.status === 'up' || e.status === 'healthy').length
+    return Math.round((upCount / healthHistory.length) * 1000) / 10
+  }, [healthHistory])
+
+  const activeSessionsCount = sessionsData?.length ?? 0
 
   useEffect(() => {
     if (operator && id) {
@@ -772,16 +1210,33 @@ export default function OperatorDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               {operator.name}
             </h1>
+            <FavoriteToggle
+              type="operator"
+              id={id ?? ''}
+              label={`Op: ${operator.name}`}
+              path={`/operators/${id}`}
+            />
             <Badge variant={healthVariant(operator.health_status)} className="gap-1 flex-shrink-0">
               {operator.health_status.toUpperCase()}
             </Badge>
-            <Badge variant="outline" className="text-[10px] flex-shrink-0">
-              {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
-            </Badge>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {operator.enabled_protocols && operator.enabled_protocols.length > 0 ? (
+                operator.enabled_protocols.map((p) => (
+                  <Badge key={p} variant="outline" className="text-[10px]">
+                    {ADAPTER_DISPLAY[p] ?? p}
+                  </Badge>
+                ))
+              ) : (
+                <Badge variant="outline" className="text-[10px]">—</Badge>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-4 mt-1">
             <span className="font-mono text-xs text-text-secondary">{operator.code}</span>
-            <span className="font-mono text-xs text-text-tertiary">MCC {operator.mcc} / MNC {operator.mnc}</span>
+            <span className="font-mono text-xs text-text-tertiary">
+              <InfoTooltip term="MCC">MCC</InfoTooltip>{' '}{operator.mcc}{' / '}
+              <InfoTooltip term="MNC">MNC</InfoTooltip>{' '}{operator.mnc}
+            </span>
             {operator.supported_rat_types.slice(0, 4).map((rat) => (
               <span
                 key={rat}
@@ -804,23 +1259,82 @@ export default function OperatorDetailPage() {
         </div>
       </div>
 
+      {/* KPI Row — operator health summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          title="SIMs"
+          value={simTotal}
+          sparklineData={[]}
+          color="var(--color-accent)"
+          subtitle={simHasMore ? `${simLoadedCount}+ loaded (more available)` : 'Total SIMs for this operator'}
+          delay={0}
+        />
+        <KPICard
+          title="Active Sessions"
+          value={activeSessionsCount}
+          sparklineData={[]}
+          color="var(--color-success)"
+          subtitle="Current page count"
+          live={activeSessionsCount > 0}
+          delay={80}
+        />
+        <KPICard
+          title="Auth/s (1h avg)"
+          value={Math.round(avgAuthRate * 100) / 100}
+          formatter={(n) => n.toFixed(2)}
+          sparklineData={authRateSparkline}
+          color="var(--color-warning)"
+          subtitle="Last 12 buckets × 5min"
+          delay={160}
+        />
+        <KPICard
+          title="Uptime % (24h)"
+          value={uptimePct}
+          formatter={(n) => `${n.toFixed(1)}%`}
+          sparklineData={[]}
+          color={uptimePct >= 99 ? 'var(--color-success)' : uptimePct >= 95 ? 'var(--color-warning)' : 'var(--color-danger)'}
+          subtitle="Last 24h health checks"
+          delay={240}
+        />
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview" className="gap-1.5">
             <Settings className="h-3.5 w-3.5" />
             Overview
           </TabsTrigger>
+          <TabsTrigger value="protocols" className="gap-1.5">
+            <Radio className="h-3.5 w-3.5" />
+            Protocols
+          </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5">
             <Activity className="h-3.5 w-3.5" />
-            Health History
-          </TabsTrigger>
-          <TabsTrigger value="circuit" className="gap-1.5">
-            <Shield className="h-3.5 w-3.5" />
-            Circuit Breaker
+            Health
           </TabsTrigger>
           <TabsTrigger value="traffic" className="gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
+          </TabsTrigger>
+          <TabsTrigger value="sessions" className="gap-1.5">
+            <Radio className="h-3.5 w-3.5" />
+            Sessions
+          </TabsTrigger>
+          <TabsTrigger value="sims" className="gap-1.5">
+            <Wifi className="h-3.5 w-3.5" />
+            SIMs
+          </TabsTrigger>
+          <TabsTrigger value="esim" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            eSIM Profiles
+          </TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
           </TabsTrigger>
         </TabsList>
 
@@ -833,14 +1347,45 @@ export default function OperatorDetailPage() {
             isTesting={testMutation.isPending}
           />
         </TabsContent>
-        <TabsContent value="health">
-          <HealthTimelineTab />
+        <TabsContent value="protocols">
+          <ProtocolsPanel operator={operator} />
+          <SLATargetsSection operator={operator} />
         </TabsContent>
-        <TabsContent value="circuit">
-          <CircuitBreakerTab operator={operator} health={health} />
+        {/* Health tab — merged with Circuit Breaker (FIX-222) */}
+        <TabsContent value="health">
+          <div className="space-y-4">
+            <HealthTimelineTab operatorId={operator.id} />
+            <CircuitBreakerTab operator={operator} health={health} />
+          </div>
         </TabsContent>
         <TabsContent value="traffic">
-          <TrafficTab />
+          <TrafficTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="sessions">
+          <SessionsTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="sims">
+          <OperatorSimsTab operatorId={operator.id} />
+        </TabsContent>
+        <TabsContent value="esim">
+          <ESimTab operatorId={operator.id} />
+        </TabsContent>
+        {/* Alerts tab — merged with Notifications (FIX-222); notifications concatenated below alerts */}
+        <TabsContent value="alerts">
+          <div className="mt-4 space-y-6">
+            <RelatedAlertsPanel entityId={operator.id} entityType="operator" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
+                System Notifications
+              </p>
+              <RelatedNotificationsPanel entityId={operator.id} />
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="audit">
+          <div className="mt-4">
+            <RelatedAuditTab entityId={operator.id} entityType="operator" />
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -870,6 +1415,101 @@ export default function OperatorDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function SLATargetsSection({ operator }: { operator: NonNullable<ReturnType<typeof useOperator>['data']> }) {
+  const [uptime, setUptime] = useState(String(operator.sla_uptime_target ?? 99.9))
+  const [latency, setLatency] = useState(String(operator.sla_latency_threshold_ms ?? 500))
+  const [errors, setErrors] = useState<{ uptime?: string; latency?: string }>({})
+  const mutation = useUpdateOperatorSLA()
+
+  const uptimeNum = Number(uptime)
+  const latencyNum = Number(latency)
+
+  const validateUptime = () => {
+    if (Number.isNaN(uptimeNum) || uptimeNum < 50 || uptimeNum > 100) {
+      setErrors(e => ({ ...e, uptime: 'Must be between 50 and 100' }))
+    } else {
+      setErrors(e => ({ ...e, uptime: undefined }))
+    }
+  }
+  const validateLatency = () => {
+    if (!Number.isInteger(latencyNum) || latencyNum < 50 || latencyNum > 60000) {
+      setErrors(e => ({ ...e, latency: 'Must be integer 50–60000' }))
+    } else {
+      setErrors(e => ({ ...e, latency: undefined }))
+    }
+  }
+
+  const isDirty = uptimeNum !== operator.sla_uptime_target || latencyNum !== (operator.sla_latency_threshold_ms ?? 500)
+  const hasErrors = !!errors.uptime || !!errors.latency
+
+  const handleSave = async () => {
+    validateUptime()
+    validateLatency()
+    if (hasErrors) return
+    try {
+      await mutation.mutateAsync({
+        id: operator.id,
+        sla_uptime_target: uptimeNum,
+        sla_latency_threshold_ms: latencyNum,
+      })
+      toast.success('SLA targets saved', { description: 'Applied to operator.' })
+    } catch (err) {
+      toast.error('Save failed', { description: String(err) })
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-[var(--radius-md)] border border-border bg-bg-surface p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-text-primary">SLA Targets</h3>
+        {isDirty && <span className="text-accent animate-pulse" aria-label="unsaved changes">●</span>}
+      </div>
+      <p className="text-xs text-text-secondary mb-4">Set uptime and latency SLOs for this operator.</p>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="sla-uptime" className="text-xs text-text-secondary">Uptime Target (%)</label>
+          <Input
+            id="sla-uptime"
+            type="number"
+            step="0.01"
+            min={50}
+            max={100}
+            value={uptime}
+            onChange={e => setUptime(e.target.value)}
+            onBlur={validateUptime}
+            aria-invalid={!!errors.uptime}
+            className="h-8 text-sm font-mono mt-1"
+          />
+          <p className="text-[11px] text-text-tertiary mt-0.5">50 – 100%</p>
+          {errors.uptime && <p role="alert" className="text-xs text-danger mt-1">{errors.uptime}</p>}
+        </div>
+        <div>
+          <label htmlFor="sla-latency" className="text-xs text-text-secondary">Latency Threshold (ms)</label>
+          <Input
+            id="sla-latency"
+            type="number"
+            step={1}
+            min={50}
+            max={60000}
+            value={latency}
+            onChange={e => setLatency(e.target.value)}
+            onBlur={validateLatency}
+            aria-invalid={!!errors.latency}
+            className="h-8 text-sm font-mono mt-1"
+          />
+          <p className="text-[11px] text-text-tertiary mt-0.5">50 – 60,000 ms</p>
+          {errors.latency && <p role="alert" className="text-xs text-danger mt-1">{errors.latency}</p>}
+        </div>
+      </div>
+      <div className="flex justify-end mt-4">
+        <Button size="sm" onClick={handleSave} disabled={!isDirty || mutation.isPending || hasErrors}>
+          {mutation.isPending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
     </div>
   )
 }

@@ -141,6 +141,11 @@ Become the industry-standard platform for enterprise IoT connectivity management
 | TACACS+ | Network device admin protocol, not IoT SIM management | Only if market demands |
 | Geo-fencing | Nice-to-have, can be added to policy engine later | Post-v1 |
 | Device management (firmware/health) | Different product category; Argus manages SIM/connectivity, not the device | No |
+| EIR (S13/N17) integration | Phase 11 IMEI binding does **local** enforcement only per ADR-004 — no real-time queries to operator EIR | Post-v1 if operators expose interfaces |
+| GSMA CEIR auto-feed | Phase 11 IMEI Pool supports manual CSV import of blacklists; live CEIR feed requires GSMA membership + commercial agreement | Post-v1 |
+| Multi-Framed-Route per SIM (RFC 2865 attr 22) | Single Framed-Route per SIM is sufficient for IoT/M2M v1 fleet patterns | Backlog |
+| HA Kubernetes / Helm chart deployment | v1 ships Docker Compose for both on-prem and SaaS; K8s manifests deferred | Backlog |
+| Billing / PDF invoice module | Argus exposes CDR + webhook for downstream BSS systems; not a billing product | No (BSS-ready by design) |
 
 ## Success Metrics
 

@@ -28,7 +28,7 @@
 ## Smoke Test
 | Endpoint | Status | Response |
 |----------|--------|----------|
-| Frontend (https://localhost:8084) | 200 | HTML with JS/CSS bundles |
+| Frontend (http://localhost:8084) | 200 | HTML with JS/CSS bundles |
 | API Health (/api/health) | 200 | `{"db":"ok","redis":"ok","nats":"ok","aaa":{"radius":"ok","diameter":"ok"}}` |
 | Auth login (POST /api/v1/auth/login) | 200 | JWT token + user data issued |
 | WebSocket server (:8081) | UP | Listening, NATS subscribed to 9 event subjects |
@@ -56,7 +56,7 @@ All 53 test packages pass. Zero failures. 16 skipped tests are E2E tests requiri
 ### CORS (STORY-054)
 | Header | Value | Status |
 |--------|-------|--------|
-| Access-Control-Allow-Origin | `https://localhost:8084` (origin-specific, not wildcard) | PASS |
+| Access-Control-Allow-Origin | `http://localhost:8084` (origin-specific, not wildcard) | PASS |
 | Access-Control-Allow-Methods | `GET, POST, PUT, PATCH, DELETE, OPTIONS` | PASS |
 | Access-Control-Allow-Headers | `Accept, Authorization, Content-Type, X-Correlation-ID, X-Request-ID` | PASS |
 | Access-Control-Expose-Headers | `X-Correlation-ID, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset` | PASS |

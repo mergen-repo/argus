@@ -40,6 +40,8 @@ type Job struct {
 	CompletedAt     *time.Time
 	CreatedAt       time.Time
 	CreatedBy       *uuid.UUID
+	CreatedByName   *string
+	CreatedByEmail  *string
 	LockedBy        *string
 	LockedAt        *time.Time
 }
@@ -204,16 +206,16 @@ func (s *JobStore) List(ctx context.Context, cursor string, limit int, filter Jo
 	}
 
 	args := []interface{}{tenantID}
-	conditions := []string{"tenant_id = $1"}
+	conditions := []string{"j.tenant_id = $1"}
 	argIdx := 2
 
 	if filter.Type != "" {
-		conditions = append(conditions, fmt.Sprintf("type = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("j.type = $%d", argIdx))
 		args = append(args, filter.Type)
 		argIdx++
 	}
 	if filter.State != "" {
-		conditions = append(conditions, fmt.Sprintf("state = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("j.state = $%d", argIdx))
 		args = append(args, filter.State)
 		argIdx++
 	}
@@ -221,7 +223,7 @@ func (s *JobStore) List(ctx context.Context, cursor string, limit int, filter Jo
 	if cursor != "" {
 		cursorID, parseErr := uuid.Parse(cursor)
 		if parseErr == nil {
-			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			conditions = append(conditions, fmt.Sprintf("j.id < $%d", argIdx))
 			args = append(args, cursorID)
 			argIdx++
 		}
@@ -233,14 +235,16 @@ func (s *JobStore) List(ctx context.Context, cursor string, limit int, filter Jo
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, type, state, priority, payload,
-			total_items, processed_items, failed_items, progress_pct,
-			error_report, result, max_retries, retry_count, retry_backoff_sec,
-			scheduled_at, started_at, completed_at, created_at, created_by,
-			locked_by, locked_at
-		FROM jobs
+		SELECT j.id, j.tenant_id, j.type, j.state, j.priority, j.payload,
+			j.total_items, j.processed_items, j.failed_items, j.progress_pct,
+			j.error_report, j.result, j.max_retries, j.retry_count, j.retry_backoff_sec,
+			j.scheduled_at, j.started_at, j.completed_at, j.created_at, j.created_by,
+			j.locked_by, j.locked_at,
+			u.name, u.email
+		FROM jobs j
+		LEFT JOIN users u ON j.created_by = u.id
 		%s
-		ORDER BY created_at DESC, id DESC
+		ORDER BY j.created_at DESC, j.id DESC
 		LIMIT %s
 	`, where, limitPlaceholder)
 
@@ -259,6 +263,7 @@ func (s *JobStore) List(ctx context.Context, cursor string, limit int, filter Jo
 			&job.ErrorReport, &job.Result, &job.MaxRetries, &job.RetryCount, &job.RetryBackoffSec,
 			&job.ScheduledAt, &job.StartedAt, &job.CompletedAt, &job.CreatedAt, &job.CreatedBy,
 			&job.LockedBy, &job.LockedAt,
+			&job.CreatedByName, &job.CreatedByEmail,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan job: %w", err)
 		}

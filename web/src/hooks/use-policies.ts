@@ -7,6 +7,7 @@ import type {
   DryRunResult,
   DiffResponse,
   PolicyRollout,
+  RolloutSummary,
   ListResponse,
   ApiResponse,
 } from '@/types/policy'
@@ -74,7 +75,8 @@ export function useDeletePolicy() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/policies/${id}`)
+      const res = await api.delete<{ status: string; data: { deleted: boolean }; meta?: { undo_action_id?: string } }>(`/policies/${id}`)
+      return { undoActionId: res.data.meta?.undo_action_id }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: POLICIES_KEY })
@@ -203,6 +205,36 @@ export function useRollbackRollout() {
       return res.data.data
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout'] })
+      queryClient.invalidateQueries({ queryKey: POLICIES_KEY })
+    },
+  })
+}
+
+export function useRolloutList(state = 'in_progress,paused') {
+  return useQuery({
+    queryKey: [...POLICIES_KEY, 'rollout-list', state],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('state', state)
+      params.set('limit', '50')
+      const res = await api.get<{ status: string; data: RolloutSummary[] }>(`/policy-rollouts?${params.toString()}`)
+      return res.data.data ?? []
+    },
+    staleTime: 15_000,
+  })
+}
+
+export function useAbortRollout(rolloutID: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { reason?: string } = {}) => {
+      if (!rolloutID) throw new Error('rolloutID required')
+      const res = await api.post<ApiResponse<PolicyRollout>>(`/policy-rollouts/${rolloutID}/abort`, vars)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout', rolloutID] })
       queryClient.invalidateQueries({ queryKey: [...POLICIES_KEY, 'rollout'] })
       queryClient.invalidateQueries({ queryKey: POLICIES_KEY })
     },

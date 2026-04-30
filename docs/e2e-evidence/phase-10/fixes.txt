@@ -1,0 +1,68 @@
+Phase 10 Gate re-run — In-gate fixes 2026-04-17
+================================================
+
+Source of findings: Step 3 E2E scenario 02 (/sms page STORY-086 verification)
+
+## Fix #1 — SMS History page DTO mismatch
+
+**Surface**: `http://localhost:8084/sms`
+**Symptom**: "CREATED" column rendered "Invalid Date" on every row. "PRIORITY" column displayed empty badges.
+**Scope framing**: NOT a STORY-086 regression. STORY-086 only recovered the `sms_outbound` table + API; the
+/sms UI column binding was always wrong since STORY-069 shipped the SMS Gateway — it only became visible
+now because STORY-086 unblocked the endpoint from its 500 state and populated the list with actual rows.
+Closing this here under the Phase 10 zero-deferral banner rather than filing a STORY-069 follow-up.
+
+**Root cause**: Pre-existing STORY-069-era UI↔API contract drift. API DTO (internal/api/sms/handler.go:295-308
+`smsOutboundDTO`) returns `queued_at`, `status`, `sim_id`, `msisdn`, `text_hash`, `text_preview`,
+`provider_message_id?`, `error_code?`, `sent_at?`, `delivered_at?`. Frontend type (web/src/hooks/use-sms.ts
+SMSOutbound) declared `created_at`, `priority`, `tenant_id` — none of which exist in the server response.
+
+**Fix applied** (code edits, NOT committed):
+1. `web/src/hooks/use-sms.ts:7-19` — SMSOutbound interface rewritten to match API DTO exactly:
+   - Removed: tenant_id, priority, created_at (none returned by backend)
+   - Added: text_hash (required), delivered_at (optional)
+   - Changed: sent_at string|null → string? (optional, matches omitempty semantics)
+   - Changed: provider_message_id/error_code from string|null → string?
+2. `web/src/pages/sms/index.tsx:155-189` — SMS History table updated:
+   - Column header "CREATED" → "QUEUED"
+   - Column binding `m.created_at` → `m.queued_at`
+   - "PRIORITY" column removed (field not in API response); empty-state colSpan 6 → 5
+
+**Type-check**: `cd web && npx tsc --noEmit` → clean
+**Build**: `npm run build` → 2825 modules transformed, built in 4.30s (no errors)
+**Post-fix verification**: Rebuilt argus image + restarted container; /sms page now renders
+"QUEUED" column with proper "4/17/2026, 10:42:11 AM" timestamps and no "Invalid Date" values.
+Screenshot: docs/e2e-evidence/phase-10/polish/sms-page-after.png
+Before:     docs/e2e-evidence/phase-10/polish/sms-page-before.png
+
+**Commit disposition**: NOT committed per gate-agent mandate
+("Do NOT commit anything in this gate run. Ana Amil will decide commit disposition.").
+Suggested commit subject (for Ana Amil): `fix(phase-10-gate): sms page UI DTO sync (STORY-069 era drift)`
+— the scope framing distinguishes this from STORY-086 proper.
+
+**Files modified (uncommitted on disk)**:
+- web/src/hooks/use-sms.ts
+- web/src/pages/sms/index.tsx
+
+---
+
+## No other fixes applied
+
+All other Phase 10 surfaces (dashboard, sims list, sims compare, admin compliance, admin impersonate,
+admin resources, sessions, jobs, audit log, cmdk search, dashboard alias, settings/sessions, turkish
+toggle) render and behave correctly against STORY-056..086 acceptance criteria.
+
+STORY-079 F-1..F-8 + DEV-191 all verified closed in Step 3.5 functional probes (functional-api.txt).
+STORY-086 schemacheck + trigger + RLS + `GET /api/v1/sms/history` HTTP 200 all verified in Step 3.5.
+
+## New deferrals: 0
+
+No findings deferred. Zero-deferral policy maintained. The 8 follow-ups F-1..F-8 + DEV-191 from the
+2026-04-13 conditional-PASS gate are all verified closed in this re-run; no new follow-ups created.
+
+## Carry-over tech-debt (already tracked in ROUTEMAP):
+
+- D-032: Original STORY-069 migration 20260413000001 has FK-to-partitioned-parent defect that would fail
+  on a fresh (empty) DB volume. This gate preserved existing volumes per task constraint. Future story
+  should either split the FK out of CREATE TABLE or replicate STORY-086's check_sim_exists() pattern into
+  the original migration. Not a regression; pre-existing bug currently masked by the live volume state.

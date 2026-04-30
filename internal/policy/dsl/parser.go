@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/btopcu/argus/internal/aaa/rattype"
 )
 
 type DSLError struct {
@@ -25,16 +27,9 @@ var unitSet = map[string]bool{
 	"s": true, "ms": true, "min": true, "h": true, "d": true,
 }
 
-var validRATTypes = map[string]bool{
-	"nb_iot": true, "lte_m": true, "lte": true, "nr_5g": true,
-	"utran": true, "geran": true, "nr_5g_nsa": true,
-	"cat_m1": true, "2g": true, "3g": true, "4g": true,
-	"5g": true, "5g_sa": true, "5g_nsa": true, "unknown": true,
-}
-
 var validMatchFields = map[string]bool{
 	"apn": true, "operator": true, "rat_type": true,
-	"sim_type": true, "roaming": true,
+	"sim_type": true,
 }
 
 var validChargingModels = map[string]bool{
@@ -248,8 +243,11 @@ func (p *Parser) parseMatchClause() *MatchClause {
 	p.advance()
 
 	if !validMatchFields[clause.Field] && !strings.HasPrefix(clause.Field, "metadata.") {
-		p.addWarning(fieldTok.Line, fieldTok.Column, "DSL_UNKNOWN_FIELD",
-			fmt.Sprintf("unknown MATCH field %q", clause.Field))
+		msg := fmt.Sprintf("unknown MATCH field %q", clause.Field)
+		if sug := Suggest(clause.Field, sortedKeysBool(validMatchFields), 2); sug != "" {
+			msg += fmt.Sprintf(" — did you mean %q?", sug)
+		}
+		p.addWarning(fieldTok.Line, fieldTok.Column, "DSL_UNKNOWN_FIELD", msg)
 	}
 
 	opTok := p.current()
@@ -461,8 +459,11 @@ func (p *Parser) validateAction(ac *ActionCall) {
 				fmt.Sprintf("tag() requires 2 arguments (key, value), got %d", len(ac.Args)))
 		}
 	default:
-		p.addError(ac.Line, 0, "DSL_UNKNOWN_ACTION",
-			fmt.Sprintf("unknown action %q", ac.Name))
+		msg := fmt.Sprintf("unknown action %q", ac.Name)
+		if sug := Suggest(ac.Name, validActionList(), 2); sug != "" {
+			msg += fmt.Sprintf(" — did you mean %q?", sug)
+		}
+		p.addError(ac.Line, 0, "DSL_UNKNOWN_ACTION", msg)
 	}
 }
 
@@ -729,9 +730,9 @@ func (p *Parser) parseChargingBlock() *ChargingBlock {
 					continue
 				}
 				ratName := ratTok.Literal
-				if !validRATTypes[ratName] {
+				if !rattype.IsRecognized(ratName) {
 					p.addError(ratTok.Line, ratTok.Column, "DSL_INVALID_RAT_TYPE",
-						fmt.Sprintf("invalid RAT type %q, must be one of: nb_iot, lte_m, lte, nr_5g", ratName))
+						fmt.Sprintf("invalid RAT type %q, valid types: %s", ratName, strings.Join(rattype.AllCanonical(), ", ")))
 				}
 				p.advance()
 				p.expect(TokenEq)

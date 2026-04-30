@@ -1,0 +1,9 @@
+=== Frontend (nginx :8084) ===
+HTTP 200
+=== API health via nginx ===
+{"status":"success","data":{"state":"healthy","db":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:29:03.429439345Z"},"redis":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04...
+
+=== Postgres pg_isready ===
+/var/run/postgresql:5432 - accepting connections
+=== argus-app direct health (via container network - expected not host-exposed) ===
+HTTP 200

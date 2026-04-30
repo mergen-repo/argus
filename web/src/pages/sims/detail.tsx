@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -18,6 +18,11 @@ import {
   XOctagon,
   Info,
   ChevronRight,
+  Smartphone,
+  Network,
+  DollarSign,
+  ListChecks,
+  Layers,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -56,17 +61,28 @@ import {
   useSIMSessions,
   useSIMDiagnostics,
   useSIMStateAction,
+  useSIMUsage,
+  useSIMCDRs,
 } from '@/hooks/use-sims'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
-import type { SIM, SIMState, DiagnosticResult } from '@/types/sim'
+import type { SIM, SIMState, DiagnosticResult, SIMUsageData, SIMCDR } from '@/types/sim'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/stores/ui'
-import { RAT_DISPLAY } from '@/lib/constants'
+import { useUndo } from '@/hooks/use-undo'
 import { formatBytes, formatDuration, timeAgo } from '@/lib/format'
+import { InfoRow } from '@/components/ui/info-row'
+import { RATBadge } from '@/components/ui/rat-badge'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
+import { ErrorBoundary } from '@/components/error-boundary'
+import { FavoriteToggle, EmptyState, OperatorChip, EntityLink } from '@/components/shared'
+import { ESimTab } from './esim-tab'
+import { RelatedDataTab } from './_tabs/related-data-tab'
+import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
+import { IPHistoryTab } from './_tabs/ip-history-tab'
+import { CostAttributionTab } from './_tabs/cost-attribution-tab'
 
 function allowedActions(state: SIMState): Array<{ action: string; label: string; icon: React.ElementType; variant: 'default' | 'destructive' | 'outline' }> {
   switch (state) {
@@ -88,6 +104,28 @@ function allowedActions(state: SIMState): Array<{ action: string; label: string;
     default:
       return []
   }
+}
+
+function renderCoaStatus(status?: string | null): React.ReactElement {
+  if (!status) return <span className="text-text-tertiary">—</span>
+  const mapping: Record<string, { label: string; className: string }> = {
+    pending:    { label: 'Pending',        className: 'text-warning' },
+    queued:     { label: 'Queued',         className: 'text-info' },
+    acked:      { label: 'Acknowledged',   className: 'text-success' },
+    failed:     { label: 'Failed',         className: 'text-danger' },
+    no_session: { label: 'No Session',     className: 'text-text-tertiary' },
+    skipped:    { label: 'Skipped',        className: 'text-text-tertiary' },
+  }
+  const entry = mapping[status]
+  if (!entry) return <span className="text-text-tertiary">{status}</span>
+  if (status === 'failed') {
+    return (
+      <span className={entry.className} title="Last attempt failed. See policy event log for failure reason.">
+        {entry.label}
+      </span>
+    )
+  }
+  return <span className={entry.className}>{entry.label}</span>
 }
 
 function OverviewTab({ sim }: { sim: SIM }) {
@@ -112,20 +150,25 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Operator" value={sim.operator_name || sim.operator_id} mono={!sim.operator_name} />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">Operator</span>
+            <OperatorChip name={sim.operator_name} code={sim.operator_code} rawId={sim.operator_id} />
+          </div>
           <InfoRow label="APN" value={sim.apn_name || sim.apn_id || 'Not assigned'} mono={!sim.apn_name && !!sim.apn_id} />
-          <InfoRow label="RAT Type" value={sim.rat_type ? (RAT_DISPLAY[sim.rat_type] ?? sim.rat_type) : 'Not set'} />
+          <InfoRow label="RAT Type" value={sim.rat_type ? <RATBadge ratType={sim.rat_type} /> : 'Not set'} />
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-secondary">IP Address</span>
             <div className="flex items-center gap-2">
               <span className={cn('text-sm text-text-primary', sim.ip_address && 'font-mono text-xs')}>{sim.ip_address || 'Not allocated'}</span>
               {!sim.ip_address && sim.apn_id && sim.state === 'active' && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setReserveOpen(true)}
-                  className="text-[10px] text-accent hover:underline"
+                  className="text-[10px] text-accent hover:underline h-auto py-0 px-1"
                 >
                   Reserve Static IP
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -137,7 +180,18 @@ function OverviewTab({ sim }: { sim: SIM }) {
           <CardTitle>Policy & Session</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <InfoRow label="Policy" value={sim.policy_name || sim.policy_version_id || 'None'} mono={!sim.policy_name && !!sim.policy_version_id} />
+          <InfoRow
+            label="Policy"
+            value={
+              sim.policy_name
+                ? sim.policy_version_number != null
+                  ? `${sim.policy_name} (v${sim.policy_version_number})`
+                  : sim.policy_name
+                : sim.policy_version_id || 'None'
+            }
+            mono={!sim.policy_name && !!sim.policy_version_id}
+          />
+          <InfoRow label="CoA Status" value={renderCoaStatus(sim.coa_status)} />
           <InfoRow label="eSIM Profile" value={sim.esim_profile_id ?? 'N/A'} mono={!!sim.esim_profile_id} />
           <InfoRow label="Max Concurrent Sessions" value={String(sim.max_concurrent_sessions)} />
           <InfoRow label="Idle Timeout" value={formatDuration(sim.session_idle_timeout_sec)} />
@@ -204,17 +258,6 @@ function OverviewTab({ sim }: { sim: SIM }) {
   )
 }
 
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <span className={cn('text-sm text-text-primary', mono && 'font-mono text-xs')}>
-        {value}
-      </span>
-    </div>
-  )
-}
-
 function SessionsTab({ simId }: { simId: string }) {
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useSIMSessions(simId)
 
@@ -237,51 +280,45 @@ function SessionsTab({ simId }: { simId: string }) {
 
   if (allSessions.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Activity className="h-8 w-8 text-text-tertiary mb-3" />
-          <h3 className="text-sm font-semibold text-text-primary mb-1">No sessions found</h3>
-          <p className="text-xs text-text-secondary">This SIM has no session history yet.</p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Activity}
+        title="No sessions found"
+        description="This SIM has no session history yet."
+      />
     )
   }
 
   return (
     <Card className="overflow-hidden">
       <Table>
-        <TableHeader className="bg-bg-elevated">
-          <TableRow>
-            <TableHead>Session ID</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>NAS IP</TableHead>
-            <TableHead>Framed IP</TableHead>
-            <TableHead>RAT</TableHead>
-            <TableHead>Data In</TableHead>
-            <TableHead>Data Out</TableHead>
-            <TableHead>Duration</TableHead>
-            <TableHead>Started</TableHead>
+        <TableHeader>
+          <TableRow className="border-b border-border-subtle hover:bg-transparent">
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Session ID</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">NAS IP</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Framed IP</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">RAT</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Data In</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Data Out</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Duration</TableHead>
+            <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Started</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {allSessions.map((session) => (
-            <TableRow key={session.id}>
-              <TableCell>
-                <span className="font-mono text-xs text-text-secondary">{session.acct_session_id.slice(0, 12)}...</span>
+            <TableRow key={session.id} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+              <TableCell className="py-2">
+                <span className="font-mono text-xs text-text-secondary">{session.acct_session_id ? session.acct_session_id.slice(0, 12) + '...' : '-'}</span>
               </TableCell>
               <TableCell>
-                <Badge variant={session.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
-                  {session.state.toUpperCase()}
+                <Badge variant={session.session_state === 'active' ? 'success' : 'secondary'} className="text-[10px]">
+                  {session.session_state.toUpperCase()}
                 </Badge>
               </TableCell>
-              <TableCell><span className="font-mono text-xs text-text-secondary">{session.nas_ip}</span></TableCell>
+              <TableCell><span className="font-mono text-xs text-text-secondary">{session.nas_ip || '-'}</span></TableCell>
               <TableCell><span className="font-mono text-xs text-text-secondary">{session.framed_ip || '-'}</span></TableCell>
               <TableCell>
-                {session.rat_type ? (
-                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary">
-                    {RAT_DISPLAY[session.rat_type] ?? session.rat_type}
-                  </span>
-                ) : '-'}
+                <RATBadge ratType={session.rat_type} />
               </TableCell>
               <TableCell><span className="font-mono text-xs">{formatBytes(session.bytes_in)}</span></TableCell>
               <TableCell><span className="font-mono text-xs">{formatBytes(session.bytes_out)}</span></TableCell>
@@ -293,41 +330,46 @@ function SessionsTab({ simId }: { simId: string }) {
       </Table>
       {hasNextPage && (
         <div className="px-4 py-3 border-t border-border-subtle">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2"
+            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2 h-auto"
           >
             {isFetchingNextPage && <Spinner className="h-3 w-3" />}
             {isFetchingNextPage ? 'Loading...' : 'Load more sessions'}
-          </button>
+          </Button>
         </div>
       )}
     </Card>
   )
 }
 
-const SIM_TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
-  '15m': { count: 15, labelFn: (i) => `${i}m` },
-  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
-  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
-  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
-  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
-  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
-}
-
 function UsageTab({ simId }: { simId: string }) {
   const [timeframe, setTimeframe] = useState('30d')
+  const { data: usageData, isLoading } = useSIMUsage(simId, timeframe)
+  const {
+    data: cdrPages,
+    isLoading: isCDRsLoading,
+    isFetchingNextPage: isFetchingMoreCDRs,
+    hasNextPage,
+    fetchNextPage,
+  } = useSIMCDRs(simId)
+  const usage = usageData as SIMUsageData | undefined
+  const cdrs = useMemo(
+    () => cdrPages?.pages.flatMap((page) => page.data) ?? [],
+    [cdrPages],
+  )
 
-  const mockUsageData = useMemo(() => {
-    const cfg = SIM_TIMEFRAME_POINTS[timeframe] ?? SIM_TIMEFRAME_POINTS['30d']
-    const scale = timeframe === '15m' ? 0.05 : timeframe === '1h' ? 0.1 : timeframe === '6h' ? 0.3 : timeframe === '24h' ? 0.5 : timeframe === '7d' ? 2 : 1
-    return Array.from({ length: cfg.count }, (_, i) => ({
-      label: cfg.labelFn(i),
-      bytes_in: Math.floor(Math.random() * 100_000_000 * scale),
-      bytes_out: Math.floor(Math.random() * 50_000_000 * scale),
+  const chartData = useMemo(() => {
+    if (!usage?.series?.length) return []
+    return usage.series.map((b) => ({
+      label: b.bucket,
+      bytes_in: b.bytes_in,
+      bytes_out: b.bytes_out,
     }))
-  }, [timeframe])
+  }, [usage])
 
   return (
     <div className="space-y-4">
@@ -338,60 +380,70 @@ function UsageTab({ simId }: { simId: string }) {
       <Card>
         <CardContent className="pt-4">
           <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockUsageData}>
-                <defs>
-                  <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={Math.max(0, Math.floor(mockUsageData.length / 8) - 1)}
-                />
-                <YAxis
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatBytes(v)}
-                  width={60}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-bg-elevated)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value) => [formatBytes(Number(value))]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_in"
-                  stroke="var(--color-accent)"
-                  fill="url(#gradIn)"
-                  strokeWidth={2}
-                  name="Data In"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bytes_out"
-                  stroke="var(--color-purple)"
-                  fill="url(#gradOut)"
-                  strokeWidth={2}
-                  name="Data Out"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-text-tertiary" />
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
+                No usage data for this period
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(0, Math.floor(chartData.length / 8) - 1)}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => formatBytes(v)}
+                    width={60}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-bg-elevated)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '12px',
+                    }}
+                    formatter={(value) => [formatBytes(Number(value))]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="bytes_in"
+                    stroke="var(--color-accent)"
+                    fill="url(#gradIn)"
+                    strokeWidth={2}
+                    name="Data In"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="bytes_out"
+                    stroke="var(--color-purple)"
+                    fill="url(#gradOut)"
+                    strokeWidth={2}
+                    name="Data Out"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -404,23 +456,103 @@ function UsageTab({ simId }: { simId: string }) {
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-accent">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_in, 0))}
+                {formatBytes(usage?.total_bytes_in ?? 0)}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
             </div>
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-purple">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_out, 0))}
+                {formatBytes(usage?.total_bytes_out ?? 0)}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
             </div>
             <div className="text-center">
               <div className="font-mono text-xl font-bold text-text-primary">
-                {formatBytes(mockUsageData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}
+                {formatBytes((usage?.total_bytes_in ?? 0) + (usage?.total_bytes_out ?? 0))}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>CDR History</CardTitle>
+          <span className="text-xs text-text-tertiary">{cdrs.length} records loaded</span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {isCDRsLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : cdrs.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-bg-surface p-6 text-center text-sm text-text-tertiary">
+              No CDR records found for this SIM.
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Timestamp</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Session</TableHead>
+                    <TableHead className="text-right">In</TableHead>
+                    <TableHead className="text-right">Out</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cdrs.map((cdr: SIMCDR) => (
+                    <TableRow key={cdr.id}>
+                      <TableCell className="text-xs text-text-secondary">
+                        {new Date(cdr.timestamp).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px] uppercase">
+                          {cdr.record_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-text-secondary">
+                        <EntityLink entityType="session" entityId={cdr.session_id} label={cdr.session_id.slice(0, 8) + '…'} />
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-success">
+                        {formatBytes(cdr.bytes_in)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-accent">
+                        {formatBytes(cdr.bytes_out)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-text-secondary">
+                        {formatDuration(cdr.duration_sec)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-text-primary">
+                        {cdr.usage_cost ? `$${cdr.usage_cost}` : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {hasNextPage && (
+                <div className="flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingMoreCDRs}
+                    className="gap-2"
+                  >
+                    {isFetchingMoreCDRs && <Spinner className="h-3 w-3" />}
+                    {isFetchingMoreCDRs ? 'Loading...' : 'Load more CDRs'}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -553,13 +685,11 @@ function HistoryTab({ simId }: { simId: string }) {
 
   if (allHistory.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Clock className="h-8 w-8 text-text-tertiary mb-3" />
-          <h3 className="text-sm font-semibold text-text-primary mb-1">No history yet</h3>
-          <p className="text-xs text-text-secondary">State transition history will appear here.</p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Clock}
+        title="No history yet"
+        description="State transition history will appear here."
+      />
     )
   }
 
@@ -610,14 +740,15 @@ function HistoryTab({ simId }: { simId: string }) {
         </div>
         {hasNextPage && (
           <div className="mt-4 text-center">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="text-xs text-text-tertiary hover:text-accent transition-colors flex items-center justify-center gap-2 mx-auto"
+              className="text-xs text-text-tertiary hover:text-accent flex items-center justify-center gap-2 mx-auto"
             >
               {isFetchingNextPage && <Spinner className="h-3 w-3" />}
               {isFetchingNextPage ? 'Loading...' : 'Load more history'}
-            </button>
+            </Button>
           </div>
         )}
       </CardContent>
@@ -638,6 +769,7 @@ export default function SimDetailPage() {
 
   const { data: sim, isLoading, isError, refetch } = useSIM(id ?? '')
   const stateAction = useSIMStateAction()
+  const { register: registerUndo } = useUndo([['sims']])
   const addRecentItem = useUIStore((s) => s.addRecentItem)
 
   useEffect(() => {
@@ -649,11 +781,14 @@ export default function SimDetailPage() {
   const handleStateAction = async () => {
     if (!actionDialog || !id) return
     try {
-      await stateAction.mutateAsync({
+      const result = await stateAction.mutateAsync({
         simId: id,
         action: actionDialog.action as 'activate' | 'suspend' | 'resume' | 'terminate' | 'report-lost',
         reason: actionReason || undefined,
       })
+      if (result.undoActionId) {
+        registerUndo(result.undoActionId, `SIM ${actionDialog.label.toLowerCase()}`)
+      }
       setActionDialog(null)
       setActionReason('')
       refetch()
@@ -720,6 +855,12 @@ export default function SimDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               SIM {sim.iccid}
             </h1>
+            <FavoriteToggle
+              type="sim"
+              id={id ?? ''}
+              label={`SIM ${sim.iccid?.slice(-8) ?? id?.slice(0, 8) ?? ''}`}
+              path={`/sims/${id}`}
+            />
             <Badge variant={stateVariant(sim.state)} className="gap-1 flex-shrink-0">
               {sim.state === 'active' && (
                 <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
@@ -735,11 +876,7 @@ export default function SimDetailPage() {
             {sim.msisdn && (
               <span className="font-mono text-xs text-text-secondary">MSISDN: {sim.msisdn}</span>
             )}
-            {sim.rat_type && (
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary">
-                {RAT_DISPLAY[sim.rat_type] ?? sim.rat_type}
-              </span>
-            )}
+            {sim.rat_type && <RATBadge ratType={sim.rat_type} />}
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
@@ -771,6 +908,12 @@ export default function SimDetailPage() {
             <Shield className="h-3.5 w-3.5" />
             Overview
           </TabsTrigger>
+          {sim.sim_type === 'esim' && (
+            <TabsTrigger value="esim" className="gap-1.5">
+              <Smartphone className="h-3.5 w-3.5" />
+              eSIM
+            </TabsTrigger>
+          )}
           <TabsTrigger value="sessions" className="gap-1.5">
             <Activity className="h-3.5 w-3.5" />
             Sessions
@@ -787,26 +930,84 @@ export default function SimDetailPage() {
             <Clock className="h-3.5 w-3.5" />
             History
           </TabsTrigger>
+          <TabsTrigger value="policy-history" className="gap-1.5">
+            <ListChecks className="h-3.5 w-3.5" />
+            Policy
+          </TabsTrigger>
+          <TabsTrigger value="ip-history" className="gap-1.5">
+            <Network className="h-3.5 w-3.5" />
+            IP History
+          </TabsTrigger>
+          <TabsTrigger value="cost" className="gap-1.5">
+            <DollarSign className="h-3.5 w-3.5" />
+            Cost
+          </TabsTrigger>
+          <TabsTrigger value="related" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Related
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <OverviewTab sim={sim} />
+          <ErrorBoundary>
+            <OverviewTab sim={sim} />
+          </ErrorBoundary>
         </TabsContent>
 
+        {sim.sim_type === 'esim' && (
+          <TabsContent value="esim">
+            <ErrorBoundary>
+              <ESimTab simId={sim.id} />
+            </ErrorBoundary>
+          </TabsContent>
+        )}
+
         <TabsContent value="sessions">
-          <SessionsTab simId={sim.id} />
+          <ErrorBoundary>
+            <SessionsTab simId={sim.id} />
+          </ErrorBoundary>
         </TabsContent>
 
         <TabsContent value="usage">
-          <UsageTab simId={sim.id} />
+          <ErrorBoundary>
+            <UsageTab simId={sim.id} />
+          </ErrorBoundary>
         </TabsContent>
 
         <TabsContent value="diagnostics">
-          <DiagnosticsTab simId={sim.id} />
+          <ErrorBoundary>
+            <DiagnosticsTab simId={sim.id} />
+          </ErrorBoundary>
         </TabsContent>
 
         <TabsContent value="history">
-          <HistoryTab simId={sim.id} />
+          <ErrorBoundary>
+            <HistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="policy-history">
+          <ErrorBoundary>
+            <PolicyAssignmentHistoryTab simId={sim.id} currentPolicyVersionId={sim.policy_version_id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="ip-history">
+          <ErrorBoundary>
+            <IPHistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="cost">
+          <ErrorBoundary>
+            <CostAttributionTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="related">
+          <ErrorBoundary>
+            <RelatedDataTab simId={sim.id} />
+          </ErrorBoundary>
         </TabsContent>
       </Tabs>
 

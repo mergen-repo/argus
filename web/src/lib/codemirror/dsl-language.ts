@@ -1,4 +1,10 @@
 import { StreamLanguage, type StreamParser } from '@codemirror/language'
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+} from '@codemirror/autocomplete'
+import { fetchVocab } from '@/lib/api/policies'
 
 const keywords = new Set([
   'POLICY', 'MATCH', 'RULES', 'WHEN', 'ACTION', 'CHARGING',
@@ -117,3 +123,53 @@ const dslParser: StreamParser<DSLState> = {
 }
 
 export const dslLanguage = StreamLanguage.define(dslParser)
+
+async function dslCompletions(context: CompletionContext): Promise<CompletionResult | null> {
+  const word = context.matchBefore(/\w*/)
+  if (!word || (word.from === word.to && !context.explicit)) return null
+
+  const vocab = await fetchVocab()
+
+  const text = context.state.doc.sliceString(0, word.from)
+  const lastMatchOpen = text.lastIndexOf('MATCH')
+  const lastRulesOpen = text.lastIndexOf('RULES')
+  const lastChargingOpen = text.lastIndexOf('CHARGING')
+  const lastClose = text.lastIndexOf('}')
+
+  const inMatch = lastMatchOpen > lastClose && /MATCH\s*\{[^}]*$/.test(text)
+  const inRules = lastRulesOpen > lastClose && /RULES\s*\{[^}]*$/.test(text)
+  const inCharging = lastChargingOpen > lastClose && /CHARGING\s*\{[^}]*$/.test(text)
+
+  let options: { label: string; type: string; detail?: string }[] = []
+
+  if (inMatch) {
+    options = vocab.match_fields.map((f) => ({ label: f, type: 'property', detail: 'match field' }))
+  } else if (inRules) {
+    options = [
+      ...vocab.rule_keywords.map((k) => ({ label: k, type: 'keyword', detail: 'rule' })),
+      ...(vocab.actions ?? []).map((a) => ({ label: `ACTION ${a}`, type: 'function', detail: 'action' })),
+      { label: 'WHEN', type: 'keyword', detail: 'conditional' },
+    ]
+  } else if (inCharging) {
+    options = [
+      { label: 'model', type: 'property', detail: 'charging model' },
+      { label: 'rate_per_mb', type: 'property' },
+      { label: 'rate_per_session', type: 'property' },
+      { label: 'billing_cycle', type: 'property' },
+      { label: 'quota', type: 'property' },
+      { label: 'overage_action', type: 'property' },
+      { label: 'overage_rate_per_mb', type: 'property' },
+    ]
+  } else {
+    options = ['POLICY', 'MATCH', 'RULES', 'CHARGING', 'WHEN', 'ACTION', 'IN', 'BETWEEN', 'AND', 'OR', 'NOT'].map(
+      (k) => ({ label: k, type: 'keyword' }),
+    )
+  }
+
+  return { from: word.from, options }
+}
+
+export const dslAutocomplete = autocompletion({
+  override: [dslCompletions],
+  closeOnBlur: false,
+})

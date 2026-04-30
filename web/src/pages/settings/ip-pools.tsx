@@ -5,12 +5,18 @@ import {
   AlertCircle,
   RefreshCw,
   ChevronRight,
+  Plus,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useIpPoolList } from '@/hooks/use-settings'
+import { SlidePanel } from '@/components/ui/slide-panel'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { useIpPoolList, useCreateIpPool } from '@/hooks/use-settings'
+import { useAPNList } from '@/hooks/use-apns'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import type { IpPool } from '@/types/settings'
 
 function UtilizationBar({ used, total }: { used: number; total: number }) {
@@ -45,7 +51,7 @@ function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
-        <div className="font-mono text-xs text-text-secondary">{pool.cidr}</div>
+        <div className="font-mono text-xs text-text-secondary">{pool.cidr_v4 || pool.cidr_v6 || ''}</div>
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
             <span className="text-[10px] uppercase tracking-[1px] text-text-tertiary block">Total</span>
@@ -66,9 +72,55 @@ function PoolCard({ pool, onClick }: { pool: IpPool; onClick: () => void }) {
   )
 }
 
+function CreatePoolDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { data: apns = [] } = useAPNList({})
+  const create = useCreateIpPool()
+  const [form, setForm] = useState({ apn_id: '', name: '', cidr_v4: '' })
+
+  const handleCreate = async () => {
+    if (!form.apn_id || !form.name || !form.cidr_v4) return
+    try {
+      await create.mutateAsync({ apn_id: form.apn_id, name: form.name, cidr_v4: form.cidr_v4 })
+      toast.success('IP pool created')
+      setForm({ apn_id: '', name: '', cidr_v4: '' })
+      onClose()
+    } catch { /* toast handled by interceptor */ }
+  }
+
+  return (
+    <SlidePanel open={open} onOpenChange={onClose} title="Create IP Pool" description="Add a new IP address pool for an APN." width="md">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">APN *</label>
+          <Select
+            value={form.apn_id}
+            onChange={(e) => setForm((f) => ({ ...f, apn_id: e.target.value }))}
+            options={[{ value: '', label: 'Select APN...' }, ...apns.map((a) => ({ value: a.id, label: a.name }))]}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">Pool Name *</label>
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. iot-pool-v4" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-secondary block mb-1.5">CIDR v4 *</label>
+          <Input value={form.cidr_v4} onChange={(e) => setForm((f) => ({ ...f, cidr_v4: e.target.value }))} placeholder="e.g. 10.0.0.0/24" className="font-mono" />
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={handleCreate} disabled={!form.apn_id || !form.name || !form.cidr_v4 || create.isPending}>
+          {create.isPending ? 'Creating…' : 'Create Pool'}
+        </Button>
+      </div>
+    </SlidePanel>
+  )
+}
+
 export default function IpPoolsPage() {
   const navigate = useNavigate()
   const { data: pools, isLoading, isError, refetch } = useIpPoolList()
+  const [showCreate, setShowCreate] = useState(false)
 
   if (isError) {
     return (
@@ -88,8 +140,13 @@ export default function IpPoolsPage() {
 
   return (
     <div className="space-y-4">
+      <CreatePoolDialog open={showCreate} onClose={() => setShowCreate(false)} />
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">IP Pools</h1>
+        <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          Create Pool
+        </Button>
       </div>
 
       {isLoading ? (
@@ -110,7 +167,11 @@ export default function IpPoolsPage() {
           <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)] text-center">
             <Globe className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
             <h3 className="text-sm font-semibold text-text-primary mb-1">No IP pools</h3>
-            <p className="text-xs text-text-secondary">IP pools will appear here when configured.</p>
+            <p className="text-xs text-text-secondary mb-3">Create your first IP pool to assign static IPs to SIMs.</p>
+            <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create Pool
+            </Button>
           </div>
         </div>
       ) : (

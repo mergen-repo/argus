@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,39 +9,83 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
-type Handler struct {
-	notifStore  *store.NotificationStore
-	configStore *store.NotificationConfigStore
-	logger      zerolog.Logger
+// prefStoreReader is the handler-level interface for preference store reads/writes.
+type prefStoreReader interface {
+	GetMatrix(ctx context.Context, tenantID uuid.UUID) ([]*store.NotificationPreference, error)
+	Upsert(ctx context.Context, tenantID uuid.UUID, prefs []store.NotificationPreference) error
 }
 
-func NewHandler(notifStore *store.NotificationStore, configStore *store.NotificationConfigStore, logger zerolog.Logger) *Handler {
+// templateStoreReader is the handler-level interface for template store reads/writes.
+type templateStoreReader interface {
+	List(ctx context.Context, eventType, locale string) ([]*store.NotificationTemplate, error)
+	Get(ctx context.Context, eventType, locale string) (*store.NotificationTemplate, error)
+	Upsert(ctx context.Context, t *store.NotificationTemplate) error
+}
+
+type Handler struct {
+	notifStore    *store.NotificationStore
+	configStore   *store.NotificationConfigStore
+	prefStore     prefStoreReader
+	templateStore templateStoreReader
+	auditSvc      audit.Auditor
+	logger        zerolog.Logger
+}
+
+func NewHandler(notifStore *store.NotificationStore, configStore *store.NotificationConfigStore, auditSvc audit.Auditor, logger zerolog.Logger) *Handler {
 	return &Handler{
 		notifStore:  notifStore,
 		configStore: configStore,
+		auditSvc:    auditSvc,
 		logger:      logger.With().Str("component", "notification_handler").Logger(),
 	}
 }
 
+func (h *Handler) SetPrefStore(ps *store.NotificationPreferenceStore) {
+	h.prefStore = ps
+}
+
+func (h *Handler) SetTemplateStore(ts *store.NotificationTemplateStore) {
+	h.templateStore = ts
+}
+
+// entityRefDTO carries a resolved SIM (or future entity) reference persisted at emit-time.
+// display_name is populated from scope_type+scope_ref_id when the entity type is known.
+// Full cross-entity resolution is deferred to FIX-212 (unified event envelope).
+type entityRefDTO struct {
+	EntityType  string `json:"entity_type"`
+	EntityID    string `json:"entity_id"`
+	DisplayName string `json:"display_name"`
+}
+
+// knownEntityScopes are scope_type values that map 1:1 to entity types.
+var knownEntityScopes = map[string]bool{
+	"sim":      true,
+	"apn":      true,
+	"operator": true,
+}
+
 type notificationDTO struct {
-	ID           string   `json:"id"`
-	Type         string   `json:"type"`
-	Title        string   `json:"title"`
-	Message      string   `json:"message"`
-	Scope        string   `json:"scope"`
-	ScopeRefID   *string  `json:"scope_ref_id,omitempty"`
-	Severity     string   `json:"severity"`
-	ChannelsSent []string `json:"channels_sent"`
-	Read         bool     `json:"read"`
-	ReadAt       *string  `json:"read_at,omitempty"`
-	RetryCount   int      `json:"retry_count"`
-	CreatedAt    string   `json:"created_at"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Title        string         `json:"title"`
+	Message      string         `json:"message"`
+	Scope        string         `json:"scope"`
+	ScopeRefID   *string        `json:"scope_ref_id,omitempty"`
+	Severity     string         `json:"severity"`
+	ChannelsSent []string       `json:"channels_sent"`
+	EntityRefs   []entityRefDTO `json:"entity_refs,omitempty"`
+	Read         bool           `json:"read"`
+	ReadAt       *string        `json:"read_at,omitempty"`
+	RetryCount   int            `json:"retry_count"`
+	CreatedAt    string         `json:"created_at"`
 }
 
 func toNotificationDTO(n store.NotificationRow) notificationDTO {
@@ -59,6 +104,15 @@ func toNotificationDTO(n store.NotificationRow) notificationDTO {
 	if n.ScopeRefID != nil {
 		s := n.ScopeRefID.String()
 		dto.ScopeRefID = &s
+		if knownEntityScopes[n.ScopeType] {
+			dto.EntityRefs = []entityRefDTO{
+				{
+					EntityType:  n.ScopeType,
+					EntityID:    n.ScopeRefID.String(),
+					DisplayName: "",
+				},
+			}
+		}
 	}
 	if n.ReadAt != nil {
 		s := n.ReadAt.Format(time.RFC3339)
@@ -235,7 +289,16 @@ func (h *Handler) GetConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configs, err := h.configStore.ListByUser(r.Context(), tenantID, userID)
+	q := r.URL.Query()
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	configs, nextCursor, err := h.configStore.ListByUser(r.Context(), tenantID, userID, q.Get("cursor"), limit)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("get notification configs")
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
@@ -273,7 +336,11 @@ func (h *Handler) GetConfigs(w http.ResponseWriter, r *http.Request) {
 		dtos = append(dtos, dto)
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, dtos)
+	apierr.WriteList(w, http.StatusOK, dtos, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
+	})
 }
 
 type updateConfigRequest struct {
@@ -372,7 +439,269 @@ func (h *Handler) UpdateConfigs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	audit.Emit(r, h.logger, h.auditSvc, "notification_config.update", "notification_config", userID.String(), nil, map[string]interface{}{"config_count": len(req.Configs)})
+
 	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
 		"updated_at": time.Now().Format(time.RFC3339),
+	})
+}
+
+// migration path — preferences is the new truth; configs retained as alias for backward compat
+
+type preferenceDTO struct {
+	EventType         string   `json:"event_type"`
+	Channels          []string `json:"channels"`
+	SeverityThreshold string   `json:"severity_threshold"`
+	Enabled           bool     `json:"enabled"`
+}
+
+func (h *Handler) GetPreferences(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	if h.prefStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, []preferenceDTO{})
+		return
+	}
+
+	prefs, err := h.prefStore.GetMatrix(r.Context(), tenantID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("get notification preferences")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	dtos := make([]preferenceDTO, 0, len(prefs))
+	for _, p := range prefs {
+		channels := p.Channels
+		if channels == nil {
+			channels = []string{}
+		}
+		dtos = append(dtos, preferenceDTO{
+			EventType:         p.EventType,
+			Channels:          channels,
+			SeverityThreshold: p.SeverityThreshold,
+			Enabled:           p.Enabled,
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
+
+var validPrefChannels = map[string]bool{
+	"email": true, "in_app": true, "webhook": true, "sms": true, "telegram": true,
+}
+
+func (h *Handler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+
+	var req []preferenceDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid request body")
+		return
+	}
+
+	for i, p := range req {
+		if p.EventType == "" {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+				"event_type is required (row "+strconv.Itoa(i)+")")
+			return
+		}
+		for _, ch := range p.Channels {
+			if !validPrefChannels[ch] {
+				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+					"invalid channel: "+ch+"; must be one of email,in_app,webhook,sms,telegram")
+				return
+			}
+		}
+		if err := severity.Validate(p.SeverityThreshold); err != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidSeverity,
+				"severity must be one of: critical, high, medium, low, info; got '"+p.SeverityThreshold+"'")
+			return
+		}
+	}
+
+	if h.prefStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Preference store not configured")
+		return
+	}
+
+	storePrefs := make([]store.NotificationPreference, 0, len(req))
+	for _, p := range req {
+		channels := p.Channels
+		if channels == nil {
+			channels = []string{}
+		}
+		storePrefs = append(storePrefs, store.NotificationPreference{
+			EventType:         p.EventType,
+			Channels:          channels,
+			SeverityThreshold: p.SeverityThreshold,
+			Enabled:           p.Enabled,
+		})
+	}
+
+	if err := h.prefStore.Upsert(r.Context(), tenantID, storePrefs); err != nil {
+		h.logger.Error().Err(err).Msg("upsert notification preferences")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	updated, err := h.prefStore.GetMatrix(r.Context(), tenantID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("get preferences after upsert")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	dtos := make([]preferenceDTO, 0, len(updated))
+	for _, p := range updated {
+		channels := p.Channels
+		if channels == nil {
+			channels = []string{}
+		}
+		dtos = append(dtos, preferenceDTO{
+			EventType:         p.EventType,
+			Channels:          channels,
+			SeverityThreshold: p.SeverityThreshold,
+			Enabled:           p.Enabled,
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
+
+type templateDTO struct {
+	EventType string `json:"event_type"`
+	Locale    string `json:"locale"`
+	Subject   string `json:"subject"`
+	BodyText  string `json:"body_text"`
+	BodyHTML  string `json:"body_html"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+	_ = tenantID
+
+	if h.templateStore == nil {
+		apierr.WriteSuccess(w, http.StatusOK, []templateDTO{})
+		return
+	}
+
+	q := r.URL.Query()
+	eventType := q.Get("event_type")
+	locale := q.Get("locale")
+
+	templates, err := h.templateStore.List(r.Context(), eventType, locale)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list notification templates")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	dtos := make([]templateDTO, 0, len(templates))
+	for _, t := range templates {
+		dtos = append(dtos, templateDTO{
+			EventType: t.EventType,
+			Locale:    t.Locale,
+			Subject:   t.Subject,
+			BodyText:  t.BodyText,
+			BodyHTML:  t.BodyHTML,
+			UpdatedAt: t.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, dtos)
+}
+
+type upsertTemplateRequest struct {
+	Subject  string `json:"subject"`
+	BodyText string `json:"body_text"`
+	BodyHTML string `json:"body_html"`
+}
+
+var validLocales = map[string]bool{
+	"tr": true, "en": true,
+}
+
+func (h *Handler) UpsertTemplate(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeForbidden, "Tenant context required")
+		return
+	}
+	_ = tenantID
+
+	eventType := chi.URLParam(r, "event_type")
+	locale := chi.URLParam(r, "locale")
+
+	if eventType == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "event_type is required")
+		return
+	}
+	if !validLocales[locale] {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"invalid locale: "+locale+"; must be one of tr,en")
+		return
+	}
+
+	var req upsertTemplateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid request body")
+		return
+	}
+
+	if req.Subject == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "subject is required")
+		return
+	}
+	if req.BodyText == "" && req.BodyHTML == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "body_text or body_html is required")
+		return
+	}
+
+	if h.templateStore == nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Template store not configured")
+		return
+	}
+
+	t := &store.NotificationTemplate{
+		EventType: eventType,
+		Locale:    locale,
+		Subject:   req.Subject,
+		BodyText:  req.BodyText,
+		BodyHTML:  req.BodyHTML,
+	}
+
+	if err := h.templateStore.Upsert(r.Context(), t); err != nil {
+		h.logger.Error().Err(err).Str("event_type", eventType).Str("locale", locale).Msg("upsert notification template")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	fetched, err := h.templateStore.Get(r.Context(), eventType, locale)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, templateDTO{
+		EventType: fetched.EventType,
+		Locale:    fetched.Locale,
+		Subject:   fetched.Subject,
+		BodyText:  fetched.BodyText,
+		BodyHTML:  fetched.BodyHTML,
+		UpdatedAt: fetched.UpdatedAt.Format(time.RFC3339),
 	})
 }

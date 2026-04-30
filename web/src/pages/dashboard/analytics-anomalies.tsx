@@ -1,13 +1,15 @@
 import { useState, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  AlertCircle, AlertTriangle, Info, RefreshCw, ChevronDown, ChevronRight,
+  AlertCircle, RefreshCw, ChevronDown, ChevronRight,
   Shield, CheckCircle, Eye,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
+import { SeverityBadge } from '@/components/shared/severity-badge'
+import { SEVERITY_FILTER_OPTIONS } from '@/lib/severity'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -16,13 +18,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAnomalyList, useAnomalyStateUpdate, type AnomalyFilters } from '@/hooks/use-analytics'
 import type { Anomaly, AnomalyState, AnomalySeverity } from '@/types/analytics'
 import { timeAgo } from '@/lib/format'
+import { EntityLink } from '@/components/shared/entity-link'
 
-const SEVERITY_OPTIONS = [
-  { value: '', label: 'All Severities' },
-  { value: 'critical', label: 'Critical' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'info', label: 'Info' },
-]
+const SEVERITY_OPTIONS = SEVERITY_FILTER_OPTIONS
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -41,25 +39,6 @@ const TYPE_OPTIONS = [
   { value: 'sim_cloning', label: 'SIM Cloning' },
   { value: 'credential_stuffing', label: 'Credential Stuffing' },
 ]
-
-function severityIcon(severity: string) {
-  switch (severity) {
-    case 'critical':
-      return <AlertCircle className="h-4 w-4 text-danger flex-shrink-0" />
-    case 'warning':
-      return <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
-    default:
-      return <Info className="h-4 w-4 text-accent flex-shrink-0" />
-  }
-}
-
-function severityVariant(severity: string): 'danger' | 'warning' | 'default' {
-  switch (severity) {
-    case 'critical': return 'danger'
-    case 'warning': return 'warning'
-    default: return 'default'
-  }
-}
 
 function stateVariant(state: string): 'default' | 'success' | 'secondary' | 'outline' {
   switch (state) {
@@ -193,26 +172,15 @@ function AnomalyRow({
           )}
         </TableCell>
         <TableCell>
-          <div className="flex items-center gap-2">
-            {severityIcon(anomaly.severity)}
-            <Badge variant={severityVariant(anomaly.severity)}>
-              {anomaly.severity}
-            </Badge>
-          </div>
+          <SeverityBadge severity={anomaly.severity} />
         </TableCell>
         <TableCell>
           <span className="text-xs">{anomaly.type.replace(/_/g, ' ')}</span>
         </TableCell>
         <TableCell>
           {anomaly.sim_id ? (
-            <span
-              className="font-mono text-xs text-accent hover:underline cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigate(`/sims/${anomaly.sim_id}`)
-              }}
-            >
-              {anomaly.sim_iccid || anomaly.sim_id.slice(0, 8) + '...'}
+            <span onClick={(e) => e.stopPropagation()}>
+              <EntityLink entityType="sim" entityId={anomaly.sim_id} label={anomaly.sim_iccid} />
             </span>
           ) : (
             <span className="text-xs text-text-tertiary">N/A</span>
@@ -302,9 +270,12 @@ export default function AnalyticsAnomaliesPage() {
   if (isLoading) return <AnomalySkeleton />
   if (isError) return <ErrorState onRetry={() => refetch()} />
 
-  const criticalCount = anomalies.filter((a) => a.severity === 'critical' && a.state === 'open').length
-  const warningCount = anomalies.filter((a) => a.severity === 'warning' && a.state === 'open').length
-  const openCount = anomalies.filter((a) => a.state === 'open').length
+  const openAnomalies = anomalies.filter((a) => a.state === 'open')
+  const criticalCount = openAnomalies.filter((a) => a.severity === 'critical').length
+  const highCount = openAnomalies.filter((a) => a.severity === 'high').length
+  const mediumCount = openAnomalies.filter((a) => a.severity === 'medium').length
+  const lowCount = openAnomalies.filter((a) => a.severity === 'low').length
+  const openCount = openAnomalies.length
 
   return (
     <div className="space-y-4">
@@ -340,18 +311,30 @@ export default function AnalyticsAnomaliesPage() {
           onChange={(e) => setStateFilter(e.target.value as AnomalyState)}
           className="w-36"
         />
-        {(criticalCount > 0 || warningCount > 0) && (
-          <div className="flex items-center gap-2 ml-auto">
+        {(criticalCount > 0 || highCount > 0 || mediumCount > 0 || lowCount > 0) && (
+          <div className="flex items-center gap-3 ml-auto">
             {criticalCount > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <AlertCircle className="h-3.5 w-3.5 text-danger" />
                 <span className="text-danger font-mono">{criticalCount} critical</span>
               </div>
             )}
-            {warningCount > 0 && (
+            {highCount > 0 && (
               <div className="flex items-center gap-1 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-                <span className="text-warning font-mono">{warningCount} warning</span>
+                <AlertCircle className="h-3.5 w-3.5 text-danger" />
+                <span className="text-danger font-mono">{highCount} high</span>
+              </div>
+            )}
+            {mediumCount > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <AlertCircle className="h-3.5 w-3.5 text-warning" />
+                <span className="text-warning font-mono">{mediumCount} medium</span>
+              </div>
+            )}
+            {lowCount > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <AlertCircle className="h-3.5 w-3.5 text-info" />
+                <span className="text-info font-mono">{lowCount} low</span>
               </div>
             )}
           </div>

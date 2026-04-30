@@ -193,6 +193,51 @@ func (s *RadiusSessionStore) CountActive(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+func (s *RadiusSessionStore) CountActiveByTenant(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE session_state = 'active' AND tenant_id = $1`,
+		tenantID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active radius sessions by tenant: %w", err)
+	}
+	return count, nil
+}
+
+func (s *RadiusSessionStore) ListActiveTenantCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT tenant_id::text, COUNT(*) FROM sessions WHERE session_state = 'active' GROUP BY tenant_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active session counts by tenant: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var tenantID string
+		var count int64
+		if err := rows.Scan(&tenantID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan active session tenant count: %w", err)
+		}
+		result[tenantID] = count
+	}
+	return result, nil
+}
+
+func (s *RadiusSessionStore) CountInWindow(ctx context.Context, tenantID uuid.UUID, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE tenant_id = $1 AND started_at >= $2 AND started_at < $3`,
+		tenantID, from, to,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count radius sessions in window: %w", err)
+	}
+	return count, nil
+}
+
 func (s *RadiusSessionStore) ListActiveBySIM(ctx context.Context, simID uuid.UUID) ([]RadiusSession, error) {
 	rows, err := s.db.Query(ctx,
 		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 AND session_state = 'active' ORDER BY started_at DESC`,
@@ -455,10 +500,89 @@ func (s *RadiusSessionStore) GetOldestActiveForSIM(ctx context.Context, simID uu
 	return sess, nil
 }
 
-func (s *RadiusSessionStore) GetLastSessionBySIM(ctx context.Context, simID uuid.UUID) (*RadiusSession, error) {
+type ListBySIMSessionParams struct {
+	Cursor string
+	Limit  int
+	State  string
+}
+
+func (s *RadiusSessionStore) ListBySIM(ctx context.Context, tenantID, simID uuid.UUID, params ListBySIMSessionParams) ([]RadiusSession, string, error) {
+	limit := params.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{}
+	conditions := []string{}
+	argIdx := 1
+
+	conditions = append(conditions, fmt.Sprintf("tenant_id = $%d", argIdx))
+	args = append(args, tenantID)
+	argIdx++
+
+	conditions = append(conditions, fmt.Sprintf("sim_id = $%d", argIdx))
+	args = append(args, simID)
+	argIdx++
+
+	if params.State == "active" || params.State == "closed" {
+		conditions = append(conditions, fmt.Sprintf("session_state = $%d", argIdx))
+		args = append(args, params.State)
+		argIdx++
+	}
+
+	if params.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(params.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM sessions %s ORDER BY started_at DESC, id DESC LIMIT %s`,
+		radiusSessionColumns, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list sessions by sim: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RadiusSession
+	for rows.Next() {
+		var sess RadiusSession
+		if err := rows.Scan(
+			&sess.ID, &sess.SimID, &sess.TenantID, &sess.OperatorID, &sess.APNID,
+			&sess.NASIP, &sess.FramedIP, &sess.CallingStationID, &sess.CalledStationID,
+			&sess.RATType, &sess.SessionState, &sess.AuthMethod,
+			&sess.PolicyVersionID, &sess.AcctSessionID,
+			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
+			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
+			&sess.LastInterimAt,
+			&sess.ProtocolType, &sess.SliceInfo, &sess.SoRDecision,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan session by sim: %w", err)
+		}
+		results = append(results, sess)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s *RadiusSessionStore) GetLastSessionBySIM(ctx context.Context, tenantID, simID uuid.UUID) (*RadiusSession, error) {
 	row := s.db.QueryRow(ctx,
-		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 ORDER BY started_at DESC LIMIT 1`,
-		simID,
+		`SELECT `+radiusSessionColumns+` FROM sessions WHERE sim_id = $1 AND tenant_id = $2 ORDER BY started_at DESC LIMIT 1`,
+		simID, tenantID,
 	)
 	sess, err := scanRadiusSession(row)
 	if errors.Is(err, pgx.ErrNoRows) {

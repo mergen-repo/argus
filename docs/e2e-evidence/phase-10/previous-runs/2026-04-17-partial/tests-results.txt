@@ -1,0 +1,112 @@
+ok  	github.com/btopcu/argus/cmd/argus	0.210s
+?   	github.com/btopcu/argus/cmd/argusctl	[no test files]
+ok  	github.com/btopcu/argus/cmd/argusctl/cmd	(cached)
+ok  	github.com/btopcu/argus/cmd/argusctl/internal/client	(cached)
+?   	github.com/btopcu/argus/cmd/simulator	[no test files]
+ok  	github.com/btopcu/argus/internal/aaa/bench	0.399s
+ok  	github.com/btopcu/argus/internal/aaa/diameter	2.512s
+ok  	github.com/btopcu/argus/internal/aaa/eap	1.072s
+ok  	github.com/btopcu/argus/internal/aaa/radius	1.104s
+ok  	github.com/btopcu/argus/internal/aaa/rattype	(cached)
+ok  	github.com/btopcu/argus/internal/aaa/sba	1.617s
+ok  	github.com/btopcu/argus/internal/aaa/session	1.328s
+ok  	github.com/btopcu/argus/internal/analytics/anomaly	0.703s
+ok  	github.com/btopcu/argus/internal/analytics/cdr	1.751s
+ok  	github.com/btopcu/argus/internal/analytics/cost	0.728s
+ok  	github.com/btopcu/argus/internal/analytics/metrics	(cached)
+ok  	github.com/btopcu/argus/internal/api/admin	1.277s
+ok  	github.com/btopcu/argus/internal/api/analytics	1.508s
+?   	github.com/btopcu/argus/internal/api/announcement	[no test files]
+ok  	github.com/btopcu/argus/internal/api/anomaly	1.673s
+ok  	github.com/btopcu/argus/internal/api/apikey	1.833s
+ok  	github.com/btopcu/argus/internal/api/apn	1.917s
+ok  	github.com/btopcu/argus/internal/api/audit	1.965s
+ok  	github.com/btopcu/argus/internal/api/auth	1.969s
+ok  	github.com/btopcu/argus/internal/api/cdr	1.835s
+ok  	github.com/btopcu/argus/internal/api/compliance	1.911s
+ok  	github.com/btopcu/argus/internal/api/dashboard	2.020s
+ok  	github.com/btopcu/argus/internal/api/diagnostics	1.983s
+ok  	github.com/btopcu/argus/internal/api/esim	2.098s
+ok  	github.com/btopcu/argus/internal/api/ippool	2.045s
+ok  	github.com/btopcu/argus/internal/api/job	1.905s
+ok  	github.com/btopcu/argus/internal/api/metrics	2.144s
+ok  	github.com/btopcu/argus/internal/api/msisdn	2.043s
+ok  	github.com/btopcu/argus/internal/api/notification	1.922s
+ok  	github.com/btopcu/argus/internal/api/onboarding	1.867s
+ok  	github.com/btopcu/argus/internal/api/operator	1.865s
+ok  	github.com/btopcu/argus/internal/api/ops	1.949s
+?   	github.com/btopcu/argus/internal/api/ota	[no test files]
+ok  	github.com/btopcu/argus/internal/api/policy	1.822s
+ok  	github.com/btopcu/argus/internal/api/reports	1.842s
+ok  	github.com/btopcu/argus/internal/api/roaming	1.932s
+ok  	github.com/btopcu/argus/internal/api/search	2.021s
+ok  	github.com/btopcu/argus/internal/api/segment	2.121s
+ok  	github.com/btopcu/argus/internal/api/session	2.015s
+ok  	github.com/btopcu/argus/internal/api/sim	2.022s
+ok  	github.com/btopcu/argus/internal/api/sla	2.098s
+ok  	github.com/btopcu/argus/internal/api/sms	2.048s
+ok  	github.com/btopcu/argus/internal/api/system	2.094s
+ok  	github.com/btopcu/argus/internal/api/tenant	2.062s
+?   	github.com/btopcu/argus/internal/api/undo	[no test files]
+ok  	github.com/btopcu/argus/internal/api/user	1.953s
+ok  	github.com/btopcu/argus/internal/api/violation	1.969s
+ok  	github.com/btopcu/argus/internal/api/webhooks	1.933s
+ok  	github.com/btopcu/argus/internal/apierr	2.094s
+ok  	github.com/btopcu/argus/internal/audit	2.432s
+ok  	github.com/btopcu/argus/internal/auth	2.392s
+ok  	github.com/btopcu/argus/internal/bus	2.185s
+ok  	github.com/btopcu/argus/internal/cache	2.100s
+ok  	github.com/btopcu/argus/internal/compliance	2.125s
+ok  	github.com/btopcu/argus/internal/config	(cached)
+ok  	github.com/btopcu/argus/internal/crypto	(cached)
+ok  	github.com/btopcu/argus/internal/diagnostics	1.786s
+ok  	github.com/btopcu/argus/internal/esim	(cached)
+ok  	github.com/btopcu/argus/internal/export	2.068s
+ok  	github.com/btopcu/argus/internal/gateway	3.772s
+ok  	github.com/btopcu/argus/internal/geoip	1.914s
+ok  	github.com/btopcu/argus/internal/job	5.218s
+ok  	github.com/btopcu/argus/internal/killswitch	1.970s
+?   	github.com/btopcu/argus/internal/middleware	[no test files]
+ok  	github.com/btopcu/argus/internal/notification	10.628s
+ok  	github.com/btopcu/argus/internal/observability	(cached)
+ok  	github.com/btopcu/argus/internal/observability/metrics	1.919s
+ok  	github.com/btopcu/argus/internal/operator	2.411s
+ok  	github.com/btopcu/argus/internal/operator/adapter	2.234s
+ok  	github.com/btopcu/argus/internal/operator/sor	1.974s
+ok  	github.com/btopcu/argus/internal/ota	(cached)
+?   	github.com/btopcu/argus/internal/policy	[no test files]
+ok  	github.com/btopcu/argus/internal/policy/cache	(cached)
+ok  	github.com/btopcu/argus/internal/policy/dryrun	1.780s
+ok  	github.com/btopcu/argus/internal/policy/dsl	(cached)
+?   	github.com/btopcu/argus/internal/policy/enforcer	[no test files]
+ok  	github.com/btopcu/argus/internal/policy/rollout	1.710s
+ok  	github.com/btopcu/argus/internal/report	1.861s
+ok  	github.com/btopcu/argus/internal/simulator/config	2.005s
+?   	github.com/btopcu/argus/internal/simulator/discovery	[no test files]
+?   	github.com/btopcu/argus/internal/simulator/engine	[no test files]
+?   	github.com/btopcu/argus/internal/simulator/metrics	[no test files]
+ok  	github.com/btopcu/argus/internal/simulator/radius	2.081s
+ok  	github.com/btopcu/argus/internal/simulator/scenario	2.238s
+?   	github.com/btopcu/argus/internal/storage	[no test files]
+ok  	github.com/btopcu/argus/internal/store	2.003s
+ok  	github.com/btopcu/argus/internal/store/schemacheck	2.084s
+ok  	github.com/btopcu/argus/internal/undo	2.257s
+ok  	github.com/btopcu/argus/internal/ws	13.942s
+ok  	github.com/btopcu/argus/test/e2e	1.877s
+
+=== SUMMARY ===
+Go packages: 83 ok, 12 no-test-files, 0 FAIL (95 total)
+Individual tests: 2879 PASS (matches STORY-086 baseline)
+
+=== Web build ===
+dist/assets/detail-CKsuv92f.js                        38.36 kB │ gzip:   8.92 kB
+dist/assets/detail-CPrBPNG2.js                        44.59 kB │ gzip:  10.16 kB
+dist/assets/vendor-query-D6G7dvcF.js                  46.99 kB │ gzip:  14.11 kB
+dist/assets/editor-CCSyG0c5.js                        48.42 kB │ gzip:  11.88 kB
+dist/assets/vendor-react-BrNYOvKL.js                  76.83 kB │ gzip:  26.10 kB
+dist/assets/vendor-ui-hf7ONYPN.js                    171.88 kB │ gzip:  45.98 kB
+dist/assets/vendor-codemirror-DJAtdAYo.js            346.17 kB │ gzip: 112.37 kB
+dist/assets/index-PhP5ryFu.js                        368.50 kB │ gzip: 112.44 kB
+dist/assets/vendor-charts-B7Hr0mq8.js                411.33 kB │ gzip: 119.41 kB
+✓ built in 4.44s
+

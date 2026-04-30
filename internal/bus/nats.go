@@ -6,9 +6,15 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -28,9 +34,29 @@ const (
 	SubjectPolicyRolloutProgress = "argus.events.policy.rollout_progress"
 	SubjectAnomalyDetected       = "argus.events.anomaly.detected"
 	SubjectAuthAttempt           = "argus.events.auth.attempt"
+	SubjectIPReclaimed           = "argus.events.ip.reclaimed"
+	SubjectIPReleased            = "argus.events.ip.released"
+	SubjectSLAReportGenerated    = "argus.events.sla.report.generated"
+	SubjectBackupCompleted       = "argus.events.backup.completed"
+	SubjectBackupVerified        = "argus.events.backup.verified"
+
+	SubjectFleetMassOffline      = "argus.events.fleet.mass_offline"
+	SubjectFleetTrafficSpike     = "argus.events.fleet.traffic_spike"
+	SubjectFleetQuotaBreachCount = "argus.events.fleet.quota_breach_count"
+	SubjectFleetViolationSurge   = "argus.events.fleet.violation_surge"
+
+	SubjectBulkJobCompleted  = "argus.events.bulk_job.completed"
+	SubjectBulkJobFailed     = "argus.events.bulk_job.failed"
+	SubjectWebhookDeadLetter = "argus.events.webhook.dead_letter"
+
+	SubjectESimCommandIssued = "argus.events.esim.command.issued"
+	SubjectESimCommandAcked  = "argus.events.esim.command.acked"
+	SubjectESimCommandFailed = "argus.events.esim.command.failed"
 
 	StreamEvents = "EVENTS"
 	StreamJobs   = "JOBS"
+
+	tracerName = "argus.bus"
 )
 
 type NATS struct {
@@ -77,7 +103,7 @@ func (n *NATS) EnsureStreams(ctx context.Context) error {
 		Name:      StreamEvents,
 		Subjects:  []string{"argus.events.>"},
 		Retention: jetstream.LimitsPolicy,
-		MaxAge:    72 * time.Hour,
+		MaxAge:    168 * time.Hour,
 		Storage:   jetstream.FileStorage,
 		Replicas:  1,
 		Discard:   jetstream.DiscardOld,
@@ -115,10 +141,39 @@ func (n *NATS) Close() {
 	n.Conn.Close()
 }
 
+// natsHeaderCarrier adapts nats.Header to the OpenTelemetry
+// propagation.TextMapCarrier interface, allowing the W3C traceparent
+// header to be injected into and extracted from NATS messages.
+type natsHeaderCarrier nats.Header
+
+// Get returns the first value stored under key, or the empty string.
+func (c natsHeaderCarrier) Get(key string) string {
+	return nats.Header(c).Get(key)
+}
+
+// Set stores value under key, replacing any prior value.
+func (c natsHeaderCarrier) Set(key, value string) {
+	nats.Header(c).Set(key, value)
+}
+
+// Keys returns the list of keys present in the carrier.
+func (c natsHeaderCarrier) Keys() []string {
+	h := nats.Header(c)
+	keys := make([]string, 0, len(h))
+	for k := range h {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Compile-time check that natsHeaderCarrier implements TextMapCarrier.
+var _ propagation.TextMapCarrier = (natsHeaderCarrier)(nil)
+
 type EventBus struct {
 	conn   *nats.Conn
 	js     jetstream.JetStream
 	logger zerolog.Logger
+	reg    *metrics.Registry
 }
 
 func NewEventBus(n *NATS) *EventBus {
@@ -129,36 +184,145 @@ func NewEventBus(n *NATS) *EventBus {
 	}
 }
 
+// SetMetrics wires the Prometheus registry into the EventBus so that
+// publish/consume counters are incremented. Safe to call with nil to
+// disable metric emission (default).
+func (eb *EventBus) SetMetrics(reg *metrics.Registry) {
+	eb.reg = reg
+}
+
+// publishMsg builds a nats.Msg with an empty Header map, injects the
+// current trace context into that header, opens a producer span, and
+// hands the message to core NATS. Core publish is used instead of
+// jetstream.JetStream.PublishMsg because the new jetstream API writes
+// directly to stream storage and does NOT fan out to core subscribers.
+// All existing event consumers (ws hub, CDR consumer, notification
+// service, policy matcher) use core NATS QueueSubscribe; JetStream-only
+// publish would silently drop events for all of them.
+//
+// The EVENTS JetStream stream (Subjects: ["argus.events.>"]) still
+// persists messages automatically: JetStream streams subscribe to their
+// configured subjects via core NATS, so core publishes are captured and
+// stored for future durable-consumer replay.
+func (eb *EventBus) publishMsg(ctx context.Context, subject string, data []byte) error {
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    data,
+		Header:  nats.Header{},
+	}
+	otel.GetTextMapPropagator().Inject(ctx, natsHeaderCarrier(msg.Header))
+
+	_, span := otel.Tracer(tracerName).Start(ctx, "nats.publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKey.String("nats"),
+			semconv.MessagingDestinationName(subject),
+			semconv.MessagingOperationTypePublish,
+		),
+	)
+	defer span.End()
+
+	if err := eb.conn.PublishMsg(msg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("bus: publish %s: %w", subject, err)
+	}
+
+	if eb.reg != nil {
+		eb.reg.NATSPublishedTotal.WithLabelValues(subject).Inc()
+	}
+	return nil
+}
+
 func (eb *EventBus) Publish(ctx context.Context, subject string, payload interface{}) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("bus: marshal: %w", err)
 	}
-	_, err = eb.js.Publish(ctx, subject, data)
-	if err != nil {
-		return fmt.Errorf("bus: publish %s: %w", subject, err)
-	}
-	return nil
+	return eb.publishMsg(ctx, subject, data)
 }
 
 func (eb *EventBus) PublishRaw(ctx context.Context, subject string, data []byte) error {
-	_, err := eb.js.Publish(ctx, subject, data)
-	if err != nil {
-		return fmt.Errorf("bus: publish raw %s: %w", subject, err)
-	}
-	return nil
+	return eb.publishMsg(ctx, subject, data)
 }
 
+// MessageHandler is the legacy handler type used by existing subscribers
+// throughout cmd/argus/main.go. It is intentionally kept so that Task 9
+// does not require changes at call sites.
 type MessageHandler func(subject string, data []byte)
 
-func (eb *EventBus) Subscribe(subject string, handler MessageHandler) (*nats.Subscription, error) {
+// MessageHandlerCtx is the new context-aware handler type. Subscribers
+// that migrate to SubscribeCtx / QueueSubscribeCtx receive the extracted
+// trace context as the first argument so that downstream spans are
+// children of the producer span.
+type MessageHandlerCtx func(ctx context.Context, subject string, data []byte)
+
+// consumeSpan starts a consumer span by extracting the W3C traceparent
+// from the message header (if any) and returns the derived context plus
+// the span (caller must End it).
+func (eb *EventBus) consumeSpan(msg *nats.Msg) (context.Context, trace.Span) {
+	ctx := context.Background()
+	if msg.Header != nil {
+		ctx = otel.GetTextMapPropagator().Extract(ctx, natsHeaderCarrier(msg.Header))
+	}
+	return otel.Tracer(tracerName).Start(ctx, "nats.consume",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKey.String("nats"),
+			semconv.MessagingDestinationName(msg.Subject),
+			semconv.MessagingOperationTypeDeliver,
+		),
+	)
+}
+
+// recordConsumed increments the consumed counter for the given subject
+// when a metrics registry has been attached.
+func (eb *EventBus) recordConsumed(subject string) {
+	if eb.reg != nil {
+		eb.reg.NATSConsumedTotal.WithLabelValues(subject).Inc()
+	}
+}
+
+// SubscribeCtx subscribes to a subject and invokes the given context-aware
+// handler. The traceparent header (if any) is extracted and a consumer
+// span is started before the handler runs. The counter
+// argus_nats_consumed_total is incremented for every delivery regardless
+// of handler outcome.
+func (eb *EventBus) SubscribeCtx(subject string, handler MessageHandlerCtx) (*nats.Subscription, error) {
 	return eb.conn.Subscribe(subject, func(msg *nats.Msg) {
-		handler(msg.Subject, msg.Data)
+		ctx, span := eb.consumeSpan(msg)
+		defer span.End()
+		eb.recordConsumed(msg.Subject)
+		handler(ctx, msg.Subject, msg.Data)
 	})
 }
 
-func (eb *EventBus) QueueSubscribe(subject, queue string, handler MessageHandler) (*nats.Subscription, error) {
+// QueueSubscribeCtx is the queue-group variant of SubscribeCtx.
+func (eb *EventBus) QueueSubscribeCtx(subject, queue string, handler MessageHandlerCtx) (*nats.Subscription, error) {
 	return eb.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
-		handler(msg.Subject, msg.Data)
+		ctx, span := eb.consumeSpan(msg)
+		defer span.End()
+		eb.recordConsumed(msg.Subject)
+		handler(ctx, msg.Subject, msg.Data)
 	})
 }
+
+// Subscribe preserves the legacy (non-context) handler signature so that
+// existing call sites in cmd/argus/main.go continue to work unchanged.
+// It still extracts the traceparent, starts a consumer span, and records
+// metrics — the trace context is simply discarded before the legacy
+// handler is invoked.
+func (eb *EventBus) Subscribe(subject string, handler MessageHandler) (*nats.Subscription, error) {
+	return eb.SubscribeCtx(subject, func(_ context.Context, subj string, data []byte) {
+		handler(subj, data)
+	})
+}
+
+// QueueSubscribe preserves the legacy (non-context) handler signature.
+// See Subscribe for rationale.
+func (eb *EventBus) QueueSubscribe(subject, queue string, handler MessageHandler) (*nats.Subscription, error) {
+	return eb.QueueSubscribeCtx(subject, queue, func(_ context.Context, subj string, data []byte) {
+		handler(subj, data)
+	})
+}
+

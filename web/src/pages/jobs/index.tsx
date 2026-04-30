@@ -1,9 +1,7 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
-  Search,
   Filter,
-  X,
-  ChevronDown,
   Check,
   RefreshCw,
   AlertCircle,
@@ -12,10 +10,14 @@ import {
   Loader2,
   Clock,
   ChevronRight,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
 import {
   Table,
   TableHeader,
@@ -51,6 +53,7 @@ import {
 import type { Job, JobState } from '@/types/job'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { EntityLink } from '@/components/shared'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -100,7 +103,20 @@ function ProgressBar({ pct, state }: { pct: number; state: string }) {
 }
 
 export default function JobListPage() {
-  const [filters, setFilters] = useState<{ type?: string; state?: string }>({})
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => ({
+    type: searchParams.get('type') ?? undefined,
+    state: searchParams.get('state') ?? undefined,
+  }), [searchParams])
+  const setFilters = useCallback((updater: { type?: string; state?: string } | ((prev: { type?: string; state?: string }) => { type?: string; state?: string })) => {
+    const next = typeof updater === 'function' ? updater(filters) : updater
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next.type) p.set('type', next.type); else p.delete('type')
+      if (next.state) p.set('state', next.state); else p.delete('state')
+      return p
+    }, { replace: false })
+  }, [filters, setSearchParams])
   const [selectedJobId, setSelectedJobId] = useState<string>('')
   const [confirmAction, setConfirmAction] = useState<{ jobId: string; action: 'retry' | 'cancel' } | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -121,6 +137,7 @@ export default function JobListPage() {
 
   const retryMutation = useRetryJob()
   const cancelMutation = useCancelJob()
+  const { exportCSV, exporting } = useExport('jobs')
 
   useRealtimeJobProgress()
 
@@ -178,6 +195,10 @@ export default function JobListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Jobs</h1>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV(Object.fromEntries(searchParams))} disabled={exporting}>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Export
+        </Button>
       </div>
 
       {/* Filter Bar */}
@@ -228,12 +249,14 @@ export default function JobListPage() {
         </DropdownMenu>
 
         {(filters.type || filters.state) && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFilters({})}
-            className="text-xs text-text-tertiary hover:text-accent transition-colors"
+            className="text-xs text-text-tertiary hover:text-accent transition-colors h-7 px-2"
           >
             Clear all
-          </button>
+          </Button>
         )}
       </div>
 
@@ -250,7 +273,7 @@ export default function JobListPage() {
                 <TableHead>Processed</TableHead>
                 <TableHead>Failed</TableHead>
                 <TableHead>Duration</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>Created By</TableHead>
                 <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
@@ -267,22 +290,20 @@ export default function JobListPage() {
               {!isLoading && allJobs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9}>
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-                        <Clock className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-                        <h3 className="text-sm font-semibold text-text-primary mb-1">No jobs found</h3>
-                        <p className="text-xs text-text-secondary">
-                          {filters.type || filters.state ? 'Try adjusting your filters.' : 'Jobs will appear here when bulk operations are started.'}
-                        </p>
-                      </div>
-                    </div>
+                    <EmptyState
+                      icon={Clock}
+                      title="No jobs found"
+                      description={filters.type || filters.state ? 'Try adjusting your filters.' : 'Jobs will appear here when bulk operations are started.'}
+                    />
                   </TableCell>
                 </TableRow>
               )}
 
-              {allJobs.map((job) => (
+              {allJobs.map((job, idx) => (
                 <TableRow
                   key={job.id}
+                  data-row-index={idx}
+                  data-href={`/jobs/${job.id}`}
                   className="cursor-pointer hover:bg-bg-hover"
                   onClick={() => setSelectedJobId(job.id)}
                 >
@@ -320,12 +341,29 @@ export default function JobListPage() {
                     <span className="text-xs text-text-secondary">{job.duration ?? '-'}</span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs text-text-secondary">
-                      {new Date(job.created_at).toLocaleString()}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      {job.is_system || !job.created_by ? (
+                        <span className="text-xs text-text-secondary italic">
+                          {job.is_system ? 'System' : '-'}
+                        </span>
+                      ) : (
+                        <EntityLink
+                          entityType="user"
+                          entityId={job.created_by}
+                          label={job.created_by_name || job.created_by_email}
+                        />
+                      )}
+                      <span className="text-[10px] text-text-tertiary" title={new Date(job.created_at).toLocaleString()}>
+                        {new Date(job.created_at).toLocaleString()}
+                      </span>
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <RowActionsMenu
+                      actions={[
+                        { label: 'View Details', onClick: () => setSelectedJobId(job.id) },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -340,12 +378,13 @@ export default function JobListPage() {
               Loading more...
             </div>
           ) : hasNextPage ? (
-            <button
+            <Button
+              variant="ghost"
               onClick={() => fetchNextPage()}
-              className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1"
+              className="w-full text-center text-xs text-text-tertiary hover:text-accent py-1"
             >
               Load more jobs
-            </button>
+            </Button>
           ) : allJobs.length > 0 ? (
             <p className="text-center text-xs text-text-tertiary">
               Showing all {allJobs.length} jobs

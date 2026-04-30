@@ -1,0 +1,31 @@
+=== Runtime Alignment Mini Phase Gate — Doc Drift Check ===
+Date: 2026-04-18
+
+--- operator-sim mention counts (sum ≥ 4 required) ---
+ARCHITECTURE.md: 2
+GLOSSARY.md: 1
+USERTEST.md: 1
+CLAUDE.md: 1
+SUM: 5 (≥ 4 ✓)
+
+--- GLOSSARY: Operator SoR Simulator entry ---
+1 matches in 1F:
+
+[file] /Users/btopcu/workspace/argus/docs/GLOSSARY.md (1):
+   114: | Operator SoR Simulator | Passive HTTP server (`cmd/operator-sim`, container `a...
+
+
+--- USERTEST: STORY-089 section ---
+1 matches in 1F:
+
+[file] /Users/btopcu/workspace/argus/docs/USERTEST.md (1):
+  2624: ## STORY-089: Operator SoR Simulator
+
+
+--- decisions.md: DEV-247..250 ---
+4
+(4 decisions present)
+
+--- ROUTEMAP STORY-090 count: 9 ---
+--- ROUTEMAP STORY-092 count: 9 ---
+--- ROUTEMAP 'Runtime Alignment 3/3' count: 2 ---

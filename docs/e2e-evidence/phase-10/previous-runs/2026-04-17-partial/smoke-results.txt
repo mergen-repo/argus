@@ -1,0 +1,18 @@
+=== Frontend (nginx :8084) ===
+HTTP 200
+
+=== API Health via nginx ===
+{"status":"success","data":{"state":"healthy","db":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04-17T08:03:36.584847805Z"},"redis":{"status":"ok","latency_ms":0,"last_checked_at":"2026-04...
+
+
+=== API Health direct via app 8080 port (not exposed) — expected fail ===
+HTTP 200
+
+=== PostgreSQL readiness ===
+/var/run/postgresql:5432 - accepting connections
+
+=== Redis PING ===
+PONG
+
+=== NATS monitor ===
+HTTP 200

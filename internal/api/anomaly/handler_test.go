@@ -17,7 +17,7 @@ import (
 )
 
 func TestHandler_List_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies", nil)
 	w := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestHandler_List_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_Get_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies/"+uuid.New().String(), nil)
 	w := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestHandler_Get_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateState_NoTenantContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	body := `{"state":"acknowledged"}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/analytics/anomalies/"+uuid.New().String(), strings.NewReader(body))
@@ -57,7 +57,7 @@ func TestHandler_UpdateState_NoTenantContext(t *testing.T) {
 }
 
 func TestHandler_UpdateState_InvalidState(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	anomalyID := uuid.New()
@@ -86,7 +86,7 @@ func TestHandler_UpdateState_InvalidState(t *testing.T) {
 }
 
 func TestHandler_List_InvalidSimID(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -102,8 +102,39 @@ func TestHandler_List_InvalidSimID(t *testing.T) {
 	}
 }
 
+// TestListAnomalies_RejectsInvalidSeverity verifies the handler returns
+// HTTP 400 with INVALID_SEVERITY when an out-of-taxonomy severity filter
+// is supplied (FIX-211).
+func TestListAnomalies_RejectsInvalidSeverity(t *testing.T) {
+	h := NewHandler(nil, nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/anomalies?severity=warning", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	h.List(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	var resp apierr.ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Error.Code != apierr.CodeInvalidSeverity {
+		t.Errorf("error code = %q, want %q", resp.Error.Code, apierr.CodeInvalidSeverity)
+	}
+	if !strings.Contains(resp.Error.Message, "warning") {
+		t.Errorf("error message should cite offending value, got %q", resp.Error.Message)
+	}
+}
+
 func TestHandler_List_InvalidFrom(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -120,7 +151,7 @@ func TestHandler_List_InvalidFrom(t *testing.T) {
 }
 
 func TestHandler_Get_InvalidID(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
@@ -153,7 +184,7 @@ func TestToAnomalyDTO(t *testing.T) {
 }
 
 func TestHandler_Get_WithChiContext(t *testing.T) {
-	h := NewHandler(nil, zerolog.Nop())
+	h := NewHandler(nil, nil, zerolog.Nop())
 
 	tenantID := uuid.New()
 	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)

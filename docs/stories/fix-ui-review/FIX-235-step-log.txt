@@ -1,0 +1,30 @@
+2026-04-27T12:50:07Z STEP_1 PLAN: STARTED | story=FIX-235 | mode=AUTOPILOT | wave=10
+2026-04-27T13:18:00Z STEP_1 PLAN: EXECUTED | items=7 tasks=22 | evidence=docs/stories/fix-ui-review/FIX-235-plan.md | result=PASS
+2026-04-27T13:03:00Z STEP_2 DEV T1: EXECUTED | files=2 migration=esim_ota_commands db_migrate=PASS | result=PASS
+2026-04-27T13:03:00Z STEP_2 DEV T2: EXECUTED | files=2 migration=esim_profile_stock db_migrate=PASS | result=PASS
+2026-04-27T13:03:00Z STEP_2 DEV T3: EXECUTED | files=2 migration=esim_profile_state_failed db_migrate=PASS | result=PASS
+2026-04-27T15:40:00Z STEP_2 DEV T4: EXECUTED | files=1 interface=Client | result=PASS
+2026-04-27T15:41:00Z STEP_2 DEV T5: EXECUTED | files=2 mock=ready tests=7/7 | result=PASS
+2026-04-27T15:44:00Z STEP_2 DEV T6: EXECUTED | files=2 methods=10 transition_guard=SQL_WHERE | result=PASS
+2026-04-27T15:46:00Z STEP_2 DEV T7: EXECUTED | files=2 concurrent_test=50of100_skip_without_DB | result=PASS
+2026-04-27T16:30:00Z STEP_2 DEV T8: EXECUTED | files=2 rate_limiter=per_operator bus=SubjectESimCommandIssued/Failed audit=ota.dispatch store.MarkFailed_added | result=PASS
+2026-04-27T16:30:00Z STEP_2 DEV T9: EXECUTED | files=2 timeout=10min requeue_path=sent→timeout→queued terminal_path=sent→failed | result=PASS
+2026-04-27T16:30:00Z STEP_2 DEV T10: EXECUTED | files=1 batch_insert=no_N+1 stock_allocate=atomic no_sync_Switch=confirmed | result=PASS
+2026-04-27T16:30:00Z STEP_2 DEV T14: EXECUTED | files=2 source_system_test=TestESimStockAlerter_AlertSourceIsSystem dedup_key=esim_stock:{tenant}:{operator} | result=PASS
+2026-04-27T17:10:00Z STEP_2 DEV T8/T9 FIX: EXECUTED | jobs.Complete=wired dispatcher+reaper constructors_jobs_param=added main.go_wired=esimOTADispatcherProc+esimOTATimeoutReaperProc+esimStockAlerterProc smsr_import=added build=PASS tests=25/25 | result=PASS
+2026-04-27T17:45:00Z STEP_2 DEV T11: EXECUTED | endpoint=/esim-profiles/bulk-switch hmac=n/a stock_precheck=422 operator_404=guard job_enqueue=202 | result=PASS
+2026-04-27T17:45:00Z STEP_2 DEV T12: EXECUTED | endpoint=/esim-profiles/callbacks/ota-status hmac=verified replay_window=300s idempotent_replay=200 audit_on_reject=log_only | result=PASS
+2026-04-27T17:45:00Z STEP_2 DEV T13: EXECUTED | endpoints=2 (stock-summary + ota-history) cursor_pagination=standard operator_name_join=yes | result=PASS
+2026-04-27T13:58:51Z STEP_2 DEV T15: EXECUTED | files=3 routes=4 crons=3 env_vars=8 | result=PASS
+2026-04-27T14:01:17Z STEP_2 DEV T16: EXECUTED | files=3 hooks=3 formatEID=NEW | result=PASS
+2026-04-27T14:06:59Z STEP_2 DEV T17: EXECUTED | files=1 changes=remove-SIM-ID-col,ICCID-Link,operator_name,EID-formatEID+Tooltip+CopyButton,Failed-state-filter,checkbox+bulk-bar,Allocate-from-Stock-btn,px-cleanup | result=PASS
+2026-04-27T18:00:00Z STEP_2 DEV T18: EXECUTED | files=2 tab_inserted=esim_between_sims_audit stock_card=total/allocated/available/utilPct state_card=enabled/disabled/available/deleted bulk_cta=navigate(/esim?operator_id) hex=0 tsc=PASS | result=PASS
+2026-04-27T18:30:00Z STEP_2 DEV T19: EXECUTED | files=2 panel=AllocateFromStockPanel card=EID+formatEID+Tooltip+CopyButton+operator_name+badge+lastProvisioned+lastError history=OTA-SlidePanel hooks=useEnableProfile+useDisableProfile+useSwitchProfile+useDeleteProfile hex=0 tsc=PASS | result=PASS
+2026-04-27T19:00:00Z STEP_2 DEV T20: EXECUTED | tests=1 (TestEsimOTACommandStore_InvalidTransition_FailedToSent) regression_test=PAT-024 (pre-existing esim_stock_alert_test.go:162) | result=PASS
+2026-04-27T19:00:00Z STEP_2 DEV T21: EXECUTED | integration=TestBulkEsimSwitch_Integration_100Profiles_100OTACommands (in-process fakes, no -short) load_10k=DEFERRED_D-168 | result=PASS
+2026-04-27T19:00:00Z STEP_2 DEV T22: EXECUTED | docs=2 (PROTOCOLS.md +SGP.02_section, ARCHITECTURE.md +eSIM_M2M_section) | result=PASS
+2026-04-27T14:30:24Z STEP_2.5 LINT: EXECUTED | hex=0 tsc=PASS go_build=PASS go_vet=PASS | result=PASS
+2026-04-27T19:45:00Z STEP_3 GATE: EXECUTED | scouts=3 findings=19 fixes=11 deferred=8 | result=PASS
+2026-04-27T20:30:00Z STEP_4 REVIEW: EXECUTED | checks=14 glossary=+5_terms screens=SCR-021+SCR-041+SCR-070 usertest=10_scenarios pat=PAT-025 dev=DEV-571..DEV-574 findings=F-172..F-184_annotated report=FIX-235-review.md | result=PASS
+2026-04-27T15:12:16Z STEP_5 COMMIT: EXECUTED | items=1 commit=124ff00 | result=PASS
+2026-04-27T15:12:16Z STEP_6 POSTPROC: EXECUTED | items=6 checks | evidence=persistence-verified | result=PASS

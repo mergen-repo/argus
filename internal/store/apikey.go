@@ -22,6 +22,7 @@ type APIKey struct {
 	KeyPrefix          string
 	KeyHash            string
 	Scopes             []string
+	AllowedIPs         []string
 	RateLimitPerMinute int
 	RateLimitPerHour   int
 	ExpiresAt          *time.Time
@@ -39,6 +40,7 @@ type CreateAPIKeyParams struct {
 	KeyPrefix          string
 	KeyHash            string
 	Scopes             []string
+	AllowedIPs         []string
 	RateLimitPerMinute int
 	RateLimitPerHour   int
 	ExpiresAt          *time.Time
@@ -48,6 +50,7 @@ type CreateAPIKeyParams struct {
 type UpdateAPIKeyParams struct {
 	Name               *string
 	Scopes             *[]string
+	AllowedIPs         *[]string
 	RateLimitPerMinute *int
 	RateLimitPerHour   *int
 }
@@ -71,16 +74,21 @@ func (s *APIKeyStore) Create(ctx context.Context, p CreateAPIKeyParams) (*APIKey
 		return nil, fmt.Errorf("store: marshal scopes: %w", err)
 	}
 
+	allowedIPs := p.AllowedIPs
+	if allowedIPs == nil {
+		allowedIPs = []string{}
+	}
+
 	var k APIKey
 	var scopesRaw json.RawMessage
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO api_keys (tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour, expires_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		INSERT INTO api_keys (tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour, expires_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by
-	`, tenantID, p.Name, p.KeyPrefix, p.KeyHash, scopesJSON, p.RateLimitPerMinute, p.RateLimitPerHour, p.ExpiresAt, p.CreatedBy).
+	`, tenantID, p.Name, p.KeyPrefix, p.KeyHash, scopesJSON, allowedIPs, p.RateLimitPerMinute, p.RateLimitPerHour, p.ExpiresAt, p.CreatedBy).
 		Scan(&k.ID, &k.TenantID, &k.Name, &k.KeyPrefix, &k.KeyHash, &scopesRaw,
-			&k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
+			&k.AllowedIPs, &k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
 			&k.LastUsedAt, &k.UsageCount, &k.CreatedAt, &k.CreatedBy)
 	if err != nil {
 		return nil, fmt.Errorf("store: create api key: %w", err)
@@ -88,6 +96,9 @@ func (s *APIKeyStore) Create(ctx context.Context, p CreateAPIKeyParams) (*APIKey
 
 	if err := json.Unmarshal(scopesRaw, &k.Scopes); err != nil {
 		return nil, fmt.Errorf("store: unmarshal scopes: %w", err)
+	}
+	if k.AllowedIPs == nil {
+		k.AllowedIPs = []string{}
 	}
 
 	return &k, nil
@@ -100,7 +111,7 @@ func (s *APIKeyStore) GetByID(ctx context.Context, id uuid.UUID) (*APIKey, error
 	}
 
 	return s.scanAPIKey(s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by, previous_key_hash, key_rotated_at
 		FROM api_keys
 		WHERE id = $1 AND tenant_id = $2
@@ -109,7 +120,7 @@ func (s *APIKeyStore) GetByID(ctx context.Context, id uuid.UUID) (*APIKey, error
 
 func (s *APIKeyStore) GetByPrefix(ctx context.Context, prefix string) (*APIKey, error) {
 	return s.scanAPIKey(s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by, previous_key_hash, key_rotated_at
 		FROM api_keys
 		WHERE key_prefix = $1
@@ -120,7 +131,7 @@ func (s *APIKeyStore) scanAPIKey(row pgx.Row) (*APIKey, error) {
 	var k APIKey
 	var scopesRaw json.RawMessage
 	err := row.Scan(&k.ID, &k.TenantID, &k.Name, &k.KeyPrefix, &k.KeyHash, &scopesRaw,
-		&k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
+		&k.AllowedIPs, &k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
 		&k.LastUsedAt, &k.UsageCount, &k.CreatedAt, &k.CreatedBy, &k.PreviousKeyHash, &k.KeyRotatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAPIKeyNotFound
@@ -131,6 +142,9 @@ func (s *APIKeyStore) scanAPIKey(row pgx.Row) (*APIKey, error) {
 
 	if err := json.Unmarshal(scopesRaw, &k.Scopes); err != nil {
 		return nil, fmt.Errorf("store: unmarshal scopes: %w", err)
+	}
+	if k.AllowedIPs == nil {
+		k.AllowedIPs = []string{}
 	}
 
 	return &k, nil
@@ -165,7 +179,7 @@ func (s *APIKeyStore) ListByTenant(ctx context.Context, cursor string, limit int
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		SELECT id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by, previous_key_hash, key_rotated_at
 		FROM api_keys
 		%s
@@ -184,12 +198,15 @@ func (s *APIKeyStore) ListByTenant(ctx context.Context, cursor string, limit int
 		var k APIKey
 		var scopesRaw json.RawMessage
 		if err := rows.Scan(&k.ID, &k.TenantID, &k.Name, &k.KeyPrefix, &k.KeyHash, &scopesRaw,
-			&k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
+			&k.AllowedIPs, &k.RateLimitPerMinute, &k.RateLimitPerHour, &k.ExpiresAt, &k.RevokedAt,
 			&k.LastUsedAt, &k.UsageCount, &k.CreatedAt, &k.CreatedBy, &k.PreviousKeyHash, &k.KeyRotatedAt); err != nil {
 			return nil, "", fmt.Errorf("store: scan api key: %w", err)
 		}
 		if err := json.Unmarshal(scopesRaw, &k.Scopes); err != nil {
 			return nil, "", fmt.Errorf("store: unmarshal scopes: %w", err)
+		}
+		if k.AllowedIPs == nil {
+			k.AllowedIPs = []string{}
 		}
 		results = append(results, k)
 	}
@@ -227,6 +244,15 @@ func (s *APIKeyStore) Update(ctx context.Context, id uuid.UUID, p UpdateAPIKeyPa
 		args = append(args, scopesJSON)
 		argIdx++
 	}
+	if p.AllowedIPs != nil {
+		ips := *p.AllowedIPs
+		if ips == nil {
+			ips = []string{}
+		}
+		sets = append(sets, fmt.Sprintf("allowed_ips = $%d", argIdx))
+		args = append(args, ips)
+		argIdx++
+	}
 	if p.RateLimitPerMinute != nil {
 		sets = append(sets, fmt.Sprintf("rate_limit_per_minute = $%d", argIdx))
 		args = append(args, *p.RateLimitPerMinute)
@@ -245,7 +271,7 @@ func (s *APIKeyStore) Update(ctx context.Context, id uuid.UUID, p UpdateAPIKeyPa
 	query := fmt.Sprintf(`
 		UPDATE api_keys SET %s
 		WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL
-		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by, previous_key_hash, key_rotated_at
 	`, strings.Join(sets, ", "))
 
@@ -282,9 +308,24 @@ func (s *APIKeyStore) Rotate(ctx context.Context, id uuid.UUID, newPrefix, newHa
 			key_prefix = $4,
 			key_rotated_at = NOW()
 		WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL
-		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, rate_limit_per_minute, rate_limit_per_hour,
+		RETURNING id, tenant_id, name, key_prefix, key_hash, scopes, allowed_ips, rate_limit_per_minute, rate_limit_per_hour,
 			expires_at, revoked_at, last_used_at, usage_count, created_at, created_by, previous_key_hash, key_rotated_at
 	`, id, tenantID, newHash, newPrefix))
+}
+
+func (s *APIKeyStore) RevokeAllByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	tenantID, err := TenantIDFromContext(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	tag, err := s.db.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = NOW() WHERE created_by = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
+		userID, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("store: revoke all api keys by user: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (s *APIKeyStore) UpdateUsage(ctx context.Context, id uuid.UUID) error {

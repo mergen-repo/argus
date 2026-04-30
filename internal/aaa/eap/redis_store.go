@@ -82,3 +82,26 @@ func (s *RedisStateStore) Delete(ctx context.Context, id string) error {
 
 	return nil
 }
+
+func (s *RedisStateStore) GetAndDelete(ctx context.Context, id string) (*EAPSession, error) {
+	key := eapSessionKeyPrefix + id
+
+	data, err := s.client.GetDel(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("eap redis store: getdel session %s: %w", id, err)
+	}
+
+	var session EAPSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return nil, fmt.Errorf("eap redis store: unmarshal session %s: %w", id, err)
+	}
+
+	s.logger.Debug().
+		Str("session_id", id).
+		Msg("EAP session atomically consumed from Redis")
+
+	return &session, nil
+}

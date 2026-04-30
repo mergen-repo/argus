@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrAuditNotFound = errors.New("store: audit entry not found")
+var (
+	ErrAuditNotFound     = errors.New("store: audit entry not found")
+	ErrDateRangeRequired = errors.New("store: from and to date range are required")
+	ErrDateRangeTooLarge = errors.New("store: date range must not exceed 90 days")
+)
 
 type ListAuditParams struct {
 	Cursor     string
@@ -25,6 +27,7 @@ type ListAuditParams struct {
 	To         *time.Time
 	UserID     *uuid.UUID
 	Action     string
+	Actions    []string
 	EntityType string
 	EntityID   string
 }
@@ -37,8 +40,31 @@ func NewAuditStore(db *pgxpool.Pool) *AuditStore {
 	return &AuditStore{db: db}
 }
 
-func (s *AuditStore) Create(ctx context.Context, entry *audit.Entry) (*audit.Entry, error) {
-	err := s.db.QueryRow(ctx, `
+func (s *AuditStore) CreateWithChain(ctx context.Context, entry *audit.Entry) (*audit.Entry, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin audit chain tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7166482937211513)`) // fixed sentinel: audit chain single-writer lock
+	if err != nil {
+		return nil, fmt.Errorf("store: acquire audit chain lock: %w", err)
+	}
+
+	var tailHash string
+	err = tx.QueryRow(ctx, `SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1`).Scan(&tailHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		tailHash = audit.GenesisHash
+	} else if err != nil {
+		return nil, fmt.Errorf("store: read chain tail: %w", err)
+	}
+
+	entry.PrevHash = tailHash
+	entry.CreatedAt = entry.CreatedAt.Truncate(time.Microsecond)
+	entry.Hash = audit.ComputeHash(*entry, tailHash)
+
+	err = tx.QueryRow(ctx, `
 		INSERT INTO audit_logs (tenant_id, user_id, api_key_id, action, entity_type, entity_id,
 			before_data, after_data, diff, ip_address, user_agent, correlation_id, hash, prev_hash, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, $11, $12, $13, $14, $15)
@@ -48,26 +74,224 @@ func (s *AuditStore) Create(ctx context.Context, entry *audit.Entry) (*audit.Ent
 		entry.CorrelationID, entry.Hash, entry.PrevHash, entry.CreatedAt).
 		Scan(&entry.ID, &entry.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("store: create audit entry: %w", err)
+		return nil, fmt.Errorf("store: insert audit entry: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit audit chain tx: %w", err)
+	}
+
 	return entry, nil
 }
 
-func (s *AuditStore) GetLastHash(ctx context.Context, tenantID uuid.UUID) (string, error) {
-	var hash string
-	err := s.db.QueryRow(ctx, `
-		SELECT hash FROM audit_logs
-		WHERE tenant_id = $1
-		ORDER BY id DESC
-		LIMIT 1
-	`, tenantID).Scan(&hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return audit.GenesisHash, nil
-	}
+func (s *AuditStore) GetAll(ctx context.Context) ([]audit.Entry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
+			hash, prev_hash, created_at
+		FROM audit_logs
+		ORDER BY id ASC
+	`)
 	if err != nil {
-		return "", fmt.Errorf("store: get last audit hash: %w", err)
+		return nil, fmt.Errorf("store: get all audit logs: %w", err)
 	}
-	return hash, nil
+	defer rows.Close()
+
+	var results []audit.Entry
+	for rows.Next() {
+		var e audit.Entry
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.UserID, &e.APIKeyID,
+			&e.Action, &e.EntityType, &e.EntityID,
+			&e.BeforeData, &e.AfterData, &e.Diff,
+			&e.IPAddress, &e.UserAgent, &e.CorrelationID,
+			&e.Hash, &e.PrevHash, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan audit entry: %w", err)
+		}
+		results = append(results, e)
+	}
+
+	return results, nil
+}
+
+func (s *AuditStore) GetBatch(ctx context.Context, afterID int64, limit int) ([]audit.Entry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
+			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
+			hash, prev_hash, created_at
+		FROM audit_logs
+		WHERE id > $1
+		ORDER BY id ASC
+		LIMIT $2
+	`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: get audit batch: %w", err)
+	}
+	defer rows.Close()
+
+	var results []audit.Entry
+	for rows.Next() {
+		var e audit.Entry
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.UserID, &e.APIKeyID,
+			&e.Action, &e.EntityType, &e.EntityID,
+			&e.BeforeData, &e.AfterData, &e.Diff,
+			&e.IPAddress, &e.UserAgent, &e.CorrelationID,
+			&e.Hash, &e.PrevHash, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan audit batch entry: %w", err)
+		}
+		results = append(results, e)
+	}
+
+	return results, nil
+}
+
+const repairBatchSize = 1000
+
+func (s *AuditStore) RepairChain(ctx context.Context) error {
+	prevHash := audit.GenesisHash
+	var afterID int64
+
+	for {
+		batch, err := s.GetBatch(ctx, afterID, repairBatchSize)
+		if err != nil {
+			return fmt.Errorf("store: repair chain read batch after id=%d: %w", afterID, err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		for i := range batch {
+			batch[i].PrevHash = prevHash
+			batch[i].Hash = audit.ComputeHash(batch[i], prevHash)
+			prevHash = batch[i].Hash
+		}
+
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("store: repair chain begin tx: %w", err)
+		}
+
+		for _, e := range batch {
+			_, err := tx.Exec(ctx, `
+				UPDATE audit_logs SET hash = $1, prev_hash = $2
+				WHERE id = $3 AND created_at = $4
+			`, e.Hash, e.PrevHash, e.ID, e.CreatedAt)
+			if err != nil {
+				tx.Rollback(ctx)
+				return fmt.Errorf("store: repair chain update id=%d: %w", e.ID, err)
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("store: repair chain commit tx: %w", err)
+		}
+
+		afterID = batch[len(batch)-1].ID
+	}
+
+	return nil
+}
+
+// EntryWithUser extends audit.Entry with optional user display fields populated via LEFT JOIN.
+type EntryWithUser struct {
+	audit.Entry
+	UserEmail *string
+	UserName  *string
+}
+
+func (s *AuditStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, params ListAuditParams) ([]EntryWithUser, string, error) {
+	if params.Limit <= 0 || params.Limit > 100 {
+		params.Limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"al.tenant_id = $1"}
+	argIdx := 2
+
+	if params.From != nil {
+		conditions = append(conditions, fmt.Sprintf("al.created_at >= $%d", argIdx))
+		args = append(args, *params.From)
+		argIdx++
+	}
+	if params.To != nil {
+		conditions = append(conditions, fmt.Sprintf("al.created_at <= $%d", argIdx))
+		args = append(args, *params.To)
+		argIdx++
+	}
+	if params.UserID != nil {
+		conditions = append(conditions, fmt.Sprintf("al.user_id = $%d", argIdx))
+		args = append(args, *params.UserID)
+		argIdx++
+	}
+	if params.Action != "" {
+		conditions = append(conditions, fmt.Sprintf("al.action = $%d", argIdx))
+		args = append(args, params.Action)
+		argIdx++
+	}
+	if len(params.Actions) > 0 {
+		conditions = append(conditions, fmt.Sprintf("al.action = ANY($%d)", argIdx))
+		args = append(args, params.Actions)
+		argIdx++
+	}
+	if params.EntityType != "" {
+		conditions = append(conditions, fmt.Sprintf("al.entity_type = $%d", argIdx))
+		args = append(args, params.EntityType)
+		argIdx++
+	}
+	if params.EntityID != "" {
+		conditions = append(conditions, fmt.Sprintf("al.entity_id = $%d", argIdx))
+		args = append(args, params.EntityID)
+		argIdx++
+	}
+	if params.Cursor != "" {
+		conditions = append(conditions, fmt.Sprintf("al.id < $%d", argIdx))
+		args = append(args, params.Cursor)
+		argIdx++
+	}
+
+	args = append(args, params.Limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`
+		SELECT al.id, al.tenant_id, al.user_id, al.api_key_id, al.action, al.entity_type, al.entity_id,
+			al.before_data, al.after_data, al.diff, al.ip_address::text, al.user_agent, al.correlation_id,
+			al.hash, al.prev_hash, al.created_at,
+			u.email, u.name
+		FROM audit_logs al
+		LEFT JOIN users u ON u.id = al.user_id
+		WHERE %s
+		ORDER BY al.id DESC
+		LIMIT %s
+	`, strings.Join(conditions, " AND "), limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []EntryWithUser
+	for rows.Next() {
+		var ew EntryWithUser
+		if err := rows.Scan(
+			&ew.ID, &ew.TenantID, &ew.UserID, &ew.APIKeyID,
+			&ew.Action, &ew.EntityType, &ew.EntityID,
+			&ew.BeforeData, &ew.AfterData, &ew.Diff,
+			&ew.IPAddress, &ew.UserAgent, &ew.CorrelationID,
+			&ew.Hash, &ew.PrevHash, &ew.CreatedAt,
+			&ew.UserEmail, &ew.UserName,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched audit entry: %w", err)
+		}
+		results = append(results, ew)
+	}
+
+	nextCursor := ""
+	if len(results) > params.Limit {
+		nextCursor = fmt.Sprintf("%d", results[params.Limit-1].ID)
+		results = results[:params.Limit]
+	}
+
+	return results, nextCursor, nil
 }
 
 func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAuditParams) ([]audit.Entry, string, error) {
@@ -97,6 +321,11 @@ func (s *AuditStore) List(ctx context.Context, tenantID uuid.UUID, params ListAu
 	if params.Action != "" {
 		conditions = append(conditions, fmt.Sprintf("action = $%d", argIdx))
 		args = append(args, params.Action)
+		argIdx++
+	}
+	if len(params.Actions) > 0 {
+		conditions = append(conditions, fmt.Sprintf("action = ANY($%d)", argIdx))
+		args = append(args, params.Actions)
 		argIdx++
 	}
 	if params.EntityType != "" {
@@ -199,6 +428,13 @@ func (s *AuditStore) GetRange(ctx context.Context, tenantID uuid.UUID, count int
 }
 
 func (s *AuditStore) GetByDateRange(ctx context.Context, tenantID uuid.UUID, from, to time.Time) ([]audit.Entry, error) {
+	if from.IsZero() || to.IsZero() {
+		return nil, ErrDateRangeRequired
+	}
+	if to.Sub(from) > 90*24*time.Hour {
+		return nil, ErrDateRangeTooLarge
+	}
+
 	rows, err := s.db.Query(ctx, `
 		SELECT id, tenant_id, user_id, api_key_id, action, entity_type, entity_id,
 			before_data, after_data, diff, ip_address::text, user_agent, correlation_id,
@@ -228,7 +464,7 @@ func (s *AuditStore) GetByDateRange(ctx context.Context, tenantID uuid.UUID, fro
 	return results, nil
 }
 
-func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entityIDs []string) error {
+func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entityIDs []string, tenantSalt string) error {
 	if len(entityIDs) == 0 {
 		return nil
 	}
@@ -268,9 +504,9 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 		if err := rows.Scan(&r.id, &r.createdAt, &r.beforeData, &r.afterData, &r.diff); err != nil {
 			return fmt.Errorf("store: pseudonymize scan: %w", err)
 		}
-		r.beforeData = anonymizeJSON(r.beforeData, sensitiveFields)
-		r.afterData = anonymizeJSON(r.afterData, sensitiveFields)
-		r.diff = anonymizeJSON(r.diff, sensitiveFields)
+		r.beforeData = anonymizeJSONWithSalt(r.beforeData, sensitiveFields, tenantSalt)
+		r.afterData = anonymizeJSONWithSalt(r.afterData, sensitiveFields, tenantSalt)
+		r.diff = anonymizeJSONWithSalt(r.diff, sensitiveFields, tenantSalt)
 		pending = append(pending, r)
 	}
 	rows.Close()
@@ -288,34 +524,3 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 	return nil
 }
 
-func anonymizeJSON(data json.RawMessage, fields []string) json.RawMessage {
-	if len(data) == 0 {
-		return data
-	}
-
-	var m map[string]interface{}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return data
-	}
-
-	changed := false
-	for _, field := range fields {
-		if val, ok := m[field]; ok {
-			if strVal, ok := val.(string); ok && strVal != "" {
-				h := sha256.Sum256([]byte(strVal))
-				m[field] = hex.EncodeToString(h[:])
-				changed = true
-			}
-		}
-	}
-
-	if !changed {
-		return data
-	}
-
-	result, err := json.Marshal(m)
-	if err != nil {
-		return data
-	}
-	return result
-}

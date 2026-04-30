@@ -211,6 +211,7 @@ func TestValidTransitions(t *testing.T) {
 		{"active", "terminated"},
 		{"suspended", "active"},
 		{"suspended", "terminated"},
+		{"stolen_lost", "terminated"},
 		{"terminated", "purged"},
 	}
 
@@ -241,7 +242,6 @@ func TestInvalidTransitions(t *testing.T) {
 		{"stolen_lost", "active"},
 		{"stolen_lost", "ordered"},
 		{"stolen_lost", "suspended"},
-		{"stolen_lost", "terminated"},
 		{"terminated", "active"},
 		{"terminated", "ordered"},
 		{"terminated", "suspended"},
@@ -332,7 +332,7 @@ func TestValidateTransition_SelfTransition(t *testing.T) {
 }
 
 func TestValidateTransition_TerminalStatesHaveNoOutbound(t *testing.T) {
-	terminalStates := []string{"stolen_lost", "purged"}
+	terminalStates := []string{"purged"}
 	for _, state := range terminalStates {
 		allowed := validTransitions[state]
 		if len(allowed) != 0 {
@@ -341,12 +341,29 @@ func TestValidateTransition_TerminalStatesHaveNoOutbound(t *testing.T) {
 	}
 }
 
-func TestValidateTransition_StolenLostIsAbsorbing(t *testing.T) {
-	targets := []string{"ordered", "active", "suspended", "terminated", "purged"}
-	for _, target := range targets {
+func TestValidateTransition_StolenLostAllowsTerminated(t *testing.T) {
+	if err := validateTransition("stolen_lost", "terminated"); err != nil {
+		t.Errorf("stolen_lost->terminated should be valid per BR-1, got: %v", err)
+	}
+
+	invalidTargets := []string{"ordered", "active", "suspended", "purged"}
+	for _, target := range invalidTargets {
 		err := validateTransition("stolen_lost", target)
 		if err == nil {
-			t.Errorf("stolen_lost->%s should be invalid (absorbing state)", target)
+			t.Errorf("stolen_lost->%s should be invalid", target)
 		}
 	}
 }
+
+// TestSIMStore_CountByPolicyID_Signature verifies CountByPolicyID compiles with the correct signature.
+// Full DB integration test (seed 3 SIMs on P1, 2 on P2, 1 with NULL) requires DATABASE_URL.
+//
+// NEEDS_CONTEXT: DB integration tests are not wired in this file. Add integration coverage
+// when a test DB fixture infrastructure is available (see internal/store/*_integration_test.go pattern).
+func TestSIMStore_CountByPolicyID_Signature(t *testing.T) {
+	var _ func(*SIMStore, uuid.UUID, uuid.UUID) (int, error) = func(s *SIMStore, tid, pvid uuid.UUID) (int, error) {
+		return s.CountByPolicyID(nil, tid, pvid)
+	}
+	t.Log("CountByPolicyID method signature verified: (ctx, tenantID uuid.UUID, policyVersionID uuid.UUID) (int, error)")
+}
+

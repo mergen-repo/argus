@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,8 +24,10 @@ var (
 	ErrRolloutInProgress     = errors.New("store: a rollout is already in progress for this policy")
 	ErrRolloutCompleted      = errors.New("store: rollout already completed")
 	ErrRolloutRolledBack     = errors.New("store: rollout already rolled back")
+	ErrRolloutAborted        = errors.New("store: rollout already aborted")
 	ErrStageInProgress       = errors.New("store: current stage is still processing")
 	ErrVersionNotActivatable = errors.New("store: version is not in an activatable state")
+	ErrAssignmentNotFound    = errors.New("store: policy assignment not found for sim")
 )
 
 type Policy struct {
@@ -73,10 +76,11 @@ type UpdatePolicyParams struct {
 }
 
 type CreateVersionParams struct {
-	PolicyID      uuid.UUID
-	DSLContent    string
-	CompiledRules json.RawMessage
-	CreatedBy     *uuid.UUID
+	PolicyID         uuid.UUID
+	DSLContent       string
+	CompiledRules    json.RawMessage
+	CreatedBy        *uuid.UUID
+	AffectedSIMCount *int
 }
 
 type PolicyStore struct {
@@ -300,12 +304,35 @@ func (s *PolicyStore) SoftDelete(ctx context.Context, tenantID, id uuid.UUID) er
 	return nil
 }
 
+func (s *PolicyStore) RestoreState(ctx context.Context, tenantID, id uuid.UUID, state string) (*Policy, error) {
+	if state == "" {
+		state = "draft"
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE policies
+		SET state = $3, updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+policyColumns,
+		id, tenantID, state,
+	)
+
+	policy, err := scanPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPolicyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: restore policy state: %w", err)
+	}
+	return policy, nil
+}
+
 func (s *PolicyStore) CreateVersion(ctx context.Context, p CreateVersionParams) (*PolicyVersion, error) {
 	row := s.db.QueryRow(ctx, `
-		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, created_by)
-		VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM policy_versions WHERE policy_id = $1), $2, $3, $4)
+		INSERT INTO policy_versions (policy_id, version, dsl_content, compiled_rules, created_by, affected_sim_count)
+		VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM policy_versions WHERE policy_id = $1), $2, $3, $4, $5)
 		RETURNING `+policyVersionColumns,
-		p.PolicyID, p.DSLContent, p.CompiledRules, p.CreatedBy,
+		p.PolicyID, p.DSLContent, p.CompiledRules, p.CreatedBy, p.AffectedSIMCount,
 	)
 
 	v, err := scanPolicyVersion(row)
@@ -536,8 +563,14 @@ type PolicyRollout struct {
 	StartedAt         *time.Time      `json:"started_at"`
 	CompletedAt       *time.Time      `json:"completed_at"`
 	RolledBackAt      *time.Time      `json:"rolled_back_at"`
+	AbortedAt         *time.Time      `json:"aborted_at,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	CreatedBy         *uuid.UUID      `json:"created_by"`
+	// PolicyID denormalises policy_versions.policy_id onto the rollout row
+	// (FIX-231 DEV-345 migration 20260427000001 step 1). Surfaces the
+	// denormalisation at the Go layer so reaper/bus paths can avoid an
+	// extra JOIN through policy_versions (F-A4 Gate).
+	PolicyID uuid.UUID `json:"policy_id"`
 }
 
 type PolicyAssignment struct {
@@ -550,7 +583,18 @@ type PolicyAssignment struct {
 	CoAStatus       string     `json:"coa_status"`
 }
 
+type AssignmentDetail struct {
+	PolicyID         uuid.UUID  `json:"policy_id"`
+	PolicyName       string     `json:"policy_name"`
+	PolicyVersionID  uuid.UUID  `json:"policy_version_id"`
+	VersionNumber    int        `json:"version_number"`
+	CoAStatus        string     `json:"coa_status"`
+	CoASentAt        *time.Time `json:"coa_sent_at"`
+	CoAFailureReason *string    `json:"coa_failure_reason"`
+}
+
 type CreateRolloutParams struct {
+	PolicyID          uuid.UUID
 	PolicyVersionID   uuid.UUID
 	PreviousVersionID *uuid.UUID
 	Strategy          string
@@ -561,7 +605,7 @@ type CreateRolloutParams struct {
 
 var rolloutColumns = `id, policy_version_id, previous_version_id, strategy, stages,
 	current_stage, total_sims, migrated_sims, state, started_at, completed_at,
-	rolled_back_at, created_at, created_by`
+	rolled_back_at, aborted_at, created_at, created_by, policy_id`
 
 func scanRollout(row pgx.Row) (*PolicyRollout, error) {
 	var r PolicyRollout
@@ -569,7 +613,7 @@ func scanRollout(row pgx.Row) (*PolicyRollout, error) {
 		&r.ID, &r.PolicyVersionID, &r.PreviousVersionID, &r.Strategy,
 		&r.Stages, &r.CurrentStage, &r.TotalSIMs, &r.MigratedSIMs,
 		&r.State, &r.StartedAt, &r.CompletedAt, &r.RolledBackAt,
-		&r.CreatedAt, &r.CreatedBy,
+		&r.AbortedAt, &r.CreatedAt, &r.CreatedBy, &r.PolicyID,
 	)
 	return &r, err
 }
@@ -601,11 +645,17 @@ func (s *PolicyStore) CreateRollout(ctx context.Context, tenantID uuid.UUID, p C
 		return nil, ErrVersionNotDraft
 	}
 
+	// FIX-231 F-A5 (Gate): query the denormalised policy_id directly instead
+	// of the prior `policy_version_id IN (subquery)` form. Indexed by
+	// idx_policy_rollouts_policy and aligns with GetActiveRolloutForPolicy.
+	// True race-safety still lives in the 23505 mapping below (the partial
+	// unique index `policy_active_rollout` is the source of truth) — this
+	// precheck just delivers a clean error before INSERT in the common path.
 	var existingCount int
 	err = tx.QueryRow(ctx, `
 		SELECT COUNT(*) FROM policy_rollouts
-		WHERE policy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $1)
-		AND state IN ('pending', 'in_progress')`,
+		 WHERE policy_id = $1
+		   AND state IN ('pending', 'in_progress')`,
 		v.PolicyID,
 	).Scan(&existingCount)
 	if err != nil {
@@ -625,16 +675,20 @@ func (s *PolicyStore) CreateRollout(ctx context.Context, tenantID uuid.UUID, p C
 	}
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO policy_rollouts (policy_version_id, previous_version_id, strategy, stages,
+		INSERT INTO policy_rollouts (policy_id, policy_version_id, previous_version_id, strategy, stages,
 			total_sims, state, started_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, 'in_progress', NOW(), $6)
+		VALUES ($1, $2, $3, $4, $5, $6, 'in_progress', NOW(), $7)
 		RETURNING `+rolloutColumns,
-		p.PolicyVersionID, p.PreviousVersionID, p.Strategy, p.Stages,
+		p.PolicyID, p.PolicyVersionID, p.PreviousVersionID, p.Strategy, p.Stages,
 		p.TotalSIMs, p.CreatedBy,
 	)
 
 	rollout, err := scanRollout(row)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "policy_active_rollout" {
+			return nil, ErrRolloutInProgress
+		}
 		return nil, fmt.Errorf("store: create rollout: %w", err)
 	}
 
@@ -661,13 +715,17 @@ func (s *PolicyStore) GetRolloutByID(ctx context.Context, rolloutID uuid.UUID) (
 }
 
 func (s *PolicyStore) GetRolloutByIDWithTenant(ctx context.Context, rolloutID, tenantID uuid.UUID) (*PolicyRollout, error) {
+	// FIX-232 DEV-357: column list now matches scanRollout's 16 destinations
+	// after migration 20260428000001 added aborted_at. The prior SELECT was
+	// missing pr.aborted_at, causing pr.created_at to flow into &r.AbortedAt
+	// at scan time. Add aborted_at between rolled_back_at and created_at to
+	// align with the rolloutColumns ordering used by scanRollout.
 	row := s.db.QueryRow(ctx, `
 		SELECT pr.id, pr.policy_version_id, pr.previous_version_id, pr.strategy, pr.stages,
 			pr.current_stage, pr.total_sims, pr.migrated_sims, pr.state, pr.started_at, pr.completed_at,
-			pr.rolled_back_at, pr.created_at, pr.created_by
+			pr.rolled_back_at, pr.aborted_at, pr.created_at, pr.created_by, pr.policy_id
 		FROM policy_rollouts pr
-		JOIN policy_versions pv ON pr.policy_version_id = pv.id
-		JOIN policies p ON pv.policy_id = p.id
+		JOIN policies p ON pr.policy_id = p.id
 		WHERE pr.id = $1 AND p.tenant_id = $2`,
 		rolloutID, tenantID,
 	)
@@ -682,14 +740,15 @@ func (s *PolicyStore) GetRolloutByIDWithTenant(ctx context.Context, rolloutID, t
 }
 
 func (s *PolicyStore) GetActiveRolloutForPolicy(ctx context.Context, policyID uuid.UUID) (*PolicyRollout, error) {
-	row := s.db.QueryRow(ctx, `
-		SELECT pr.id, pr.policy_version_id, pr.previous_version_id, pr.strategy, pr.stages,
-			pr.current_stage, pr.total_sims, pr.migrated_sims, pr.state, pr.started_at, pr.completed_at,
-			pr.rolled_back_at, pr.created_at, pr.created_by
-		FROM policy_rollouts pr
-		JOIN policy_versions pv ON pr.policy_version_id = pv.id
-		WHERE pv.policy_id = $1 AND pr.state IN ('pending', 'in_progress')
-		LIMIT 1`,
+	// FIX-231 DEV-345: policy_rollouts.policy_id is now a denormalised column —
+	// query it directly instead of joining policy_versions.
+	// $1 = policyID (the policy whose in-flight rollout we want).
+	row := s.db.QueryRow(ctx,
+		`SELECT `+rolloutColumns+`
+		   FROM policy_rollouts
+		  WHERE policy_id = $1
+		    AND state IN ('pending', 'in_progress')
+		  LIMIT 1`,
 		policyID,
 	)
 	r, err := scanRollout(row)
@@ -700,6 +759,57 @@ func (s *PolicyStore) GetActiveRolloutForPolicy(ctx context.Context, policyID uu
 		return nil, fmt.Errorf("store: get active rollout for policy: %w", err)
 	}
 	return r, nil
+}
+
+// ListStuckRollouts returns rollout IDs that are still 'in_progress' even though
+// migrated_sims >= total_sims, and have not advanced in the last graceMinutes
+// minutes. The reaper job (FIX-231 Task 5) consumes this list and forces each
+// rollout to its terminal state in a separate transaction with FOR UPDATE
+// SKIP LOCKED. Locking is intentionally NOT done here so the reaper can choose
+// its own lock semantics.
+//
+// Returns an empty slice (not an error) when nothing is stuck.
+//
+// $1 = graceMinutes — minutes without progress before a rollout is considered
+//      stuck. COALESCE(completed_at, created_at) handles rollouts that finished
+//      assigning but never had their state flipped.
+func (s *PolicyStore) ListStuckRollouts(ctx context.Context, graceMinutes int) ([]uuid.UUID, error) {
+	// FIX-231 F-A7 (Gate): ORDER BY created_at gives the reaper deterministic
+	// page semantics — without it Postgres can return any 100 of N stuck
+	// rollouts. NOTE: FOR UPDATE SKIP LOCKED is intentionally NOT added here
+	// (deviation from plan): pgx auto-commits Query() before the caller sees
+	// rows, so SKIP LOCKED would release the row locks before CompleteRollout
+	// even runs. Real concurrency safety lives in CompleteRollout's own
+	// `SELECT ... FOR UPDATE` plus the F-A2 idempotency guard — two reapers
+	// converge cleanly: second one sees state='completed' and returns nil.
+	// See gate.md "Deviations" section for the trade-off note.
+	rows, err := s.db.Query(ctx, `
+		SELECT id FROM policy_rollouts
+		 WHERE state = 'in_progress'
+		   AND total_sims > 0
+		   AND migrated_sims >= total_sims
+		   AND COALESCE(completed_at, created_at) < NOW() - make_interval(mins => $1)
+		 ORDER BY created_at
+		 LIMIT 100`,
+		graceMinutes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list stuck rollouts: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: scan stuck rollout id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate stuck rollouts: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *PolicyStore) UpdateRolloutProgress(ctx context.Context, rolloutID uuid.UUID, migratedSIMs, currentStage int, stages json.RawMessage) error {
@@ -721,16 +831,11 @@ func (s *PolicyStore) CompleteRollout(ctx context.Context, rolloutID uuid.UUID) 
 	}
 	defer tx.Rollback(ctx)
 
-	var r PolicyRollout
-	err = tx.QueryRow(ctx,
+	row := tx.QueryRow(ctx,
 		`SELECT `+rolloutColumns+` FROM policy_rollouts WHERE id = $1 FOR UPDATE`,
 		rolloutID,
-	).Scan(
-		&r.ID, &r.PolicyVersionID, &r.PreviousVersionID, &r.Strategy,
-		&r.Stages, &r.CurrentStage, &r.TotalSIMs, &r.MigratedSIMs,
-		&r.State, &r.StartedAt, &r.CompletedAt, &r.RolledBackAt,
-		&r.CreatedAt, &r.CreatedBy,
 	)
+	r, err := scanRollout(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrRolloutNotFound
 	}
@@ -738,6 +843,40 @@ func (s *PolicyStore) CompleteRollout(ctx context.Context, rolloutID uuid.UUID) 
 		return fmt.Errorf("store: get rollout for completion: %w", err)
 	}
 
+	// FIX-231 F-A2 (Gate): idempotency guard. CompleteRollout is invoked from
+	// (a) the rollout service when the final stage finishes, and (b) the
+	// stuck-rollout reaper job that scans for in_progress rollouts whose
+	// migration counter is full. Without this guard, a manual finish that
+	// races a reaper cycle (or two reaper instances on the same id) would
+	// re-flip a terminal rollout, re-stamp completed_at, and re-supersede —
+	// overwriting the truthful activation timestamp on the target version.
+	// We intentionally return nil on already-completed (success — desired
+	// state achieved) and a typed sentinel on rolled_back (caller must
+	// distinguish "no-op success" from "do not re-activate this version").
+	if r.State == "completed" {
+		return nil
+	}
+	if r.State == "rolled_back" {
+		return ErrRolloutRolledBack
+	}
+	// FIX-232 DEV-357: aborted is terminal — block completion after abort.
+	// An aborted rollout intentionally halted without finishing migration;
+	// re-flipping it to 'completed' would activate a partially-rolled-out
+	// version and contradict the abort decision.
+	if r.State == "aborted" {
+		return ErrRolloutAborted
+	}
+
+	// FIX-231 F-A1 (Gate): UPDATE order is supersede-first, then activate.
+	// The `policy_active_version` partial unique index (state='active') is
+	// NOT DEFERRABLE — flipping the target to 'active' BEFORE superseding
+	// the prior active row would briefly satisfy the index for two rows
+	// simultaneously and Postgres rejects with 23505. Reversing the order
+	// keeps the index satisfied at every statement boundary: at the
+	// supersede step the target is still 'rolling_out' so it is untouched
+	// by the `state='active' AND id != $1` predicate, and at the activate
+	// step the prior is already 'superseded' so the target is the sole row
+	// in the index's predicate set.
 	_, err = tx.Exec(ctx, `
 		UPDATE policy_rollouts SET state = 'completed', completed_at = NOW()
 		WHERE id = $1`,
@@ -745,6 +884,27 @@ func (s *PolicyStore) CompleteRollout(ctx context.Context, rolloutID uuid.UUID) 
 	)
 	if err != nil {
 		return fmt.Errorf("store: complete rollout: %w", err)
+	}
+
+	// FIX-231 DEV-348: supersede every other active version belonging to the
+	// same policy, not just r.PreviousVersionID. Defence-in-depth alongside the
+	// `policy_active_version` partial unique index from migration
+	// 20260427000001 (AC-3 / AC-6) — if any drift slipped in (e.g. from a prior
+	// release without the index), we still converge to a single active version
+	// per policy. The `id != $1` clause keeps the target row (still
+	// 'rolling_out' at this statement) untouched; the sub-select scopes the
+	// supersede to this policy only.
+	// $1 = target policy_version_id (the version transitioning to active).
+	_, err = tx.Exec(ctx, `
+		UPDATE policy_versions
+		   SET state = 'superseded'
+		 WHERE policy_id = (SELECT policy_id FROM policy_versions WHERE id = $1)
+		   AND state = 'active'
+		   AND id != $1`,
+		r.PolicyVersionID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: supersede prior active versions: %w", err)
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -756,24 +916,11 @@ func (s *PolicyStore) CompleteRollout(ctx context.Context, rolloutID uuid.UUID) 
 		return fmt.Errorf("store: activate rolled out version: %w", err)
 	}
 
-	if r.PreviousVersionID != nil {
-		_, err = tx.Exec(ctx, `
-			UPDATE policy_versions SET state = 'superseded'
-			WHERE id = $1 AND state = 'active'`,
-			*r.PreviousVersionID,
-		)
-		if err != nil {
-			return fmt.Errorf("store: supersede previous version: %w", err)
-		}
-	}
-
-	var policyID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT policy_id FROM policy_versions WHERE id = $1`, r.PolicyVersionID).Scan(&policyID)
-	if err != nil {
-		return fmt.Errorf("store: get policy_id: %w", err)
-	}
-
-	_, err = tx.Exec(ctx, `UPDATE policies SET current_version_id = $1 WHERE id = $2`, r.PolicyVersionID, policyID)
+	// FIX-231 F-A4 (Gate): r.PolicyID is now scanned directly from
+	// policy_rollouts.policy_id (denorm column from migration
+	// 20260427000001), removing the prior extra SELECT through
+	// policy_versions just to derive the policy id.
+	_, err = tx.Exec(ctx, `UPDATE policies SET current_version_id = $1 WHERE id = $2`, r.PolicyVersionID, r.PolicyID)
 	if err != nil {
 		return fmt.Errorf("store: update current_version_id: %w", err)
 	}
@@ -791,16 +938,11 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 	}
 	defer tx.Rollback(ctx)
 
-	var r PolicyRollout
-	err = tx.QueryRow(ctx,
+	row := tx.QueryRow(ctx,
 		`SELECT `+rolloutColumns+` FROM policy_rollouts WHERE id = $1 FOR UPDATE`,
 		rolloutID,
-	).Scan(
-		&r.ID, &r.PolicyVersionID, &r.PreviousVersionID, &r.Strategy,
-		&r.Stages, &r.CurrentStage, &r.TotalSIMs, &r.MigratedSIMs,
-		&r.State, &r.StartedAt, &r.CompletedAt, &r.RolledBackAt,
-		&r.CreatedAt, &r.CreatedBy,
 	)
+	r, err := scanRollout(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrRolloutNotFound
 	}
@@ -813,6 +955,12 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 	}
 	if r.State == "rolled_back" {
 		return ErrRolloutRolledBack
+	}
+	// FIX-232 DEV-357: aborted is a terminal state — block rollback after abort.
+	// The rollout has been intentionally stopped without reverting assignments;
+	// rolling back now would surprise the operator and re-walk migrated SIMs.
+	if r.State == "aborted" {
+		return ErrRolloutAborted
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -839,17 +987,87 @@ func (s *PolicyStore) RollbackRollout(ctx context.Context, rolloutID uuid.UUID) 
 	return nil
 }
 
-func (s *PolicyStore) SelectSIMsForStage(ctx context.Context, tenantID, rolloutID uuid.UUID, previousVersionID *uuid.UUID, targetCount int) ([]uuid.UUID, error) {
+// AbortRollout atomically transitions a rollout to state='aborted' (FIX-232).
+// Unlike RollbackRollout it does NOT touch policy_assignments — already-migrated
+// SIMs stay on the new policy version. The associated policy_versions row stays
+// at its current 'rolling_out' state (intentionally stuck — operator must create
+// a new draft version to retry). Aborting is terminal; subsequent
+// Advance/Rollback/Complete calls return ErrRolloutAborted.
+//
+// Returns ErrRolloutNotFound if the row is missing, ErrRolloutCompleted /
+// ErrRolloutRolledBack / ErrRolloutAborted on terminal-state collisions.
+func (s *PolicyStore) AbortRollout(ctx context.Context, rolloutID uuid.UUID) (*PolicyRollout, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	row := tx.QueryRow(ctx,
+		`SELECT `+rolloutColumns+` FROM policy_rollouts WHERE id = $1 FOR UPDATE`,
+		rolloutID,
+	)
+	current, err := scanRollout(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRolloutNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get rollout for abort: %w", err)
+	}
+
+	switch current.State {
+	case "completed":
+		return nil, ErrRolloutCompleted
+	case "rolled_back":
+		return nil, ErrRolloutRolledBack
+	case "aborted":
+		return nil, ErrRolloutAborted
+	}
+
+	updated, err := scanRollout(tx.QueryRow(ctx, `
+		UPDATE policy_rollouts SET state = 'aborted', aborted_at = NOW()
+		WHERE id = $1
+		RETURNING `+rolloutColumns,
+		rolloutID,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("store: abort rollout update: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit abort: %w", err)
+	}
+	return updated, nil
+}
+
+func (s *PolicyStore) SelectSIMsForStage(
+	ctx context.Context,
+	tenantID, rolloutID uuid.UUID,
+	previousVersionID *uuid.UUID,
+	dslPredicate string,
+	dslArgs []interface{},
+	targetCount int,
+) ([]uuid.UUID, error) {
 	args := []interface{}{tenantID, rolloutID}
 	conditions := []string{"s.tenant_id = $1", "s.state = 'active'"}
 	argIdx := 3
 
-	conditions = append(conditions, fmt.Sprintf(`s.id NOT IN (
-		SELECT sim_id FROM policy_assignments WHERE rollout_id = $2)`))
+	conditions = append(conditions, `s.id NOT IN (
+		SELECT sim_id FROM policy_assignments WHERE rollout_id = $2)`)
 
 	if previousVersionID != nil {
 		conditions = append(conditions, fmt.Sprintf("s.policy_version_id = $%d", argIdx))
 		args = append(args, *previousVersionID)
+		argIdx++
+	}
+
+	predicate := dslPredicate
+	if predicate == "" {
+		predicate = "TRUE"
+	}
+	conditions = append(conditions, "("+predicate+")")
+	for _, a := range dslArgs {
+		args = append(args, a)
 		argIdx++
 	}
 
@@ -882,7 +1100,7 @@ func (s *PolicyStore) SelectSIMsForStage(ctx context.Context, tenantID, rolloutI
 	return ids, nil
 }
 
-func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUID, versionID, rolloutID uuid.UUID) (int, error) {
+func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUID, versionID, rolloutID uuid.UUID, stagePct int) (int, error) {
 	if len(simIDs) == 0 {
 		return 0, nil
 	}
@@ -903,44 +1121,35 @@ func (s *PolicyStore) AssignSIMsToVersion(ctx context.Context, simIDs []uuid.UUI
 		batch := simIDs[i:end]
 
 		valueStrings := make([]string, len(batch))
-		args := []interface{}{versionID, rolloutID}
+		args := []interface{}{versionID, rolloutID, stagePct}
 		for j, simID := range batch {
-			argIdx := j + 3
-			valueStrings[j] = fmt.Sprintf("($%d, $1, $2, NOW(), 'pending')", argIdx)
+			argIdx := j + 4
+			valueStrings[j] = fmt.Sprintf("($%d, $1, $2, NOW(), 'pending', $3)", argIdx)
 			args = append(args, simID)
 		}
 
-		_, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status)
+		// FIX-231 DEV-346: trg_sims_policy_version_sync (migration 20260427000001)
+		// is now the single writer of sims.policy_version_id. The previous
+		// explicit `UPDATE sims SET policy_version_id` block was removed — it
+		// duplicated work the trigger already performs and risked diverging from
+		// policy_assignments on partial failures. The upsert's RowsAffected()
+		// counts every inserted-or-updated assignment row, which is what callers
+		// expect from "assigned".
+		// FIX-233: stage_pct persisted so cohort queries can pinpoint migration stage.
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO policy_assignments (sim_id, policy_version_id, rollout_id, assigned_at, coa_status, stage_pct)
 			VALUES %s
 			ON CONFLICT (sim_id) DO UPDATE SET
 				policy_version_id = EXCLUDED.policy_version_id,
 				rollout_id = EXCLUDED.rollout_id,
 				assigned_at = NOW(),
-				coa_status = 'pending'`,
+				coa_status = 'pending',
+				stage_pct = EXCLUDED.stage_pct`,
 			strings.Join(valueStrings, ", ")),
 			args...,
 		)
 		if err != nil {
 			return assigned, fmt.Errorf("store: batch assign sims: %w", err)
-		}
-
-		simPlaceholders := make([]string, len(batch))
-		updateArgs := []interface{}{versionID}
-		for j, simID := range batch {
-			argIdx := j + 2
-			simPlaceholders[j] = fmt.Sprintf("$%d", argIdx)
-			updateArgs = append(updateArgs, simID)
-		}
-
-		tag, err := tx.Exec(ctx, fmt.Sprintf(`
-			UPDATE sims SET policy_version_id = $1
-			WHERE id IN (%s)`,
-			strings.Join(simPlaceholders, ", ")),
-			updateArgs...,
-		)
-		if err != nil {
-			return assigned, fmt.Errorf("store: batch update sim policy versions: %w", err)
 		}
 		assigned += int(tag.RowsAffected())
 	}
@@ -1018,6 +1227,41 @@ func (s *PolicyStore) UpdateAssignmentCoAStatus(ctx context.Context, simID uuid.
 	return nil
 }
 
+func (s *PolicyStore) UpdateAssignmentCoAStatusWithReason(ctx context.Context, simID uuid.UUID, status string, failureReason *string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE policy_assignments
+		SET coa_status = $2, coa_sent_at = NOW(), coa_failure_reason = $3
+		WHERE sim_id = $1`,
+		simID, status, failureReason,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update coa status with reason: %w", err)
+	}
+	return nil
+}
+
+func (s *PolicyStore) GetAssignmentDetailBySIM(ctx context.Context, tenantID, simID uuid.UUID) (*AssignmentDetail, error) {
+	var d AssignmentDetail
+	err := s.db.QueryRow(ctx, `
+		SELECT p.id, p.name, pv.id, pv.version,
+		       pa.coa_status, pa.coa_sent_at, pa.coa_failure_reason
+		FROM policy_assignments pa
+		JOIN policy_versions pv ON pv.id = pa.policy_version_id
+		JOIN policies p ON p.id = pv.policy_id
+		WHERE pa.sim_id = $1 AND p.tenant_id = $2
+		LIMIT 1`,
+		simID, tenantID,
+	).Scan(&d.PolicyID, &d.PolicyName, &d.PolicyVersionID, &d.VersionNumber,
+		&d.CoAStatus, &d.CoASentAt, &d.CoAFailureReason)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAssignmentNotFound
+		}
+		return nil, fmt.Errorf("store: get assignment detail by sim: %w", err)
+	}
+	return &d, nil
+}
+
 func (s *PolicyStore) GetAssignmentsByRollout(ctx context.Context, rolloutID uuid.UUID) ([]PolicyAssignment, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, sim_id, policy_version_id, rollout_id, assigned_at, coa_sent_at, coa_status
@@ -1063,14 +1307,16 @@ func (s *PolicyStore) GetRolloutSimIDs(ctx context.Context, rolloutID uuid.UUID)
 	return ids, nil
 }
 
+// FIX-231 F-A6 (Gate): both helpers below now use the denormalised
+// policy_rollouts.policy_id column directly, dropping the prior JOIN
+// through policy_versions. Same correctness, one fewer hop.
 func (s *PolicyStore) GetTenantIDForRollout(ctx context.Context, rolloutID uuid.UUID) (uuid.UUID, error) {
 	var tenantID uuid.UUID
 	err := s.db.QueryRow(ctx, `
 		SELECT p.tenant_id
-		FROM policy_rollouts pr
-		JOIN policy_versions pv ON pr.policy_version_id = pv.id
-		JOIN policies p ON pv.policy_id = p.id
-		WHERE pr.id = $1`,
+		  FROM policy_rollouts pr
+		  JOIN policies p ON p.id = pr.policy_id
+		 WHERE pr.id = $1`,
 		rolloutID,
 	).Scan(&tenantID)
 	if err != nil {
@@ -1082,16 +1328,51 @@ func (s *PolicyStore) GetTenantIDForRollout(ctx context.Context, rolloutID uuid.
 func (s *PolicyStore) GetPolicyIDForRollout(ctx context.Context, rolloutID uuid.UUID) (uuid.UUID, error) {
 	var policyID uuid.UUID
 	err := s.db.QueryRow(ctx, `
-		SELECT pv.policy_id
-		FROM policy_rollouts pr
-		JOIN policy_versions pv ON pr.policy_version_id = pv.id
-		WHERE pr.id = $1`,
+		SELECT policy_id FROM policy_rollouts WHERE id = $1`,
 		rolloutID,
 	).Scan(&policyID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("store: get policy_id for rollout: %w", err)
 	}
 	return policyID, nil
+}
+
+// GetCoAStatusCountsByRollout returns the policy_assignments coa_status distribution
+// for a single rollout. The returned map is pre-seeded with all 6 canonical states at 0,
+// so the JSON envelope always carries the full key set (no missing keys downstream).
+//
+// Canonical source: internal/policy/rollout/coa_status.go::CoAStatusAll.
+// The list is duplicated here deliberately to avoid an import cycle between store and
+// internal/policy/rollout.
+//
+// Tenant-scoping assumption: rolloutID is expected to be valid for the caller's tenant.
+// The HTTP handler layer is already tenant-scoped via JWT middleware; this method does
+// not re-validate tenant ownership.
+//
+// FIX-234 AC-5: feeds RolloutActivePanel coa_counts breakdown.
+func (s *PolicyStore) GetCoAStatusCountsByRollout(ctx context.Context, rolloutID uuid.UUID) (map[string]int, error) {
+	counts := map[string]int{
+		"pending": 0, "queued": 0, "acked": 0, "failed": 0, "no_session": 0, "skipped": 0,
+	}
+	rows, err := s.db.Query(ctx,
+		`SELECT coa_status, COUNT(*) FROM policy_assignments WHERE rollout_id = $1 GROUP BY coa_status`,
+		rolloutID)
+	if err != nil {
+		return nil, fmt.Errorf("store: get coa status counts by rollout: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("store: scan coa status count: %w", err)
+		}
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: coa status counts rows: %w", err)
+	}
+	return counts, nil
 }
 
 func (s *PolicyStore) SetVersionState(ctx context.Context, versionID uuid.UUID, state string) error {
@@ -1104,4 +1385,256 @@ func (s *PolicyStore) SetVersionState(ctx context.Context, versionID uuid.UUID, 
 		return fmt.Errorf("store: set version state: %w", err)
 	}
 	return nil
+}
+
+// ListReferencingAPN returns policies whose active compiled_rules JSON text
+// contains apnName as a substring (D-007). Uses the GIN trigram index for
+// fast ILIKE search. apnName must be ≥ 3 characters to avoid degenerate scans.
+// Limitation: false positives may occur when apnName is a strict substring of
+// another identifier (e.g. "iot" matches "iot-extra"). Callers should perform
+// a secondary filter if exact matching is required.
+func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID, apnName string, limit int, cursor string) ([]Policy, string, error) {
+	if len(apnName) < 3 {
+		return nil, "", fmt.Errorf("store: apnName must be at least 3 characters for trigram search")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	pattern := "%" + apnName + "%"
+
+	var cursorCond string
+	var args []interface{}
+	args = append(args, tenantID, pattern)
+
+	if cursor != "" {
+		cursorCond = fmt.Sprintf(" AND p.id > $%d", len(args)+1)
+		args = append(args, cursor)
+	}
+
+	args = append(args, limit+1)
+	limitArg := len(args)
+
+	qualifiedCols := `p.id, p.tenant_id, p.name, p.description, p.scope, p.scope_ref_id,
+		p.current_version_id, p.state, p.created_at, p.updated_at, p.created_by`
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT %s
+		FROM policies p
+		JOIN policy_versions pv ON pv.id = p.current_version_id
+		WHERE p.tenant_id = $1
+		  AND pv.compiled_rules::text ILIKE $2
+		%s
+		ORDER BY p.id
+		LIMIT $%d`,
+		qualifiedCols, cursorCond, limitArg,
+	)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list referencing apn: %w", err)
+	}
+	defer rows.Close()
+
+	var policies []Policy
+	for rows.Next() {
+		var p Policy
+		if err := rows.Scan(
+			&p.ID, &p.TenantID, &p.Name, &p.Description,
+			&p.Scope, &p.ScopeRefID, &p.CurrentVersionID,
+			&p.State, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
+		); err != nil {
+			return nil, "", fmt.Errorf("store: scan referencing policy: %w", err)
+		}
+		policies = append(policies, p)
+	}
+
+	var nextCursor string
+	if len(policies) > limit {
+		nextCursor = policies[limit].ID.String()
+		policies = policies[:limit]
+	}
+
+	if policies == nil {
+		policies = []Policy{}
+	}
+
+	return policies, nextCursor, nil
+}
+
+// ListRolloutsParams holds optional filters for ListRollouts.
+// States is a whitelist of rollout state strings; defaults to ["in_progress","paused"] when empty.
+// Limit is capped at 100; defaults to 50.
+type ListRolloutsParams struct {
+	States []string
+	Limit  int
+}
+
+// RolloutSummary is a lightweight rollout view joining policy name + version number.
+// It is used exclusively by the GET /api/v1/policy-rollouts list endpoint (FIX-233 Task 5).
+// No cursor pagination — active rollouts are bounded (default cap 50, max 100).
+type RolloutSummary struct {
+	ID                  uuid.UUID  `json:"id"`
+	PolicyID            uuid.UUID  `json:"policy_id"`
+	PolicyVersionID     uuid.UUID  `json:"policy_version_id"`
+	PolicyName          string     `json:"policy_name"`
+	PolicyVersionNumber int        `json:"policy_version"`
+	State               string     `json:"state"`
+	CurrentStage        int        `json:"current_stage"`
+	TotalSIMs           int        `json:"total_sims"`
+	MigratedSIMs        int        `json:"migrated_sims"`
+	StartedAt           *time.Time `json:"started_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
+
+// ListRollouts returns at most p.Limit rollouts matching p.States, scoped to tenantID.
+// If p.States is empty, defaults to ["in_progress","paused"]. Limit is clamped to [1,100].
+func (s *PolicyStore) ListRollouts(ctx context.Context, tenantID uuid.UUID, p ListRolloutsParams) ([]RolloutSummary, error) {
+	states := p.States
+	if len(states) == 0 {
+		states = []string{"in_progress", "paused"}
+	}
+	limit := p.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT r.id, r.policy_id, r.policy_version_id, pol.name,
+		       pv.version, r.state, r.current_stage, r.total_sims,
+		       r.migrated_sims, r.started_at, r.created_at
+		  FROM policy_rollouts r
+		  JOIN policy_versions pv ON pv.id = r.policy_version_id
+		  JOIN policies pol ON pol.id = r.policy_id
+		 WHERE pol.tenant_id = $1
+		   AND r.state = ANY($2::text[])
+		 ORDER BY r.started_at DESC NULLS LAST, r.created_at DESC
+		 LIMIT $3`,
+		tenantID, states, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list rollouts: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]RolloutSummary, 0, 8)
+	for rows.Next() {
+		var rs RolloutSummary
+		if err := rows.Scan(
+			&rs.ID, &rs.PolicyID, &rs.PolicyVersionID, &rs.PolicyName,
+			&rs.PolicyVersionNumber, &rs.State, &rs.CurrentStage, &rs.TotalSIMs,
+			&rs.MigratedSIMs, &rs.StartedAt, &rs.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan rollout summary: %w", err)
+		}
+		results = append(results, rs)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list rollouts rows: %w", err)
+	}
+	return results, nil
+}
+
+// GetAssignmentBySIMForResend returns the (coa_status, coa_sent_at) tuple for the
+// policy_assignments row of the given SIM. Returns pgx.ErrNoRows if absent.
+// Lightweight by design — does NOT join policy_versions/rollouts (resender doesn't need them).
+func (s *PolicyStore) GetAssignmentBySIMForResend(ctx context.Context, simID uuid.UUID) (string, *time.Time, error) {
+	var coaStatus string
+	var coaSentAt *time.Time
+	err := s.db.QueryRow(ctx,
+		`SELECT coa_status, coa_sent_at FROM policy_assignments WHERE sim_id = $1`,
+		simID,
+	).Scan(&coaStatus, &coaSentAt)
+	if err != nil {
+		return "", nil, fmt.Errorf("store: get assignment for resend: %w", err)
+	}
+	return coaStatus, coaSentAt, nil
+}
+
+// StuckCoAFailure is a minimal projection of a policy_assignments row that has
+// been stuck in coa_status='failed' longer than the alerter age threshold.
+type StuckCoAFailure struct {
+	TenantID uuid.UUID
+	SimID    uuid.UUID
+	FailedAt time.Time
+}
+
+// ListStuckCoAFailures returns policy_assignments rows where coa_status='failed'
+// and coa_sent_at is older than `age`. Uses the idx_policy_assignments_coa_failed_age
+// partial index (FIX-234) for an efficient scan.
+//
+// policy_assignments has no tenant_id column; the tenant is resolved via a JOIN on
+// sims.id → sims.tenant_id. Returns at most 500 rows per sweep.
+func (s *PolicyStore) ListStuckCoAFailures(ctx context.Context, age time.Duration) ([]StuckCoAFailure, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT s.tenant_id, pa.sim_id, pa.coa_sent_at
+		  FROM policy_assignments pa
+		  JOIN sims s ON s.id = pa.sim_id
+		 WHERE pa.coa_status = 'failed'
+		   AND pa.coa_sent_at IS NOT NULL
+		   AND pa.coa_sent_at < NOW() - ($1 || ' seconds')::interval
+		 ORDER BY pa.coa_sent_at
+		 LIMIT 500`,
+		int(age.Seconds()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list stuck coa failures: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]StuckCoAFailure, 0)
+	for rows.Next() {
+		var f StuckCoAFailure
+		if err := rows.Scan(&f.TenantID, &f.SimID, &f.FailedAt); err != nil {
+			return nil, fmt.Errorf("store: scan stuck coa failure: %w", err)
+		}
+		results = append(results, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate stuck coa failures: %w", err)
+	}
+	return results, nil
+}
+
+// coaStatusAllInternal is the canonical set of coa_status values (FIX-234).
+// Duplicated locally to avoid an import cycle with internal/policy/rollout
+// (rollout depends on store; store must not depend on rollout).
+// Canonical source: internal/policy/rollout/coa_status.go CoAStatusAll.
+var coaStatusAllInternal = []string{"pending", "queued", "acked", "failed", "no_session", "skipped"}
+
+// CoAStatusCounts returns a map of coa_status → row count for all policy_assignments.
+// All 6 canonical states are pre-seeded at 0 so the caller always receives a complete
+// label set (no missing keys for Prometheus gauges or JSON serialisation).
+func (s *PolicyStore) CoAStatusCounts(ctx context.Context) (map[string]int64, error) {
+	counts := make(map[string]int64, len(coaStatusAllInternal))
+	for _, st := range coaStatusAllInternal {
+		counts[st] = 0
+	}
+
+	rows, err := s.db.Query(ctx,
+		`SELECT coa_status, COUNT(*) FROM policy_assignments GROUP BY coa_status`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: coa status counts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("store: scan coa status count: %w", err)
+		}
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate coa status counts: %w", err)
+	}
+	return counts, nil
 }

@@ -9,15 +9,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
-	ErrESimProfileNotFound  = errors.New("store: esim profile not found")
+	ErrESimProfileNotFound   = errors.New("store: esim profile not found")
 	ErrProfileAlreadyEnabled = errors.New("store: another profile is already enabled for this SIM")
-	ErrInvalidProfileState  = errors.New("store: invalid profile state transition")
-	ErrSameProfile          = errors.New("store: source and target profiles are the same")
-	ErrDifferentSIM         = errors.New("store: profiles belong to different SIMs")
+	ErrInvalidProfileState   = errors.New("store: invalid profile state transition")
+	ErrSameProfile           = errors.New("store: source and target profiles are the same")
+	ErrDifferentSIM          = errors.New("store: profiles belong to different SIMs")
+	ErrProfileLimitExceeded  = errors.New("esim: max profile limit exceeded")
+	ErrDuplicateProfile      = errors.New("esim: duplicate profile for sim")
+	ErrCannotDeleteEnabled   = errors.New("esim: cannot delete enabled profile")
 )
 
 type ESimProfile struct {
@@ -25,6 +29,7 @@ type ESimProfile struct {
 	SimID             uuid.UUID  `json:"sim_id"`
 	EID               string     `json:"eid"`
 	SMDPPlusID        *string    `json:"sm_dp_plus_id"`
+	ProfileID         *string    `json:"profile_id"`
 	OperatorID        uuid.UUID  `json:"operator_id"`
 	ProfileState      string     `json:"profile_state"`
 	ICCIDOnProfile    *string    `json:"iccid_on_profile"`
@@ -32,6 +37,15 @@ type ESimProfile struct {
 	LastError         *string    `json:"last_error"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type CreateESimProfileParams struct {
+	SimID          uuid.UUID
+	OperatorID     uuid.UUID
+	EID            string
+	SMDPPlusID     string
+	ICCIDOnProfile *string
+	ProfileID      *string
 }
 
 type SwitchResult struct {
@@ -49,6 +63,12 @@ type ListESimProfilesParams struct {
 	State      string
 }
 
+type ESimProfileWithNames struct {
+	ESimProfile
+	OperatorName *string `json:"operator_name,omitempty"`
+	OperatorCode *string `json:"operator_code,omitempty"`
+}
+
 type ESimProfileStore struct {
 	db *pgxpool.Pool
 }
@@ -57,14 +77,14 @@ func NewESimProfileStore(db *pgxpool.Pool) *ESimProfileStore {
 	return &ESimProfileStore{db: db}
 }
 
-var esimProfileColumns = `ep.id, ep.sim_id, ep.eid, ep.sm_dp_plus_id, ep.operator_id,
+var esimProfileColumns = `ep.id, ep.sim_id, ep.eid, ep.sm_dp_plus_id, ep.profile_id, ep.operator_id,
 	ep.profile_state, ep.iccid_on_profile, ep.last_provisioned_at, ep.last_error,
 	ep.created_at, ep.updated_at`
 
 func scanESimProfile(row pgx.Row) (*ESimProfile, error) {
 	var p ESimProfile
 	err := row.Scan(
-		&p.ID, &p.SimID, &p.EID, &p.SMDPPlusID, &p.OperatorID,
+		&p.ID, &p.SimID, &p.EID, &p.SMDPPlusID, &p.ProfileID, &p.OperatorID,
 		&p.ProfileState, &p.ICCIDOnProfile, &p.LastProvisionedAt, &p.LastError,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
@@ -145,7 +165,7 @@ func (s *ESimProfileStore) List(ctx context.Context, tenantID uuid.UUID, p ListE
 	for rows.Next() {
 		var profile ESimProfile
 		if err := rows.Scan(
-			&profile.ID, &profile.SimID, &profile.EID, &profile.SMDPPlusID, &profile.OperatorID,
+			&profile.ID, &profile.SimID, &profile.EID, &profile.SMDPPlusID, &profile.ProfileID, &profile.OperatorID,
 			&profile.ProfileState, &profile.ICCIDOnProfile, &profile.LastProvisionedAt, &profile.LastError,
 			&profile.CreatedAt, &profile.UpdatedAt,
 		); err != nil {
@@ -163,11 +183,12 @@ func (s *ESimProfileStore) List(ctx context.Context, tenantID uuid.UUID, p ListE
 	return results, nextCursor, nil
 }
 
-func (s *ESimProfileStore) GetEnabledProfileForSIM(ctx context.Context, simID uuid.UUID) (*ESimProfile, error) {
+func (s *ESimProfileStore) GetEnabledProfileForSIM(ctx context.Context, tenantID, simID uuid.UUID) (*ESimProfile, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+esimProfileColumns+` FROM esim_profiles ep
-		WHERE ep.sim_id = $1 AND ep.profile_state = 'enabled'`,
-		simID,
+		JOIN sims si ON ep.sim_id = si.id
+		WHERE ep.sim_id = $1 AND si.tenant_id = $2 AND ep.profile_state = 'enabled'`,
+		simID, tenantID,
 	)
 	p, err := scanESimProfile(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -202,7 +223,7 @@ func (s *ESimProfileStore) Enable(ctx context.Context, tenantID, profileID uuid.
 		return nil, fmt.Errorf("store: lock esim profile for enable: %w", err)
 	}
 
-	if currentState != "disabled" {
+	if currentState != "disabled" && currentState != "available" {
 		return nil, ErrInvalidProfileState
 	}
 
@@ -237,7 +258,7 @@ func (s *ESimProfileStore) Enable(ctx context.Context, tenantID, profileID uuid.
 		return nil, fmt.Errorf("store: update sim esim_profile_id: %w", err)
 	}
 
-	fromState := "disabled"
+	fromState := currentState
 	if err := insertStateHistory(ctx, tx, simID, &fromState, "active", "user", userID, nil); err != nil {
 		return nil, err
 	}
@@ -359,20 +380,20 @@ func (s *ESimProfileStore) Switch(ctx context.Context, tenantID, sourceProfileID
 		return nil, ErrDifferentSIM
 	}
 
-	if tgtState != "disabled" {
+	if tgtState != "disabled" && tgtState != "available" {
 		return nil, ErrInvalidProfileState
 	}
 
 	srcCols := strings.ReplaceAll(esimProfileColumns, "ep.", "")
 	row := tx.QueryRow(ctx,
-		`UPDATE esim_profiles SET profile_state = 'disabled', last_provisioned_at = NOW(), last_error = NULL, updated_at = NOW()
+		`UPDATE esim_profiles SET profile_state = 'available', last_provisioned_at = NOW(), last_error = NULL, updated_at = NOW()
 		WHERE id = $1
 		RETURNING `+srcCols,
 		sourceProfileID,
 	)
 	oldProfile, err := scanESimProfile(row)
 	if err != nil {
-		return nil, fmt.Errorf("store: disable source profile: %w", err)
+		return nil, fmt.Errorf("store: set source profile available: %w", err)
 	}
 
 	row = tx.QueryRow(ctx,
@@ -387,7 +408,7 @@ func (s *ESimProfileStore) Switch(ctx context.Context, tenantID, sourceProfileID
 	}
 
 	_, err = tx.Exec(ctx,
-		`UPDATE sims SET operator_id = $1, esim_profile_id = $2, apn_id = NULL, updated_at = NOW()
+		`UPDATE sims SET operator_id = $1, esim_profile_id = $2, apn_id = NULL, ip_address_id = NULL, policy_version_id = NULL, updated_at = NOW()
 		WHERE id = $3`,
 		tgtOperatorID, targetProfileID, srcSimID,
 	)
@@ -411,4 +432,216 @@ func (s *ESimProfileStore) Switch(ctx context.Context, tenantID, sourceProfileID
 		NewProfile:    newProfile,
 		NewOperatorID: tgtOperatorID,
 	}, nil
+}
+
+func (s *ESimProfileStore) Create(ctx context.Context, tenantID uuid.UUID, params CreateESimProfileParams) (*ESimProfile, error) {
+	var exists int
+	err := s.db.QueryRow(ctx,
+		`SELECT 1 FROM sims WHERE id = $1 AND tenant_id = $2`,
+		params.SimID, tenantID,
+	).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: verify sim tenant ownership for esim create: %w", err)
+	}
+
+	cols := strings.ReplaceAll(esimProfileColumns, "ep.", "")
+	var smdpID *string
+	if params.SMDPPlusID != "" {
+		smdpID = &params.SMDPPlusID
+	}
+	row := s.db.QueryRow(ctx,
+		`INSERT INTO esim_profiles (sim_id, eid, sm_dp_plus_id, profile_id, operator_id, profile_state, iccid_on_profile)
+		VALUES ($1, $2, $3, $4, $5, 'available', $6)
+		RETURNING `+cols,
+		params.SimID, params.EID, smdpID, params.ProfileID, params.OperatorID, params.ICCIDOnProfile,
+	)
+	p, err := scanESimProfile(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, ErrDuplicateProfile
+		}
+		return nil, fmt.Errorf("store: create esim profile: %w", err)
+	}
+	return p, nil
+}
+
+func (s *ESimProfileStore) SoftDelete(ctx context.Context, tenantID, profileID uuid.UUID) (*ESimProfile, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin tx for soft delete profile: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var currentState string
+	err = tx.QueryRow(ctx,
+		`SELECT ep.profile_state FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		WHERE ep.id = $1 AND si.tenant_id = $2
+		FOR UPDATE OF ep`,
+		profileID, tenantID,
+	).Scan(&currentState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrESimProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: lock esim profile for soft delete: %w", err)
+	}
+
+	if currentState == "enabled" {
+		return nil, ErrCannotDeleteEnabled
+	}
+
+	cols := strings.ReplaceAll(esimProfileColumns, "ep.", "")
+	row := tx.QueryRow(ctx,
+		`UPDATE esim_profiles SET profile_state = 'deleted', updated_at = NOW()
+		WHERE id = $1
+		RETURNING `+cols,
+		profileID,
+	)
+	p, err := scanESimProfile(row)
+	if err != nil {
+		return nil, fmt.Errorf("store: soft delete esim profile: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit soft delete profile: %w", err)
+	}
+
+	return p, nil
+}
+
+var esimEnrichedSelect = esimProfileColumns + `, o.name, o.code`
+var esimEnrichedJoin = `LEFT JOIN operators o ON o.id = ep.operator_id`
+
+func scanESimProfileWithNames(row pgx.Row) (*ESimProfileWithNames, error) {
+	var p ESimProfileWithNames
+	err := row.Scan(
+		&p.ID, &p.SimID, &p.EID, &p.SMDPPlusID, &p.ProfileID, &p.OperatorID,
+		&p.ProfileState, &p.ICCIDOnProfile, &p.LastProvisionedAt, &p.LastError,
+		&p.CreatedAt, &p.UpdatedAt,
+		&p.OperatorName, &p.OperatorCode,
+	)
+	return &p, err
+}
+
+func (s *ESimProfileStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, p ListESimProfilesParams) ([]ESimProfileWithNames, string, error) {
+	limit := p.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"si.tenant_id = $1"}
+	argIdx := 2
+
+	if p.SimID != nil {
+		conditions = append(conditions, fmt.Sprintf("ep.sim_id = $%d", argIdx))
+		args = append(args, *p.SimID)
+		argIdx++
+	}
+
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("ep.operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("ep.profile_state = $%d", argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+
+	if p.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(p.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("ep.id < $%d", argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		%s
+		%s ORDER BY ep.created_at DESC, ep.id DESC LIMIT %s`,
+		esimEnrichedSelect, esimEnrichedJoin, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched esim profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ESimProfileWithNames
+	for rows.Next() {
+		p, err := scanESimProfileWithNames(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched esim profile: %w", err)
+		}
+		results = append(results, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iter enriched esim profiles: %w", err)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s *ESimProfileStore) GetByIDEnriched(ctx context.Context, tenantID, id uuid.UUID) (*ESimProfileWithNames, error) {
+	query := fmt.Sprintf(`SELECT %s FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		%s
+		WHERE ep.id = $1 AND si.tenant_id = $2`,
+		esimEnrichedSelect, esimEnrichedJoin)
+
+	row := s.db.QueryRow(ctx, query, id, tenantID)
+	p, err := scanESimProfileWithNames(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrESimProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get enriched esim profile: %w", err)
+	}
+	return p, nil
+}
+
+func (s *ESimProfileStore) MarkFailed(ctx context.Context, profileID uuid.UUID, errMsg string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE esim_profiles SET profile_state='failed', last_error=$2, updated_at=NOW() WHERE id=$1`,
+		profileID, errMsg,
+	)
+	if err != nil {
+		return fmt.Errorf("store: mark esim profile failed: %w", err)
+	}
+	return nil
+}
+
+func (s *ESimProfileStore) CountBySIM(ctx context.Context, tenantID, simID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM esim_profiles ep
+		JOIN sims si ON ep.sim_id = si.id
+		WHERE ep.sim_id = $1 AND si.tenant_id = $2 AND ep.profile_state != 'deleted'`,
+		simID, tenantID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count esim profiles by sim: %w", err)
+	}
+	return count, nil
 }

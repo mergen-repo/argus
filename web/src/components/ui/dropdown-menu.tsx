@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
 interface DropdownMenuProps {
@@ -8,11 +9,13 @@ interface DropdownMenuProps {
 interface DropdownContextValue {
   open: boolean
   setOpen: (open: boolean) => void
+  triggerRef: React.RefObject<HTMLDivElement | null>
 }
 
 const DropdownContext = React.createContext<DropdownContextValue>({
   open: false,
   setOpen: () => {},
+  triggerRef: { current: null },
 })
 
 function DropdownMenu({ children }: DropdownMenuProps) {
@@ -32,15 +35,40 @@ function DropdownMenu({ children }: DropdownMenuProps) {
     }
   }, [open])
 
+  const ref = React.useRef<HTMLDivElement>(null)
   return (
-    <DropdownContext.Provider value={{ open, setOpen }}>
-      <div className="relative inline-block">{children}</div>
+    <DropdownContext.Provider value={{ open, setOpen, triggerRef: ref }}>
+      <div ref={ref} className="relative inline-block">{children}</div>
     </DropdownContext.Provider>
   )
 }
 
-function DropdownMenuTrigger({ children, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  asChild?: boolean
+}
+
+function DropdownMenuTrigger({ children, className, asChild, ...props }: DropdownMenuTriggerProps) {
   const { open, setOpen } = React.useContext(DropdownContext)
+  // FIX-229 Gate F-A9: when asChild is true, clone the child element and
+  // inject the click handler — lets callers wrap a <Button> atom (or any
+  // styled element) without re-implementing focus/hover styles on top of a
+  // raw <button>. Mirrors the Radix asChild pattern at the API surface
+  // without pulling in @radix-ui/react-slot.
+  if (asChild && React.isValidElement(children)) {
+    const child = children as React.ReactElement<{
+      onClick?: (e: React.MouseEvent<HTMLElement>) => void
+      className?: string
+    }>
+    const childOnClick = child.props.onClick
+    return React.cloneElement(child, {
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        e.stopPropagation()
+        childOnClick?.(e)
+        setOpen(!open)
+      },
+      className: cn(child.props.className, className),
+    })
+  }
   return (
     <button
       className={className}
@@ -56,20 +84,36 @@ function DropdownMenuTrigger({ children, className, ...props }: React.ButtonHTML
 }
 
 function DropdownMenuContent({ children, className, align = 'end' }: React.HTMLAttributes<HTMLDivElement> & { align?: 'start' | 'end' }) {
-  const { open } = React.useContext(DropdownContext)
-  if (!open) return null
+  const { open, triggerRef } = React.useContext(DropdownContext)
+  const [pos, setPos] = React.useState<{ top: number; left: number; right: number } | null>(null)
 
-  return (
+  React.useEffect(() => {
+    if (!open || !triggerRef.current) { setPos(null); return }
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      right: window.innerWidth - rect.right,
+    })
+  }, [open, triggerRef])
+
+  if (!open || !pos) return null
+
+  return createPortal(
     <div
       className={cn(
-        'absolute z-50 mt-1 min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg',
-        align === 'end' ? 'right-0' : 'left-0',
+        'fixed z-[9999] min-w-[10rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-bg-elevated p-1 shadow-lg animate-in fade-in slide-in-from-top-1 duration-100',
         className,
       )}
+      style={{
+        top: pos.top,
+        ...(align === 'end' ? { right: pos.right } : { left: pos.left }),
+      }}
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -90,6 +134,44 @@ function DropdownMenuItem({ className, ...props }: React.ButtonHTMLAttributes<HT
   )
 }
 
+function DropdownMenuCheckboxItem({
+  className,
+  checked,
+  children,
+  onCheckedChange,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  checked?: boolean
+  onCheckedChange?: (checked: boolean) => void
+}) {
+  return (
+    <button
+      className={cn(
+        'flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer whitespace-nowrap text-left',
+        className,
+      )}
+      onClick={(e) => {
+        e.stopPropagation()
+        onCheckedChange?.(!checked)
+        props.onClick?.(e)
+      }}
+      {...props}
+    >
+      <span className={cn(
+        'flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border transition-colors flex-shrink-0',
+        checked ? 'border-accent bg-accent' : 'border-border bg-transparent',
+      )}>
+        {checked && (
+          <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+            <path d="M1.5 5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      {children}
+    </button>
+  )
+}
+
 function DropdownMenuSeparator({ className }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('-mx-1 my-1 h-px bg-border', className)} />
 }
@@ -103,4 +185,4 @@ function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<HTMLDiv
   )
 }
 
-export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel }
+export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel }

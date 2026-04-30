@@ -1,0 +1,22 @@
+-- STORY-090 Wave 2 Task 3b — D2-B: drop the legacy single-protocol
+-- operators.adapter_type column.
+--
+-- Rationale: post-Wave-1 the nested `adapter_config` JSONB carries the
+-- per-protocol enablement flags. `adapter_type` is redundant (every
+-- read-path derives the active protocol(s) from adapter_config's
+-- nested `*.enabled` booleans). Keeping it in the schema invites
+-- drift between the two sources of truth.
+--
+-- Audit semantics: `audit_entries.before_data` / `after_data` rows
+-- recorded pre-090 still contain `"adapter_type": "…"` as JSON
+-- attributes. These historical records are NOT backfilled — the
+-- field simply disappears from the JSON emitted by post-090 writes,
+-- replaced by `"enabled_protocols": [...]` derived from the nested
+-- adapter_config.
+--
+-- Safety: uses DROP COLUMN IF EXISTS so the migration is a no-op on
+-- databases that have already dropped the column (e.g. via a manual
+-- schema-sync step). The down migration re-adds the column as
+-- NULLABLE per D2-B rollback-safety spec.
+
+ALTER TABLE operators DROP COLUMN IF EXISTS adapter_type;

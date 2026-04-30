@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -22,6 +23,14 @@ import (
 )
 
 var scopePattern = regexp.MustCompile(`^(\*|[a-z_]+:\*|[a-z_]+:[a-z_]+)$`)
+
+func validateIPEntry(entry string) bool {
+	if strings.Contains(entry, "/") {
+		_, _, err := net.ParseCIDR(entry)
+		return err == nil
+	}
+	return net.ParseIP(entry) != nil
+}
 
 type Handler struct {
 	apiKeyStore *store.APIKeyStore
@@ -44,16 +53,18 @@ func NewHandler(apiKeyStore *store.APIKeyStore, tenantStore *store.TenantStore, 
 type createRequest struct {
 	Name               string   `json:"name"`
 	Scopes             []string `json:"scopes"`
+	AllowedIPs         []string `json:"allowed_ips"`
 	RateLimitPerMinute *int     `json:"rate_limit_per_minute"`
 	RateLimitPerHour   *int     `json:"rate_limit_per_hour"`
 	ExpiresAt          *string  `json:"expires_at"`
 }
 
 type updateRequest struct {
-	Name               *string  `json:"name"`
+	Name               *string   `json:"name"`
 	Scopes             *[]string `json:"scopes"`
-	RateLimitPerMinute *int     `json:"rate_limit_per_minute"`
-	RateLimitPerHour   *int     `json:"rate_limit_per_hour"`
+	AllowedIPs         *[]string `json:"allowed_ips"`
+	RateLimitPerMinute *int      `json:"rate_limit_per_minute"`
+	RateLimitPerHour   *int      `json:"rate_limit_per_hour"`
 }
 
 type apiKeyResponse struct {
@@ -62,6 +73,7 @@ type apiKeyResponse struct {
 	Prefix     string         `json:"prefix"`
 	Key        string         `json:"key,omitempty"`
 	Scopes     []string       `json:"scopes"`
+	AllowedIPs []string       `json:"allowed_ips"`
 	RateLimits rateLimitsResp `json:"rate_limits"`
 	UsageCount int64          `json:"usage_count,omitempty"`
 	LastUsedAt *string        `json:"last_used_at,omitempty"`
@@ -84,11 +96,16 @@ type rotateResponse struct {
 }
 
 func toAPIKeyResponse(k *store.APIKey) apiKeyResponse {
+	allowedIPs := k.AllowedIPs
+	if allowedIPs == nil {
+		allowedIPs = []string{}
+	}
 	resp := apiKeyResponse{
-		ID:     k.ID.String(),
-		Name:   k.Name,
-		Prefix: k.KeyPrefix,
-		Scopes: k.Scopes,
+		ID:         k.ID.String(),
+		Name:       k.Name,
+		Prefix:     k.KeyPrefix,
+		Scopes:     k.Scopes,
+		AllowedIPs: allowedIPs,
 		RateLimits: rateLimitsResp{
 			PerMinute: k.RateLimitPerMinute,
 			PerHour:   k.RateLimitPerHour,
@@ -159,6 +176,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	for _, ip := range req.AllowedIPs {
+		if !validateIPEntry(ip) {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidCIDR,
+				fmt.Sprintf("Invalid IP or CIDR: %s", ip))
+			return
+		}
+	}
+
 	if len(validationErrors) > 0 {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
 		return
@@ -207,6 +232,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		KeyPrefix:          prefix,
 		KeyHash:            keyHash,
 		Scopes:             req.Scopes,
+		AllowedIPs:         req.AllowedIPs,
 		RateLimitPerMinute: perMinute,
 		RateLimitPerHour:   perHour,
 		ExpiresAt:          expiresAt,
@@ -302,6 +328,16 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		validationErrors = append(validationErrors, map[string]string{"field": "rate_limit_per_hour", "message": "Rate limit per hour must be positive", "code": "min_value"})
 	}
 
+	if req.AllowedIPs != nil {
+		for _, ip := range *req.AllowedIPs {
+			if !validateIPEntry(ip) {
+				apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeInvalidCIDR,
+					fmt.Sprintf("Invalid IP or CIDR: %s", ip))
+				return
+			}
+		}
+	}
+
 	if len(validationErrors) > 0 {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "Request validation failed", validationErrors)
 		return
@@ -321,6 +357,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.apiKeyStore.Update(r.Context(), id, store.UpdateAPIKeyParams{
 		Name:               req.Name,
 		Scopes:             req.Scopes,
+		AllowedIPs:         req.AllowedIPs,
 		RateLimitPerMinute: req.RateLimitPerMinute,
 		RateLimitPerHour:   req.RateLimitPerHour,
 	})

@@ -5,8 +5,12 @@ export
 
 .PHONY: help up down restart status logs build build-fresh deploy-dev deploy-prod \
         infra-up infra-down db-migrate db-migrate-down db-seed db-backup db-restore db-console db-reset \
-        test test-watch test-coverage lint lint-fix \
-        clean docker-clean dev start stop backup web-dev web-build
+        test test-db test-watch test-coverage typecheck lint lint-fix lint-sql \
+        clean docker-clean dev start stop backup web-dev web-build \
+        vuln-check web-audit \
+        test-web security-scan deploy-staging rollback ops-status build-ctl \
+        sim-build sim-up sim-down sim-logs sim-ps \
+        operator-sim-build operator-sim-logs
 
 help:
 	@echo ""
@@ -45,13 +49,38 @@ help:
 	@echo ""
 	@echo "  Kalite:"
 	@echo "    make test            Go testlerini calistir"
+	@echo "    make test-db         DB-gated testleri DATABASE_URL ile calistir"
 	@echo "    make test-coverage   Test coverage raporu"
+	@echo "    make typecheck       Go + TypeScript tip kontrolu"
 	@echo "    make lint            Go lint kontrolu"
 	@echo "    make lint-fix        Go lint otomatik duzeltme"
+	@echo "    make vuln-check      Go vulnerability scan (govulncheck)"
+	@echo "    make web-audit       npm audit (high/critical)"
+	@echo "    make lint-sql        SELECT * yoklama (store katmani)"
+	@echo ""
+	@echo "  CI & Release:"
+	@echo "    make test-web        Web testlerini calistir (npm test --run)"
+	@echo "    make security-scan   Guvenlik taramasi (govulncheck + gosec + npm audit)"
+	@echo "    make deploy-staging  Staging ortamina deploy (snapshot + bluegreen)"
+	@echo "    make deploy-prod     Prod deploy (onay + test + lint + scan + bluegreen)"
+	@echo "    make rollback        Surumu geri al (VERSION=? WITH_DB_RESTORE=false)"
+	@echo "    make ops-status      Argus servis durumunu sorgula"
+	@echo "    make build-ctl       argusctl CLI binary'sini derle"
 	@echo ""
 	@echo "  Temizlik:"
 	@echo "    make clean           Build artifact'larini temizle"
 	@echo "    make docker-clean    Docker volume ve image'lari sil"
+	@echo ""
+	@echo "  Simulator (STORY-082):"
+	@echo "    make sim-build       Simulator imaji build"
+	@echo "    make sim-up          Simulator'u baslat (argus-app + postgres ayakta olmali)"
+	@echo "    make sim-down        Simulator'u durdur (sadece simulator — argus dokunulmaz)"
+	@echo "    make sim-logs        Simulator loglarini takip et"
+	@echo "    make sim-ps          Simulator durumu"
+	@echo ""
+	@echo "  Operator Simulator (STORY-089):"
+	@echo "    make operator-sim-build  Operator sim imaji build"
+	@echo "    make operator-sim-logs   Operator sim loglarini takip et"
 	@echo ""
 	@echo "  Kisayollar:"
 	@echo "    make dev = deploy-dev    make start = up"
@@ -63,7 +92,7 @@ help:
 up:
 	@echo "Argus baslatiliyor..."
 	@docker compose -f deploy/docker-compose.yml up -d
-	@echo "Baslatildi: https://localhost:8084"
+	@echo "Baslatildi: http://localhost:8084"
 
 down:
 	@echo "Argus durduruluyor..."
@@ -111,10 +140,13 @@ deploy-dev: build up
 
 deploy-prod:
 	@read -p "PROD deploy yapilacak. Emin misiniz? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
-	@echo "Prod deploy baslatiliyor..."
+	@echo "Prod deploy on kontroller baslatiliyor..."
+	@$(MAKE) test
+	@$(MAKE) lint
+	@$(MAKE) security-scan
 	@$(MAKE) db-backup
-	@$(MAKE) build
-	@$(MAKE) up
+	@echo "On kontroller tamamlandi. Bluegreen deploy baslatiliyor..."
+	@deploy/scripts/bluegreen-flip.sh prod
 	@echo "Prod deploy tamamlandi."
 
 # ── Veritabani ──
@@ -129,10 +161,23 @@ db-migrate-down:
 	@docker compose -f deploy/docker-compose.yml exec argus /app/argus migrate down 1
 	@echo "Migration geri alindi."
 
-db-seed:
+db-seed-validate:
+	@echo "Seed DSL dogrulaniyor (FIX-243)..."
+	@go run ./cmd/argusctl validate-seed-dsl --seed-dir ./migrations/seed
+	@echo "Seed DSL dogrulamasi tamamlandi."
+
+db-seed: db-seed-validate
 	@echo "Seed verileri yukleniyor..."
 	@docker compose -f deploy/docker-compose.yml exec argus /app/argus seed
 	@echo "Seed tamamlandi."
+	@echo "Audit hash chain onariliyor (post-seed)..."
+	@docker compose -f deploy/docker-compose.yml exec argus /app/argus repair-audit
+	@echo "Audit chain onarimi tamamlandi."
+
+db-repair-audit:
+	@echo "Audit hash chain onariliyor..."
+	@docker compose -f deploy/docker-compose.yml exec argus /app/argus repair-audit
+	@echo "Audit chain onarimi tamamlandi."
 
 db-backup:
 	@echo "Veritabani yedekleniyor..."
@@ -173,8 +218,37 @@ web-build:
 
 test:
 	@echo "Testler calistiriliyor..."
-	@go test ./... -v -race
+	@go test ./... -v -race -short
 	@echo "Testler tamamlandi."
+
+# FIX-231 F-B1 (Gate): Run the full test suite WITH DATABASE_URL exported so
+# DB-gated story tests (policy state machine triggers, partial unique
+# indexes, stuck-rollout reaper) actually execute instead of t.Skip()-ing
+# silently. Auto-detects the argus-postgres container; falls back to
+# DATABASE_URL from the environment if the container is not running.
+# Use this target before merging any change that touches:
+#   - migrations/*policy_state_machine*
+#   - internal/store/policy.go (rollout/version state transitions)
+#   - internal/job/stuck_rollout_reaper*.go
+test-db:
+	@echo "DB-gated testler calistiriliyor (DATABASE_URL ile)..."
+	@# .env's DATABASE_URL points at the docker hostname `postgres` which is
+	@# not reachable from the host shell. Auto-detect argus-postgres and use
+	@# the host-side mapped port so go test (running on the host) can connect.
+	@if docker ps --filter name=argus-postgres --format "{{.Names}}" | grep -q argus-postgres; then \
+		PG_USER=$${POSTGRES_USER:-argus} ; \
+		PG_PASS=$${POSTGRES_PASSWORD:-argus_secret} ; \
+		PG_DB=$${POSTGRES_DB:-argus} ; \
+		PG_PORT=$$(docker port argus-postgres 5432 2>/dev/null | head -1 | awk -F: '{print $$NF}') ; \
+		[ -z "$$PG_PORT" ] && PG_PORT=5432 ; \
+		HOST_DB_URL="postgres://$$PG_USER:$$PG_PASS@localhost:$$PG_PORT/$$PG_DB?sslmode=disable" ; \
+		echo "  argus-postgres bulundu (port $$PG_PORT), DATABASE_URL otomatik ayarlandi." ; \
+		DATABASE_URL="$$HOST_DB_URL" go test ./... -race ; \
+	else \
+		echo "  HATA: argus-postgres calismyor. Once 'make infra-up' calistirin." ; \
+		exit 1 ; \
+	fi
+	@echo "DB-gated testler tamamlandi."
 
 test-coverage:
 	@echo "Coverage raporu olusturuluyor..."
@@ -182,11 +256,71 @@ test-coverage:
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Rapor: coverage.html"
 
+typecheck:
+	@echo "Go tip kontrolu..."
+	@go build ./...
+	@echo "TypeScript tip kontrolu..."
+	@cd web && npm run typecheck 2>/dev/null || npx tsc --noEmit
+	@echo "Tip kontrolu tamamlandi."
+
 lint:
 	@golangci-lint run ./...
+	@cd web && npm run lint && npm run type-check
 
 lint-fix:
 	@golangci-lint run --fix ./...
+
+vuln-check:
+	@echo "Go vulnerability scan calistiriliyor..."
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	@echo "Vulnerability scan tamamlandi."
+
+web-audit:
+	@echo "npm audit calistiriliyor..."
+	@cd web && npm audit --audit-level=high
+	@echo "npm audit tamamlandi."
+
+lint-sql:
+	@echo "Checking for SELECT * in store layer..."
+	@! grep -rIn "SELECT \*" internal/store/ --include="*.go" --exclude="*_test.go" \
+		|| (echo "FAIL: SELECT * found in store layer" && exit 1)
+	@echo "OK: no SELECT * in store layer"
+
+# ── CI & Release ──
+
+WITH_DB_RESTORE ?= false
+
+test-web:
+	@echo "Web testleri calistiriliyor..."
+	@cd web && npm test -- --run
+	@echo "Web testleri tamamlandi."
+
+security-scan:
+	@echo "Guvenlik taramasi baslatiliyor..."
+	@govulncheck ./...
+	@gosec ./...
+	@cd web && npm audit --audit-level=high
+	@echo "Guvenlik taramasi tamamlandi."
+
+deploy-staging:
+	@echo "Staging deploy baslatiliyor..."
+	@deploy/scripts/deploy-snapshot.sh staging
+	@deploy/scripts/bluegreen-flip.sh staging
+	@echo "Staging deploy tamamlandi."
+
+rollback:
+	@test -n "$(VERSION)" || (echo "Kullanim: VERSION=<surum> make rollback [WITH_DB_RESTORE=true]" && exit 1)
+	@echo "$(VERSION) surumune geri donuluyor (WITH_DB_RESTORE=$(WITH_DB_RESTORE))..."
+	@deploy/scripts/rollback.sh $(VERSION) $(WITH_DB_RESTORE)
+	@echo "Geri alma tamamlandi."
+
+ops-status:
+	@curl -sf http://$${ARGUS_HOST:-localhost:8084}/api/v1/status | jq .
+
+build-ctl:
+	@echo "argusctl derleniyor..."
+	@go build -o bin/argusctl ./cmd/argusctl
+	@echo "Derlendi: bin/argusctl"
 
 # ── Temizlik ──
 
@@ -200,6 +334,39 @@ docker-clean:
 	@echo "Docker temizleniyor..."
 	@docker compose -f deploy/docker-compose.yml down -v --rmi local
 	@echo "Docker temizlendi."
+
+# ── Simulator (STORY-082) ──
+
+SIM_COMPOSE := -f deploy/docker-compose.yml -f deploy/docker-compose.simulator.yml
+
+sim-build:
+	@echo "Simulator imaji build ediliyor..."
+	@docker compose $(SIM_COMPOSE) build simulator
+	@echo "Simulator build tamamlandi."
+
+sim-up:
+	@echo "Simulator baslatiliyor..."
+	@docker compose $(SIM_COMPOSE) up -d simulator
+	@echo "Simulator baslatildi. Loglar: make sim-logs | Metrics: http://localhost:9099/metrics"
+
+sim-down:
+	@echo "Simulator durduruluyor..."
+	@docker compose $(SIM_COMPOSE) rm -sf simulator
+	@echo "Simulator durduruldu."
+
+sim-logs:
+	@docker compose $(SIM_COMPOSE) logs -f simulator
+
+sim-ps:
+	@docker compose $(SIM_COMPOSE) ps simulator
+
+# ── Operator Simulator (STORY-089) ──
+
+operator-sim-build: ## Build operator-sim image
+	docker compose -f deploy/docker-compose.yml build operator-sim
+
+operator-sim-logs: ## Tail operator-sim logs
+	docker compose -f deploy/docker-compose.yml logs -f operator-sim
 
 # ── Kisayollar ──
 

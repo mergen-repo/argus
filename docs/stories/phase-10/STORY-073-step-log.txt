@@ -1,0 +1,28 @@
+STEP_1 PLAN: EXECUTED | items=19 | evidence=STORY-073-plan.md | result=PASS
+STEP_2 T1: DONE | migration=20260416000001_admin_compliance.up.sql | tables=kill_switches,maintenance_windows | rls=maintenance_windows | seeds=5 | result=PASS
+STEP_3 T2: DONE | pkg=internal/killswitch/service.go | ttl=15s | cache=sync.RWMutex | audit=killswitch.toggled | test=killswitch/service_test.go | result=PASS
+STEP_4 T3: DONE | pkg=internal/api/admin/handler.go | deps=ksStore,mwStore,tenantStore,sessionStore,apiKeyStore,jobStore,webhookDeliveryStore,notifStore,smsStore,auditStore,ksSvc | result=PASS
+STEP_5 T4: DONE | files=kill_switch.go,maintenance_window.go | endpoints=LIST+TOGGLE+LIST+CREATE+DELETE | validation=reason_required_when_enabling | audit=maintenance.scheduled,maintenance.cancelled | result=PASS
+STEP_6 T5: DONE | files=delivery_status.go,tenant_resources.go | endpoints=GET_delivery_status,LIST_resources,LIST_quotas | percentile_cont=true | thresholds=ok/warning/danger | result=PASS
+STEP_7 T6: DONE | files=cost_by_tenant.go,purge_history.go,sessions_global.go,api_usage.go,dsar_queue.go | endpoints=LIST_cost,LIST_purge,LIST_sessions,POST_revoke,LIST_usage,LIST_dsar | rbac=super_admin_scoped,tenant_admin_scoped | result=PASS
+STEP_8 T7: DONE | radius=killswitch_check_radius_auth | bulk=checkBulkKillSwitch | notification=suppress_external_notifications | gateway=KillSwitchMiddleware_read_only_mode | interface=killSwitchChecker_per_pkg | result=PASS
+STEP_9 T8: DONE | router=15_new_routes | main=KillSwitchStore+MaintenanceWindowStore+killSwitchSvc+adminHandler | wire=radiusServer+bulkHandler+notifSvc+AdminHandler+KillSwitchSvc | result=PASS
+STEP_10 BUILD_CHECK: go build ./... | result=PASS
+STEP_11 T9: DONE | types=web/src/types/admin.ts | hooks=web/src/hooks/use-admin.ts | hooks_count=14 | result=PASS
+STEP_12 T10: DONE | page=web/src/pages/admin/tenant-resources.tsx | scr=SCR-140 | cards_and_table_toggle=true | result=PASS
+STEP_13 T11: DONE | page=web/src/pages/admin/quotas.tsx | scr=SCR-141 | progress_bars=ok/warning/danger | result=PASS
+STEP_14 T12: DONE | pages=admin/cost.tsx,admin/compliance.tsx | scr=SCR-142,SCR-147 | sparklines=true | posture_cards=6 | result=PASS
+STEP_15 T13: DONE | pages=admin/security-events.tsx,admin/sessions-global.tsx | scr=SCR-143,SCR-144 | audit_actions_filter=true | force_logout=true | result=PASS
+STEP_16 T14: DONE | pages=admin/api-usage.tsx,admin/dsar.tsx | scr=SCR-145,SCR-146 | rate_limit_bars=true | sla_timer=true | result=PASS
+STEP_17 T15: DONE | pages=admin/purge-history.tsx,admin/delivery.tsx | scr=SCR-148,SCR-151 | channel_health_cards=5 | result=PASS
+STEP_18 T16: DONE | pages=admin/kill-switches.tsx,admin/maintenance.tsx | scr=SCR-149,SCR-150 | slide_panel=true | reason_validation=true | result=PASS
+STEP_19 T17: DONE | router=12_lazy_routes | sidebar=ADMIN_section_tenant_admin+ | result=PASS
+STEP_20 TSC_CHECK: npx tsc --noEmit | errors=0 | result=PASS
+STEP_21 BUILD_FE: npm run build | result=PASS
+STEP_22 T18: DONE | be_tests=internal/api/admin/handler_test.go | fe_smoke=web/src/__tests__/admin.smoke.test.tsx | go_test_count=11 | result=PASS
+STEP_23 T19: DONE | docs=SCREENS.md+ROUTEMAP.md | screens_added=12 | phase10_progress=17/22 | result=PASS
+STEP_24 FINAL_GATES: go build=PASS | go test=PASS | tsc=PASS | npm_build=PASS
+STEP_3 GATE: EXECUTED | passes=6 | fixes=15 | result=PASS
+STEP_4 REVIEW: EXECUTED | items=7 | evidence=STORY-073-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=41711d0 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS

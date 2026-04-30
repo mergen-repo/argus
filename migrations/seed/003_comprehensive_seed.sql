@@ -2,98 +2,17 @@
 -- Realistic Turkish data for all screens
 -- Idempotent: uses ON CONFLICT DO NOTHING / DO UPDATE
 -- Run after 001_admin_user.sql and 002_system_data.sql
+-- Additive: no DELETE/TRUNCATE statements. Re-runs safely skip existing rows.
+--
+-- D-015 (STORY-079): Fresh-volume fix — CHECK constraint violations, NOT RLS
+-- Root cause: migration 20260412000003_enum_check_constraints added chk_* constraints
+-- AFTER this seed was written. Live DB had 0 bad rows; fresh volume aborts on insert.
+-- Fixes applied:
+--   users.role: 'op_manager' → 'sim_manager' (FIX-110: 'auditor' → 'analyst')
+--   policy_versions.state: 'rolled_back' → 'superseded'
+-- RLS is NOT the issue — argus role has rolbypassrls=t (verified).
 
 BEGIN;
-
--- ============================================================
--- CLEANUP: Remove existing test data so seed is idempotent
--- ============================================================
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ota_commands WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM anomalies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM cdrs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sessions WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM ip_pools WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sims WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM policy_assignments WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-UPDATE policies SET current_version_id = NULL WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'));
-DELETE FROM apns WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM policies WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM jobs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM notifications WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM api_keys WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM sim_segments WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM msisdn_pool WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM notification_configs WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM operator_grants WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DELETE FROM users WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename='tenant_retention_config') THEN DELETE FROM tenant_retention_config WHERE tenant_id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001'); END IF; END $$;
-DELETE FROM tenants WHERE id NOT IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001');
-
--- Clean data for our target tenants too (re-seed from scratch)
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ota_commands WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM anomalies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM cdrs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sessions WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM ip_pools WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sims WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-UPDATE policies SET current_version_id = NULL WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM apns WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM policies WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM jobs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM notifications WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM api_keys WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM sim_segments WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM msisdn_pool WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM notification_configs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM audit_logs WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM operator_grants WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'));
-DELETE FROM users WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename='tenant_retention_config') THEN DELETE FROM tenant_retention_config WHERE tenant_id IN ('10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002'); END IF; END $$;
-
--- Clean Argus Demo tenant data (full re-seed)
-DELETE FROM policy_assignments WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM anomalies WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM ota_commands WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM cdrs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sessions WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sim_state_history WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM esim_profiles WHERE sim_id IN (SELECT id FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM ip_addresses WHERE pool_id IN (SELECT ip.id FROM ip_pools ip WHERE ip.tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM ip_pools WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sims WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policy_rollouts WHERE policy_version_id IN (SELECT pv.id FROM policy_versions pv JOIN policies p ON pv.policy_id = p.id WHERE p.tenant_id = '00000000-0000-0000-0000-000000000001');
-UPDATE policies SET current_version_id = NULL WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policy_versions WHERE policy_id IN (SELECT id FROM policies WHERE tenant_id = '00000000-0000-0000-0000-000000000001');
-DELETE FROM apns WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM policies WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM jobs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM notifications WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM api_keys WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM sim_segments WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM msisdn_pool WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM notification_configs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM audit_logs WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM operator_grants WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
-DELETE FROM operator_grants WHERE operator_id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef';
-DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND email != 'admin@argus.io');
-DELETE FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND email != 'admin@argus.io';
-
--- Remove old test operator that conflicts with Turkcell mcc/mnc
-DELETE FROM operator_health_logs WHERE operator_id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef';
-DELETE FROM operators WHERE id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef' AND code = 'TOPG';
 
 -- ============================================================
 -- TENANTS (2 tenants + existing Argus Demo)
@@ -101,25 +20,39 @@ DELETE FROM operators WHERE id = 'bd2508e7-85c3-4c31-b07b-f12fb0beebef' AND code
 INSERT INTO tenants (id, name, domain, contact_email, contact_phone, max_sims, max_apns, max_users, state) VALUES
 ('10000000-0000-0000-0000-000000000001', 'Nar Teknoloji', 'nar.com.tr', 'info@nar.com.tr', '+902125551234', 500000, 200, 100, 'active'),
 ('10000000-0000-0000-0000-000000000002', 'Bosphorus IoT', 'bosphorus-iot.com', 'admin@bosphorus-iot.com', '+902163339876', 200000, 100, 50, 'active')
-ON CONFLICT (domain) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- OPERATORS (3 Turkish operators)
 -- ============================================================
-INSERT INTO operators (id, name, code, mcc, mnc, adapter_type, adapter_config, sm_dp_plus_url, supported_rat_types, health_status, failover_policy, state) VALUES
-('20000000-0000-0000-0000-000000000001', 'Turkcell', 'turkcell', '286', '01', 'mock',
- '{"host":"radius.turkcell.com.tr","port":1812,"secret":"tc-secret","timeout_ms":3000}',
+-- STORY-090 Wave 2 D2-B: adapter_type column removed; every operator's
+-- adapter_config carries the nested protocol enablement flags.
+--
+-- STORY-090 Gate (F-A6): each enabled RADIUS operator carries its
+-- canonical `radius` sub-key (shared_secret, listen_addr, host, port)
+-- so the adapter factory can consume the config directly. Mock
+-- sibling is retained with enabled=true so the simulator keeps its
+-- RADIUS-style secret lookup path while no real network handshake is
+-- required in the dev environment.
+-- STORY-089 (2026-04-18): added `http` sub-key per operator pointing at
+-- `argus-operator-sim:9595/<operator_code>`. Simulator exposes GET /health,
+-- GET /subscribers/:imsi, POST /cdr under each operator prefix. Only
+-- turkcell/vodafone_tr/turk_telekom get http enabled; the mock operator
+-- (seed 002) does not participate in http routing.
+INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, sm_dp_plus_url, supported_rat_types, health_status, failover_policy, state) VALUES
+('20000000-0000-0000-0000-000000000001', 'Turkcell', 'turkcell', '286', '01',
+ '{"radius":{"enabled":true,"shared_secret":"tc-secret","listen_addr":":1812","host":"radius.turkcell.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turkcell","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.turkcell.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'fallback', 'active'),
-('20000000-0000-0000-0000-000000000002', 'Vodafone TR', 'vodafone_tr', '286', '02', 'mock',
- '{"host":"radius.vodafone.com.tr","port":1812,"secret":"vf-secret","timeout_ms":3000}',
+('20000000-0000-0000-0000-000000000002', 'Vodafone TR', 'vodafone_tr', '286', '02',
+ '{"radius":{"enabled":true,"shared_secret":"vf-secret","listen_addr":":1812","host":"radius.vodafone.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/vodafone_tr","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
  'https://smdp.vodafone.com.tr/api/v1',
  ARRAY['nb_iot','lte_m','lte','nr_5g'], 'healthy', 'reject', 'active'),
-('20000000-0000-0000-0000-000000000003', 'Turk Telekom', 'turk_telekom', '286', '03', 'mock',
- '{"host":"radius.turktelekom.com.tr","port":1812,"secret":"tt-secret","timeout_ms":3000}',
+('20000000-0000-0000-0000-000000000003', 'Turk Telekom', 'turk_telekom', '286', '03',
+ '{"radius":{"enabled":true,"shared_secret":"tt-secret","listen_addr":":1812","host":"radius.turktelekom.com.tr","port":1812,"timeout_ms":3000},"http":{"enabled":true,"base_url":"http://argus-operator-sim:9595/turk_telekom","health_path":"/health","timeout_ms":2000},"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":500}}',
  'https://smdp.turktelekom.com.tr/api/v1',
  ARRAY['lte','nr_5g'], 'degraded', 'queue', 'active')
-ON CONFLICT (code) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Create SIM partitions for operators
 DO $$
@@ -161,7 +94,7 @@ INSERT INTO users (id, tenant_id, email, password_hash, name, role, state, totp_
 ('40000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'zeynep.ozturk@nar.com.tr',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Zeynep Ozturk', 'analyst', 'active', false, NOW() - INTERVAL '4 hours'),
 ('40000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', 'can.aksoy@nar.com.tr',
- '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Can Aksoy', 'op_manager', 'active', false, NOW() - INTERVAL '6 hours'),
+ '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Can Aksoy', 'sim_manager', 'active', false, NOW() - INTERVAL '6 hours'),
 ('40000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', 'selin.celik@nar.com.tr',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Selin Celik', 'api_user', 'active', false, NULL),
 -- Bosphorus IoT users
@@ -174,7 +107,7 @@ INSERT INTO users (id, tenant_id, email, password_hash, name, role, state, totp_
 ('40000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000002', 'deniz.arslan@bosphorus-iot.com',
  '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Deniz Arslan', 'analyst', 'active', false, NOW() - INTERVAL '12 hours'),
 ('40000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000002', 'hakan.yildiz@bosphorus-iot.com',
- '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Hakan Yildiz', 'op_manager', 'active', false, NOW() - INTERVAL '8 hours')
+ '$2b$12$ZBpIqGQSR1kUn5Dl4dnbOuyAi5sH2J4tPa6a8YXphpyAhWqSnRb9W', 'Hakan Yildiz', 'sim_manager', 'active', false, NOW() - INTERVAL '8 hours')
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
@@ -199,31 +132,31 @@ ON CONFLICT DO NOTHING;
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, affected_sim_count, activated_at, created_by) VALUES
 -- Fleet Standart QoS - v1 active
 ('51000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 1,
- 'POLICY "fleet-std-v1" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 5mbps; bandwidth_up = 2mbps; priority = 5 } }',
+ 'POLICY "fleet-std-v1" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 5mbps bandwidth_up = 2mbps priority = 5 } }',
  '{"name":"fleet-std-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.fleet"}]},"rules":{"defaults":{"bandwidth_down":5000000,"bandwidth_up":2000000,"priority":5},"when_blocks":[]}}',
  'active', 45, NOW() - INTERVAL '20 days', '40000000-0000-0000-0000-000000000003'),
 -- Fleet Standart QoS - v2 rolling_out
 ('51000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', 2,
- 'POLICY "fleet-std-v2" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 10mbps; bandwidth_up = 5mbps; priority = 4 } }',
+ 'POLICY "fleet-std-v2" { MATCH { apn = "iot.fleet" } RULES { bandwidth_down = 10mbps bandwidth_up = 5mbps priority = 4 } }',
  '{"name":"fleet-std-v2","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.fleet"}]},"rules":{"defaults":{"bandwidth_down":10000000,"bandwidth_up":5000000,"priority":4},"when_blocks":[]}}',
  'rolling_out', 45, NULL, '40000000-0000-0000-0000-000000000003'),
 -- Sayac Dusuk Bant - v1 active
 ('51000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', 1,
- 'POLICY "meter-low-v1" { MATCH { apn = "m2m.meter" } RULES { bandwidth_down = 256kbps; bandwidth_up = 128kbps; max_daily_mb = 50 } }',
+ 'POLICY "meter-low-v1" { MATCH { apn = "m2m.meter" } RULES { bandwidth_down = 256kbps bandwidth_up = 128kbps max_daily_mb = 50 } }',
  '{"name":"meter-low-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"m2m.meter"}]},"rules":{"defaults":{"bandwidth_down":256000,"bandwidth_up":128000,"max_daily_mb":50},"when_blocks":[]}}',
  'active', 30, NOW() - INTERVAL '15 days', '40000000-0000-0000-0000-000000000003'),
 -- Premium IoT - v1 rolled_back, v2 active
 ('51000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000003', 1,
- 'POLICY "premium-v1" { MATCH { rat_type = "nr_5g" } RULES { bandwidth_down = 100mbps; priority = 1 } }',
+ 'POLICY "premium-v1" { MATCH { rat_type = "nr_5g" } RULES { bandwidth_down = 100mbps priority = 1 } }',
  '{"name":"premium-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nr_5g"}]},"rules":{"defaults":{"bandwidth_down":100000000,"priority":1},"when_blocks":[]}}',
- 'rolled_back', 10, NOW() - INTERVAL '25 days', '40000000-0000-0000-0000-000000000003'),
+ 'superseded', 10, NOW() - INTERVAL '25 days', '40000000-0000-0000-0000-000000000003'),
 ('51000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000003', 2,
- 'POLICY "premium-v2" { MATCH { rat_type = "nr_5g" OR rat_type = "lte" } RULES { bandwidth_down = 50mbps; bandwidth_up = 20mbps; priority = 2 } }',
+ 'POLICY "premium-v2" { MATCH { rat_type IN ("nr_5g", "lte") } RULES { bandwidth_down = 50mbps bandwidth_up = 20mbps priority = 2 } }',
  '{"name":"premium-v2","match":{"conditions":[{"field":"rat_type","op":"in","value":["nr_5g","lte"]}]},"rules":{"defaults":{"bandwidth_down":50000000,"bandwidth_up":20000000,"priority":2},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '10 days', '40000000-0000-0000-0000-000000000003'),
 -- NB-IoT Tasarruf - v1 active
 ('51000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000004', 1,
- 'POLICY "nbiot-save-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 64kbps; bandwidth_up = 32kbps; session_timeout = 3600 } }',
+ 'POLICY "nbiot-save-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 64kbps bandwidth_up = 32kbps session_timeout = 3600s } }',
  '{"name":"nbiot-save-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nb_iot"}]},"rules":{"defaults":{"bandwidth_down":64000,"bandwidth_up":32000,"session_timeout":3600},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '12 days', '40000000-0000-0000-0000-000000000003'),
 -- Test Politikasi - v1 draft
@@ -233,15 +166,15 @@ INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules
  'draft', NULL, NULL, '40000000-0000-0000-0000-000000000003'),
 -- Bosphorus IoT policy versions
 ('51000000-0000-0000-0000-000000000011', '50000000-0000-0000-0000-000000000011', 1,
- 'POLICY "smart-city-v1" { MATCH { apn = "iot.city" } RULES { bandwidth_down = 20mbps; bandwidth_up = 10mbps; priority = 3 } }',
+ 'POLICY "smart-city-v1" { MATCH { apn = "iot.city" } RULES { bandwidth_down = 20mbps bandwidth_up = 10mbps priority = 3 } }',
  '{"name":"smart-city-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.city"}]},"rules":{"defaults":{"bandwidth_down":20000000,"bandwidth_up":10000000,"priority":3},"when_blocks":[]}}',
  'active', 25, NOW() - INTERVAL '18 days', '40000000-0000-0000-0000-000000000013'),
 ('51000000-0000-0000-0000-000000000012', '50000000-0000-0000-0000-000000000012', 1,
- 'POLICY "agri-iot-v1" { MATCH { apn = "m2m.agri" } RULES { bandwidth_down = 128kbps; bandwidth_up = 64kbps; max_daily_mb = 20 } }',
+ 'POLICY "agri-iot-v1" { MATCH { apn = "m2m.agri" } RULES { bandwidth_down = 128kbps bandwidth_up = 64kbps max_daily_mb = 20 } }',
  '{"name":"agri-iot-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"m2m.agri"}]},"rules":{"defaults":{"bandwidth_down":128000,"bandwidth_up":64000,"max_daily_mb":20},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '14 days', '40000000-0000-0000-0000-000000000013'),
 ('51000000-0000-0000-0000-000000000013', '50000000-0000-0000-0000-000000000013', 1,
- 'POLICY "industrial-m2m-v1" { MATCH { rat_type = "lte" } RULES { bandwidth_down = 30mbps; priority = 2; max_sessions = 3 } }',
+ 'POLICY "industrial-m2m-v1" { MATCH { rat_type = "lte" } RULES { bandwidth_down = 30mbps priority = 2 max_sessions = 3 } }',
  '{"name":"industrial-m2m-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"lte"}]},"rules":{"defaults":{"bandwidth_down":30000000,"priority":2,"max_sessions":3},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '10 days', '40000000-0000-0000-0000-000000000013')
 ON CONFLICT DO NOTHING;
@@ -454,7 +387,7 @@ UPDATE sims SET esim_profile_id = '80000000-0000-0000-0000-000000000014' WHERE i
 -- SESSIONS (50+ active, 200+ historical)
 -- ============================================================
 
--- Active sessions for Nar Teknoloji SIMs
+-- Active sessions for Nar Teknoloji SIMs (guarded: skip if sessions already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -482,9 +415,10 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 35;
 
--- Active sessions for Bosphorus IoT SIMs
+-- Active sessions for Bosphorus IoT SIMs (guarded: skip if sessions already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -512,9 +446,11 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000002'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000002' LIMIT 1)
 LIMIT 20;
 
 -- Historical sessions (ended, spanning 30 days)
+-- Historical sessions (guarded: skip if already seeded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, ended_at, terminate_cause, bytes_in, bytes_out, packets_in, packets_out)
 SELECT
     gen_random_uuid(),
@@ -530,8 +466,8 @@ SELECT
     'eap_sim',
     'radius',
     'HIST-' || LPAD(i::text, 3, '0') || '-' || LPAD((row_number() OVER())::text, 4, '0'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') + (random() * INTERVAL '4 hours'),
+    ts.started_at,
+    ts.started_at + (random() * INTERVAL '4 hours'),
     (ARRAY['User-Request','Lost-Carrier','Idle-Timeout','Session-Timeout','Admin-Reset'])[1 + (random()*4)::int],
     (random() * 200000000)::bigint,
     (random() * 100000000)::bigint,
@@ -539,14 +475,17 @@ SELECT
     (random() * 100000)::bigint
 FROM sims s
 CROSS JOIN generate_series(1, 7) AS gs(i)
+CROSS JOIN LATERAL (SELECT NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') AS started_at) ts
 WHERE s.tenant_id = '10000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '10000000-0000-0000-0000-000000000001' AND session_state = 'closed' LIMIT 1)
 LIMIT 200;
 
 -- ============================================================
 -- CDRs (500+ records, spanning 30 days)
 -- ============================================================
+-- CDRs (guarded: skip if CDRs already seeded for these tenants)
 INSERT INTO cdrs (session_id, sim_id, tenant_id, operator_id, apn_id, rat_type, record_type, bytes_in, bytes_out, duration_sec, usage_cost, carrier_cost, rate_per_mb, rat_multiplier, timestamp)
 SELECT
     sess.id,
@@ -572,9 +511,10 @@ SELECT
     sess.started_at + (random() * COALESCE(sess.ended_at - sess.started_at, INTERVAL '4 hours'))
 FROM sessions sess
 WHERE sess.tenant_id IN ('10000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002')
+  AND NOT EXISTS (SELECT 1 FROM cdrs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 500;
 
--- Additional CDRs to fill 30 days of chart data
+-- Additional CDRs to fill 30 days of chart data (guarded)
 INSERT INTO cdrs (session_id, sim_id, tenant_id, operator_id, apn_id, rat_type, record_type, bytes_in, bytes_out, duration_sec, usage_cost, carrier_cost, rate_per_mb, rat_multiplier, timestamp)
 SELECT
     sess.id,
@@ -600,16 +540,17 @@ CROSS JOIN LATERAL (
     ORDER BY random()
     LIMIT 5
 ) sess
+WHERE NOT EXISTS (SELECT 1 FROM cdrs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- POLICY ROLLOUTS
 -- ============================================================
-INSERT INTO policy_rollouts (id, policy_version_id, previous_version_id, strategy, stages, current_stage, total_sims, migrated_sims, state, started_at, created_by) VALUES
-('90000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000001', 'canary',
+INSERT INTO policy_rollouts (id, policy_id, policy_version_id, previous_version_id, strategy, stages, current_stage, total_sims, migrated_sims, state, started_at, created_by) VALUES
+('90000000-0000-0000-0000-000000000001', (SELECT policy_id FROM policy_versions WHERE id = '51000000-0000-0000-0000-000000000002'), '51000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000001', 'canary',
  '[{"percentage":1,"target_count":1,"migrated":1,"started_at":"2026-03-20T10:00:00Z"},{"percentage":10,"target_count":5,"migrated":5,"started_at":"2026-03-21T10:00:00Z"},{"percentage":100,"target_count":45,"migrated":0}]',
  2, 45, 6, 'in_progress', NOW() - INTERVAL '3 days', '40000000-0000-0000-0000-000000000003'),
-('90000000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000005', '51000000-0000-0000-0000-000000000004', 'canary',
+('90000000-0000-0000-0000-000000000002', (SELECT policy_id FROM policy_versions WHERE id = '51000000-0000-0000-0000-000000000005'), '51000000-0000-0000-0000-000000000005', '51000000-0000-0000-0000-000000000004', 'canary',
  '[{"percentage":1,"target_count":1,"migrated":1},{"percentage":10,"target_count":2,"migrated":2},{"percentage":100,"target_count":15,"migrated":15}]',
  3, 15, 15, 'completed', NOW() - INTERVAL '12 days', '40000000-0000-0000-0000-000000000003')
 ON CONFLICT DO NOTHING;
@@ -704,45 +645,46 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at) VALUES
 -- Nar Teknoloji notifications
 ('B0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Camera IPv4 Pool', 'Camera IPv4 Pool havuzu %91 kapasiteye ulasti. Acil genisleme gerekli.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
-('B0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Meter IPv4 Pool', 'Meter IPv4 Pool havuzu %85 kapasiteye ulasti.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '4 hours'),
-('B0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_state_change', 'sim', 'SIM Durumu Degisti', 'SIM 89900100000000000301 ACTIVE''den SUSPENDED''a gecti.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 hours', NOW() - INTERVAL '10 hours'),
+('B0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Meter IPv4 Pool', 'Meter IPv4 Pool havuzu %85 kapasiteye ulasti.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '4 hours'),
+('B0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'policy_violation', 'sim', 'Politika Ihlali Tespit Edildi', 'SIM 89900100000000000301 aktif politika kuralini ihlal etti. Inceleme gerekli.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 hours', NOW() - INTERVAL '10 hours'),
 ('B0000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_stolen_lost', 'sim', 'SIM Calinti/Kayip Bildirimi', 'SIM 89900100000000000601 calinti/kayip olarak isaretlendi. Oturum sonlandirildi.', 'critical', ARRAY['in_app','email','webhook'], 'read', NOW() - INTERVAL '28 hours', NOW() - INTERVAL '30 hours'),
 ('B0000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_started', 'policy', 'Politika Yayilimi Basladi', 'Fleet Standart QoS v2 canary yayilimi basladi. Asamal: %1 → %10 → %100', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '2 days', NOW() - INTERVAL '3 days'),
 ('B0000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', 'policy_rollout_stage', 'policy', 'Politika Yayilim Asamasi 2', 'Fleet Standart QoS v2 %10 asamasina gecti. 5 SIM guncellendi.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '1 day'),
 ('B0000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'job_completed', 'system', 'Toplu SIM Aktarimi Tamamlandi', 'fleet_sims_batch1.csv: 48/50 basarili, 2 hata.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '18 days', NOW() - INTERVAL '20 days'),
-('B0000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'job_failed', 'system', 'Toplu Aktarim Hatasi', 'bad_data.csv: Gecersiz CSV formati. Hic kayit islenmedi.', 'error', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '7 days', NOW() - INTERVAL '8 days'),
-('B0000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'operator', 'Operator Durumu: Turk Telekom DEGRADED', 'Turk Telekom operatoru saglik kontrolunde basarisiz oldu. Circuit breaker devrede.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '6 hours'),
-('B0000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'sla_violation', 'operator', 'SLA Ihlali: Turk Telekom', 'Turk Telekom son 24 saatte %98.5 uptime gosteriyor. Hedef: %99.9', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
+('B0000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'job_failed', 'system', 'Toplu Aktarim Hatasi', 'bad_data.csv: Gecersiz CSV formati. Hic kayit islenmedi.', 'high', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '7 days', NOW() - INTERVAL '8 days'),
+('B0000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'operator', 'Operator Durumu: Turk Telekom DEGRADED', 'Turk Telekom operatoru saglik kontrolunde basarisiz oldu. Circuit breaker devrede.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '6 hours'),
+('B0000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'sla_violation', 'operator', 'SLA Ihlali: Turk Telekom', 'Turk Telekom son 24 saatte %98.5 uptime gosteriyor. Hedef: %99.9', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
 ('B0000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', 'anomaly_detected', 'sim', 'Anomali Tespit Edildi: Veri Spiki', 'SIM 89900100000000000103 son 1 saatte normalin 50x veri kullandi.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 hour'),
 ('B0000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', 'compliance_report', 'system', 'KVKK Raporu Hazir', '2026 Q1 KVKK uyumluluk raporu olusturuldu. Indirmek icin tiklayin.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '1 day', NOW() - INTERVAL '2 days'),
 ('B0000000-0000-0000-0000-000000000013', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'user_login', 'system', 'Yeni Giris Bildirimi', 'elif.kaya@nar.com.tr 192.168.1.100 adresinden giris yapti.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '35 minutes'),
-('B0000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'api_key_expiring', 'system', 'API Anahtari Süresi Doluyor', 'Filo API anahtarinin suresi 7 gun icinde dolacak.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
-('B0000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'ota_command_failed', 'sim', 'OTA Komut Hatasi', 'SIM 89900100000000000201''e gonderilen UPDATE_FILE komutu basarisiz oldu.', 'error', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
+('B0000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'api_key_expiring', 'system', 'API Anahtari Süresi Doluyor', 'Filo API anahtarinin suresi 7 gun icinde dolacak.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
+('B0000000-0000-0000-0000-000000000015', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'ota_command_failed', 'sim', 'OTA Komut Hatasi', 'SIM 89900100000000000201''e gonderilen UPDATE_FILE komutu basarisiz oldu.', 'high', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
 -- Bosphorus IoT notifications
 ('B0000000-0000-0000-0000-000000000021', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'job_completed', 'system', 'Sensor Aktarimi Tamamlandi', 'city_sensors.csv: 25/25 basarili.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '17 days', NOW() - INTERVAL '18 days'),
-('B0000000-0000-0000-0000-000000000022', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Energy Pool', 'Energy Pool havuzu %89 kapasiteye ulasti.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
+('B0000000-0000-0000-0000-000000000022', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'apn', 'IP Pool Uyarisi: Energy Pool', 'Energy Pool havuzu %89 kapasiteye ulasti.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
 ('B0000000-0000-0000-0000-000000000023', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000012', 'esim_switch_completed', 'sim', 'eSIM Profil Degisikligi', '3 SIM basariyla Turkcell''den Vodafone''a aktarildi.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '8 days', NOW() - INTERVAL '9 days'),
 ('B0000000-0000-0000-0000-000000000024', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000013', 'policy_activated', 'policy', 'Politika Aktif', 'Akilli Sehir QoS v1 basariyla aktive edildi.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '16 days', NOW() - INTERVAL '18 days'),
 ('B0000000-0000-0000-0000-000000000025', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'sim_stolen_lost', 'sim', 'SIM Calinti Bildirimi', 'SIM 89900100000000001018 calinti olarak isaretlendi.', 'critical', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '19 days', NOW() - INTERVAL '20 days'),
 ('B0000000-0000-0000-0000-000000000026', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000014', 'anomaly_detected', 'sim', 'Anomali: Auth Flood', 'SIM 89900200000000001002 icin 5 dakikada 500+ auth denemesi tespit edildi.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
-('B0000000-0000-0000-0000-000000000027', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'operator_degraded', 'operator', 'Turk Telekom Degraded', 'Turk Telekom operatoru degraded durumda. Etkilenen SIM''ler icin failover aktif.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
+('B0000000-0000-0000-0000-000000000027', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'operator_degraded', 'operator', 'Turk Telekom Degraded', 'Turk Telekom operatoru degraded durumda. Etkilenen SIM''ler icin failover aktif.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 
--- Generate more notifications to reach 50+
+-- Generate more notifications to reach 50+ (guarded: skip if already seeded)
 INSERT INTO notifications (tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at)
 SELECT
     '10000000-0000-0000-0000-000000000001',
     (ARRAY['40000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002','40000000-0000-0000-0000-000000000003','40000000-0000-0000-0000-000000000004','40000000-0000-0000-0000-000000000005']::uuid[])[1 + (random()*4)::int],
-    (ARRAY['session_started','session_ended','sim_state_change','usage_threshold','heartbeat_ok'])[1 + (random()*4)::int],
+    (ARRAY['operator_down','policy_violation','sla_violation','anomaly_data_spike','webhook.dead_letter'])[1 + (random()*4)::int],
     (ARRAY['sim','apn','operator','system'])[1 + (random()*3)::int],
     'Sistem Bildirimi #' || i,
     'Otomatik sistem bildirimi. Detaylar icin tiklayin.',
-    (ARRAY['info','warning','info','info'])[1 + (random()*3)::int],
+    (ARRAY['info','medium','info','info'])[1 + (random()*3)::int],
     ARRAY['in_app'],
     CASE WHEN random() > 0.3 THEN 'read' ELSE 'unread' END,
     CASE WHEN random() > 0.3 THEN NOW() - (i * INTERVAL '2 hours') ELSE NULL END,
     NOW() - (i * INTERVAL '3 hours')
-FROM generate_series(1, 25) AS s(i);
+FROM generate_series(1, 25) AS s(i)
+WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE tenant_id = '10000000-0000-0000-0000-000000000001' AND title LIKE 'Sistem Bildirimi #%' LIMIT 1);
 
 -- ============================================================
 -- API KEYS (3+ per tenant)
@@ -857,36 +799,113 @@ FROM generate_series(10001, 10060) AS s(i)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
--- OPERATOR HEALTH LOGS (recent entries)
+-- OPERATOR HEALTH LOGS (60-day dense time series — FIX-215)
 -- ============================================================
-INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
-SELECT
-    op_id::uuid,
-    NOW() - (i * INTERVAL '30 seconds'),
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'degraded'
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'unhealthy'
-        ELSE 'healthy'
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' THEN (50 + random() * 500)::int
-        ELSE (5 + random() * 30)::int
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'Connection timeout after 3000ms'
-        ELSE NULL
-    END,
-    CASE
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'half_open'
-        WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'open'
-        ELSE 'closed'
-    END
-FROM (VALUES
-    ('20000000-0000-0000-0000-000000000001'),
-    ('20000000-0000-0000-0000-000000000002'),
-    ('20000000-0000-0000-0000-000000000003')
-) AS ops(op_id)
-CROSS JOIN generate_series(1, 20) AS gs(i);
+-- Seed contract: 60 days × 1440 min/day × 2 operators ≈ 173k rows.
+-- Retention: 24 months (configurable via TimescaleDB policy).
+-- Idempotency: entire block is skipped if any row with checked_at
+--   within the last 70 days already exists (covers re-run and partial seeds).
+--
+-- Status distribution per minute-bucket:
+--   ~95%  up + normal latency  (70–220 ms)
+--   ~3%   up + latency breach  (500–800 ms)
+--   ~2%   down + NULL latency
+--
+-- Deterministic 6-minute down block (AC-6):
+--   operator_id = 20000000-0000-0000-0000-000000000001
+--   window: NOW() - 15d 14h  →  NOW() - 15d 13h 54min  (6 consecutive minutes)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM operator_health_logs
+        WHERE checked_at > NOW() - INTERVAL '70 days'
+        LIMIT 1
+    ) THEN
+        RETURN;
+    END IF;
+
+    -- Dense 60-day series for operators 1 and 2 (modulo-based status split)
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        op_id::uuid,
+        ts,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'down'
+            ELSE 'up'
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN NULL
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 5  THEN (500 + (EXTRACT(EPOCH FROM ts)::bigint % 300))::int
+            ELSE (70 + (EXTRACT(EPOCH FROM ts)::bigint % 150))::int
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'Connection timeout'
+            ELSE NULL
+        END,
+        CASE
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 2  THEN 'open'
+            WHEN (EXTRACT(EPOCH FROM ts)::bigint % 100) < 5  THEN 'half_open'
+            ELSE 'closed'
+        END
+    FROM (VALUES
+        ('20000000-0000-0000-0000-000000000001'),
+        ('20000000-0000-0000-0000-000000000002')
+    ) AS ops(op_id)
+    CROSS JOIN generate_series(
+        NOW() - INTERVAL '60 days',
+        NOW(),
+        INTERVAL '1 minute'
+    ) AS gs(ts);
+
+    -- Deterministic 6-minute down block for AC-6 breach detection tests
+    -- (overrides the modulo-based rows inserted above for this window)
+    DELETE FROM operator_health_logs
+    WHERE operator_id = '20000000-0000-0000-0000-000000000001'
+      AND checked_at >= NOW() - INTERVAL '15 days 14 hours'
+      AND checked_at <= NOW() - INTERVAL '15 days 13 hours 54 minutes';
+
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        '20000000-0000-0000-0000-000000000001'::uuid,
+        ts,
+        'down',
+        NULL,
+        'Deterministic down block (AC-6 seed)',
+        'open'
+    FROM generate_series(
+        NOW() - INTERVAL '15 days 14 hours',
+        NOW() - INTERVAL '15 days 13 hours 54 minutes',
+        INTERVAL '1 minute'
+    ) AS gs(ts);
+
+    -- Legacy short-window entries for operator 3 (degraded/circuit patterns)
+    INSERT INTO operator_health_logs (operator_id, checked_at, status, latency_ms, error_message, circuit_state)
+    SELECT
+        op_id::uuid,
+        NOW() - (i * INTERVAL '30 seconds'),
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'degraded'
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'unhealthy'
+            ELSE 'healthy'
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' THEN (50 + (i * 23 % 500))::int
+            ELSE (5 + (i * 7 % 30))::int
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'Connection timeout after 3000ms'
+            ELSE NULL
+        END,
+        CASE
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 5 THEN 'half_open'
+            WHEN op_id = '20000000-0000-0000-0000-000000000003' AND i < 10 THEN 'open'
+            ELSE 'closed'
+        END
+    FROM (VALUES
+        ('20000000-0000-0000-0000-000000000003')
+    ) AS ops(op_id)
+    CROSS JOIN generate_series(1, 20) AS gs(i);
+END $$;
 
 -- ============================================================
 -- ANOMALIES (variety of types and states)
@@ -934,7 +953,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notification_configs (id, tenant_id, user_id, event_type, scope_type, channels, threshold_type, threshold_value, enabled) VALUES
 ('CC000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CC000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":true}', NULL, NULL, true),
-('CC000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'sim_state_change', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true),
+('CC000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', 'policy_violation', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true),
 ('CC000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000005', 'operator_degraded', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true),
 ('CC000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CC000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000011', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true)
@@ -943,10 +962,21 @@ ON CONFLICT DO NOTHING;
 -- ============================================================
 -- AUDIT LOGS (200+ with hash chain)
 -- ============================================================
+-- Disable chain guard trigger during seed if it exists (hashes will be repaired by repair-audit)
+DO $guard$ BEGIN
+    ALTER TABLE audit_logs DISABLE TRIGGER trg_audit_chain_guard;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $guard$;
+
+-- FIX-302: Single source of truth for audit hash = Go.
+-- Seed inserts placeholder hashes ('0' x 64 for both hash and prev_hash);
+-- the Makefile db-seed target runs `argus repair-audit` afterwards which
+-- recomputes correct chained hashes via Go's audit.ComputeHash. This
+-- eliminates the format-drift class of bugs (FIX-104 RECURRENCE) where
+-- PG to_char and Go time.Format diverged on timezone or sub-second padding.
 DO $$
 DECLARE
-    prev_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
-    cur_h TEXT;
+    placeholder_h TEXT := '0000000000000000000000000000000000000000000000000000000000000000';
     i INT;
     t_id UUID;
     u_id UUID;
@@ -959,7 +989,10 @@ DECLARE
     users_bio UUID[] := ARRAY['40000000-0000-0000-0000-000000000011'::uuid, '40000000-0000-0000-0000-000000000012'::uuid, '40000000-0000-0000-0000-000000000013'::uuid, '40000000-0000-0000-0000-000000000014'::uuid];
     actions TEXT[] := ARRAY['sim.create', 'sim.activate', 'sim.suspend', 'sim.terminate', 'apn.create', 'apn.update', 'policy.create', 'policy.activate', 'policy.rollout', 'user.login', 'user.login_failed', 'api_key.create', 'job.create', 'job.complete', 'session.start', 'session.end', 'ip_pool.allocate', 'notification.send', 'operator.health_check', 'sim.bulk_import'];
     entity_types TEXT[] := ARRAY['sim', 'sim', 'sim', 'sim', 'apn', 'apn', 'policy', 'policy', 'policy_rollout', 'user', 'user', 'api_key', 'job', 'job', 'session', 'session', 'ip_address', 'notification', 'operator', 'job'];
+    already_seeded BOOLEAN;
 BEGIN
+    SELECT EXISTS(SELECT 1 FROM audit_logs WHERE tenant_id = '10000000-0000-0000-0000-000000000001' LIMIT 1) INTO already_seeded;
+    IF already_seeded THEN RETURN; END IF;
     FOR i IN 1..250 LOOP
         IF i % 3 != 0 THEN
             t_id := tenants_arr[1];
@@ -973,8 +1006,6 @@ BEGIN
         ent_type := entity_types[1 + (random()*19)::int];
         ent_id := gen_random_uuid()::text;
         ts := NOW() - ((250 - i) * INTERVAL '2 hours') + (random() * INTERVAL '1 hour');
-
-        cur_h := encode(sha256((prev_h || '|' || t_id || '|' || u_id || '|' || act || '|' || ent_type || '|' || ent_id || '|' || ts::text)::bytea), 'hex');
 
         INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, before_data, after_data, ip_address, hash, prev_hash, created_at)
         VALUES (
@@ -990,14 +1021,18 @@ BEGIN
                  WHEN act LIKE '%.terminate' THEN '{"state":"terminated"}'::jsonb
                  ELSE '{}'::jsonb END,
             ('192.168.1.' || (1 + (random()*254)::int))::inet,
-            cur_h,
-            prev_h,
+            placeholder_h,  -- Will be overwritten by `argus repair-audit` post-seed
+            placeholder_h,  -- Will be overwritten by `argus repair-audit` post-seed
             ts
         );
-
-        prev_h := cur_h;
     END LOOP;
 END $$;
+
+-- Re-enable chain guard trigger after seed if it exists
+DO $guard$ BEGIN
+    ALTER TABLE audit_logs ENABLE TRIGGER trg_audit_chain_guard;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $guard$;
 
 -- ============================================================
 -- SIM STATE HISTORY (for SIM detail history tab)
@@ -1128,15 +1163,15 @@ ON CONFLICT DO NOTHING;
 -- Demo tenant policy versions
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, affected_sim_count, activated_at, created_by) VALUES
 ('05100000-0000-0000-0000-000000000001', '05000000-0000-0000-0000-000000000001', 1,
- 'POLICY "demo-std-v1" { MATCH { apn = "iot.demo" } RULES { bandwidth_down = 10mbps; bandwidth_up = 5mbps; priority = 5 } }',
+ 'POLICY "demo-std-v1" { MATCH { apn = "iot.demo" } RULES { bandwidth_down = 10mbps bandwidth_up = 5mbps priority = 5 } }',
  '{"name":"demo-std-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"iot.demo"}]},"rules":{"defaults":{"bandwidth_down":10000000,"bandwidth_up":5000000,"priority":5},"when_blocks":[]}}',
  'active', 20, NOW() - INTERVAL '30 days', '00000000-0000-0000-0000-000000000010'),
 ('05100000-0000-0000-0000-000000000002', '05000000-0000-0000-0000-000000000002', 1,
- 'POLICY "demo-iot-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 128kbps; bandwidth_up = 64kbps; max_daily_mb = 100 } }',
+ 'POLICY "demo-iot-v1" { MATCH { rat_type = "nb_iot" } RULES { bandwidth_down = 128kbps bandwidth_up = 64kbps max_daily_mb = 100 } }',
  '{"name":"demo-iot-v1","match":{"conditions":[{"field":"rat_type","op":"eq","value":"nb_iot"}]},"rules":{"defaults":{"bandwidth_down":128000,"bandwidth_up":64000,"max_daily_mb":100},"when_blocks":[]}}',
  'active', 15, NOW() - INTERVAL '25 days', '00000000-0000-0000-0000-000000000010'),
 ('05100000-0000-0000-0000-000000000003', '05000000-0000-0000-0000-000000000003', 1,
- 'POLICY "demo-premium-v1" { MATCH { apn = "data.demo" } RULES { bandwidth_down = 50mbps; bandwidth_up = 20mbps; priority = 2 } }',
+ 'POLICY "demo-premium-v1" { MATCH { apn = "data.demo" } RULES { bandwidth_down = 50mbps bandwidth_up = 20mbps priority = 2 } }',
  '{"name":"demo-premium-v1","match":{"conditions":[{"field":"apn","op":"eq","value":"data.demo"}]},"rules":{"defaults":{"bandwidth_down":50000000,"bandwidth_up":20000000,"priority":2},"when_blocks":[]}}',
  'active', 10, NOW() - INTERVAL '20 days', '00000000-0000-0000-0000-000000000010')
 ON CONFLICT DO NOTHING;
@@ -1230,7 +1265,7 @@ SELECT
 FROM generate_series(1, 20) AS s(i)
 ON CONFLICT DO NOTHING;
 
--- Active sessions for Demo tenant SIMs
+-- Active sessions for Demo tenant SIMs (guarded)
 INSERT INTO sessions (id, sim_id, tenant_id, operator_id, apn_id, nas_ip, framed_ip, calling_station_id, called_station_id, rat_type, session_state, auth_method, protocol_type, acct_session_id, started_at, bytes_in, bytes_out, packets_in, packets_out, last_interim_at)
 SELECT
     gen_random_uuid(),
@@ -1258,6 +1293,7 @@ JOIN apns a ON s.apn_id = a.id
 WHERE s.tenant_id = '00000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sessions WHERE tenant_id = '00000000-0000-0000-0000-000000000001' LIMIT 1)
 LIMIT 25;
 
 -- Historical sessions for Demo tenant
@@ -1276,8 +1312,8 @@ SELECT
     'eap_sim',
     'radius',
     'HIST-DEM-' || LPAD(i::text, 3, '0') || '-' || LPAD((row_number() OVER())::text, 4, '0'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours'),
-    NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') + (random() * INTERVAL '4 hours'),
+    ts.started_at,
+    ts.started_at + (random() * INTERVAL '4 hours'),
     (ARRAY['User-Request','Lost-Carrier','Idle-Timeout','Session-Timeout','Admin-Reset'])[1 + (random()*4)::int],
     (random() * 150000000)::bigint,
     (random() * 75000000)::bigint,
@@ -1285,6 +1321,7 @@ SELECT
     (random() * 75000)::bigint
 FROM sims s
 CROSS JOIN generate_series(1, 7) AS gs(i)
+CROSS JOIN LATERAL (SELECT NOW() - (i * INTERVAL '1 day') - (random() * INTERVAL '12 hours') AS started_at) ts
 WHERE s.tenant_id = '00000000-0000-0000-0000-000000000001'
   AND s.state = 'active'
   AND s.apn_id IS NOT NULL
@@ -1352,14 +1389,14 @@ ON CONFLICT DO NOTHING;
 -- Notifications for Demo tenant
 INSERT INTO notifications (id, tenant_id, user_id, event_type, scope_type, title, body, severity, channels_sent, state, read_at, created_at) VALUES
 ('BB000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo Sensor Pool', 'Demo Sensor Pool is at 91% capacity. Expansion needed.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '3 hours'),
-('BB000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo M2M Pool', 'Demo M2M Pool is at 78% capacity.', 'warning', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
+('BB000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'apn', 'IP Pool Warning: Demo M2M Pool', 'Demo M2M Pool is at 78% capacity.', 'medium', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '5 hours'),
 ('BB000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'job_completed', 'system', 'Bulk Import Completed', 'demo_iot_batch1.csv: 35/35 successful.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '24 hours', NOW() - INTERVAL '25 days'),
-('BB000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'operator_degraded', 'operator', 'Operator Status: Turk Telekom DEGRADED', 'Turk Telekom health check failed. Circuit breaker engaged.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '7 hours'),
+('BB000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'operator_degraded', 'operator', 'Operator Status: Turk Telekom DEGRADED', 'Turk Telekom health check failed. Circuit breaker engaged.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '7 hours'),
 ('BB000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'anomaly_detected', 'sim', 'Anomaly Detected: Data Spike', 'SIM 89900100000000002003 used 30x normal data in 1 hour.', 'critical', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '2 hours'),
 ('BB000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'policy_activated', 'policy', 'Policy Activated', 'Demo Standard QoS v1 successfully activated.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '27 days', NOW() - INTERVAL '28 days'),
-('BB000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'sim_state_change', 'sim', 'SIM Status Changed', '3 SIMs moved to SUSPENDED state.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '11 days', NOW() - INTERVAL '12 days'),
+('BB000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'policy_violation', 'sim', 'Policy Violation Detected', '3 SIMs breached active policy rules. Review required.', 'info', ARRAY['in_app'], 'read', NOW() - INTERVAL '11 days', NOW() - INTERVAL '12 days'),
 ('BB000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_stolen_lost', 'sim', 'SIM Stolen/Lost Report', 'SIM 89900100000000002601 marked as stolen. Session terminated.', 'critical', ARRAY['in_app','email'], 'read', NOW() - INTERVAL '24 days', NOW() - INTERVAL '25 days'),
-('BB000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'api_key_expiring', 'system', 'API Key Expiring Soon', 'Demo Analytics API key expires in 7 days.', 'warning', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
+('BB000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000013', 'api_key_expiring', 'system', 'API Key Expiring Soon', 'Demo Analytics API key expires in 7 days.', 'medium', ARRAY['in_app','email'], 'unread', NULL, NOW() - INTERVAL '1 day'),
 ('BB000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'job_completed', 'system', 'CDR Export Ready', 'CDR export for March 2026 is ready for download.', 'info', ARRAY['in_app'], 'unread', NULL, NOW() - INTERVAL '6 hours')
 ON CONFLICT DO NOTHING;
 
@@ -1406,7 +1443,102 @@ ON CONFLICT DO NOTHING;
 INSERT INTO notification_configs (id, tenant_id, user_id, event_type, scope_type, channels, threshold_type, threshold_value, enabled) VALUES
 ('CD000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'ip_pool_warning', 'system', '{"in_app":true,"email":true,"webhook":false}', 'percentage', 80.00, true),
 ('CD000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'anomaly_detected', 'system', '{"in_app":true,"email":true,"webhook":false}', NULL, NULL, true),
-('CD000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'sim_state_change', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true)
+('CD000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', 'policy_violation', 'system', '{"in_app":true,"email":false,"webhook":false}', NULL, NULL, true)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- SLA REPORTS (12-month history per tenant × operator — FIX-215)
+-- ============================================================
+-- Seed contract: 12 full calendar months per (tenant_id, operator_id) pair.
+--   All windows are full calendar months: window_start = 1st of month 00:00 UTC,
+--   window_end = 1st of next month 00:00 UTC (including current month).
+--   This ensures stable window boundaries for ON CONFLICT idempotency.
+-- Retention: 24 months (matches platform SLA data retention policy).
+-- Idempotency: ON CONFLICT ON CONSTRAINT sla_reports_month_key DO NOTHING.
+-- Distinct pairs seeded: 3 tenants × 3 operators = 9 pairs → 108 rows.
+DO $$
+DECLARE
+    mo INT;
+    wstart TIMESTAMPTZ;
+    wend TIMESTAMPTZ;
+    inc_cnt INT;
+    breach_min INT;
+    mttr INT;
+    lat_p95 INT;
+    sess_total BIGINT;
+    breach_started TIMESTAMPTZ;
+    breach_ended TIMESTAMPTZ;
+    breach_dur INT;
+    causes TEXT[] := ARRAY['down', 'latency', 'mixed'];
+    cause TEXT;
+    details_json JSONB;
+    breaches_json JSONB;
+BEGIN
+    FOR mo IN 0..11 LOOP
+        -- window_start = first of the month (0 = current month, 1..11 = prior months)
+        -- All windows are full calendar months: stable boundaries for ON CONFLICT idempotency.
+        wstart := date_trunc('month', NOW()) - (mo * INTERVAL '1 month');
+        wend   := wstart + INTERVAL '1 month';
+
+        inc_cnt    := floor(random() * 5)::int;
+        breach_min := inc_cnt * (5 + floor(random() * 25)::int);
+        mttr       := 60 + floor(random() * 1740)::int;
+        lat_p95    := 70 + floor(random() * 250)::int;
+        sess_total := 1000 + floor(random() * 9000)::bigint;
+
+        IF inc_cnt > 0 THEN
+            breach_started := wstart + ((random() * 20)::int * INTERVAL '1 day') + INTERVAL '8 hours';
+            breach_dur     := greatest(60, (breach_min * 60) / inc_cnt);
+            breach_ended   := breach_started + (breach_dur * INTERVAL '1 second');
+            cause          := causes[1 + floor(random() * 3)::int];
+            breaches_json  := jsonb_build_array(
+                jsonb_build_object(
+                    'started_at',    to_char(breach_started AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'ended_at',      to_char(breach_ended   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'duration_sec',  breach_dur,
+                    'cause',         cause,
+                    'samples_count', greatest(1, breach_dur / 60)
+                )
+            );
+        ELSE
+            breaches_json := '[]'::jsonb;
+        END IF;
+
+        details_json := jsonb_build_object(
+            'breach_minutes',       breach_min,
+            'breaches',             breaches_json,
+            'latency_threshold_ms', 500,
+            'uptime_target',        99.9
+        );
+
+        INSERT INTO sla_reports (
+            tenant_id, operator_id,
+            window_start, window_end,
+            uptime_pct, latency_p95_ms, incident_count,
+            mttr_sec, sessions_total, error_count, details
+        )
+        SELECT
+            og.tenant_id,
+            og.operator_id,
+            wstart,
+            wend,
+            (99.00 + random() * 0.99)::numeric(5,2),
+            lat_p95,
+            inc_cnt,
+            mttr,
+            sess_total,
+            inc_cnt,
+            details_json
+        FROM operator_grants og
+        WHERE og.enabled = true
+          AND NOT EXISTS (
+              SELECT 1 FROM sla_reports sr
+              WHERE sr.tenant_id  = og.tenant_id
+                AND sr.operator_id = og.operator_id
+                AND sr.window_start = wstart
+          );
+
+    END LOOP;
+END $$;
 
 COMMIT;

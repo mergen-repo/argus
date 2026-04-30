@@ -1,16 +1,33 @@
 package auth
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/btopcu/argus/internal/apierr"
+	"github.com/btopcu/argus/internal/api/apikey"
 	authpkg "github.com/btopcu/argus/internal/auth"
+	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/store"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 )
+
+// passwordResetEmailSender is the interface the AuthHandler uses to send password-reset
+// emails. *notification.SMTPEmailSender satisfies this interface.
+type passwordResetEmailSender interface {
+	SendTo(ctx context.Context, to, subject, textBody, htmlBody string) error
+}
 
 func extractIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
@@ -21,9 +38,21 @@ func extractIP(remoteAddr string) string {
 }
 
 type AuthHandler struct {
-	svc           *authpkg.Service
-	refreshMaxAge int
-	secureCookie  bool
+	svc             *authpkg.Service
+	refreshMaxAge   int
+	secureCookie    bool
+	apiKeyStore     *store.APIKeyStore
+	jwtSecret       string
+	jwtExpiry       time.Duration
+	redis           redis.Cmdable
+	auditSvc        audit.Auditor
+	userStore       *store.UserStore
+	prStore         *store.PasswordResetStore
+	emailSender     passwordResetEmailSender
+	prRateLimit     int
+	prTokenTTL      time.Duration
+	prPublicBaseURL string
+	dummyBcryptHook func()
 }
 
 func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCookie bool) *AuthHandler {
@@ -31,22 +60,129 @@ func NewAuthHandler(svc *authpkg.Service, refreshExpiry time.Duration, secureCoo
 		svc:           svc,
 		refreshMaxAge: int(refreshExpiry.Seconds()),
 		secureCookie:  secureCookie,
+		jwtExpiry:     time.Hour,
+	}
+}
+
+func (h *AuthHandler) WithAPIKeyStore(s *store.APIKeyStore) *AuthHandler {
+	h.apiKeyStore = s
+	return h
+}
+
+func (h *AuthHandler) WithRedis(r redis.Cmdable) *AuthHandler {
+	h.redis = r
+	return h
+}
+
+func (h *AuthHandler) WithJWTSecret(secret string, expiry time.Duration) *AuthHandler {
+	h.jwtSecret = secret
+	if expiry > 0 {
+		h.jwtExpiry = expiry
+	}
+	return h
+}
+
+func (h *AuthHandler) WithUserStore(s *store.UserStore) *AuthHandler {
+	h.userStore = s
+	return h
+}
+
+func (h *AuthHandler) WithAudit(a audit.Auditor) *AuthHandler {
+	h.auditSvc = a
+	return h
+}
+
+func (h *AuthHandler) WithPasswordReset(
+	prStore *store.PasswordResetStore,
+	emailSender passwordResetEmailSender,
+	rateLimit int,
+	ttl time.Duration,
+	baseURL string,
+) *AuthHandler {
+	h.prStore = prStore
+	h.emailSender = emailSender
+	h.prRateLimit = rateLimit
+	h.prTokenTTL = ttl
+	h.prPublicBaseURL = baseURL
+	if h.dummyBcryptHook == nil {
+		h.dummyBcryptHook = func() {}
+	}
+	return h
+}
+
+func (h *AuthHandler) WithDummyBcryptHook(f func()) *AuthHandler {
+	h.dummyBcryptHook = f
+	return h
+}
+
+func (h *AuthHandler) createAuditEntry(r *http.Request, action, entityID string, before, after interface{}) {
+	if h.auditSvc == nil {
+		return
+	}
+
+	tenantID, _ := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	uid, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	var userID *uuid.UUID
+	if ok && uid != uuid.Nil {
+		userID = &uid
+	}
+
+	var correlationID *uuid.UUID
+	if cidStr, ok := r.Context().Value(apierr.CorrelationIDKey).(string); ok && cidStr != "" {
+		if cid, err := uuid.Parse(cidStr); err == nil {
+			correlationID = &cid
+		}
+	}
+
+	var beforeData, afterData json.RawMessage
+	if before != nil {
+		beforeData, _ = json.Marshal(before)
+	}
+	if after != nil {
+		afterData, _ = json.Marshal(after)
+	}
+
+	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
+		TenantID:      tenantID,
+		UserID:        userID,
+		Action:        action,
+		EntityType:    "auth",
+		EntityID:      entityID,
+		BeforeData:    beforeData,
+		AfterData:     afterData,
+		IPAddress:     &ip,
+		UserAgent:     &ua,
+		CorrelationID: correlationID,
+	})
+	if auditErr != nil {
+		log.Warn().Err(auditErr).Str("action", action).Msg("audit entry failed")
 	}
 }
 
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 type loginResponse struct {
-	User        authpkg.UserInfo `json:"user"`
-	Token       string           `json:"token"`
-	Requires2FA bool             `json:"requires_2fa"`
+	User             authpkg.UserInfo `json:"user"`
+	Token            string           `json:"token"`
+	Requires2FA      bool             `json:"requires_2fa"`
+	Partial          bool             `json:"partial,omitempty"`
+	Reason           string           `json:"reason,omitempty"`
+	SessionID        string           `json:"session_id,omitempty"`
+	ExpiresIn        int              `json:"expires_in,omitempty"`
+	RefreshExpiresIn int              `json:"refresh_expires_in,omitempty"`
 }
 
 type refreshResponse struct {
-	Token string `json:"token"`
+	Token            string `json:"token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
 }
 
 type setup2FAResponse struct {
@@ -55,11 +191,126 @@ type setup2FAResponse struct {
 }
 
 type verify2FARequest struct {
-	Code string `json:"code"`
+	Code       string `json:"code"`
+	BackupCode string `json:"backup_code"`
+}
+
+type generateBackupCodesResponse struct {
+	Codes []string `json:"codes"`
 }
 
 type verify2FAResponse struct {
 	Token string `json:"token"`
+}
+
+type oauthTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope,omitempty"`
+}
+
+func (h *AuthHandler) OAuthToken(w http.ResponseWriter, r *http.Request) {
+	if h.apiKeyStore == nil || h.jwtSecret == "" {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "OAuth2 token service is not configured")
+		return
+	}
+
+	clientID, clientSecret, grantType, scopeStr := oauthClientCredentials(r)
+	if grantType != "client_credentials" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError, "grant_type must be client_credentials")
+		return
+	}
+	if clientID == "" || clientSecret == "" {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client_id and client_secret are required")
+		return
+	}
+
+	key, err := h.apiKeyStore.GetByPrefix(r.Context(), clientID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "invalid client credentials")
+		return
+	}
+	if key.RevokedAt != nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client credentials revoked")
+		return
+	}
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "client credentials expired")
+		return
+	}
+
+	clientHash := apikey.HashAPIKey(clientSecret)
+	valid := clientHash == key.KeyHash
+	if !valid && key.PreviousKeyHash != nil && key.KeyRotatedAt != nil {
+		if clientHash == *key.PreviousKeyHash && time.Now().Before(key.KeyRotatedAt.Add(24*time.Hour)) {
+			valid = true
+		}
+	}
+	if !valid {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "invalid client credentials")
+		return
+	}
+
+	tokenScopes := key.Scopes
+	if scopeStr != "" {
+		requested := strings.Fields(scopeStr)
+		if !oauthScopesAllowed(key.Scopes, requested) {
+			apierr.WriteError(w, http.StatusForbidden, apierr.CodeScopeDenied, "requested scope exceeds client grants")
+			return
+		}
+		tokenScopes = requested
+	}
+
+	token, err := authpkg.GenerateOAuthToken(h.jwtSecret, key.ID, key.TenantID, tokenScopes, h.jwtExpiry)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "failed to issue access token")
+		return
+	}
+
+	_ = h.apiKeyStore.UpdateUsage(r.Context(), key.ID)
+
+	apierr.WriteJSON(w, http.StatusOK, oauthTokenResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(h.jwtExpiry.Seconds()),
+		Scope:       strings.Join(tokenScopes, " "),
+	})
+}
+
+func oauthClientCredentials(r *http.Request) (clientID, clientSecret, grantType, scope string) {
+	clientID, clientSecret, _ = r.BasicAuth()
+	_ = r.ParseForm()
+	if clientID == "" {
+		clientID = r.FormValue("client_id")
+	}
+	if clientSecret == "" {
+		clientSecret = r.FormValue("client_secret")
+	}
+	grantType = r.FormValue("grant_type")
+	scope = r.FormValue("scope")
+	return clientID, clientSecret, grantType, scope
+}
+
+func oauthScopesAllowed(granted, requested []string) bool {
+	for _, req := range requested {
+		allowed := false
+		for _, have := range granted {
+			if have == "*" || have == req {
+				allowed = true
+				break
+			}
+			parts := strings.SplitN(req, ":", 2)
+			if len(parts) == 2 && have == parts[0]+":*" {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +328,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
-	result, lockInfo, err := h.svc.Login(r.Context(), req.Email, req.Password, ipAddr, userAgent)
+	result, lockInfo, err := h.svc.Login(r.Context(), req.Email, req.Password, ipAddr, userAgent, req.RememberMe)
 	if err != nil {
 		switch {
 		case errors.Is(err, authpkg.ErrAccountLocked):
@@ -103,11 +354,33 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.setRefreshCookie(w, result.RefreshToken)
 	}
 
-	apierr.WriteSuccess(w, http.StatusOK, loginResponse{
+	resp := loginResponse{
 		User:        result.User,
 		Token:       result.Token,
 		Requires2FA: result.Requires2FA,
-	})
+		Reason:      result.Reason,
+	}
+	if result.Reason != "" || result.Requires2FA {
+		resp.Partial = true
+	}
+	if result.SessionID != (uuid.UUID{}) {
+		resp.SessionID = result.SessionID.String()
+	}
+	if result.Reason == "password_change_required" {
+		apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+			Status: "success",
+			Data:   resp,
+			Meta: map[string]string{
+				"code": apierr.CodePasswordChangeRequired,
+			},
+		})
+		return
+	}
+	if !resp.Partial {
+		resp.ExpiresIn = int(h.jwtExpiry.Seconds())
+		resp.RefreshExpiresIn = h.refreshMaxAge
+	}
+	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +389,24 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidRefreshToken,
 			"Refresh token is invalid or has been revoked")
 		return
+	}
+
+	if h.redis != nil {
+		sum := sha256.Sum256([]byte(cookie.Value))
+		key := fmt.Sprintf("ratelimit:refresh:%x", sum[:8])
+
+		count, rlErr := h.redis.Incr(r.Context(), key).Result()
+		if rlErr != nil {
+			log.Warn().Err(rlErr).Msg("refresh rate-limit Redis INCR failed — allowing request")
+		} else {
+			if count == 1 {
+				h.redis.Expire(r.Context(), key, 60*time.Second)
+			}
+			if count > 60 {
+				apierr.WriteError(w, http.StatusTooManyRequests, apierr.CodeRateLimited, "Too many refresh requests")
+				return
+			}
+		}
 	}
 
 	ipAddr := extractIP(r.RemoteAddr)
@@ -131,7 +422,9 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	h.setRefreshCookie(w, result.RefreshToken)
 
 	apierr.WriteSuccess(w, http.StatusOK, refreshResponse{
-		Token: result.Token,
+		Token:            result.Token,
+		ExpiresIn:        int(h.jwtExpiry.Seconds()),
+		RefreshExpiresIn: h.refreshMaxAge,
 	})
 }
 
@@ -191,19 +484,66 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Code == "" {
-		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "2FA code is required")
+	if req.Code == "" && req.BackupCode == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError, "code or backup_code is required")
 		return
 	}
 
 	ipAddr := extractIP(r.RemoteAddr)
 	userAgent := r.UserAgent()
 
-	result, err := h.svc.Verify2FA(r.Context(), userID, req.Code, ipAddr, userAgent)
+	result, err := h.svc.Verify2FAWithInput(r.Context(), userID, authpkg.Verify2FAInput{
+		Code:       req.Code,
+		BackupCode: req.BackupCode,
+		IPAddress:  ipAddr,
+		UserAgent:  userAgent,
+	})
 	if err != nil {
-		if errors.Is(err, authpkg.ErrInvalid2FACode) {
+		switch {
+		case errors.Is(err, authpkg.ErrInvalidBackupCode):
+			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidBackupCode,
+				"Invalid backup code")
+		case errors.Is(err, authpkg.ErrInvalid2FACode):
 			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalid2FACode,
 				"Invalid or expired 2FA code")
+		default:
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+				"An unexpected error occurred")
+		}
+		return
+	}
+
+	h.setRefreshCookie(w, result.RefreshToken)
+
+	data := verify2FAResponse{Token: result.Token}
+	if result.UsedBackupCode && result.BackupCodesRemaining <= 3 {
+		type backupMeta struct {
+			BackupCodesRemaining int `json:"backup_codes_remaining"`
+		}
+		apierr.WriteJSON(w, http.StatusOK, apierr.SuccessResponse{
+			Status: "success",
+			Data:   data,
+			Meta:   backupMeta{BackupCodesRemaining: result.BackupCodesRemaining},
+		})
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, data)
+}
+
+func (h *AuthHandler) GenerateBackupCodes(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	codes, err := h.svc.GenerateBackupCodes(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, authpkg.ErrTOTPNotEnabled) {
+			apierr.WriteError(w, http.StatusConflict, apierr.CodeTOTPNotEnabled,
+				"TOTP must be enabled before generating backup codes")
 			return
 		}
 		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
@@ -211,10 +551,184 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	apierr.WriteSuccess(w, http.StatusOK, generateBackupCodesResponse{Codes: codes})
+}
+
+func (h *AuthHandler) BackupCodesRemaining(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials, "Authentication required")
+		return
+	}
+	remaining, totpEnabled, err := h.svc.BackupCodesRemaining(r.Context(), userID)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "An unexpected error occurred")
+		return
+	}
+	apierr.WriteSuccess(w, http.StatusOK, map[string]interface{}{
+		"remaining":    remaining,
+		"totp_enabled": totpEnabled,
+	})
+}
+
+func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	q := r.URL.Query()
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	sessions, nextCursor, err := h.svc.ListSessions(r.Context(), userID, q.Get("cursor"), limit)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
+	type sessionDTO struct {
+		ID        string  `json:"id"`
+		IPAddress *string `json:"ip_address"`
+		UserAgent *string `json:"user_agent"`
+		CreatedAt string  `json:"created_at"`
+		ExpiresAt string  `json:"expires_at"`
+	}
+
+	dtos := make([]sessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		dtos = append(dtos, sessionDTO{
+			ID:        s.ID.String(),
+			IPAddress: s.IPAddress,
+			UserAgent: s.UserAgent,
+			CreatedAt: s.CreatedAt.Format(time.RFC3339),
+			ExpiresAt: s.ExpiresAt.Format(time.RFC3339),
+		})
+	}
+
+	apierr.WriteList(w, http.StatusOK, dtos, apierr.ListMeta{
+		Cursor:  nextCursor,
+		HasMore: nextCursor != "",
+		Limit:   limit,
+	})
+}
+
+func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	sessionIDStr := chi.URLParam(r, "id")
+	if sessionIDStr == "" {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Session ID is required")
+		return
+	}
+	sessionID, err := uuid.Parse(sessionIDStr)
+	if err != nil {
+		log.Warn().
+			Str("session_id", sessionIDStr).
+			Str("user_id", userID.String()).
+			Str("path", r.URL.Path).
+			Msg("revoke session called with non-uuid id")
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid session ID format")
+		return
+	}
+
+	if err := h.svc.RevokeSessionForUser(r.Context(), userID, sessionID); err != nil {
+		if errors.Is(err, authpkg.ErrSessionNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "Session not found")
+			return
+		}
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, map[string]bool{"revoked": true})
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type changePasswordResponse struct {
+	AccessToken  string           `json:"access_token"`
+	RefreshToken string           `json:"refresh_token"`
+	User         authpkg.UserInfo `json:"user"`
+}
+
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(apierr.UserIDKey).(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+			"Authentication required")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Request body is not valid JSON")
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"current_password and new_password are required")
+		return
+	}
+
+	if err := h.svc.ChangePassword(r.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, authpkg.ErrInvalidCredentials):
+			apierr.WriteError(w, http.StatusUnauthorized, apierr.CodeInvalidCredentials,
+				"Current password is incorrect")
+		case errors.Is(err, authpkg.ErrPasswordTooShort):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordTooShort,
+				"Password does not meet minimum length requirement")
+		case errors.Is(err, authpkg.ErrPasswordMissingClass):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordMissingClass,
+				"Password must contain uppercase, lowercase, digit, and symbol characters")
+		case errors.Is(err, authpkg.ErrPasswordRepeatingChars):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordRepeatingChars,
+				"Password contains too many repeating characters")
+		case errors.Is(err, authpkg.ErrPasswordReused):
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodePasswordReused,
+				"Password was recently used. Please choose a different password")
+		default:
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+				"An unexpected error occurred")
+		}
+		return
+	}
+
+	ipAddr := extractIP(r.RemoteAddr)
+	userAgent := r.UserAgent()
+
+	result, err := h.svc.CreateSessionForUser(r.Context(), userID, ipAddr, userAgent)
+	if err != nil {
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"An unexpected error occurred")
+		return
+	}
+
 	h.setRefreshCookie(w, result.RefreshToken)
 
-	apierr.WriteSuccess(w, http.StatusOK, verify2FAResponse{
-		Token: result.Token,
+	apierr.WriteSuccess(w, http.StatusOK, changePasswordResponse{
+		AccessToken:  result.Token,
+		RefreshToken: result.RefreshToken,
+		User:         result.User,
 	})
 }
 

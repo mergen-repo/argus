@@ -37,7 +37,10 @@ function AnimatedCounter({ value, formatter, className, duration = 600 }: Animat
     return () => cancelAnimationFrame(rafRef.current)
   }, [value, duration])
 
-  const formatted = formatter ? formatter(Math.round(display)) : Math.round(display).toLocaleString()
+  // Preserve float precision for custom formatters (percentages, decimals,
+  // currency). Only the default path rounds — integer KPIs should pass
+  // formatNumber explicitly rather than relying on rounding here.
+  const formatted = formatter ? formatter(display) : Math.round(display).toLocaleString()
 
   return <span className={cn('tabular-nums', className)}>{formatted}</span>
 }

@@ -16,7 +16,6 @@ import (
 
 const (
 	writeWait      = 10 * time.Second
-	pongWait       = 10 * time.Second
 	pingPeriod     = 30 * time.Second
 	authTimeout    = 5 * time.Second
 	maxMessageSize = 4096
@@ -25,12 +24,15 @@ const (
 	CloseCodeMaxConns      = 4002
 	CloseCodeAuthTimeout   = 4003
 	CloseCodeInternalError = 4004
+	CloseCodePerUserMax    = 4029
 )
 
 type ServerConfig struct {
 	Addr              string
 	JWTSecret         string
 	MaxConnsPerTenant int
+	MaxConnsPerUser   int
+	PongTimeout       time.Duration
 }
 
 type Server struct {
@@ -45,6 +47,12 @@ type Server struct {
 func NewServer(hub *Hub, cfg ServerConfig, logger zerolog.Logger) *Server {
 	if cfg.MaxConnsPerTenant <= 0 {
 		cfg.MaxConnsPerTenant = 100
+	}
+	if cfg.MaxConnsPerUser <= 0 {
+		cfg.MaxConnsPerUser = 5
+	}
+	if cfg.PongTimeout <= 0 {
+		cfg.PongTimeout = 90 * time.Second
 	}
 
 	s := &Server{
@@ -145,12 +153,30 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userCount := s.hub.UserConnectionCount(claims.TenantID, claims.UserID)
+	if userCount >= s.cfg.MaxConnsPerUser {
+		if evictee := s.hub.EvictOldestByUser(claims.TenantID, claims.UserID); evictee != nil {
+			closeMsg := websocket.FormatCloseMessage(
+				CloseCodePerUserMax,
+				"max connections per user reached, evicting oldest",
+			)
+			_ = evictee.ws.WriteControl(
+				websocket.CloseMessage,
+				closeMsg,
+				time.Now().Add(writeWait),
+			)
+			evictee.ws.Close()
+			s.hub.Unregister(evictee)
+		}
+	}
+
 	conn := &Connection{
-		TenantID: claims.TenantID,
-		UserID:   claims.UserID,
-		SendCh:   make(chan []byte, 256),
-		ws:       wsConn,
-		done:     make(chan struct{}),
+		TenantID:  claims.TenantID,
+		UserID:    claims.UserID,
+		SendCh:    make(chan []byte, 256),
+		ws:        wsConn,
+		done:      make(chan struct{}),
+		createdAt: time.Now(),
 	}
 
 	s.hub.Register(conn)
@@ -236,9 +262,9 @@ func (s *Server) readPump(conn *Connection) {
 	}()
 
 	conn.ws.SetReadLimit(maxMessageSize)
-	_ = conn.ws.SetReadDeadline(time.Now().Add(pingPeriod + pongWait))
+	_ = conn.ws.SetReadDeadline(time.Now().Add(pingPeriod + s.cfg.PongTimeout))
 	conn.ws.SetPongHandler(func(string) error {
-		_ = conn.ws.SetReadDeadline(time.Now().Add(pingPeriod + pongWait))
+		_ = conn.ws.SetReadDeadline(time.Now().Add(pingPeriod + s.cfg.PongTimeout))
 		return nil
 	})
 

@@ -43,7 +43,7 @@ func TestRouterForwardAuth(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	resp, err := router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{
+	resp, err := router.ForwardAuth(context.Background(), opID, testProtocol, adapter.AuthRequest{
 		IMSI: "286010123456789",
 	})
 	if err != nil {
@@ -58,7 +58,7 @@ func TestRouterForwardAuth_NotFound(t *testing.T) {
 	router := newTestRouter()
 	opID := uuid.New()
 
-	_, err := router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{
+	_, err := router.ForwardAuth(context.Background(), opID, testProtocol, adapter.AuthRequest{
 		IMSI: "286010123456789",
 	})
 	if err == nil {
@@ -77,7 +77,7 @@ func TestRouterForwardAcct(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	err := router.ForwardAcct(context.Background(), opID, adapter.AcctRequest{
+	err := router.ForwardAcct(context.Background(), opID, testProtocol, adapter.AcctRequest{
 		IMSI:       "286010123456789",
 		SessionID:  "sess-001",
 		StatusType: adapter.AcctStart,
@@ -91,7 +91,7 @@ func TestRouterSendCoA(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	err := router.SendCoA(context.Background(), opID, adapter.CoARequest{
+	err := router.SendCoA(context.Background(), opID, testProtocol, adapter.CoARequest{
 		IMSI:      "286010123456789",
 		SessionID: "sess-001",
 	})
@@ -104,7 +104,7 @@ func TestRouterSendDM(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	err := router.SendDM(context.Background(), opID, adapter.DMRequest{
+	err := router.SendDM(context.Background(), opID, testProtocol, adapter.DMRequest{
 		IMSI:      "286010123456789",
 		SessionID: "sess-001",
 	})
@@ -118,15 +118,15 @@ func TestRouterCircuitBreaker(t *testing.T) {
 	opID := uuid.New()
 	router.RegisterOperator(opID, &failingAdapter{}, 2, 60)
 
-	_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "123"})
-	_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "123"})
+	_, _ = router.ForwardAuth(context.Background(), opID, "failing", adapter.AuthRequest{IMSI: "123"})
+	_, _ = router.ForwardAuth(context.Background(), opID, "failing", adapter.AuthRequest{IMSI: "123"})
 
-	cb := router.GetCircuitBreaker(opID)
+	cb := router.GetCircuitBreaker(opID, "failing")
 	if cb == nil {
 		t.Fatal("circuit breaker not found")
 	}
 
-	_, err := router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "123"})
+	_, err := router.ForwardAuth(context.Background(), opID, "failing", adapter.AuthRequest{IMSI: "123"})
 	if err == nil {
 		t.Fatal("expected circuit open error")
 	}
@@ -142,13 +142,18 @@ func TestRouterCircuitBreaker(t *testing.T) {
 func TestRouterFailover(t *testing.T) {
 	router := newTestRouter()
 
+	// Register the primary with a genuinely-failing adapter under a
+	// matching protocol label so the failover loop resolves it and
+	// then transitions to the successful fallback.
 	failedID := uuid.New()
-	router.RegisterOperator(failedID, &failingAdapter{}, 100, 60)
+	router.registry.Set(failedID, testProtocol, &failingAdapter{})
+	router.breakers[adapterKey{OperatorID: failedID, Protocol: testProtocol}] = NewCircuitBreaker(100, 60)
 
 	successID := registerMockOperator(t, router, 100)
 
 	resp, err := router.ForwardAuthWithFailover(context.Background(),
 		[]uuid.UUID{failedID, successID},
+		testProtocol,
 		adapter.AuthRequest{IMSI: "286010123456789"},
 	)
 	if err != nil {
@@ -170,6 +175,7 @@ func TestRouterFailover_AllFailed(t *testing.T) {
 
 	_, err := router.ForwardAuthWithFailover(context.Background(),
 		[]uuid.UUID{op1, op2},
+		"failing",
 		adapter.AuthRequest{IMSI: "286010123456789"},
 	)
 	if err == nil {
@@ -180,14 +186,19 @@ func TestRouterFailover_AllFailed(t *testing.T) {
 func TestRouterFailover_CircuitOpenSkipped(t *testing.T) {
 	router := newTestRouter()
 
+	// Primary returns protocol errors (failingAdapter) under the mock
+	// protocol label; failure count of 1 opens its breaker immediately.
+	// Fallback is a normal mock that succeeds.
 	openID := uuid.New()
-	router.RegisterOperator(openID, &failingAdapter{}, 1, 60)
-	_, _ = router.ForwardAuth(context.Background(), openID, adapter.AuthRequest{IMSI: "123"})
+	router.registry.Set(openID, testProtocol, &failingAdapter{})
+	router.breakers[adapterKey{OperatorID: openID, Protocol: testProtocol}] = NewCircuitBreaker(1, 60)
+	_, _ = router.ForwardAuth(context.Background(), openID, testProtocol, adapter.AuthRequest{IMSI: "123"})
 
 	successID := registerMockOperator(t, router, 100)
 
 	resp, err := router.ForwardAuthWithFailover(context.Background(),
 		[]uuid.UUID{openID, successID},
+		testProtocol,
 		adapter.AuthRequest{IMSI: "286010123456789"},
 	)
 	if err != nil {
@@ -202,7 +213,7 @@ func TestRouterHealthCheck(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	result := router.HealthCheck(context.Background(), opID)
+	result := router.HealthCheck(context.Background(), opID, testProtocol)
 	if !result.Success {
 		t.Errorf("health check failed: %s", result.Error)
 	}
@@ -210,7 +221,7 @@ func TestRouterHealthCheck(t *testing.T) {
 
 func TestRouterHealthCheck_NotFound(t *testing.T) {
 	router := newTestRouter()
-	result := router.HealthCheck(context.Background(), uuid.New())
+	result := router.HealthCheck(context.Background(), uuid.New(), testProtocol)
 	if result.Success {
 		t.Error("expected health check to fail for unknown operator")
 	}
@@ -222,7 +233,7 @@ func TestRouterRemoveOperator(t *testing.T) {
 
 	router.RemoveOperator(opID)
 
-	_, err := router.GetAdapter(opID)
+	_, err := router.GetAdapter(opID, testProtocol)
 	if err == nil {
 		t.Error("expected error after removing operator")
 	}
@@ -232,7 +243,7 @@ func TestRouterAuthenticate(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	resp, err := router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{
+	resp, err := router.Authenticate(context.Background(), opID, testProtocol, adapter.AuthenticateRequest{
 		IMSI:    "286010123456789",
 		APN:     "internet",
 		RATType: "LTE",
@@ -253,7 +264,7 @@ func TestRouterAuthenticate(t *testing.T) {
 
 func TestRouterAuthenticate_NotFound(t *testing.T) {
 	router := newTestRouter()
-	_, err := router.Authenticate(context.Background(), uuid.New(), adapter.AuthenticateRequest{IMSI: "123"})
+	_, err := router.Authenticate(context.Background(), uuid.New(), testProtocol, adapter.AuthenticateRequest{IMSI: "123"})
 	if err == nil {
 		t.Fatal("expected error for unknown operator")
 	}
@@ -271,7 +282,7 @@ func TestRouterAuthenticate_ErrorWrapping(t *testing.T) {
 	opID := uuid.New()
 	router.RegisterOperator(opID, &failingAdapter{}, 100, 60)
 
-	_, err := router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{IMSI: "123"})
+	_, err := router.Authenticate(context.Background(), opID, "failing", adapter.AuthenticateRequest{IMSI: "123"})
 	if err == nil {
 		t.Fatal("expected error from failing adapter")
 	}
@@ -291,7 +302,7 @@ func TestRouterAccountingUpdate(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	err := router.AccountingUpdate(context.Background(), opID, adapter.AccountingUpdateRequest{
+	err := router.AccountingUpdate(context.Background(), opID, testProtocol, adapter.AccountingUpdateRequest{
 		IMSI:         "286010123456789",
 		SessionID:    "sess-001",
 		StatusType:   adapter.AcctStart,
@@ -307,7 +318,7 @@ func TestRouterAccountingUpdate(t *testing.T) {
 
 func TestRouterAccountingUpdate_NotFound(t *testing.T) {
 	router := newTestRouter()
-	err := router.AccountingUpdate(context.Background(), uuid.New(), adapter.AccountingUpdateRequest{IMSI: "123"})
+	err := router.AccountingUpdate(context.Background(), uuid.New(), testProtocol, adapter.AccountingUpdateRequest{IMSI: "123"})
 	if err == nil {
 		t.Fatal("expected error for unknown operator")
 	}
@@ -317,7 +328,7 @@ func TestRouterFetchAuthVectors(t *testing.T) {
 	router := newTestRouter()
 	opID := registerMockOperator(t, router, 100)
 
-	vectors, err := router.FetchAuthVectors(context.Background(), opID, "286010123456789", 3)
+	vectors, err := router.FetchAuthVectors(context.Background(), opID, testProtocol, "286010123456789", 3)
 	if err != nil {
 		t.Fatalf("fetch auth vectors: %v", err)
 	}
@@ -333,7 +344,7 @@ func TestRouterFetchAuthVectors(t *testing.T) {
 
 func TestRouterFetchAuthVectors_NotFound(t *testing.T) {
 	router := newTestRouter()
-	_, err := router.FetchAuthVectors(context.Background(), uuid.New(), "123", 1)
+	_, err := router.FetchAuthVectors(context.Background(), uuid.New(), testProtocol, "123", 1)
 	if err == nil {
 		t.Fatal("expected error for unknown operator")
 	}
@@ -354,12 +365,12 @@ func TestRouterConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			opID := operators[idx%len(operators)]
-			_, _ = router.ForwardAuth(context.Background(), opID, adapter.AuthRequest{IMSI: "286010123456789"})
-			_ = router.ForwardAcct(context.Background(), opID, adapter.AcctRequest{IMSI: "286010123456789", SessionID: "s1"})
-			_ = router.HealthCheck(context.Background(), opID)
-			_, _ = router.Authenticate(context.Background(), opID, adapter.AuthenticateRequest{IMSI: "286010123456789", APN: "iot"})
-			_ = router.AccountingUpdate(context.Background(), opID, adapter.AccountingUpdateRequest{IMSI: "286010123456789", SessionID: "s1", StatusType: adapter.AcctInterim})
-			_, _ = router.FetchAuthVectors(context.Background(), opID, "286010123456789", 2)
+			_, _ = router.ForwardAuth(context.Background(), opID, testProtocol, adapter.AuthRequest{IMSI: "286010123456789"})
+			_ = router.ForwardAcct(context.Background(), opID, testProtocol, adapter.AcctRequest{IMSI: "286010123456789", SessionID: "s1"})
+			_ = router.HealthCheck(context.Background(), opID, testProtocol)
+			_, _ = router.Authenticate(context.Background(), opID, testProtocol, adapter.AuthenticateRequest{IMSI: "286010123456789", APN: "iot"})
+			_ = router.AccountingUpdate(context.Background(), opID, testProtocol, adapter.AccountingUpdateRequest{IMSI: "286010123456789", SessionID: "s1", StatusType: adapter.AcctInterim})
+			_, _ = router.FetchAuthVectors(context.Background(), opID, testProtocol, "286010123456789", 2)
 		}(i)
 	}
 	wg.Wait()

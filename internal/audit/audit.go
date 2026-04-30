@@ -69,7 +69,15 @@ type VerifyResult struct {
 	Verified       bool   `json:"verified"`
 	EntriesChecked int    `json:"entries_checked"`
 	FirstInvalid   *int64 `json:"first_invalid"`
+	TotalRows      int    `json:"total_rows"`
 }
+
+// canonicalAuditTimeLayout is the FIX-302 canonical layout for hash input.
+// Byte-for-byte equivalent to PG to_char('YYYY-MM-DD"T"HH24:MI:SS.US"Z"').
+// Fixed-width 6-digit microsecond (zero-padded) + literal Z suffix —
+// survives PG↔Go round-trip in any session timezone, eliminates the
+// RFC3339Nano trailing-zero ambiguity that broke FIX-104.
+const canonicalAuditTimeLayout = "2006-01-02T15:04:05.000000Z"
 
 func ComputeHash(entry Entry, prevHash string) string {
 	userID := "system"
@@ -77,13 +85,17 @@ func ComputeHash(entry Entry, prevHash string) string {
 		userID = entry.UserID.String()
 	}
 
+	// FIX-302: normalize to UTC before formatting so a row written with
+	// time.Now().UTC() and read back via pgx (server-tz, e.g. +03:00)
+	// hash to the same digest. The canonical layout is fixed-width and
+	// matches the PG to_char format used by the seed/repair pipeline.
 	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
 		entry.TenantID.String(),
 		userID,
 		entry.Action,
 		entry.EntityType,
 		entry.EntityID,
-		entry.CreatedAt.Format(time.RFC3339Nano),
+		entry.CreatedAt.UTC().Format(canonicalAuditTimeLayout),
 		prevHash,
 	)
 
@@ -172,9 +184,23 @@ func VerifyChain(entries []Entry) *VerifyResult {
 	result := &VerifyResult{
 		Verified:       true,
 		EntriesChecked: len(entries),
+		TotalRows:      len(entries),
 	}
 
-	if len(entries) <= 1 {
+	if len(entries) == 0 {
+		return result
+	}
+
+	if entries[0].PrevHash != GenesisHash {
+		result.Verified = false
+		result.FirstInvalid = &entries[0].ID
+		return result
+	}
+
+	expectedHash := ComputeHash(entries[0], GenesisHash)
+	if entries[0].Hash != expectedHash {
+		result.Verified = false
+		result.FirstInvalid = &entries[0].ID
 		return result
 	}
 

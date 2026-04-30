@@ -2,9 +2,9 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, Activity, Cpu, DollarSign, RefreshCw, AlertCircle, Info,
-  Zap, Globe, ArrowUpRight, ArrowDownRight, Wifi, WifiOff,
+  Zap, Globe, Wifi, WifiOff,
   ShieldCheck, ShieldAlert, ShieldX, Radio, CheckCircle2, XCircle,
-  Minus, ChevronRight, Gauge, TrendingUp,
+  ChevronRight, Gauge, TrendingUp,
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -14,13 +14,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { AnimatedCounter } from '@/components/ui/animated-counter'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Sparkline } from '@/components/ui/sparkline'
-import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics } from '@/hooks/use-dashboard'
+import { KPICard } from '@/components/shared/kpi-card'
+import type { KPICardProps } from '@/components/shared/kpi-card'
+import { useDashboard, useRealtimeAuthPerSec, useRealtimeAlerts, useRealtimeMetrics, useRealtimeActiveSessions, useRealtimeOperatorHealth } from '@/hooks/use-dashboard'
 import type { DashboardData, DashboardAlert, OperatorHealth, TopAPN, SIMByState, TrafficHeatmapCell } from '@/types/dashboard'
+import { OperatorChip } from '@/components/shared/operator-chip'
+import { EntityLink } from '@/components/shared'
 import { formatNumber, formatCurrency, formatBytes, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { wsClient } from '@/lib/ws'
+import { SeverityBadge } from '@/components/shared/severity-badge'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -34,15 +38,7 @@ const STATE_COLORS: Record<string, string> = {
   lost: 'var(--color-purple)',
 }
 
-interface LiveEvent {
-  id: string
-  type: string
-  message: string
-  severity: 'critical' | 'warning' | 'info'
-  timestamp: string
-  entity_type?: string
-  entity_id?: string
-}
+import { useEventStore, type LiveEvent } from '@/stores/events'
 
 // ─── System Status Strip ────────────────────────────────────────────────────
 
@@ -122,101 +118,61 @@ const SystemStatusStrip = React.memo(function SystemStatusStrip({
 })
 
 // ─── KPI Metric Card ────────────────────────────────────────────────────────
-
-interface KPICardProps {
-  title: string
-  value: number
-  formatter?: (n: number) => string
-  sparklineData: number[]
-  color: string
-  delta?: number
-  deltaFormat?: 'percent' | 'absolute'
-  live?: boolean
-  suffix?: string
-  onClick?: () => void
-  delay: number
-}
-
-const KPICard = React.memo(function KPICard({
-  title,
-  value,
-  formatter,
-  sparklineData,
-  color,
-  delta,
-  deltaFormat = 'percent',
-  live,
-  suffix,
-  onClick,
-  delay,
-}: KPICardProps) {
-  const deltaColor = delta === undefined || delta === 0
-    ? 'text-text-tertiary'
-    : delta > 0
-      ? 'text-success'
-      : 'text-danger'
-
-  const deltaIcon = delta === undefined || delta === 0
-    ? <Minus className="h-3 w-3" />
-    : delta > 0
-      ? <ArrowUpRight className="h-3 w-3" />
-      : <ArrowDownRight className="h-3 w-3" />
-
-  const deltaText = delta === undefined
-    ? null
-    : deltaFormat === 'percent'
-      ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`
-      : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`
-
-  return (
-    <Card
-      className="card-hover cursor-pointer relative overflow-hidden stagger-item group"
-      style={{ animationDelay: `${delay}ms` }}
-      onClick={onClick}
-    >
-      <div className="absolute bottom-0 left-0 right-0 h-[2px] transition-all" style={{ backgroundColor: color }} />
-      <CardHeader className="flex flex-row items-center justify-between pb-1 pt-3 px-4">
-        <span className="text-[10px] uppercase tracking-[1.5px] text-text-secondary font-medium">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          {live && (
-            <span className="flex items-center gap-1">
-              <span
-                className="h-1.5 w-1.5 rounded-full pulse-dot"
-                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}60` }}
-              />
-              <span className="text-[9px] font-semibold tracking-[1px]" style={{ color }}>LIVE</span>
-            </span>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 pb-3 px-4">
-        <div className="flex items-end justify-between gap-2 mb-2">
-          <div className="flex items-baseline gap-1">
-            <AnimatedCounter
-              value={value}
-              formatter={formatter}
-              className="font-mono text-[28px] font-bold text-text-primary leading-none"
-            />
-            {suffix && (
-              <span className="text-[12px] text-text-tertiary font-mono">{suffix}</span>
-            )}
-          </div>
-          {deltaText && (
-            <span className={cn('flex items-center gap-0.5 text-[11px] font-mono font-medium', deltaColor)}>
-              {deltaIcon}
-              {deltaText}
-            </span>
-          )}
-        </div>
-        <Sparkline data={sparklineData} color={color} height={24} width={200} className="w-full" />
-      </CardContent>
-    </Card>
-  )
-})
+// Extracted to web/src/components/shared/kpi-card.tsx — imported above.
 
 // ─── Operator Health Matrix ─────────────────────────────────────────────────
+
+// Stable reference so the selector below doesn't return a fresh empty
+// array on every render (Zustand uses strict equality → would infinite-loop).
+const EMPTY_BUCKET_ARRAY: Array<{ minute: number; count: number }> = []
+
+// OperatorActivitySparkline — per-operator 15-minute bar-style histogram
+// fed by useEventStore.operatorHistogram. Updates live as session.started/
+// updated/ended events stream in. Mirrors the topbar ActivitySparkline's
+// visual language (thin bars, last-minute highlighted) but scoped to a
+// single operator_id.
+function OperatorActivitySparkline({ operatorId }: { operatorId: string }) {
+  const histogram = useEventStore((s) => s.operatorHistogram[operatorId]) ?? EMPTY_BUCKET_ARRAY
+
+  const bars = useMemo(() => {
+    const now = Math.floor(Date.now() / 60_000)
+    const result: number[] = []
+    for (let i = 14; i >= 0; i--) {
+      const min = now - i
+      const bucket = histogram.find((b) => b.minute === min)
+      result.push(bucket?.count ?? 0)
+    }
+    return result
+  }, [histogram])
+
+  const max = Math.max(...bars, 1)
+  const recent = bars.slice(-3).reduce((a, b) => a + b, 0)
+  const total15m = bars.reduce((a, b) => a + b, 0)
+  const hasActivity = recent > 0
+
+  return (
+    <div className="flex items-center gap-2" title={`${total15m} events in last 15min · ${recent} in last 3min`}>
+      <div className="flex items-end gap-[1.5px] h-4">
+        {bars.map((v, i) => (
+          <div
+            key={i}
+            className={cn(
+              'w-[3px] rounded-t-[1px] transition-all duration-300',
+              i === bars.length - 1 && hasActivity ? 'bg-accent' : v > 0 ? 'bg-accent/50' : 'bg-text-tertiary/15',
+            )}
+            style={{ height: `${Math.max((v / max) * 100, 8)}%` }}
+          />
+        ))}
+      </div>
+      <span className={cn(
+        'font-mono text-[11px] tabular-nums w-[32px] text-right',
+        hasActivity ? 'text-accent' : 'text-text-tertiary/40',
+      )}>
+        {recent}
+      </span>
+    </div>
+  )
+}
 
 const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
   data,
@@ -246,11 +202,10 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
     return 'text-danger'
   }
 
-  const slaStatus = (health: number, target: number) => {
-    const diff = health - target
-    if (diff >= 0.5) return { icon: <CheckCircle2 className="h-3.5 w-3.5 text-success" />, label: 'Met' }
-    if (diff >= 0) return { icon: <AlertTriangle className="h-3.5 w-3.5 text-warning" />, label: 'Close' }
-    return { icon: <XCircle className="h-3.5 w-3.5 text-danger" />, label: 'Breach' }
+  const authRateColor = (rate: number): string => {
+    if (rate >= 99) return 'text-success'
+    if (rate >= 95) return 'text-warning'
+    return 'text-danger'
   }
 
   return (
@@ -268,75 +223,104 @@ const OperatorHealthMatrix = React.memo(function OperatorHealthMatrix({
             No operators configured
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pr-3">Operator</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth/s</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</th>
-                  <th className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-center">SLA</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((op) => {
-                  const sla = slaStatus(op.health_pct, op.sla_target || 99.5)
-                  return (
-                    <tr
-                      key={op.id}
-                      className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-bg-hover transition-colors group"
-                      onClick={() => navigate(`/operators/${op.id}`)}
-                    >
-                      <td className="py-2.5 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] text-text-primary font-medium group-hover:text-accent transition-colors">
-                            {op.name}
-                          </span>
-                          {op.code && (
-                            <span className="text-[10px] font-mono text-text-tertiary">{op.code}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span
-                            className="h-2 w-2 rounded-full pulse-dot"
-                            style={{
-                              backgroundColor: statusColor(op.status),
-                              boxShadow: `0 0 6px ${statusColor(op.status)}60`,
-                            }}
-                          />
-                          <span className="text-[11px] text-text-secondary capitalize">{op.status}</span>
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className="font-mono text-[12px] text-text-primary">
-                          {formatNumber(Math.round(op.auth_rate || 0))}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className={cn('font-mono text-[12px]', uptimeColor(op.health_pct))}>
-                          {op.health_pct.toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
+          <Table className="text-left">
+              <TableHeader>
+                <TableRow className="border-b border-border">
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pr-3">Operator</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-center">Status</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Uptime</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Latency</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 px-3 text-right">Auth</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium pb-2 pl-3 text-right">Activity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((op) => (
+                  <TableRow
+                    key={op.id}
+                    className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-bg-hover transition-colors group"
+                    onClick={() => navigate(`/operators/${op.id}`)}
+                  >
+                    <TableCell className="py-2.5 pr-3">
+                      <div className="flex flex-col gap-0.5">
+                        <OperatorChip
+                          name={op.name}
+                          code={op.code}
+                          rawId={op.id}
+                          className="group-hover:ring-1 group-hover:ring-accent/40 transition-all"
+                        />
+                        {(op.active_sessions != null || op.sla_target != null) && (
+                          <div className="flex items-center gap-2 pl-0.5">
+                            {op.active_sessions != null && (
+                              <span className="text-[10px] font-mono text-text-tertiary">
+                                {op.active_sessions.toLocaleString()} active
+                              </span>
+                            )}
+                            {op.sla_target != null && (
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono text-text-tertiary">
+                                  SLA {op.sla_target.toFixed(2)}%
+                                </span>
+                                {op.latency_ms != null && op.latency_ms > (op.sla_latency_ms ?? 500) && (
+                                  <Badge variant="danger" className="text-[9px]">SLA breach</Badge>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-center">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="h-2 w-2 rounded-full pulse-dot"
+                          style={{
+                            backgroundColor: statusColor(op.status),
+                            boxShadow: `0 0 6px ${statusColor(op.status)}60`,
+                          }}
+                        />
+                        <span className="text-[11px] text-text-secondary capitalize">{op.status}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-right">
+                      <span className={cn('font-mono text-[12px]', uptimeColor(op.health_pct))}>
+                        {op.health_pct.toFixed(2)}%
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 px-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
                         <span className={cn('font-mono text-[12px]', latencyColor(op.latency_ms || 0))}>
-                          {(op.latency_ms || 0).toFixed(0)}ms
+                          {op.latency_ms != null ? `${op.latency_ms.toFixed(0)}ms` : '—'}
                         </span>
-                      </td>
-                      <td className="py-2.5 pl-3 text-center">
-                        <span className="inline-flex items-center gap-1" title={sla.label}>
-                          {sla.icon}
+                        {op.latency_sparkline && op.latency_sparkline.length > 1 && (
+                          <Sparkline
+                            data={op.latency_sparkline}
+                            width={72}
+                            height={24}
+                            className="ml-2 inline-block align-middle"
+                            color="var(--color-accent)"
+                          />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right px-3">
+                      {op.auth_rate != null ? (
+                        <span className={cn('font-mono text-[12px]', authRateColor(op.auth_rate))}>
+                          {op.auth_rate.toFixed(1)}%
                         </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : (
+                        <span className="text-text-tertiary">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-2.5 pl-3">
+                      <div className="flex justify-end">
+                        <OperatorActivitySparkline operatorId={op.id} />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
@@ -350,7 +334,7 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
 }: {
   data: TrafficHeatmapCell[]
 }) {
-  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number } | null>(null)
+  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number; value: number; rawBytes: number } | null>(null)
 
   const maxValue = useMemo(() => {
     if (data.length === 0) return 1
@@ -358,8 +342,8 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
   }, [data])
 
   const grid = useMemo(() => {
-    const map = new Map<string, number>()
-    data.forEach((d) => map.set(`${d.day}-${d.hour}`, d.value))
+    const map = new Map<string, { value: number; rawBytes: number }>()
+    data.forEach((d) => map.set(`${d.day}-${d.hour}`, { value: d.value, rawBytes: d.raw_bytes ?? 0 }))
     return map
   }, [data])
 
@@ -400,19 +384,19 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
                 <React.Fragment key={dayIdx}>
                   <div className="text-[10px] font-mono text-text-tertiary flex items-center pr-1">{day}</div>
                   {HOURS.map((hour) => {
-                    const value = grid.get(`${dayIdx}-${hour}`) ?? 0
+                    const cell = grid.get(`${dayIdx}-${hour}`) ?? { value: 0, rawBytes: 0 }
                     const isHovered = hoveredCell?.day === dayIdx && hoveredCell?.hour === hour
                     return (
                       <div
                         key={hour}
                         className="aspect-square rounded-[2px] transition-all cursor-crosshair relative"
                         style={{
-                          backgroundColor: cellColor(value),
+                          backgroundColor: cellColor(cell.value),
                           outline: isHovered ? '1px solid var(--color-accent)' : 'none',
                           transform: isHovered ? 'scale(1.3)' : 'scale(1)',
                           zIndex: isHovered ? 10 : 0,
                         }}
-                        onMouseEnter={() => setHoveredCell({ day: dayIdx, hour, value })}
+                        onMouseEnter={() => setHoveredCell({ day: dayIdx, hour, value: cell.value, rawBytes: cell.rawBytes })}
                         onMouseLeave={() => setHoveredCell(null)}
                       />
                     )
@@ -423,10 +407,9 @@ const TrafficHeatmap = React.memo(function TrafficHeatmap({
 
             {hoveredCell && (
               <div className="absolute top-0 right-0 bg-bg-elevated border border-border rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[11px] font-mono pointer-events-none z-20 shadow-lg">
+                <span className="text-accent font-semibold">{formatBytes(hoveredCell.rawBytes)}</span>
+                <span className="mx-1.5 text-text-tertiary">@</span>
                 <span className="text-text-secondary">{DAYS[hoveredCell.day]} {hoveredCell.hour.toString().padStart(2, '0')}:00</span>
-                <span className="mx-1.5 text-text-tertiary">|</span>
-                <span className="text-accent font-semibold">{hoveredCell.value}</span>
-                <span className="text-text-tertiary ml-1">req/s</span>
               </div>
             )}
 
@@ -507,7 +490,14 @@ const SIMDistributionDonut = React.memo(function SIMDistributionDonut({
                       color: 'var(--color-text-primary)',
                       fontSize: '12px',
                     }}
-                    formatter={(value) => [formatNumber(Number(value)), 'Count']}
+                    formatter={(value, _name, props) => {
+                      // Recharts passes the raw numeric value; the entry's
+                      // "name" (Active / Ordered / Suspended …) is on
+                      // props.payload. Substitute it for the generic
+                      // "Count" label so the tooltip reads e.g. "Active: 8".
+                      const label = (props?.payload as { name?: string } | undefined)?.name ?? 'Count'
+                      return [formatNumber(Number(value)), label]
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -576,8 +566,8 @@ const TopAPNsByTraffic = React.memo(function TopAPNsByTraffic({
                   onClick={() => apn.id && navigate(`/apns/${apn.id}`)}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-mono text-text-primary group-hover:text-accent transition-colors truncate">
-                      {apn.name === 'none' ? 'No APN' : apn.name}
+                    <span className="text-[12px] font-mono text-text-primary group-hover:text-accent transition-colors truncate" onClick={(e) => e.stopPropagation()}>
+                      {apn.id ? <EntityLink entityType="apn" entityId={apn.id} label={apn.name === 'none' ? 'No APN' : apn.name} /> : (apn.name === 'none' ? 'No APN' : apn.name)}
                     </span>
                     <div className="flex items-center gap-3 flex-shrink-0 pl-2">
                       <span className="text-[11px] font-mono text-text-secondary">
@@ -609,6 +599,54 @@ const TopAPNsByTraffic = React.memo(function TopAPNsByTraffic({
 
 // ─── Live Event Stream ──────────────────────────────────────────────────────
 
+// EventSourceChips renders IMSI / IP / Operator / APN / Policy / Job chips
+// derived from the LiveEvent payload. Highlights SIM-level context
+// (IMSI/IP) in accent colour; falls back to entity_type:entity_id when no
+// richer signal is present.
+function pickStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v ? v : undefined
+}
+
+function EventSourceChips({ event }: { event: LiveEvent }) {
+  const meta = event.meta || {}
+  const chips: Array<{ label: string; value: string; highlight?: boolean }> = []
+  if (event.imsi) chips.push({ label: 'IMSI', value: event.imsi, highlight: true })
+  if (event.framed_ip) chips.push({ label: 'IP', value: event.framed_ip, highlight: true })
+  if (event.msisdn) chips.push({ label: 'MSISDN', value: event.msisdn })
+
+  // Name-aware priority chain (FIX-219 / AC-7):
+  // P1: envelope entity display_name, P2: meta name fields, P3: UUID slice
+  const envEntityType = event.entity?.type
+  const envDisplayName = event.entity?.display_name
+  function resolveId(id: string, matchType: string, metaNameKey: string): string {
+    if (envEntityType === matchType && envDisplayName) return envDisplayName
+    const metaName = pickStr(meta[metaNameKey])
+    if (metaName) return metaName
+    return id.slice(0, 8)
+  }
+
+  if (event.operator_id && !event.imsi) chips.push({ label: 'Op', value: resolveId(event.operator_id, 'operator', 'operator_name') })
+  if (event.apn_id && !event.imsi) chips.push({ label: 'APN', value: resolveId(event.apn_id, 'apn', 'apn_name') })
+  if (event.policy_id) chips.push({ label: 'Policy', value: resolveId(event.policy_id, 'policy', 'policy_name') })
+  if (event.job_id) chips.push({ label: 'Job', value: resolveId(event.job_id, 'job', 'job_name') })
+  if (typeof event.progress_pct === 'number') chips.push({ label: '%', value: `${Math.round(event.progress_pct)}` })
+  if (chips.length === 0 && event.entity_type && event.entity_id) {
+    const fallbackValue = envDisplayName || event.entity_id.slice(0, 8)
+    chips.push({ label: event.entity_type, value: fallbackValue })
+  }
+  if (chips.length === 0) return null
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+      {chips.map((c, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-mono">
+          <span className="text-text-tertiary opacity-60">{c.label}</span>
+          <span className={c.highlight ? 'text-accent' : 'text-text-secondary'}>{c.value}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function eventIcon(type: string) {
   switch (type) {
     case 'sim.activated':
@@ -635,30 +673,13 @@ function eventIcon(type: string) {
 
 function LiveEventStream() {
   const navigate = useNavigate()
-  const [events, setEvents] = useState<LiveEvent[]>([])
+  // Shared event store — DashboardLayout's useGlobalEventListener already
+  // subscribes to wsClient and enriches every event with source fields
+  // (imsi, framed_ip, msisdn, operator_id, apn_id, policy_id, job_id,
+  // progress_pct). Reusing the store avoids duplicate WS subscriptions
+  // and keeps this inline stream consistent with the drawer.
+  const events = useEventStore((s) => s.events).slice(0, 50)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const unsub = wsClient.on('*', (rawMsg: unknown) => {
-      const msg = rawMsg as { type?: string; data?: Record<string, unknown> }
-      if (!msg.type) return
-
-      const evtData = msg.data || {}
-      const newEvent: LiveEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: msg.type,
-        message: (evtData.message as string) || msg.type.replace(/\./g, ' '),
-        severity: (evtData.severity as LiveEvent['severity']) || 'info',
-        timestamp: new Date().toISOString(),
-        entity_type: evtData.entity_type as string,
-        entity_id: evtData.entity_id as string,
-      }
-
-      setEvents((prev) => [newEvent, ...prev].slice(0, 50))
-    })
-
-    return unsub
-  }, [])
 
   const handleEventClick = useCallback((event: LiveEvent) => {
     if (event.entity_type && event.entity_id) {
@@ -675,14 +696,6 @@ function LiveEventStream() {
       navigate('/analytics/anomalies')
     }
   }, [navigate])
-
-  const severityVariant = (s: string): 'danger' | 'warning' | 'default' => {
-    switch (s) {
-      case 'critical': return 'danger'
-      case 'warning': return 'warning'
-      default: return 'default'
-    }
-  }
 
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '450ms' }}>
@@ -707,27 +720,31 @@ function LiveEventStream() {
               <span>Waiting for events...</span>
             </div>
           ) : (
-            events.map((event, idx) => (
-              <div
-                key={event.id}
-                className={cn(
-                  'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors',
-                  idx === 0 && 'animate-slide-up-in',
-                )}
-                onClick={() => handleEventClick(event)}
-              >
-                {eventIcon(event.type)}
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0 w-[42px]">
-                    {new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <span className="text-[12px] text-text-primary truncate">{event.message}</span>
+            events.map((event, idx) => {
+              const ts = new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+              // metrics.realtime filtered out at ingest — see
+              // dashboard-layout.tsx useGlobalEventListener.
+              return (
+                <div
+                  key={event.id}
+                  className={cn(
+                    'flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors',
+                    idx === 0 && 'animate-slide-up-in',
+                  )}
+                  onClick={() => handleEventClick(event)}
+                >
+                  {eventIcon(event.type)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0">{ts}</span>
+                      <span className="text-[12px] text-text-primary truncate">{event.message}</span>
+                    </div>
+                    <EventSourceChips event={event} />
+                  </div>
+                  <SeverityBadge severity={event.severity} className="flex-shrink-0" />
                 </div>
-                <Badge variant={severityVariant(event.severity)} className="text-[9px] flex-shrink-0 py-0">
-                  {event.severity}
-                </Badge>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </CardContent>
@@ -740,24 +757,6 @@ function LiveEventStream() {
 const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardAlert[] }) {
   const navigate = useNavigate()
 
-  const severityIcon = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return <AlertCircle className="h-3.5 w-3.5 text-danger flex-shrink-0" />
-      case 'warning':
-        return <AlertTriangle className="h-3.5 w-3.5 text-warning flex-shrink-0" />
-      default:
-        return <Info className="h-3.5 w-3.5 text-info flex-shrink-0" />
-    }
-  }
-
-  const severityVariant = (severity: string): 'danger' | 'warning' | 'default' => {
-    switch (severity) {
-      case 'critical': return 'danger'
-      case 'warning': return 'warning'
-      default: return 'default'
-    }
-  }
 
   return (
     <Card className="card-hover stagger-item" style={{ animationDelay: '450ms' }}>
@@ -786,21 +785,29 @@ const AlertFeed = React.memo(function AlertFeed({ alerts }: { alerts: DashboardA
                 key={alert.id || idx}
                 className="flex items-start gap-2.5 py-1.5 px-2 rounded-[var(--radius-sm)] hover:bg-bg-hover cursor-pointer transition-colors"
                 onClick={() => {
-                  if (alert.entity_type && alert.entity_id) {
-                    navigate(`/${alert.entity_type}s/${alert.entity_id}`)
+                  if (alert.source === 'sim' && alert.meta?.anomaly_id && alert.sim_id) {
+                    navigate(`/sims/${alert.sim_id}`)
                   } else {
-                    navigate('/analytics/anomalies')
+                    navigate(`/alerts/${alert.id}`)
                   }
                 }}
               >
-                {severityIcon(alert.severity)}
+                <SeverityBadge severity={alert.severity} iconOnly className="flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] text-text-primary truncate">{alert.message}</p>
                   <p className="text-[10px] text-text-tertiary mt-0.5">{timeAgo(alert.detected_at)}</p>
                 </div>
-                <Badge variant={severityVariant(alert.severity)} className="text-[9px] flex-shrink-0 py-0">
-                  {alert.severity}
-                </Badge>
+                {alert.sim_id && (
+                  <span className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <EntityLink entityType="sim" entityId={alert.sim_id} truncate className="text-[10px]" />
+                  </span>
+                )}
+                {alert.source && (
+                  <span className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary flex-shrink-0">
+                    {alert.source}
+                  </span>
+                )}
+                <SeverityBadge severity={alert.severity} className="flex-shrink-0" />
               </div>
             ))}
           </div>
@@ -914,6 +921,8 @@ export default function DashboardPage() {
   useRealtimeAuthPerSec()
   useRealtimeAlerts()
   useRealtimeMetrics()
+  useRealtimeActiveSessions()
+  useRealtimeOperatorHealth()
 
   const navigate = useNavigate()
 
@@ -939,7 +948,6 @@ export default function DashboardPage() {
     ip_pool_usage_delta: 0,
   }
   const sp = data.sparklines || {}
-  const fallbackSparkline = Array.from({ length: 24 }, () => 40 + Math.random() * 60)
 
   const errorRateColor =
     m.error_rate > 1 ? 'var(--color-danger)' :
@@ -965,7 +973,7 @@ export default function DashboardPage() {
           title="Total SIMs"
           value={m.total_sims}
           formatter={formatNumber}
-          sparklineData={sp.total_sims || fallbackSparkline}
+          sparklineData={sp.total_sims || []}
           color="var(--color-accent)"
           delta={d.total_sims_delta}
           onClick={() => navigate('/sims')}
@@ -975,7 +983,7 @@ export default function DashboardPage() {
           title="Active Sessions"
           value={m.active_sessions}
           formatter={formatNumber}
-          sparklineData={sp.active_sessions || fallbackSparkline}
+          sparklineData={sp.active_sessions || []}
           color="var(--color-success)"
           delta={d.active_sessions_delta}
           onClick={() => navigate('/sessions')}
@@ -985,7 +993,7 @@ export default function DashboardPage() {
           title="Auth/s"
           value={Math.round(m.auth_per_sec)}
           formatter={formatNumber}
-          sparklineData={sp.auth_per_sec || fallbackSparkline}
+          sparklineData={sp.auth_per_sec || []}
           color="var(--color-purple)"
           delta={d.auth_per_sec_delta}
           live
@@ -996,7 +1004,7 @@ export default function DashboardPage() {
           title="Session Start/s"
           value={Math.round(m.session_start_rate)}
           formatter={formatNumber}
-          sparklineData={sp.session_start_rate || fallbackSparkline}
+          sparklineData={sp.session_start_rate || []}
           color="var(--color-cyan)"
           delay={140}
         />
@@ -1004,7 +1012,7 @@ export default function DashboardPage() {
           title="Error Rate"
           value={m.error_rate}
           formatter={(n) => `${n.toFixed(2)}%`}
-          sparklineData={sp.error_rate || fallbackSparkline}
+          sparklineData={sp.error_rate || []}
           color={errorRateColor}
           delta={d.error_rate_delta}
           deltaFormat="absolute"
@@ -1015,27 +1023,32 @@ export default function DashboardPage() {
           title="Monthly Cost"
           value={m.monthly_cost}
           formatter={formatCurrency}
-          sparklineData={sp.monthly_cost || fallbackSparkline}
+          sparklineData={sp.monthly_cost || []}
           color="var(--color-warning)"
           delta={d.monthly_cost_delta}
           onClick={() => navigate('/analytics/cost')}
           delay={200}
         />
         <KPICard
-          title="IP Pool Usage"
+          title="Pool Utilization (avg across all pools)"
           value={m.ip_pool_usage_pct}
           formatter={(n) => `${n.toFixed(1)}%`}
-          sparklineData={sp.ip_pool_usage || fallbackSparkline}
+          sparklineData={sp.ip_pool_usage || []}
           color={ipPoolColor}
           delta={d.ip_pool_usage_delta}
           deltaFormat="absolute"
+          subtitle={
+            data.top_ip_pool
+              ? `Top pool: ${data.top_ip_pool.name} ${data.top_ip_pool.usage_pct.toFixed(0)}%`
+              : undefined
+          }
           delay={230}
         />
         <KPICard
           title="SIM Velocity"
           value={Math.round(m.sim_velocity_per_hour)}
           formatter={(n) => `+${formatNumber(n)}`}
-          sparklineData={sp.sim_velocity || fallbackSparkline}
+          sparklineData={sp.sim_velocity || []}
           color="var(--color-info)"
           suffix="/h"
           delay={260}
@@ -1054,6 +1067,9 @@ export default function DashboardPage() {
         <div className="space-y-4">
           <SIMDistributionDonut data={data.sim_by_state || []} />
           <TopAPNsByTraffic data={data.top_apns || []} />
+          {/* FIX-209 Gate (F-U1): AlertFeed was defined but never mounted — AC-5 requires
+              the dashboard Recent Alerts panel to read from the unified alerts source. */}
+          <AlertFeed alerts={data.recent_alerts || []} />
           <LiveEventStream />
         </div>
       </div>

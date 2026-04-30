@@ -22,11 +22,11 @@ type GrantProvider interface {
 }
 
 type Engine struct {
-	grantProvider GrantProvider
-	cache         *SoRCache
-	cbCheck       CircuitBreakerChecker
-	logger        zerolog.Logger
-	config        SoRConfig
+	grantProvider     GrantProvider
+	cache             *SoRCache
+	cbCheck           CircuitBreakerChecker
+	logger            zerolog.Logger
+	config            SoRConfig
 }
 
 func NewEngine(
@@ -93,6 +93,8 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 		return nil, fmt.Errorf("sor: all operators have open circuit breakers for tenant %s", req.TenantID)
 	}
 
+	now := time.Now()
+
 	imsiMatched := e.filterByIMSIPrefix(candidates, req.IMSI)
 
 	var working []CandidateOperator
@@ -126,7 +128,7 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 		Reason:            reason,
 		RATType:           req.RequestedRAT,
 		CostPerMB:         working[0].CostPerMB,
-		EvaluatedAt:       time.Now(),
+		EvaluatedAt:       now,
 		Cached:            false,
 	}
 
@@ -214,11 +216,15 @@ func (e *Engine) buildCandidates(grants []store.GrantWithOperator) []CandidateOp
 		if g.CostPerMB != nil {
 			costPerMB = *g.CostPerMB
 		}
+		rats := g.SupportedRATTypes
+		if len(rats) == 0 {
+			rats = g.OperatorSupportedRATTypes
+		}
 		candidates = append(candidates, CandidateOperator{
 			OperatorID:    g.OperatorID,
 			MCC:           g.MCC,
 			MNC:           g.MNC,
-			SupportedRATs: g.SupportedRATTypes,
+			SupportedRATs: rats,
 			SoRPriority:   g.SoRPriority,
 			CostPerMB:     costPerMB,
 			HealthStatus:  g.HealthStatus,

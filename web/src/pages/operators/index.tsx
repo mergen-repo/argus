@@ -6,14 +6,19 @@ import {
   Radio,
   Plus,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { SlidePanel } from '@/components/ui/slide-panel'
-import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator } from '@/hooks/use-operators'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { EmptyState } from '@/components/shared/empty-state'
+import { useExport } from '@/hooks/use-export'
+import { useOperatorList, useRealtimeOperatorHealth, useCreateOperator, useOperatorGrants, useAssignOperator, useRemoveOperatorGrant } from '@/hooks/use-operators'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import type { Operator } from '@/types/operator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RAT_DISPLAY } from '@/lib/constants'
@@ -25,6 +30,7 @@ const ADAPTER_DISPLAY: Record<string, string> = {
   radius: 'RADIUS',
   diameter: 'Diameter',
   sba: '5G SBA',
+  http: 'HTTP',
 }
 
 const FAILOVER_DISPLAY: Record<string, string> = {
@@ -69,7 +75,7 @@ function MetricBox({ label, value }: { label: string; value: string }) {
   )
 }
 
-function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () => void }) {
+function OperatorCard({ operator, onClick, assigned }: { operator: Operator; onClick: () => void; assigned?: boolean }) {
   const failoverLabel = FAILOVER_DISPLAY[operator.failover_policy] ?? operator.failover_policy
 
   return (
@@ -93,9 +99,12 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
             </p>
           </div>
         </div>
-        <Badge variant={healthVariant(operator.health_status)} className="text-[10px] flex-shrink-0">
-          {operator.health_status.toUpperCase()}
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          {assigned && <Badge variant="secondary" className="text-[10px]">Assigned</Badge>}
+          <Badge variant={healthVariant(operator.health_status)} className="text-[10px] flex-shrink-0">
+            {operator.health_status.toUpperCase()}
+          </Badge>
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -115,9 +124,21 @@ function OperatorCard({ operator, onClick }: { operator: Operator; onClick: () =
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-medium">
-            {ADAPTER_DISPLAY[operator.adapter_type] ?? operator.adapter_type}
-          </span>
+          {operator.enabled_protocols && operator.enabled_protocols.length > 0 ? (
+            operator.enabled_protocols.slice(0, 3).map((proto) => (
+              <span
+                key={proto}
+                className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-medium"
+              >
+                {ADAPTER_DISPLAY[proto] ?? proto}
+              </span>
+            ))
+          ) : (
+            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-tertiary font-medium">—</span>
+          )}
+          {operator.enabled_protocols && operator.enabled_protocols.length > 3 && (
+            <span className="text-[10px] text-text-tertiary">+{operator.enabled_protocols.length - 3}</span>
+          )}
           {operator.supported_rat_types.slice(0, 4).map((rat) => (
             <span
               key={rat}
@@ -170,13 +191,6 @@ function OperatorCardSkeleton() {
   )
 }
 
-const ADAPTER_OPTIONS = [
-  { value: 'mock', label: 'Mock' },
-  { value: 'radius', label: 'RADIUS' },
-  { value: 'diameter', label: 'Diameter' },
-  { value: 'sba', label: '5G SBA' },
-]
-
 const RAT_TYPE_OPTIONS = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
 
 function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -185,7 +199,6 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
     code: '',
     mcc: '',
     mnc: '',
-    adapter_type: 'mock',
     supported_rat_types: [] as string[],
   })
   const [error, setError] = useState<string | null>(null)
@@ -207,15 +220,20 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
     if (!form.mcc.trim()) { setError('MCC is required'); return }
     if (!form.mnc.trim()) { setError('MNC is required'); return }
     try {
+      // STORY-090 Wave 3 Task 7c: Create form seeds a minimal mock
+      // adapter_config so the backend handler accepts the body. Full
+      // multi-protocol configuration happens in the detail page's
+      // Protocols tab.
       await createMutation.mutateAsync({
         name: form.name.trim(),
         code: form.code.trim(),
         mcc: form.mcc.trim(),
         mnc: form.mnc.trim(),
-        adapter_type: form.adapter_type,
+        adapter_config: { mock: { enabled: true } },
         supported_rat_types: form.supported_rat_types,
       })
-      setForm({ name: '', code: '', mcc: '', mnc: '', adapter_type: 'mock', supported_rat_types: [] })
+      setForm({ name: '', code: '', mcc: '', mnc: '', supported_rat_types: [] })
+      toast.success('Operator created. Configure protocols in the Protocols tab.')
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -264,32 +282,30 @@ function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () =>
             />
           </div>
         </div>
-        <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">Adapter Type *</label>
-          <Select
-            value={form.adapter_type}
-            onChange={(e) => setForm((f) => ({ ...f, adapter_type: e.target.value }))}
-            className="h-8 text-sm"
-            options={ADAPTER_OPTIONS}
-          />
+        <div className="rounded-[var(--radius-sm)] border border-border bg-bg-elevated px-3 py-2.5">
+          <p className="text-xs text-text-secondary">
+            Protocol configuration (RADIUS, Diameter, 5G SBA, HTTP, Mock) is managed from the operator detail page's <span className="font-semibold text-text-primary">Protocols</span> tab. The new operator boots with Mock enabled.
+          </p>
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">Supported RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS.map((rat) => (
-              <button
+              <Button
                 key={rat}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => toggleRat(rat)}
                 className={cn(
-                  'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+                  'px-2.5 py-1 h-auto text-xs font-mono border transition-colors',
                   form.supported_rat_types.includes(rat)
-                    ? 'border-accent bg-accent-dim text-accent'
+                    ? 'border-accent bg-accent-dim text-accent hover:bg-accent-dim hover:text-accent'
                     : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
                 )}
               >
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -312,7 +328,30 @@ export default function OperatorListPage() {
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
   const { data: operators, isLoading, isError, refetch } = useOperatorList()
+  const { data: grants = [] } = useOperatorGrants()
+  const assignMutation = useAssignOperator()
+  const removeMutation = useRemoveOperatorGrant()
   useRealtimeOperatorHealth()
+  const { exportCSV, exporting } = useExport('operators')
+
+  const grantedOperatorIds = new Set(grants.map((g) => g.operator_id))
+  const grantByOperatorId = Object.fromEntries(grants.map((g) => [g.operator_id, g]))
+
+  const handleAssign = async (operatorId: string) => {
+    try {
+      await assignMutation.mutateAsync({ operator_id: operatorId })
+      toast.success('Operator assigned to tenant')
+    } catch { /* interceptor */ }
+  }
+
+  const handleUnassign = async (operatorId: string) => {
+    const grant = grantByOperatorId[operatorId]
+    if (!grant) return
+    try {
+      await removeMutation.mutateAsync(grant.id)
+      toast.success('Operator removed from tenant')
+    } catch { /* interceptor */ }
+  }
 
   if (isError) {
     return (
@@ -334,10 +373,16 @@ export default function OperatorListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[16px] font-semibold text-text-primary">Operators</h1>
-        <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Create Operator
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export
+          </Button>
+          <Button className="gap-2" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Create Operator
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -349,27 +394,34 @@ export default function OperatorListPage() {
       )}
 
       {!isLoading && (!operators || operators.length === 0) && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
-            <Radio className="h-8 w-8 text-text-tertiary mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-text-primary mb-1">No operators configured</h3>
-            <p className="text-xs text-text-secondary mb-4">Create your first operator to get started.</p>
-            <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              Create Operator
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          icon={Radio}
+          title="No operators configured"
+          description="Create your first operator to get started."
+          ctaLabel="Create Operator"
+          onCta={() => setCreateOpen(true)}
+        />
       )}
 
       {!isLoading && operators && operators.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {operators.map((op, i) => (
-            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1">
+            <div key={op.id} style={{ animationDelay: `${i * 50}ms` }} className="animate-in fade-in slide-in-from-bottom-1 relative group" data-row-index={i} data-href={`/operators/${op.id}`}>
               <OperatorCard
                 operator={op}
                 onClick={() => navigate(`/operators/${op.id}`)}
+                assigned={grantedOperatorIds.has(op.id)}
               />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <RowActionsMenu
+                  actions={[
+                    { label: 'View Details', onClick: () => navigate(`/operators/${op.id}`) },
+                    ...(grantedOperatorIds.has(op.id)
+                      ? [{ label: 'Remove from Tenant', onClick: () => handleUnassign(op.id), variant: 'destructive' as const }]
+                      : [{ label: 'Assign to Tenant', onClick: () => handleAssign(op.id) }]),
+                  ]}
+                />
+              </div>
             </div>
           ))}
         </div>

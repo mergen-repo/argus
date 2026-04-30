@@ -1,25 +1,39 @@
 name: argus
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:582c496ccf79d8aa6f8203a79d32aaf7ffd8b13362c60a701a2f9ac64886c93d
     container_name: argus-nginx
     ports:
       - "8084:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../infra/nginx/upstream.conf:/etc/nginx/upstream.conf:ro
       - ../web/dist:/usr/share/nginx/html:ro
     depends_on:
       argus:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   argus:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile
+      dockerfile: infra/docker/Dockerfile.argus
     container_name: argus-app
     ports:
       - "1812:1812/udp"
@@ -28,25 +42,50 @@ services:
       - "8443:8443"
     env_file:
       - ../.env
+    environment:
+      # FIX-304: defense-in-depth. The code default is true and .env.example
+      # carries SBA_ENABLED=true, but a stale .env file generated from an old
+      # template would still default to false. Pin here so the local stack
+      # always brings the 5G SBA listener up unless an operator explicitly
+      # exports SBA_ENABLED=false in their shell.
+      SBA_ENABLED: ${SBA_ENABLED:-true}
+      # FIX-307: defense-in-depth. Stale .env files (UAT batch2 found one in
+      # the wild) miss the SMTP block entirely → cfg.SMTPHost == "" → email
+      # pipeline silently dark (password reset, invite, notification, alert
+      # all swallowed). Pin Mailhog as the default for the local stack so
+      # `make up` always wires email through to the inspector at :8025.
+      # Production exports its own SMTP_HOST and overrides this.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      SMTP_FROM: ${SMTP_FROM:-noreply@argus.io}
+    volumes:
+      # FIX-248 DEV-563: persist generated reports on the host so the
+      # download endpoint can stream them. Default REPORT_STORAGE=local;
+      # multi-instance deploys should switch to REPORT_STORAGE=s3.
+      - ../data/reports:/var/lib/argus/reports
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
+      operator-sim:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 60s
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:latest-pg16@sha256:332b99870c99c20d0d852ec600c097ee00ac93f5e0c75a8e83673394cdb36bfd
     container_name: argus-postgres
     ports:
       - "5450:5432"
@@ -54,25 +93,37 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-argus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-argus_secret}
       POSTGRES_DB: ${POSTGRES_DB:-argus}
+      ARGUS_WAL_BUCKET: ${ARGUS_WAL_BUCKET:-}
+      ARGUS_WAL_PREFIX: ${ARGUS_WAL_PREFIX:-argus/}
+    shm_size: 512mb
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - postgres_wal_archive:/var/lib/postgresql/wal_archive
+      - ../infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argus}"]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 60s
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
     container_name: argus-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redisdata:/data
+      - ../infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -81,22 +132,70 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
   nats:
-    image: nats:latest
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
     container_name: argus-nats
     ports:
       - "4222:4222"
       - "8222:8222"
-    command: ["--jetstream", "--store_dir=/data", "--http_port=8222"]
     volumes:
       - natsdata:/data
+      - ../infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    command: ["-c", "/etc/nats/nats.conf"]
+    # nats:2.10-alpine includes busybox wget; /healthz exposed on :8222 via http_port in nats.conf
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
+
+  operator-sim:
+    build:
+      context: ..
+      dockerfile: deploy/operator-sim/Dockerfile
+    image: argus-operator-sim:latest
+    container_name: argus-operator-sim
+    restart: unless-stopped
+    environment:
+      ARGUS_OPERATOR_SIM_CONFIG: /etc/operator-sim/config.yaml
+      ARGUS_OPERATOR_SIM_LOG_LEVEL: ${ARGUS_OPERATOR_SIM_LOG_LEVEL:-info}
+    volumes:
+      - ./operator-sim/config.example.yaml:/etc/operator-sim/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9596/-/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - argus-net
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: argus-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8025/api/v2/messages >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - argus-net
+    restart: unless-stopped
+    logging: *default-logging
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:latest@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
     container_name: argus-pgbouncer
     ports:
       - "6432:6432"
@@ -123,9 +222,11 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   pgdata:
+  postgres_wal_archive:
   redisdata:
   natsdata:
 

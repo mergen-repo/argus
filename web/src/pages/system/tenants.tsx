@@ -55,10 +55,15 @@ export default function TenantManagementPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [createForm, setCreateForm] = useState({
     name: '',
-    slug: '',
-    plan: 'starter',
+    contact_email: '',
+    contact_phone: '',
+    domain: '',
     max_sims: 10000,
+    max_apns: 100,
     max_users: 50,
+    admin_name: '',
+    admin_email: '',
+    admin_initial_password: '',
   })
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null)
   const [editForm, setEditForm] = useState<{
@@ -85,7 +90,11 @@ export default function TenantManagementPage() {
     try {
       await createMutation.mutateAsync(createForm)
       setShowCreateDialog(false)
-      setCreateForm({ name: '', slug: '', plan: 'starter', max_sims: 10000, max_users: 50 })
+      setCreateForm({
+        name: '', contact_email: '', contact_phone: '', domain: '',
+        max_sims: 10000, max_apns: 100, max_users: 50,
+        admin_name: '', admin_email: '', admin_initial_password: '',
+      })
     } catch {
       // handled by api interceptor
     }
@@ -94,10 +103,10 @@ export default function TenantManagementPage() {
   const handleSelectTenant = (tenant: Tenant) => {
     setSelectedTenant(tenant)
     setEditForm({
-      retention_days: tenant.retention_days,
+      retention_days: tenant.retention_days ?? 90,
       max_sims: tenant.max_sims,
       max_users: tenant.max_users,
-      max_api_keys: tenant.max_api_keys,
+      max_api_keys: tenant.max_api_keys ?? 10,
       plan: tenant.plan ?? 'standard',
     })
   }
@@ -120,12 +129,8 @@ export default function TenantManagementPage() {
     }
   }
 
-  const handleSlugFromName = (name: string) => {
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-    setCreateForm((f) => ({ ...f, name, slug }))
+  const handleNameChange = (name: string) => {
+    setCreateForm((f) => ({ ...f, name }))
   }
 
   if (isError) {
@@ -240,38 +245,58 @@ export default function TenantManagementPage() {
       {/* Create Tenant Panel */}
       <SlidePanel open={showCreateDialog} onOpenChange={setShowCreateDialog} title="Create Tenant" description="Add a new tenant organization to the platform." width="md">
         <div className="space-y-4">
+          <p className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium">Organization</p>
           <div>
-            <label className="text-xs text-text-secondary block mb-1.5">Name</label>
+            <label className="text-xs text-text-secondary block mb-1.5">Name *</label>
             <Input
               value={createForm.name}
-              onChange={(e) => handleSlugFromName(e.target.value)}
+              onChange={(e) => handleNameChange(e.target.value)}
               placeholder="Acme Corp"
             />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-secondary block mb-1.5">Contact Email *</label>
+              <Input
+                type="email"
+                value={createForm.contact_email}
+                onChange={(e) => setCreateForm((f) => ({ ...f, contact_email: e.target.value }))}
+                placeholder="info@acme.com"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary block mb-1.5">Contact Phone</label>
+              <Input
+                value={createForm.contact_phone}
+                onChange={(e) => setCreateForm((f) => ({ ...f, contact_phone: e.target.value }))}
+                placeholder="+90 555 123 4567"
+              />
+            </div>
+          </div>
           <div>
-            <label className="text-xs text-text-secondary block mb-1.5">Slug</label>
+            <label className="text-xs text-text-secondary block mb-1.5">Domain</label>
             <Input
-              value={createForm.slug}
-              onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
-              placeholder="acme-corp"
+              value={createForm.domain}
+              onChange={(e) => setCreateForm((f) => ({ ...f, domain: e.target.value }))}
+              placeholder="acme.com"
               className="font-mono"
             />
           </div>
-          <div>
-            <label className="text-xs text-text-secondary block mb-1.5">Plan</label>
-            <Select
-              options={PLAN_OPTIONS}
-              value={createForm.plan}
-              onChange={(e) => setCreateForm((f) => ({ ...f, plan: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs text-text-secondary block mb-1.5">Max SIMs</label>
               <Input
                 type="number"
                 value={createForm.max_sims}
                 onChange={(e) => setCreateForm((f) => ({ ...f, max_sims: parseInt(e.target.value) || 0 }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary block mb-1.5">Max APNs</label>
+              <Input
+                type="number"
+                value={createForm.max_apns}
+                onChange={(e) => setCreateForm((f) => ({ ...f, max_apns: parseInt(e.target.value) || 0 }))}
               />
             </div>
             <div>
@@ -283,6 +308,38 @@ export default function TenantManagementPage() {
               />
             </div>
           </div>
+
+          <div className="border-t border-border pt-4">
+            <p className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium mb-3">Tenant Admin</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">Admin Name *</label>
+                <Input
+                  value={createForm.admin_name}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, admin_name: e.target.value }))}
+                  placeholder="John Doe"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">Admin Email *</label>
+                <Input
+                  type="email"
+                  value={createForm.admin_email}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, admin_email: e.target.value }))}
+                  placeholder="admin@acme.com"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1.5">Admin Password * (min 8 chars)</label>
+                <Input
+                  type="password"
+                  value={createForm.admin_initial_password}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, admin_initial_password: e.target.value }))}
+                  placeholder="Initial password"
+                />
+              </div>
+            </div>
+          </div>
         </div>
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-6">
           <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
@@ -290,7 +347,14 @@ export default function TenantManagementPage() {
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={!createForm.name || !createForm.slug || createMutation.isPending}
+            disabled={
+              !createForm.name ||
+              !createForm.contact_email ||
+              !createForm.admin_name ||
+              !createForm.admin_email ||
+              createForm.admin_initial_password.length < 8 ||
+              createMutation.isPending
+            }
             className="gap-2"
           >
             {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

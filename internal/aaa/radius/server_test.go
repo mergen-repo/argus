@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/rs/zerolog"
 	radius "layeh.com/radius"
 	"layeh.com/radius/rfc2865"
@@ -489,5 +491,82 @@ func findFreeUDPPort(t *testing.T) string {
 	return fmt.Sprintf(":%s", port)
 }
 
+// TestHandleDirectAuth_RejectsMalformedIMSI verifies that an Access-Request
+// with a non-PLMN User-Name ("abc") is rejected with INVALID_IMSI_FORMAT and
+// the argus_imsi_invalid_total{source="radius_auth"} counter increments by 1
+// (FIX-207 AC-4).
+func TestHandleDirectAuth_RejectsMalformedIMSI(t *testing.T) {
+	secret := "testing123"
+	authAddr := findFreeUDPPort(t)
+	acctAddr := findFreeUDPPort(t)
+
+	simCache := NewSIMCache(nil, nil, zerolog.Nop())
+	sessionMgr := session.NewManager(nil, nil, zerolog.Nop())
+
+	srv := NewServer(
+		ServerConfig{
+			AuthAddr:       authAddr,
+			AcctAddr:       acctAddr,
+			DefaultSecret:  secret,
+			WorkerPoolSize: 4,
+		},
+		simCache,
+		sessionMgr,
+		store.NewOperatorStore(nil),
+		store.NewIPPoolStore(nil),
+		nil,
+		nil,
+		nil,
+		zerolog.Nop(),
+	)
+
+	reg := obsmetrics.NewRegistry()
+	srv.SetRegistry(reg)
+	srv.SetIMSIStrictValidation(true)
+
+	ctx := context.Background()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer srv.Stop(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+
+	pre := testutil.ToFloat64(reg.IMSIInvalidTotal.WithLabelValues("radius_auth"))
+
+	resp := sendAuthRequest(t, authAddr, secret, "abc")
+	if resp.Code != radius.CodeAccessReject {
+		t.Errorf("Code = %d, want AccessReject(%d)", resp.Code, radius.CodeAccessReject)
+	}
+
+	msg, err := rfc2865.ReplyMessage_LookupString(resp)
+	if err != nil {
+		t.Fatalf("ReplyMessage_Lookup: %v", err)
+	}
+	if msg != "INVALID_IMSI_FORMAT" {
+		t.Errorf("ReplyMessage = %q, want INVALID_IMSI_FORMAT", msg)
+	}
+
+	post := testutil.ToFloat64(reg.IMSIInvalidTotal.WithLabelValues("radius_auth"))
+	if post != pre+1 {
+		t.Errorf("IMSIInvalidTotal{radius_auth}: pre=%.0f post=%.0f, want increment of 1", pre, post)
+	}
+}
+
 // Verify that UUID is unused import is resolved
 var _ = uuid.New
+
+// TestRADIUSAccessAccept_DynamicAllocation — STORY-092 Wave 1 AC-1.
+//
+// Happy path: a SIM whose sims.ip_address_id IS NULL but whose APN has an
+// active ip_pool with available addresses MUST receive an Access-Accept
+// with Framed-IP-Address, AND the allocation MUST be persisted to
+// ip_addresses.state='allocated' and sims.ip_address_id.
+//
+// DB-gated integration test (skipped without DATABASE_URL). Builds a
+// minimal fixture: tenant → operator → apn → pool + 5 ip_addresses → SIM.
+// Calls handleDirectAuth directly (bypassing UDP) via an in-process
+// writer so the test remains fast and deterministic.
+func TestRADIUSAccessAccept_DynamicAllocation(t *testing.T) {
+	testRADIUSDynamicAllocHappyPath(t)
+}

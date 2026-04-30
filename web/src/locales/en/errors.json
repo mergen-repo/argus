@@ -1,0 +1,9 @@
+{
+  "unexpectedError": "An unexpected error occurred",
+  "networkError": "Network error — please check your connection",
+  "forbidden": "You don't have permission to perform this action",
+  "notFound": "The requested resource was not found",
+  "sessionExpired": "Your session has expired. Please log in again",
+  "exportFailed": "Export failed",
+  "undoFailed": "Undo failed"
+}

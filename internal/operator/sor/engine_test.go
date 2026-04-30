@@ -67,7 +67,7 @@ func TestSoR_IMSIPrefixRouting(t *testing.T) {
 				CostPerMB:   floatPtr(0.10),
 			},
 			MCC: "234", MNC: "10",
-			SupportedRATTypes: []string{"4G", "3G"},
+			OperatorSupportedRATTypes: []string{"4G", "3G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -80,7 +80,7 @@ func TestSoR_IMSIPrefixRouting(t *testing.T) {
 				CostPerMB:   floatPtr(0.05),
 			},
 			MCC: "262", MNC: "01",
-			SupportedRATTypes: []string{"4G", "3G"},
+			OperatorSupportedRATTypes: []string{"4G", "3G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -119,7 +119,7 @@ func TestSoR_IMSIPrefixNoMatch(t *testing.T) {
 				CostPerMB:   floatPtr(0.10),
 			},
 			MCC: "234", MNC: "10",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -132,7 +132,7 @@ func TestSoR_IMSIPrefixNoMatch(t *testing.T) {
 				CostPerMB:   floatPtr(0.05),
 			},
 			MCC: "262", MNC: "01",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -171,7 +171,7 @@ func TestSoR_CostBasedSelection(t *testing.T) {
 				CostPerMB:   floatPtr(0.03),
 			},
 			MCC: "286", MNC: "01",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -184,7 +184,7 @@ func TestSoR_CostBasedSelection(t *testing.T) {
 				CostPerMB:   floatPtr(0.10),
 			},
 			MCC: "286", MNC: "02",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -220,7 +220,7 @@ func TestSoR_CircuitBreakerOpen(t *testing.T) {
 				CostPerMB:   floatPtr(0.03),
 			},
 			MCC: "286", MNC: "01",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "down",
 			OperatorState:     "active",
 		},
@@ -233,7 +233,7 @@ func TestSoR_CircuitBreakerOpen(t *testing.T) {
 				CostPerMB:   floatPtr(0.10),
 			},
 			MCC: "286", MNC: "02",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -273,7 +273,7 @@ func TestSoR_ManualOperatorLock(t *testing.T) {
 				CostPerMB:   floatPtr(0.03),
 			},
 			MCC: "286", MNC: "01",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -318,7 +318,7 @@ func TestSoR_RATPreference(t *testing.T) {
 				CostPerMB:   floatPtr(0.05),
 			},
 			MCC: "286", MNC: "01",
-			SupportedRATTypes: []string{"3G"},
+			OperatorSupportedRATTypes: []string{"3G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -331,7 +331,7 @@ func TestSoR_RATPreference(t *testing.T) {
 				CostPerMB:   floatPtr(0.08),
 			},
 			MCC: "286", MNC: "02",
-			SupportedRATTypes: []string{"4G", "3G"},
+			OperatorSupportedRATTypes: []string{"4G", "3G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -362,15 +362,15 @@ func TestSoR_SortByPriorityThenCost(t *testing.T) {
 	grants := []store.GrantWithOperator{
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op1, TenantID: tenantID, Enabled: true, SoRPriority: 2, CostPerMB: floatPtr(0.05)},
-			MCC: "286", MNC: "01", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "286", MNC: "01", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op2, TenantID: tenantID, Enabled: true, SoRPriority: 1, CostPerMB: floatPtr(0.10)},
-			MCC: "286", MNC: "02", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "286", MNC: "02", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op3, TenantID: tenantID, Enabled: true, SoRPriority: 1, CostPerMB: floatPtr(0.03)},
-			MCC: "286", MNC: "03", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "286", MNC: "03", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 	}
 
@@ -406,7 +406,7 @@ func TestSoR_NoAvailableOperators_AllCircuitOpen(t *testing.T) {
 	grants := []store.GrantWithOperator{
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: opA, TenantID: tenantID, Enabled: true, SoRPriority: 1, CostPerMB: floatPtr(0.05)},
-			MCC: "286", MNC: "01", SupportedRATTypes: []string{"4G"}, HealthStatus: "down", OperatorState: "active",
+			MCC: "286", MNC: "01", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "down", OperatorState: "active",
 		},
 	}
 
@@ -523,7 +523,7 @@ func TestSoR_ManualLockInvalidUUID(t *testing.T) {
 				CostPerMB:   floatPtr(0.05),
 			},
 			MCC: "286", MNC: "01",
-			SupportedRATTypes: []string{"4G"},
+			OperatorSupportedRATTypes: []string{"4G"},
 			HealthStatus:      "healthy",
 			OperatorState:     "active",
 		},
@@ -556,15 +556,15 @@ func TestSoR_FallbackOperatorsList(t *testing.T) {
 	grants := []store.GrantWithOperator{
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op1, TenantID: tenantID, Enabled: true, SoRPriority: 1, CostPerMB: floatPtr(0.05)},
-			MCC: "234", MNC: "10", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "234", MNC: "10", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op2, TenantID: tenantID, Enabled: true, SoRPriority: 2, CostPerMB: floatPtr(0.08)},
-			MCC: "262", MNC: "01", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "262", MNC: "01", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: op3, TenantID: tenantID, Enabled: true, SoRPriority: 3, CostPerMB: floatPtr(0.12)},
-			MCC: "310", MNC: "01", SupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "310", MNC: "01", OperatorSupportedRATTypes: []string{"4G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 	}
 
@@ -587,7 +587,7 @@ func TestSoR_RATPreference_NoSupportedFallsBackToAll(t *testing.T) {
 	grants := []store.GrantWithOperator{
 		{
 			OperatorGrant: store.OperatorGrant{OperatorID: opA, TenantID: tenantID, Enabled: true, SoRPriority: 1, CostPerMB: floatPtr(0.05)},
-			MCC: "286", MNC: "01", SupportedRATTypes: []string{"3G"}, HealthStatus: "healthy", OperatorState: "active",
+			MCC: "286", MNC: "01", OperatorSupportedRATTypes: []string{"3G"}, HealthStatus: "healthy", OperatorState: "active",
 		},
 	}
 
@@ -604,5 +604,93 @@ func TestSoR_RATPreference_NoSupportedFallsBackToAll(t *testing.T) {
 	}
 	if decision.PrimaryOperatorID != opA {
 		t.Errorf("when no RAT matches, should fall back to all candidates: got %s", decision.PrimaryOperatorID)
+	}
+}
+
+func TestSoR_GrantLevelRATOverridesOperator(t *testing.T) {
+	opA := uuid.New()
+	opB := uuid.New()
+	tenantID := uuid.New()
+
+	grants := []store.GrantWithOperator{
+		{
+			OperatorGrant: store.OperatorGrant{
+				OperatorID:        opA,
+				TenantID:          tenantID,
+				Enabled:           true,
+				SoRPriority:       1,
+				CostPerMB:         floatPtr(0.05),
+				SupportedRATTypes: []string{"5G_SA", "LTE"},
+			},
+			MCC: "286", MNC: "01",
+			OperatorSupportedRATTypes: []string{"LTE", "3G"},
+			HealthStatus:              "healthy",
+			OperatorState:             "active",
+		},
+		{
+			OperatorGrant: store.OperatorGrant{
+				OperatorID:  opB,
+				TenantID:    tenantID,
+				Enabled:     true,
+				SoRPriority: 1,
+				CostPerMB:   floatPtr(0.05),
+			},
+			MCC: "286", MNC: "02",
+			OperatorSupportedRATTypes: []string{"LTE", "3G"},
+			HealthStatus:              "healthy",
+			OperatorState:             "active",
+		},
+	}
+
+	engine := newTestEngine(grants, nil)
+	req := SoRRequest{
+		IMSI:         "99999123456789",
+		TenantID:     tenantID,
+		RequestedRAT: "5G_SA",
+	}
+
+	decision, err := engine.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decision.PrimaryOperatorID != opA {
+		t.Errorf("expected opA (grant-level RAT 5G_SA overrides operator LTE/3G), got %s", decision.PrimaryOperatorID)
+	}
+}
+
+func TestSoR_GrantEmptyRATFallsBackToOperator(t *testing.T) {
+	opA := uuid.New()
+	tenantID := uuid.New()
+
+	grants := []store.GrantWithOperator{
+		{
+			OperatorGrant: store.OperatorGrant{
+				OperatorID:        opA,
+				TenantID:          tenantID,
+				Enabled:           true,
+				SoRPriority:       1,
+				CostPerMB:         floatPtr(0.05),
+				SupportedRATTypes: []string{},
+			},
+			MCC: "286", MNC: "01",
+			OperatorSupportedRATTypes: []string{"LTE", "5G_SA"},
+			HealthStatus:              "healthy",
+			OperatorState:             "active",
+		},
+	}
+
+	engine := newTestEngine(grants, nil)
+	req := SoRRequest{
+		IMSI:         "99999123456789",
+		TenantID:     tenantID,
+		RequestedRAT: "5G_SA",
+	}
+
+	decision, err := engine.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decision.PrimaryOperatorID != opA {
+		t.Errorf("expected opA via operator-level RAT fallback when grant RAT is empty, got %s", decision.PrimaryOperatorID)
 	}
 }

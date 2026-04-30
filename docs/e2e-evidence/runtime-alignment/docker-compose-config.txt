@@ -1,0 +1,101 @@
+name: argus
+services:
+  argus:
+    build:
+      context: /Users/btopcu/workspace/argus
+      dockerfile: infra/docker/Dockerfile.argus
+    container_name: argus-app
+    depends_on:
+      nats:
+        condition: service_started
+        required: true
+      operator-sim:
+        condition: service_healthy
+        required: true
+      postgres:
+        condition: service_healthy
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+    environment:
+      APP_ENV: development
+      APP_PORT: "8080"
+      BCRYPT_COST: "12"
+      DATABASE_MAX_CONNS: "50"
+      DATABASE_MAX_IDLE_CONNS: "10"
+      DATABASE_URL: postgres://argus:argus_secret@postgres:5432/argus?sslmode=disable
+      DEPLOYMENT_MODE: single
+      DIAMETER_ORIGIN_HOST: argus.local
+      DIAMETER_ORIGIN_REALM: argus.local
+      DIAMETER_PORT: "3868"
+      JWT_EXPIRY: 15m
+      JWT_REFRESH_EXPIRY: 168h
+      JWT_SECRET: change-me-to-a-long-random-string-at-least-32-chars
+      LOG_LEVEL: debug
+      NATS_CLUSTER_ID: argus-cluster
+      NATS_URL: nats://nats:4222
+      POSTGRES_DB: argus
+      POSTGRES_PASSWORD: argus_secret
+      POSTGRES_USER: argus
+      RADIUS_ACCT_PORT: "1813"
+      RADIUS_AUTH_PORT: "1812"
+      RADIUS_SECRET: change-me-radius-shared-secret
+      RADSEC_CERT_PATH: ""
+      RADSEC_KEY_PATH: ""
+      RATE_LIMIT_PER_HOUR: "30000"
+      RATE_LIMIT_PER_MINUTE: "1000"
+      REDIS_MAX_CONNS: "100"
+      REDIS_URL: redis://redis:6379/0
+      SBA_PORT: "8443"
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_DEFAULT_CHAT_ID: ""
+      TLS_CERT_PATH: ""
+      TLS_KEY_PATH: ""
+      WS_PORT: "8081"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - -O
+        - /dev/null
+        - http://localhost:8080/health/ready
+      timeout: 5s
+      interval: 10s
+      retries: 5
+      start_period: 1m0s
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    networks:
+      argus-net: null
+    ports:
+      - mode: ingress
+        target: 1812
+        published: "1812"
+        protocol: udp
+      - mode: ingress
+        target: 1813
+        published: "1813"
+        protocol: udp
+      - mode: ingress
+        target: 3868
+        published: "3868"
+        protocol: tcp
+      - mode: ingress
+        target: 8443
+        published: "8443"
+        protocol: tcp
+    restart: unless-stopped
+  nats:
+    command:
+      - -c
+      - /etc/nats/nats.conf
+    container_name: argus-nats
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    logging:
+// ... 260 more lines (total: 360)

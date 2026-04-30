@@ -21,29 +21,29 @@ var (
 )
 
 type SIM struct {
-	ID                     uuid.UUID       `json:"id"`
-	TenantID               uuid.UUID       `json:"tenant_id"`
-	OperatorID             uuid.UUID       `json:"operator_id"`
-	APNID                  *uuid.UUID      `json:"apn_id"`
-	ICCID                  string          `json:"iccid"`
-	IMSI                   string          `json:"imsi"`
-	MSISDN                 *string         `json:"msisdn"`
-	IPAddressID            *uuid.UUID      `json:"ip_address_id"`
-	PolicyVersionID        *uuid.UUID      `json:"policy_version_id"`
-	ESimProfileID          *uuid.UUID      `json:"esim_profile_id"`
-	SimType                string          `json:"sim_type"`
-	State                  string          `json:"state"`
-	RATType                *string         `json:"rat_type"`
-	MaxConcurrentSessions  int             `json:"max_concurrent_sessions"`
-	SessionIdleTimeoutSec  int             `json:"session_idle_timeout_sec"`
-	SessionHardTimeoutSec  int             `json:"session_hard_timeout_sec"`
-	Metadata               json.RawMessage `json:"metadata"`
-	ActivatedAt            *time.Time      `json:"activated_at"`
-	SuspendedAt            *time.Time      `json:"suspended_at"`
-	TerminatedAt           *time.Time      `json:"terminated_at"`
-	PurgeAt                *time.Time      `json:"purge_at"`
-	CreatedAt              time.Time       `json:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at"`
+	ID                    uuid.UUID       `json:"id"`
+	TenantID              uuid.UUID       `json:"tenant_id"`
+	OperatorID            uuid.UUID       `json:"operator_id"`
+	APNID                 *uuid.UUID      `json:"apn_id"`
+	ICCID                 string          `json:"iccid"`
+	IMSI                  string          `json:"imsi"`
+	MSISDN                *string         `json:"msisdn"`
+	IPAddressID           *uuid.UUID      `json:"ip_address_id"`
+	PolicyVersionID       *uuid.UUID      `json:"policy_version_id"`
+	ESimProfileID         *uuid.UUID      `json:"esim_profile_id"`
+	SimType               string          `json:"sim_type"`
+	State                 string          `json:"state"`
+	RATType               *string         `json:"rat_type"`
+	MaxConcurrentSessions int             `json:"max_concurrent_sessions"`
+	SessionIdleTimeoutSec int             `json:"session_idle_timeout_sec"`
+	SessionHardTimeoutSec int             `json:"session_hard_timeout_sec"`
+	Metadata              json.RawMessage `json:"metadata"`
+	ActivatedAt           *time.Time      `json:"activated_at"`
+	SuspendedAt           *time.Time      `json:"suspended_at"`
+	TerminatedAt          *time.Time      `json:"terminated_at"`
+	PurgeAt               *time.Time      `json:"purge_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 type SimStateHistory struct {
@@ -70,24 +70,28 @@ type CreateSIMParams struct {
 }
 
 type ListSIMsParams struct {
-	Cursor     string
-	Limit      int
-	ICCID      string
-	IMSI       string
-	MSISDN     string
-	IPAddress  string
-	OperatorID *uuid.UUID
-	APNID      *uuid.UUID
-	State      string
-	RATType    string
-	Q          string
+	Cursor          string
+	Limit           int
+	ICCID           string
+	IMSI            string
+	MSISDN          string
+	IPAddress       string
+	OperatorID      *uuid.UUID
+	APNID           *uuid.UUID
+	State           string
+	RATType         string
+	Q               string
+	PolicyVersionID *uuid.UUID
+	PolicyID        *uuid.UUID
+	RolloutID       *uuid.UUID
+	RolloutStagePct *int
 }
 
 var validTransitions = map[string][]string{
 	"ordered":     {"active"},
 	"active":      {"suspended", "stolen_lost", "terminated"},
 	"suspended":   {"active", "terminated"},
-	"stolen_lost": {},
+	"stolen_lost": {"terminated"},
 	"terminated":  {"purged"},
 	"purged":      {},
 }
@@ -111,6 +115,21 @@ type SIMStore struct {
 
 func NewSIMStore(db *pgxpool.Pool) *SIMStore {
 	return &SIMStore{db: db}
+}
+
+// RecentVelocityPerHour returns the average number of SIMs created per
+// hour over the last 24 hours. Used for the dashboard "SIM Velocity"
+// KPI card. Returns 0 when no SIMs were added in the window.
+func (s *SIMStore) RecentVelocityPerHour(ctx context.Context, tenantID uuid.UUID) (float64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sims
+		WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: sim velocity: %w", err)
+	}
+	return float64(count) / 24.0, nil
 }
 
 var simColumns = `id, tenant_id, operator_id, apn_id, iccid, imsi, msisdn,
@@ -157,6 +176,9 @@ func (s *SIMStore) Create(ctx context.Context, tenantID uuid.UUID, p CreateSIMPa
 			}
 			return nil, ErrICCIDExists
 		}
+		if refErr, ok := asInvalidReference(err, simsFKConstraintColumn); ok {
+			return nil, refErr
+		}
 		return nil, fmt.Errorf("store: create sim: %w", err)
 	}
 	return sim, nil
@@ -175,6 +197,52 @@ func (s *SIMStore) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*SIM, e
 		return nil, fmt.Errorf("store: get sim: %w", err)
 	}
 	return sim, nil
+}
+
+// GetICCIDByID returns the ICCID for the given SIM id, cross-tenant.
+// Used by the event-envelope name resolver (FIX-212) which operates at
+// infra scope. Returns "" on not-found (no error — resolver treats
+// missing entities as soft failures and falls back to the UUID).
+func (s *SIMStore) GetICCIDByID(ctx context.Context, id uuid.UUID) (string, error) {
+	var iccid string
+	err := s.db.QueryRow(ctx, `SELECT iccid FROM sims WHERE id = $1`, id).Scan(&iccid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: get sim iccid: %w", err)
+	}
+	return iccid, nil
+}
+
+// ListICCIDsByIDs returns a map of sim id → ICCID for the supplied id set.
+// Single round-trip via WHERE id = ANY($1) — replaces N+1 GetICCIDByID loops
+// in hot batch hydration paths (e.g. report.AlertsExport — FIX-229 Gate F-A5).
+// Missing IDs are simply absent from the map (no error). Empty input returns
+// an empty map without hitting the DB. Cross-tenant — mirrors GetICCIDByID
+// scope used by the event-envelope name resolver.
+func (s *SIMStore) ListICCIDsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `SELECT id, iccid FROM sims WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sim iccids by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var iccid string
+		if err := rows.Scan(&id, &iccid); err != nil {
+			return nil, fmt.Errorf("store: scan sim iccid: %w", err)
+		}
+		out[id] = iccid
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate sim iccids: %w", err)
+	}
+	return out, nil
 }
 
 func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams) ([]SIM, string, error) {
@@ -295,6 +363,123 @@ func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParam
 	return results, nextCursor, nil
 }
 
+// ListIDsByFilter resolves the same filters used by List but returns only the
+// uuid set, capped at `limit`. Intended for ad-hoc bulk operations (FIX-236
+// AC-1): the caller picks a `limit` (hard-capped at 10_000 by the API layer)
+// and decides whether to proceed based on the returned `totalCount`.
+//
+// Semantics: if the underlying query returns ≤ `limit` rows, totalCount is
+// the row count. If exactly `limit+1` rows are streamed (i.e. the cap was
+// hit), a separate COUNT(*) determines the precise total. This avoids running
+// COUNT(*) on the happy path while still giving the caller honest scope.
+//
+// The Cursor field on `p` is intentionally ignored — callers that want
+// pagination must use List. p.Limit is also ignored (use the explicit `limit`
+// argument).
+func (s *SIMStore) ListIDsByFilter(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams, limit int) ([]uuid.UUID, int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 2
+
+	if p.ICCID != "" {
+		conditions = append(conditions, fmt.Sprintf("iccid = $%d", argIdx))
+		args = append(args, p.ICCID)
+		argIdx++
+	}
+	if p.IMSI != "" {
+		conditions = append(conditions, fmt.Sprintf("imsi = $%d", argIdx))
+		args = append(args, p.IMSI)
+		argIdx++
+	}
+	if p.MSISDN != "" {
+		conditions = append(conditions, fmt.Sprintf("msisdn = $%d", argIdx))
+		args = append(args, p.MSISDN)
+		argIdx++
+	}
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("operator_id = $%d", argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("apn_id = $%d", argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("state = $%d", argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("rat_type = $%d", argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+	if p.IPAddress != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"ip_address_id IN (SELECT id FROM ip_addresses WHERE address_v4::text LIKE $%d)",
+			argIdx,
+		))
+		args = append(args, "%"+p.IPAddress+"%")
+		argIdx++
+	}
+	if p.Q != "" {
+		searchTerm := "%" + p.Q + "%"
+		conditions = append(conditions, fmt.Sprintf(
+			"(iccid ILIKE $%d OR imsi ILIKE $%d OR msisdn ILIKE $%d)",
+			argIdx, argIdx, argIdx,
+		))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+	queryArgs := append([]interface{}(nil), args...)
+	queryArgs = append(queryArgs, limit+1)
+
+	query := fmt.Sprintf(`SELECT id FROM sims %s ORDER BY created_at DESC, id DESC LIMIT %s`, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("store: list sim ids by filter: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, fmt.Errorf("store: scan sim id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("store: iterate sim ids: %w", err)
+	}
+
+	if len(ids) <= limit {
+		return ids, int64(len(ids)), nil
+	}
+
+	// Cap was hit — drop the trailing peek row and run a COUNT for honesty.
+	ids = ids[:limit]
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM sims %s`, where)
+	var total int64
+	if err := s.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("store: count sims by filter: %w", err)
+	}
+	return ids, total, nil
+}
+
 func (s *SIMStore) ListStateHistory(ctx context.Context, simID uuid.UUID, cursor string, limit int) ([]SimStateHistory, string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -349,7 +534,8 @@ func (s *SIMStore) ListStateHistory(ctx context.Context, simID uuid.UUID, cursor
 	return results, nextCursor, nil
 }
 
-func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID uuid.UUID, userID *uuid.UUID) (*SIM, error) {
+// FIX-253 DEV-393: ipAddressID is nullable; nil → no ip_address_id assignment in UPDATE (defensive against caller passing uuid.Nil; closes FIX-252 H1 path).
+func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID *uuid.UUID, userID *uuid.UUID) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin tx for activate: %w", err)
@@ -373,18 +559,29 @@ func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAd
 		return nil, err
 	}
 
-	row := tx.QueryRow(ctx, `
-		UPDATE sims SET state = 'active', ip_address_id = $3, activated_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2
-		RETURNING `+simColumns,
-		simID, tenantID, ipAddressID,
-	)
+	var row pgx.Row
+	if ipAddressID != nil {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', ip_address_id = $3, activated_at = NOW(), updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID, *ipAddressID,
+		)
+	} else {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', activated_at = NOW(), updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID,
+		)
+	}
 	sim, err := scanSIM(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: update sim activate: %w", err)
 	}
 
-	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, nil); err != nil {
+	activateReason := "activate"
+	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, &activateReason); err != nil {
 		return nil, err
 	}
 
@@ -395,6 +592,8 @@ func (s *SIMStore) Activate(ctx context.Context, tenantID, simID uuid.UUID, ipAd
 	return sim, nil
 }
 
+// Suspend transitions a SIM to the suspended state.
+// Releases the SIM's allocated dynamic IP atomically; static IPs preserved.
 func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID, reason *string) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -403,10 +602,11 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 	defer tx.Rollback(ctx)
 
 	var currentState string
+	var ipAddressID *uuid.UUID
 	err = tx.QueryRow(ctx,
-		`SELECT state FROM sims WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		`SELECT state, ip_address_id FROM sims WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
 		simID, tenantID,
-	).Scan(&currentState)
+	).Scan(&currentState, &ipAddressID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSIMNotFound
 	}
@@ -429,6 +629,57 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 		return nil, fmt.Errorf("store: update sim suspend: %w", err)
 	}
 
+	// DEV-391 (FIX-253): atomic IP release on suspend; static IPs preserved.
+	if ipAddressID != nil {
+		var poolID uuid.UUID
+		var allocType string
+		err = tx.QueryRow(ctx, `
+			SELECT pool_id, allocation_type FROM ip_addresses
+			WHERE id = $1 AND state IN ('allocated', 'reserved')
+			FOR UPDATE`,
+			*ipAddressID,
+		).Scan(&poolID, &allocType)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Orphaned ip_address_id reference — null it defensively, don't fail the suspend.
+			_, _ = tx.Exec(ctx,
+				`UPDATE sims SET ip_address_id = NULL WHERE id = $1 AND tenant_id = $2`,
+				simID, tenantID,
+			)
+		} else if err != nil {
+			return nil, fmt.Errorf("store: look up ip for suspend release: %w", err)
+		} else if allocType != "static" {
+			// Dynamic IP: release immediately back to available.
+			_, err = tx.Exec(ctx, `
+				UPDATE ip_addresses SET state = 'available', sim_id = NULL,
+					allocated_at = NULL, reclaim_at = NULL
+				WHERE id = $1`,
+				*ipAddressID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: release ip on suspend: %w", err)
+			}
+			_, err = tx.Exec(ctx,
+				`UPDATE ip_pools SET used_addresses = GREATEST(used_addresses - 1, 0) WHERE id = $1`,
+				poolID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: decrement pool on suspend: %w", err)
+			}
+			_, _ = tx.Exec(ctx,
+				`UPDATE ip_pools SET state = 'active' WHERE id = $1 AND state = 'exhausted'`,
+				poolID,
+			)
+			_, err = tx.Exec(ctx,
+				`UPDATE sims SET ip_address_id = NULL WHERE id = $1 AND tenant_id = $2`,
+				simID, tenantID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("store: null ip_address_id on suspend: %w", err)
+			}
+		}
+		// Static: leave ip_addresses row and sims.ip_address_id untouched (per user decision 2026-04-26).
+	}
+
 	if err := insertStateHistory(ctx, tx, simID, &currentState, "suspended", "user", userID, reason); err != nil {
 		return nil, err
 	}
@@ -440,7 +691,9 @@ func (s *SIMStore) Suspend(ctx context.Context, tenantID, simID uuid.UUID, userI
 	return sim, nil
 }
 
-func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID *uuid.UUID) (*SIM, error) {
+// FIX-253 DEV-392: Resume accepts ipAddressID (*uuid.UUID) — nil for static SIMs whose IP was
+// preserved by Suspend (T1), non-nil for dynamic SIMs that need a fresh allocation.
+func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, ipAddressID *uuid.UUID, userID *uuid.UUID) (*SIM, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin tx for resume: %w", err)
@@ -459,22 +712,37 @@ func (s *SIMStore) Resume(ctx context.Context, tenantID, simID uuid.UUID, userID
 		return nil, fmt.Errorf("store: lock sim for resume: %w", err)
 	}
 
+	if currentState != "suspended" {
+		return nil, ErrInvalidStateTransition
+	}
+
 	if err := validateTransition(currentState, "active"); err != nil {
 		return nil, err
 	}
 
-	row := tx.QueryRow(ctx, `
-		UPDATE sims SET state = 'active', suspended_at = NULL, updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2
-		RETURNING `+simColumns,
-		simID, tenantID,
-	)
+	var row pgx.Row
+	if ipAddressID != nil {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', ip_address_id = $3, suspended_at = NULL, updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID, *ipAddressID,
+		)
+	} else {
+		row = tx.QueryRow(ctx, `
+			UPDATE sims SET state = 'active', suspended_at = NULL, updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2
+			RETURNING `+simColumns,
+			simID, tenantID,
+		)
+	}
 	sim, err := scanSIM(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: update sim resume: %w", err)
 	}
 
-	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, nil); err != nil {
+	resumeReason := "resume"
+	if err := insertStateHistory(ctx, tx, simID, &currentState, "active", "user", userID, &resumeReason); err != nil {
 		return nil, err
 	}
 
@@ -595,6 +863,76 @@ func (s *SIMStore) ReportLost(ctx context.Context, tenantID, simID uuid.UUID, us
 		return nil, fmt.Errorf("store: commit report lost: %w", err)
 	}
 
+	return sim, nil
+}
+
+func (s *SIMStore) RestoreState(ctx context.Context, tenantID, simID uuid.UUID, state string) (*SIM, error) {
+	if state != "active" && state != "suspended" {
+		return nil, ErrInvalidStateTransition
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE sims
+		SET state = $3,
+			activated_at = CASE
+				WHEN $3 = 'active' THEN COALESCE(activated_at, NOW())
+				ELSE activated_at
+			END,
+			suspended_at = CASE
+				WHEN $3 = 'suspended' THEN COALESCE(suspended_at, NOW())
+				ELSE NULL
+			END,
+			terminated_at = NULL,
+			purge_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING `+simColumns,
+		simID, tenantID, state,
+	)
+
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: restore sim state: %w", err)
+	}
+	return sim, nil
+}
+
+var ErrSIMStateBlocked = errors.New("store: sim state blocked for update")
+
+func (s *SIMStore) PatchMetadata(ctx context.Context, tenantID, simID uuid.UUID, patch map[string]interface{}) (*SIM, error) {
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("store: marshal patch metadata: %w", err)
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE sims SET metadata = metadata || $3, updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2 AND state NOT IN ('terminated', 'purged')
+		RETURNING `+simColumns,
+		simID, tenantID, patchJSON,
+	)
+
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		checkErr := s.db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM sims WHERE id = $1 AND tenant_id = $2)`,
+			simID, tenantID,
+		).Scan(&exists)
+		if checkErr != nil {
+			return nil, fmt.Errorf("store: check sim exists: %w", checkErr)
+		}
+		if !exists {
+			return nil, ErrSIMNotFound
+		}
+		return nil, ErrSIMStateBlocked
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: patch sim metadata: %w", err)
+	}
 	return sim, nil
 }
 
@@ -731,6 +1069,23 @@ func (s *SIMStore) SetIPAndPolicy(ctx context.Context, simID uuid.UUID, ipAddres
 	return nil
 }
 
+// ClearIPAddress nils-out the sims.ip_address_id column for the given SIM.
+// Used by the RADIUS / Diameter Accounting/CCR-T release paths (STORY-092
+// Wave 2) when a dynamic IP allocation is returned to the pool. SetIPAndPolicy
+// cannot clear (it only sets non-nil pointers), so this is its inverse.
+func (s *SIMStore) ClearIPAddress(ctx context.Context, simID uuid.UUID) error {
+	_, err := s.db.Exec(ctx, `UPDATE sims SET ip_address_id = NULL WHERE id = $1`, simID)
+	if err != nil {
+		return fmt.Errorf("store: clear ip address: %w", err)
+	}
+	return nil
+}
+
+// GetByIMSI is INTENTIONALLY UNSCOPED for the RADIUS/Diameter hot path — see
+// DEV-041/DEV-166. The AAA stack authenticates by IMSI before any tenant
+// context exists, so the lookup cannot be tenant-scoped. API callers MUST
+// use GetByIMSIScoped instead; the unscoped variant is reserved for
+// internal/aaa/radius and internal/aaa/diameter.
 func (s *SIMStore) GetByIMSI(ctx context.Context, imsi string) (*SIM, error) {
 	row := s.db.QueryRow(ctx,
 		`SELECT `+simColumns+` FROM sims WHERE imsi = $1 LIMIT 1`,
@@ -744,6 +1099,143 @@ func (s *SIMStore) GetByIMSI(ctx context.Context, imsi string) (*SIM, error) {
 		return nil, fmt.Errorf("store: get sim by imsi: %w", err)
 	}
 	return sim, nil
+}
+
+// GetByIMSIScoped is the tenant-scoped variant of GetByIMSI and MUST be used
+// by every API caller. The RADIUS/Diameter hot path continues to use the
+// unscoped GetByIMSI per DEV-041/DEV-166.
+func (s *SIMStore) GetByIMSIScoped(ctx context.Context, imsi string, tenantID uuid.UUID) (*SIM, error) {
+	row := s.db.QueryRow(ctx,
+		`SELECT `+simColumns+` FROM sims WHERE imsi = $1 AND tenant_id = $2 LIMIT 1`,
+		imsi, tenantID,
+	)
+	sim, err := scanSIM(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get sim by imsi scoped: %w", err)
+	}
+	return sim, nil
+}
+
+// SIMSummary is a lightweight projection of sims used for bulk processing.
+// OperatorID is non-nil (NOT NULL in schema). PolicyVersionID may be nil.
+type SIMSummary struct {
+	ID              uuid.UUID  `json:"id"`
+	ICCID           string     `json:"iccid"`
+	IMSI            string     `json:"imsi"`
+	MSISDN          *string    `json:"msisdn,omitempty"`
+	State           string     `json:"state"`
+	PolicyVersionID *uuid.UUID `json:"policy_version_id"`
+	OperatorID      uuid.UUID  `json:"operator_id"`
+	SimType         string     `json:"sim_type"`
+}
+
+// FilterSIMIDsByTenant returns (owned, violations, error).
+// owned contains IDs whose sims.tenant_id == tenantID.
+// violations contains IDs with no matching row OR a different tenant_id —
+// callers treat both cases as 403 to avoid revealing existence.
+// Duplicate input IDs are deduplicated: a dup appears at most once in owned
+// and never in violations.
+// Input is chunked into batches of bulkImportBatchSize (500) to stay within
+// Postgres parameter limits.
+func (s *SIMStore) FilterSIMIDsByTenant(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, []uuid.UUID, error) {
+	if len(ids) == 0 {
+		return []uuid.UUID{}, []uuid.UUID{}, nil
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	deduped := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			deduped = append(deduped, id)
+		}
+	}
+
+	ownedSet := make(map[uuid.UUID]struct{}, len(deduped))
+	for batchStart := 0; batchStart < len(deduped); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(deduped) {
+			batchEnd = len(deduped)
+		}
+		batch := deduped[batchStart:batchEnd]
+
+		rows, err := s.db.Query(ctx,
+			`SELECT id FROM sims WHERE tenant_id = $1 AND id = ANY($2)`,
+			tenantID, batch,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("store: filter sim ids by tenant: %w", err)
+		}
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, nil, fmt.Errorf("store: scan sim id: %w", err)
+			}
+			ownedSet[id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, nil, fmt.Errorf("store: iter sim ids: %w", err)
+		}
+	}
+
+	owned := make([]uuid.UUID, 0, len(ownedSet))
+	violations := make([]uuid.UUID, 0)
+	for _, id := range deduped {
+		if _, ok := ownedSet[id]; ok {
+			owned = append(owned, id)
+		} else {
+			violations = append(violations, id)
+		}
+	}
+	return owned, violations, nil
+}
+
+// GetSIMsByIDs returns SIMSummary rows for all IDs owned by tenantID.
+// IDs that do not belong to tenantID are silently excluded (call
+// FilterSIMIDsByTenant first if you need the violations list).
+// Input is chunked into batches of bulkImportBatchSize (500).
+func (s *SIMStore) GetSIMsByIDs(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]SIMSummary, error) {
+	if len(ids) == 0 {
+		return []SIMSummary{}, nil
+	}
+
+	results := make([]SIMSummary, 0, len(ids))
+	for batchStart := 0; batchStart < len(ids); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(ids) {
+			batchEnd = len(ids)
+		}
+		batch := ids[batchStart:batchEnd]
+
+		rows, err := s.db.Query(ctx,
+			`SELECT id, iccid, imsi, msisdn, state, policy_version_id, operator_id, sim_type
+			 FROM sims WHERE tenant_id = $1 AND id = ANY($2)`,
+			tenantID, batch,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("store: get sims by ids: %w", err)
+		}
+		for rows.Next() {
+			var sim SIMSummary
+			var msisdn *string
+			if err := rows.Scan(&sim.ID, &sim.ICCID, &sim.IMSI, &msisdn, &sim.State, &sim.PolicyVersionID, &sim.OperatorID, &sim.SimType); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("store: scan sim summary: %w", err)
+			}
+			sim.MSISDN = msisdn
+			results = append(results, sim)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("store: iter sim summaries: %w", err)
+		}
+	}
+	return results, nil
 }
 
 func parseInt64(s string) (int64, error) {
@@ -987,6 +1479,71 @@ func (s *SIMStore) CountByOperator(ctx context.Context, tenantID uuid.UUID) (map
 	return result, nil
 }
 
+func (s *SIMStore) CountByTenant(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sims WHERE tenant_id = $1 AND state != 'purged'`, tenantID).
+		Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count sims by tenant: %w", err)
+	}
+	return count, nil
+}
+
+func (s *SIMStore) CountByAPN(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]int64, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT apn_id, COUNT(*)
+		FROM sims
+		WHERE tenant_id = $1 AND apn_id IS NOT NULL AND state != 'purged'
+		GROUP BY apn_id
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: count sims by apn: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int64)
+	for rows.Next() {
+		var apnID uuid.UUID
+		var count int64
+		if err := rows.Scan(&apnID, &count); err != nil {
+			return nil, fmt.Errorf("store: scan sim apn count: %w", err)
+		}
+		result[apnID] = count
+	}
+	return result, nil
+}
+
+// CountActiveAllTenants returns the global count of SIMs in 'active' state
+// across every tenant. Added for FIX-237 fleet digest worker (mass_offline
+// percentage denominator). Read-only aggregate; no tenant scoping by design.
+func (s *SIMStore) CountActiveAllTenants(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM sims WHERE state = 'active'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active sims all tenants: %w", err)
+	}
+	return count, nil
+}
+
+// CountStateTransitionsToInactiveAllTenants returns the global count of
+// sim_state_history rows whose to_state moved a SIM out of the active pool
+// (suspended, stolen_lost, terminated) within the [from, to) window across
+// every tenant. Added for FIX-237 fleet digest worker (mass_offline
+// numerator). Read-only aggregate; no tenant scoping by design.
+func (s *SIMStore) CountStateTransitionsToInactiveAllTenants(ctx context.Context, from, to time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sim_state_history
+		WHERE to_state IN ('suspended', 'stolen_lost', 'terminated')
+		  AND created_at >= $1 AND created_at < $2
+	`, from, to).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count sim transitions to inactive all tenants: %w", err)
+	}
+	return count, nil
+}
+
 func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, []SIMStateCount, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT state, COUNT(*) FROM sims
@@ -1010,4 +1567,343 @@ func (s *SIMStore) CountByState(ctx context.Context, tenantID uuid.UUID) (int, [
 		results = append(results, sc)
 	}
 	return total, results, nil
+}
+
+// CountByPolicyID returns the number of non-purged SIMs currently on any version of the
+// given policy within the tenant. Canonical source for "SIMs on policy X" (FIX-208 F-125
+// fix). Reads from sims.policy_version_id joined via policy_versions.policy_id, NOT from
+// policy_assignments (which is kept for CoA/audit only and may include rows for removed
+// SIMs — see FIX-208 duplication-audit).
+//
+// The policyID parameter is the policies.id (stable across version bumps), not a
+// policy_version_id. The subquery resolves all versions belonging to that policy so the
+// count reflects the policy regardless of which version is currently applied to each SIM.
+func (s *SIMStore) CountByPolicyID(ctx context.Context, tenantID, policyID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sims
+		WHERE tenant_id = $1
+		  AND state != 'purged'
+		  AND policy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $2)
+	`, tenantID, policyID).Scan(&count)
+	if err == nil {
+		return count, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return 0, fmt.Errorf("store: count sims by policy: %w", err)
+}
+
+// ---------------------------------------------------------------------------
+// SIMWithNames — enriched SIM with joined parent-entity display fields.
+// ---------------------------------------------------------------------------
+
+// SIMWithNames is an enriched SIM with joined parent-entity display fields.
+// Used by list/detail endpoints that need UI-ready labels without per-row lookups.
+type SIMWithNames struct {
+	SIM
+	OperatorName        *string
+	OperatorCode        *string
+	APNName             *string
+	PolicyName          *string
+	PolicyID            *uuid.UUID // pol.id (NULL when SIM has no policy assigned) // FIX-233
+	PolicyVersionNumber *int
+	RolloutID           *uuid.UUID // policy_assignments.rollout_id (NULL if SIM not in any rollout) // FIX-233
+	RolloutStagePct     *int       // policy_assignments.stage_pct // FIX-233
+	CoaStatus           *string    // policy_assignments.coa_status (pending/queued/acked/failed) // FIX-233
+}
+
+// PAT-006: scanSIMWithNames is the ONLY scan helper for SIMWithNames.
+// If you add fields to SIMWithNames, update this function AND all tests.
+// Never inline-scan SIMWithNames rows elsewhere.
+func scanSIMWithNames(row pgx.Row) (*SIMWithNames, error) {
+	var s SIMWithNames
+	err := row.Scan(
+		&s.ID, &s.TenantID, &s.OperatorID, &s.APNID, &s.ICCID, &s.IMSI, &s.MSISDN,
+		&s.IPAddressID, &s.PolicyVersionID, &s.ESimProfileID, &s.SimType, &s.State, &s.RATType,
+		&s.MaxConcurrentSessions, &s.SessionIdleTimeoutSec, &s.SessionHardTimeoutSec,
+		&s.Metadata, &s.ActivatedAt, &s.SuspendedAt, &s.TerminatedAt, &s.PurgeAt,
+		&s.CreatedAt, &s.UpdatedAt,
+		&s.OperatorName, &s.OperatorCode, &s.APNName, &s.PolicyName, &s.PolicyID, &s.PolicyVersionNumber,
+		&s.RolloutID, &s.RolloutStagePct, &s.CoaStatus, // FIX-233: nullable pointer scan (PAT-009)
+	)
+	return &s, err
+}
+
+// simEnrichedJoin is the JOIN clause shared by all enriched SIM queries.
+// LEFT JOINs are required for AC-8 orphan safety — INNER would hide orphan rows.
+// operators is tenant-agnostic; apns and policies are tenant-scoped on the JOIN.
+const simEnrichedJoin = `
+LEFT JOIN operators o ON s.operator_id = o.id
+LEFT JOIN apns a ON s.apn_id = a.id AND a.tenant_id = $1
+LEFT JOIN policy_versions pv ON s.policy_version_id = pv.id
+LEFT JOIN policies pol ON pv.policy_id = pol.id AND pol.tenant_id = $1
+LEFT JOIN policy_assignments pa ON pa.sim_id = s.id` // FIX-233: UNIQUE idx_policy_assignments_sim guarantees at most one row per SIM (no row multiplication)
+
+// simEnrichedColumns is the SELECT list for enriched queries (after simColumns with s. prefix).
+const simEnrichedSelect = `s.id, s.tenant_id, s.operator_id, s.apn_id, s.iccid, s.imsi, s.msisdn,
+	s.ip_address_id, s.policy_version_id, s.esim_profile_id, s.sim_type, s.state, s.rat_type,
+	s.max_concurrent_sessions, s.session_idle_timeout_sec, s.session_hard_timeout_sec,
+	s.metadata, s.activated_at, s.suspended_at, s.terminated_at, s.purge_at,
+	s.created_at, s.updated_at,
+	o.name AS operator_name, o.code AS operator_code,
+	COALESCE(NULLIF(a.display_name, ''), a.name) AS apn_name,
+	pol.name AS policy_name,
+	pol.id AS policy_id,
+	pv.version AS policy_version_number,
+	pa.rollout_id, pa.stage_pct, pa.coa_status` // FIX-233: nullable — NULL when SIM has no policy_assignment row
+
+// buildSIMWhereClause builds WHERE predicates and args for SIM list queries.
+// tableAlias is the table alias prefix (e.g. "s." for enriched queries, "" for plain queries).
+// The caller MUST provide tenantID as $1 before calling this function.
+// argIdx must start at 2 (since $1 is always tenantID).
+// Returns (conditions, args, nextArgIdx).
+func buildSIMWhereClause(p ListSIMsParams, tableAlias string, args []interface{}, argIdx int) ([]string, []interface{}, int) {
+	ta := tableAlias
+
+	conditions := []string{}
+
+	if p.ICCID != "" {
+		conditions = append(conditions, fmt.Sprintf("%siccid = $%d", ta, argIdx))
+		args = append(args, p.ICCID)
+		argIdx++
+	}
+
+	if p.IMSI != "" {
+		conditions = append(conditions, fmt.Sprintf("%simsi = $%d", ta, argIdx))
+		args = append(args, p.IMSI)
+		argIdx++
+	}
+
+	if p.MSISDN != "" {
+		conditions = append(conditions, fmt.Sprintf("%smsisdn = $%d", ta, argIdx))
+		args = append(args, p.MSISDN)
+		argIdx++
+	}
+
+	if p.OperatorID != nil {
+		conditions = append(conditions, fmt.Sprintf("%soperator_id = $%d", ta, argIdx))
+		args = append(args, *p.OperatorID)
+		argIdx++
+	}
+
+	if p.APNID != nil {
+		conditions = append(conditions, fmt.Sprintf("%sapn_id = $%d", ta, argIdx))
+		args = append(args, *p.APNID)
+		argIdx++
+	}
+
+	if p.State != "" {
+		conditions = append(conditions, fmt.Sprintf("%sstate = $%d", ta, argIdx))
+		args = append(args, p.State)
+		argIdx++
+	}
+
+	if p.RATType != "" {
+		conditions = append(conditions, fmt.Sprintf("%srat_type = $%d", ta, argIdx))
+		args = append(args, p.RATType)
+		argIdx++
+	}
+
+	if p.IPAddress != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"%sip_address_id IN (SELECT id FROM ip_addresses WHERE address_v4::text LIKE $%d)",
+			ta, argIdx,
+		))
+		args = append(args, "%"+p.IPAddress+"%")
+		argIdx++
+	}
+
+	if p.Q != "" {
+		searchTerm := "%" + p.Q + "%"
+		conditions = append(conditions, fmt.Sprintf(
+			"(%siccid ILIKE $%d OR %simsi ILIKE $%d OR %smsisdn ILIKE $%d)",
+			ta, argIdx, ta, argIdx, ta, argIdx,
+		))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+
+	if p.Cursor != "" {
+		cursorID, parseErr := uuid.Parse(p.Cursor)
+		if parseErr == nil {
+			conditions = append(conditions, fmt.Sprintf("%sid < $%d", ta, argIdx))
+			args = append(args, cursorID)
+			argIdx++
+		}
+	}
+
+	// FIX-233: new filter predicates — policy_version_id, policy_id, rollout_id, rollout_stage_pct
+	if p.PolicyVersionID != nil {
+		// PAT-012: canonical source — sims.policy_version_id, kept in sync by trg_sims_policy_version_sync (FIX-231)
+		// Do NOT filter on policy_assignments.policy_version_id — that would re-introduce dual-source drift (F-148).
+		conditions = append(conditions, fmt.Sprintf("%spolicy_version_id = $%d /* PAT-012: canonical, trg_sims_policy_version_sync */", ta, argIdx))
+		args = append(args, *p.PolicyVersionID)
+		argIdx++
+	}
+
+	if p.PolicyID != nil {
+		// Subquery scoped by $1 (tenantID) to prevent cross-tenant leakage.
+		conditions = append(conditions, fmt.Sprintf("%spolicy_version_id IN (SELECT id FROM policy_versions WHERE policy_id = $%d AND tenant_id = $1)", ta, argIdx))
+		args = append(args, *p.PolicyID)
+		argIdx++
+	}
+
+	if p.RolloutID != nil {
+		conditions = append(conditions, fmt.Sprintf("pa.rollout_id = $%d", argIdx))
+		args = append(args, *p.RolloutID)
+		argIdx++
+	}
+
+	if p.RolloutStagePct != nil {
+		conditions = append(conditions, fmt.Sprintf("pa.stage_pct = $%d", argIdx))
+		args = append(args, *p.RolloutStagePct)
+		argIdx++
+	}
+
+	return conditions, args, argIdx
+}
+
+// ListEnriched returns SIMs with joined parent-entity display names.
+// Signature mirrors List; enriched fields are nullable (LEFT JOIN).
+func (s *SIMStore) ListEnriched(ctx context.Context, tenantID uuid.UUID, p ListSIMsParams) ([]SIMWithNames, string, error) {
+	limit := p.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	args := []interface{}{tenantID}
+	conditions := []string{"s.tenant_id = $1"}
+	argIdx := 2
+
+	extraConds, args, argIdx := buildSIMWhereClause(p, "s.", args, argIdx)
+	conditions = append(conditions, extraConds...)
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+
+	args = append(args, limit+1)
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`SELECT %s FROM sims s %s %s ORDER BY s.created_at DESC, s.id DESC LIMIT %s`,
+		simEnrichedSelect, simEnrichedJoin, where, limitPlaceholder)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list enriched sims: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SIMWithNames
+	for rows.Next() {
+		sim, err := scanSIMWithNames(rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: scan enriched sim: %w", err)
+		}
+		results = append(results, *sim)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: iter enriched sims: %w", err)
+	}
+
+	nextCursor := ""
+	if len(results) > limit {
+		nextCursor = results[limit-1].ID.String()
+		results = results[:limit]
+	}
+
+	return results, nextCursor, nil
+}
+
+// GetByIDEnriched returns one enriched SIM by ID, scoped to tenantID.
+// Returns ErrSIMNotFound when no row matches (including cross-tenant mismatches).
+func (s *SIMStore) GetByIDEnriched(ctx context.Context, tenantID, id uuid.UUID) (*SIMWithNames, error) {
+	query := fmt.Sprintf(`SELECT %s FROM sims s %s WHERE s.tenant_id = $1 AND s.id = $2`,
+		simEnrichedSelect, simEnrichedJoin)
+
+	row := s.db.QueryRow(ctx, query, tenantID, id)
+	sim, err := scanSIMWithNames(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get enriched sim: %w", err)
+	}
+	return sim, nil
+}
+
+// GetManyByIDsEnriched returns a map of enriched SIMs keyed by sim.ID.
+// Only SIMs belonging to tenantID are returned; foreign IDs are silently excluded.
+// Empty input returns an empty map without a DB call.
+// Input is chunked into batches of bulkImportBatchSize (500).
+func (s *SIMStore) GetManyByIDsEnriched(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]*SIMWithNames, error) {
+	result := make(map[uuid.UUID]*SIMWithNames, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	for batchStart := 0; batchStart < len(ids); batchStart += bulkImportBatchSize {
+		batchEnd := batchStart + bulkImportBatchSize
+		if batchEnd > len(ids) {
+			batchEnd = len(ids)
+		}
+		batch := ids[batchStart:batchEnd]
+
+		query := fmt.Sprintf(`SELECT %s FROM sims s %s WHERE s.tenant_id = $1 AND s.id = ANY($2)`,
+			simEnrichedSelect, simEnrichedJoin)
+
+		rows, err := s.db.Query(ctx, query, tenantID, batch)
+		if err != nil {
+			return nil, fmt.Errorf("store: get many enriched sims: %w", err)
+		}
+		for rows.Next() {
+			sim, err := scanSIMWithNames(rows)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("store: scan many enriched sim: %w", err)
+			}
+			result[sim.ID] = sim
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("store: iter many enriched sims: %w", err)
+		}
+	}
+
+	return result, nil
+}
+
+// CountWithPredicate returns the count of active SIMs in a tenant matching
+// a parameterized DSL-derived SQL predicate. The caller assembles the predicate
+// (and its args) via dsl.ToSQLPredicate; this helper composes the full WHERE.
+//
+// The predicate string is appended into the WHERE clause AS-IS — caller is
+// responsible for ensuring it is parameterized + whitelisted (PAT-016, AC-9).
+//
+// Empty predicate ("" or "TRUE") → counts all active SIMs in the tenant.
+func (s *SIMStore) CountWithPredicate(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	dslPredicate string,
+	dslArgs []interface{},
+) (int, error) {
+	if dslPredicate == "" {
+		dslPredicate = "TRUE"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM sims s
+		WHERE s.tenant_id = $1
+		  AND s.state = 'active'
+		  AND (%s)
+	`, dslPredicate)
+
+	args := append([]interface{}{tenantID}, dslArgs...)
+
+	var count int
+	if err := s.db.QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count sims with predicate: %w", err)
+	}
+	return count, nil
 }

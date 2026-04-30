@@ -102,6 +102,49 @@ Argus → NAS (UDP port 3799 by convention, configurable per operator)
     └─ Authenticator (signed with shared secret)
 ```
 
+### CoA Status Lifecycle (FIX-234)
+
+The `policy_assignments.coa_status` column tracks each SIM's CoA delivery state across 6 canonical values. The CHECK constraint `chk_coa_status` (migration `20260430000001`) enforces this set; the canonical Go const set lives in `internal/policy/rollout/coa_status.go`.
+
+**State definitions:**
+- `pending` — Just-inserted assignment row; transient, set by `AssignSIMsToVersion` writer.
+- `queued` — `sendCoAForSIM` has identified active sessions and is dispatching CoA.
+- `acked` — CoA delivered + ack received from RADIUS/Diameter.
+- `failed` — Dispatch attempted but failed after retries.
+- `no_session` — SIM has no active session at the time of policy assignment; nothing to push to.
+- `skipped` — Policy rule indicated CoA-skip (e.g., low-priority change with no protocol delta).
+
+**Lifecycle state machine:**
+
+```
+                  ┌──────────┐
+       insert →   │ pending  │
+                  └────┬─────┘
+                       │  sendCoAForSIM
+                       ▼
+              ┌────────────────────┐
+              │  has active session?│
+              └────┬─────────┬─────┘
+                   │ no      │ yes
+                   ▼         ▼
+            ┌──────────┐  ┌────────┐
+            │no_session│  │ queued │
+            └────┬─────┘  └────┬───┘
+                 │             │ dispatch
+       session.started        ▼
+            (re-fire)    ┌─────────────┐
+                 │       │ acked|failed│
+                 └──────►└─────────────┘
+```
+
+**Re-fire on `session.started`:** When a SIM with `coa_status='no_session'` starts a new session, the `coaSessionResender` subscriber (queue group `rollout-coa-resend`) re-invokes `sendCoAForSIM` to push the pending policy. A 60-second dedup window (via `coa_sent_at`) prevents thrashing on rapid session start/stop cycles.
+
+**Failure alerter:** The `coa_failure_alerter` background job (cron `* * * * *`, every minute) sweeps for rows with `coa_status='failed' AND coa_sent_at < NOW() - 5min` and creates a high-severity alert via `AlertStore.UpsertWithDedup` (dedup key `coa_failed:<sim_id>`).
+
+**Metric:** `argus_coa_status_by_state{state}` Prometheus gauge (registered in `metrics.CoAStatusByState`) — refreshed on each alerter sweep with the current per-state counts.
+
+**Skipped state:** Currently set explicitly by callers that determine a CoA push is unnecessary (e.g., a metadata-only policy update). Not currently auto-set by `sendCoAForSIM` — see future hardening for skip heuristics.
+
 ---
 
 ## Diameter (RFC 6733)
@@ -154,15 +197,21 @@ Application-Id: 16777238 (3GPP Gx)
 ```
 UE attaches → PGW sends CCR-I to Argus
     Argus: lookup IMSI → evaluate policy → determine QoS
-    Argus → CCA-I with Charging-Rule-Install (QoS-Information, filter)
+    Argus: if sim.ip_address_id == nil && sim.apn_id != nil → AllocateIP (STORY-092)
+    Argus → CCA-I with:
+        ├─ Charging-Rule-Install (QoS-Information, filter)
+        └─ Framed-IP-Address (AVP 8, RFC 7155 §4.4.10.5.1, vendor=0, M flag)
 
 Policy changes → Argus sends RAR (Re-Auth-Request) to PGW
     PGW → RAA (Re-Auth-Answer) confirming rule installation
 
 UE detaches → PGW sends CCR-T to Argus
     Argus: close session, generate CDR
+    Argus: if allocation_type == 'dynamic' → ReleaseIP (STORY-092; static preserved)
     Argus → CCA-T confirming
 ```
+
+`AVPCodeFramedIPAddress = 8` is defined in `internal/aaa/diameter/avp.go` with explicit vendor=0 (not 3GPP vendor 10415) per RFC 7155 NASREQ binding. Encoded via the shared `NewAVPAddress` helper.
 
 ### Gy Interface (Online Charging)
 
@@ -353,6 +402,31 @@ GET /nudm-sdm/v1/{supi}/nssai
 GET /nudm-sdm/v1/{supi}/sm-data?single-nssai={"sst":1,"sd":"000001"}
 ```
 
+### Nsmf (Session Management Function) — mock (STORY-092)
+
+Minimal `Nsmf_PDUSession` mock mounted at `internal/aaa/sba/nsmf.go` — Create + Release only. In a real 5G Core the SMF owns UE IP allocation during `Nsmf_PDUSession_CreateSMContext` (per 3GPP TS 23.502 §4.3.2); AUSF and UDM do not allocate IPs. Argus is a management platform / test harness, not a production 5GC, so it ships this minimal mock alongside the existing AUSF/UDM mocks so simulator harnesses drive a full end-to-end IP allocation pipeline.
+
+**Create SM Context (POST)** — `/nsmf-pdusession/v1/sm-contexts` (API-304):
+
+```
+POST /nsmf-pdusession/v1/sm-contexts
+Content-Type: application/json
+
+{
+  "supi": "imsi-286010123456789",
+  "dnn": "internet",
+  "sNssai": { "sst": 1, "sd": "000001" }
+}
+```
+
+Response: `201 Created` with `Location: /nsmf-pdusession/v1/sm-contexts/{smContextRef}`, body includes allocated `ueIpv4Address`. 3GPP-native ProblemDetails on failure (USER_NOT_FOUND, SERVING_NETWORK_NOT_AUTHORIZED, SYSTEM_FAILURE, DNN_NOT_SUPPORTED).
+
+**Release SM Context (DELETE)** — `/nsmf-pdusession/v1/sm-contexts/{smContextRef}` (API-305):
+
+Releases dynamic IP (static preserved via `allocation_type` gate — matches RADIUS/Diameter symmetric release). Returns `204 No Content`. Unknown `smContextRef` returns 204 (idempotent).
+
+**Scope discipline**: no PATCH, no QoS update, no PCF, no UPF selection — strictly Create + Release. STORY-089 will absorb this mock into the new `cmd/operator-sim` container (tracked on ROUTEMAP D-039 for holistic SBA section re-sweep).
+
 ### Network Slice (NSSAI) in Authentication
 
 5G authentication requests include S-NSSAI (Single Network Slice Selection Assistance Information):
@@ -441,3 +515,224 @@ NAS (Diameter) → Argus → Operator core (RADIUS)
 | NR (5G) | 9 (mapped) | 1009 | `nr_5g` |
 
 Note: NB-IoT and LTE-M are variants of E-UTRAN. Standard RADIUS/Diameter may report them as E-UTRAN. Argus uses extended attributes or operator-specific VSAs to distinguish them. The operator adapter is responsible for mapping.
+
+## IMEI Capture (Cross-Protocol) — Phase 11
+
+> Reference: ADR-004 (IMEI Binding Architecture). The Argus AAA engine reads the device identity (IMEI / IMEI-SV / PEI) presented at authentication on every supported protocol and feeds it into a normalized `device.*` SessionContext consumed by the policy engine. Capture is **read-only and null-safe**: missing IMEI never blocks authentication, only weakens enforcement strength for binding-mode-enabled SIMs.
+
+### RADIUS — 3GPP-IMEISV VSA
+
+- **Vendor-Id**: 10415 (3GPP)
+- **Vendor-Type**: 20 (`3GPP-IMEISV`)
+- **Reference**: 3GPP TS 29.061 §16.4.7
+- **Wire format**: ASCII string `"<15-digit IMEI>,<2-digit Software-Version>"` (the comma is literal). Older IEs may carry the bare 16-digit IMEISV without comma — parsers MUST handle both shapes.
+- **Parser contract** (`internal/protocol/radius`):
+  - Split on `,`. If split yields 2 parts: `imei = part[0]`, `software_version = part[1]`.
+  - If no `,` and length is 16: `imei = first15`, `software_version = last1+pad` (legacy IMEISV).
+  - Validate IMEI is exactly 15 numeric digits; validate Software-Version is 2 numeric digits. Fail-soft: malformed → leave SessionContext fields nil + emit `argus_imei_capture_parse_errors_total{protocol="radius"}` counter.
+- Captured on Access-Request (auth) AND Accounting-Start (mid-session change detection).
+
+### Diameter S6a — Terminal-Information AVP
+
+- **AVP code**: 350, grouped, M-bit set
+- **Reference**: 3GPP TS 29.272 §7.3.3 (Terminal-Information), §5.2.2.1.1 (AIR), §5.2.2.1.3 (ULR)
+- **Sub-AVPs**:
+  | Sub-AVP | Code | Type | Notes |
+  |---------|------|------|-------|
+  | IMEI | 1402 | UTF8String | 15 digits |
+  | Software-Version | 1403 | UTF8String | 2 digits |
+  | IMEI-SV | 1404 | UTF8String | 16 digits (alt to IMEI+SV pair) |
+- **Captured during**: AIR (Authentication-Information-Request) and ULR (Update-Location-Request) command exchanges (S6a interface).
+- **Parser contract** (`internal/protocol/diameter`): unpack grouped AVP 350; prefer `IMEI` + `Software-Version` pair if both present; fall back to splitting `IMEI-SV` (1404) when only it is supplied. Same fail-soft + counter behaviour as RADIUS.
+
+### 5G SBA — PEI (Permanent Equipment Identifier)
+
+- **Source**: `Nudm_UEAuthentication` request body and `Namf_Communication` UE-context fields populated upstream by the AMF.
+- **Reference**: 3GPP TS 23.003 §6.2A (PEI format), TS 29.503 (Nudm), TS 29.518 (Namf)
+- **Wire format**: PEI is a tagged URI:
+  - `imei-<15 digits>` — 4G-style identity
+  - `imeisv-<16 digits>` — IMEISV (15-digit IMEI + 2-digit SV concatenated, last 1 digit padding per spec)
+  - `mac-<12 hex>` / `eui64-<16 hex>` — non-3GPP access; Argus stores raw value but does NOT participate in IMEI binding logic.
+- **Parser contract** (`internal/aaa/sba`): strip prefix; for `imeisv-` split into 15-digit IMEI + 2-digit SV; for `imei-` keep 15-digit IMEI and leave SV nil; for non-3GPP forms, pass through to `device.peri_raw` for forensic logging only.
+
+### SessionContext Population
+
+After protocol-specific parsing the AAA engine writes a uniform structure into the policy SessionContext **before** policy DSL evaluation:
+
+```
+SessionContext.Device {
+  IMEI               string  // normalized 15 digits, or empty
+  TAC                string  // first 8 digits of IMEI, or empty
+  SoftwareVersion    string  // 2 digits, or empty
+  IMEISV             string  // 16-digit concatenated form, or empty
+  PEIRaw             string  // raw PEI string for 5G SBA only
+  CaptureProtocol    enum    // "radius" | "diameter_s6a" | "5g_sba"
+  BindingStatus      enum    // populated by binding pre-check (see ADR-004): "verified", "pending", "mismatch", "unbound", "disabled"
+}
+```
+
+`BindingStatus = "disabled"` when `sims.binding_mode IS NULL` (default for migrated rows) and the binding pre-check is skipped.
+
+### Out of Scope (v1)
+
+EIR (Equipment Identity Register) integration via Diameter S13 (4G/EPC) or 5G N17 is **OUT OF SCOPE for v1** per ADR-004. No EIR client, no S13 stub, no N17 SBA mock, no AVP scaffolding for ME-Identity-Check is implemented or stubbed. Local enforcement via the IMEI pool tables (`imei_whitelist` / `imei_greylist` / `imei_blacklist`) and per-SIM `binding_mode` is the policy decision point; integration with operator EIRs is a future-track item should a customer require it.
+
+## eSIM M2M (SGP.02) Provisioning
+
+> Implemented in FIX-235. Runtime packages: `internal/smsr/`, `internal/job/` (OTA dispatcher + reaper + stock alerter + bulk-switch processor), `internal/store/` (`esim_ota_commands`, `esim_profile_stock`), `internal/api/esim/`.
+
+### SGP.02 vs SGP.22 — Consumer Pull vs M2M Push
+
+| Dimension | SGP.22 (Consumer) | SGP.02 (M2M) |
+|-----------|-------------------|--------------|
+| Architecture | SM-DP+ pull (LPAd on device initiates) | SM-SR push (platform sends OTA command) |
+| Profile discovery | QR code / activation code | Platform-controlled EID registry |
+| Consent model | End-user confirmation on device | Operator / platform-driven, no UI on device |
+| Transport | HTTPS to SM-DP+ | OTA SMS / CAT-TP or HTTPS to SM-SR |
+| Target device | Consumer smartphone | IoT/M2M eUICC (no display) |
+| Argus role | Not implemented | Platform → SM-SR → eUICC |
+
+Argus implements the **M2M push model** (SGP.02). The platform acts as the EUM/operator platform: it issues OTA commands to a Subscription Manager – Secure Routing (SM-SR) which delivers them to the eUICC over air (CAT-TP / SMS-PP or HTTPS depending on the operator's SM-SR capabilities).
+
+### SM-SR Push Architecture
+
+```
+Argus Platform
+│
+│  POST /smsr/push  (internal/smsr.Client.Push)
+│  body: { command_id, eid, command_type, target_iccid, operator_id }
+│
+▼
+SM-SR (operator-managed or third-party)
+│
+│  OTA SMS-PP / CAT-TP / HTTPS Bearer
+│
+▼
+eUICC (M2M eSIM in IoT device)
+│
+│  HTTPS callback → POST /api/v1/esim/ota/callback
+│  header: X-SMSR-Signature: <hmac-sha256>
+│  body: { command_id, eid, status: "acked|failed", error_code? }
+│
+▼
+Argus Callback Handler (internal/api/esim)
+```
+
+The SM-SR client interface (`internal/smsr.Client`) is injected at boot. A mock implementation (`internal/smsr.MockClient`) provides deterministic test doubles with configurable fail-rate and latency.
+
+### State Machine
+
+Each OTA command progresses through the following states. All transitions are enforced at the store layer (`internal/store.EsimOTACommandStore`) — invalid transitions return `ErrEsimOTAInvalidTransition`.
+
+```
+         ┌──────────────────────────────────────┐
+         │                                      │
+  INSERT  ▼         dispatcher              callback
+         queued ──────────────► sent ──────────────► acked (terminal)
+                                 │                 └──────────────► failed (terminal)
+                                 │
+                         timeout reaper
+                                 │
+                                 ├─ retries < max ─► queued (re-enqueue)
+                                 └─ retries ≥ max ─► failed (terminal)
+```
+
+| State | Description |
+|-------|-------------|
+| `queued` | Command inserted; ready for dispatcher to pick up. |
+| `sent` | Push accepted by SM-SR; awaiting eUICC callback. |
+| `acked` | eUICC confirmed profile switch. Terminal — no further transitions. |
+| `failed` | Permanent failure (max retries exceeded or SM-SR rejected). Terminal. |
+
+### Retry Policy
+
+Exponential backoff with jitter, capped at 5 attempts:
+
+| Attempt | Delay before retry |
+|---------|-------------------|
+| 1 | 30 s |
+| 2 | 60 s |
+| 3 | 120 s |
+| 4 | 240 s |
+| 5 | 480 s |
+
+After attempt 5 the command transitions to `failed` (terminal). The timeout reaper (`ESimOTATimeoutReaperProcessor`) runs on a schedule (default 60 s tick) and re-queues commands stuck in `sent` past their `next_retry_at` deadline.
+
+### Rate Limiting
+
+Token-bucket rate limiting is applied per operator to avoid overloading SM-SR endpoints:
+
+- **Algorithm**: `golang.org/x/time/rate` token bucket, one limiter per `operator_id` (lazy-initialised).
+- **Default**: `SMSR_RATE_LIMIT_RPS` env var (default `100`). Per-operator overrides are not yet implemented (D-163).
+- **Behaviour when limited**: the dispatcher parks the batch and returns without error; the job scheduler retries on the next tick.
+
+### Stock Allocation
+
+eSIM profile stock (`esim_profile_stock`) tracks available profiles per `(tenant_id, operator_id)` pair. Allocation is atomic:
+
+```sql
+UPDATE esim_profile_stock
+   SET available = available - 1
+ WHERE tenant_id = $1
+   AND operator_id = $2
+   AND available > 0
+ RETURNING *
+```
+
+If no row is updated, `ErrStockExhausted` is returned and the SIM is recorded as `STOCK_EXHAUSTED` in the bulk-switch error report. The dispatcher never allocates stock — allocation is the responsibility of the bulk-switch processor before inserting into `esim_ota_commands`.
+
+### HMAC Callback Verification
+
+The SM-SR callback endpoint (`POST /api/v1/esim/ota/callback`) verifies the `X-SMSR-Signature` header before processing any payload:
+
+- **Algorithm**: HMAC-SHA-256 over the raw request body prefixed with the Unix timestamp: `<unix_ts>.<body_bytes>`
+- **Header format**: `X-SMSR-Signature: t=<unix_ts>,v1=<hex_digest>`
+- **Secret**: `SMSR_CALLBACK_SECRET` env var (required; boot-fatal if absent when `SMSR_ENABLED=true`)
+- **Replay window**: 300 seconds — requests with `|now - t| > 300` are rejected with `403 Forbidden`
+- **Failure response**: `401 Unauthorized` on signature mismatch; `403 Forbidden` on replay
+
+### Bulk Switch Flow
+
+The `BulkEsimSwitchProcessor` handles the `bulk.esim_switch` job type:
+
+```
+1. Deserialise payload (target_operator_id, sim_ids or segment filter)
+2. Acquire distributed lock (Redis SETNX, 5-minute TTL)
+3. For each eSIM in the batch:
+   a. GetEnabledProfileForSIM → current profile
+   b. List disabled profiles for target operator (at most 1)
+   c. Allocate stock (atomic UPDATE; skip SIM on ErrStockExhausted)
+   d. BatchInsert single ota_commands row (command_type="switch")
+   e. Emit bulk.ota_enqueue audit log entry
+4. Release distributed lock
+5. Publish job progress via WebSocket (bus subject: esim.bulk.progress)
+6. Write job result summary (processed_count, failed_count, error_details)
+```
+
+### Audit Log Entries
+
+| Event action | Trigger | Key fields |
+|-------------|---------|-----------|
+| `ota.dispatch` | Dispatcher sends push to SM-SR | `eid`, `command_id`, `operator_id` |
+| `ota.callback_acked` | Callback received with `status=acked` | `eid`, `command_id`, `profile_id` |
+| `ota.callback_failed` | Callback received with `status=failed` | `eid`, `command_id`, `error_code` |
+| `bulk.ota_enqueue` | Bulk-switch processor inserts ota_command | `job_id`, `sim_id`, `target_operator_id` |
+
+### NATS Bus Subjects
+
+| Subject | Published when | Payload |
+|---------|---------------|---------|
+| `esim.command.issued` | Dispatcher successfully sends push | `{ command_id, eid, operator_id, tenant_id }` |
+| `esim.command.acked` | Callback acked | `{ command_id, eid, tenant_id }` |
+| `esim.command.failed` | Callback failed or max retries exceeded | `{ command_id, eid, error_code, tenant_id }` |
+
+All events use the canonical `bus.Envelope` wire format (see `docs/architecture/WEBSOCKET_EVENTS.md`).
+
+### Integration & Load Test Scenarios
+
+| Scenario | Status | Notes |
+|----------|--------|-------|
+| 100 SIMs → 100 ota_commands, all stock allocated | Implemented (`internal/job/esim_bulkswitch_integration_test.go`, runs without -short) | In-process fakes; no external deps |
+| Stock exhaustion mid-batch — partial OTA insert | Implemented (unit test `TestBulkEsimSwitch_StockExhausted_SkipsOTAInsert`) | — |
+| Dispatcher consumes queued → sent → acked end-to-end | Covered by dispatcher unit tests + timeout-reaper unit tests | — |
+| 10K SIM bulk switch — load test | **Deferred D-168** | Requires testcontainers PostgreSQL harness for real DB throughput. Run: `go test ./internal/job/... -run Load -v -race` once harness is available |

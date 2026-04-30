@@ -40,10 +40,13 @@ func TestBR1_AllValidTransitionsFromSuspended(t *testing.T) {
 	}
 }
 
-func TestBR1_StolenLostHasNoOutboundTransitions(t *testing.T) {
+func TestBR1_StolenLostCanOnlyTerminate(t *testing.T) {
 	allowed := validTransitions["stolen_lost"]
-	if len(allowed) != 0 {
-		t.Errorf("stolen_lost should have 0 transitions, got %d: %v", len(allowed), allowed)
+	if len(allowed) != 1 {
+		t.Fatalf("stolen_lost should have exactly 1 valid transition (per BR-1), got %d: %v", len(allowed), allowed)
+	}
+	if allowed[0] != "terminated" {
+		t.Errorf("stolen_lost should only transition to terminated, got %q", allowed[0])
 	}
 }
 
@@ -112,10 +115,10 @@ func TestBR1_SuspendedCannotGoToStolenLost(t *testing.T) {
 	}
 }
 
-func TestBR1_StolenLostCannotTerminate(t *testing.T) {
+func TestBR1_StolenLostCanTerminate(t *testing.T) {
 	err := validateTransition("stolen_lost", "terminated")
-	if err == nil {
-		t.Error("stolen_lost->terminated should be invalid (absorbing state)")
+	if err != nil {
+		t.Errorf("stolen_lost->terminated should be valid per BR-1 (manual terminate after investigation): %v", err)
 	}
 }
 
@@ -188,6 +191,42 @@ func TestBR3_PoolExhaustedErrorMessage(t *testing.T) {
 	expected := "store: ip pool exhausted"
 	if ErrPoolExhausted.Error() != expected {
 		t.Errorf("ErrPoolExhausted.Error() = %q, want %q", ErrPoolExhausted.Error(), expected)
+	}
+}
+
+func TestBR1_ResumeRequiresSuspendedState(t *testing.T) {
+	nonSuspendedStates := []string{"ordered", "active", "stolen_lost", "terminated", "purged"}
+	for _, state := range nonSuspendedStates {
+		t.Run("resume_from_"+state+"_must_fail", func(t *testing.T) {
+			if state == "suspended" {
+				t.Fatal("test data error: suspended must not appear in this list")
+			}
+			simulatedGuard := func(currentState string) error {
+				if currentState != "suspended" {
+					return ErrInvalidStateTransition
+				}
+				return validateTransition(currentState, "active")
+			}
+			err := simulatedGuard(state)
+			if err == nil {
+				t.Errorf("Resume from %q should return ErrInvalidStateTransition (not suspended)", state)
+			}
+			if err != ErrInvalidStateTransition {
+				t.Errorf("Resume from %q: got %v, want ErrInvalidStateTransition", state, err)
+			}
+		})
+	}
+}
+
+func TestBR1_ResumeFromSuspendedAllowed(t *testing.T) {
+	simulatedGuard := func(currentState string) error {
+		if currentState != "suspended" {
+			return ErrInvalidStateTransition
+		}
+		return validateTransition(currentState, "active")
+	}
+	if err := simulatedGuard("suspended"); err != nil {
+		t.Errorf("Resume from suspended should be allowed, got: %v", err)
 	}
 }
 

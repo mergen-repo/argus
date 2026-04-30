@@ -6,14 +6,16 @@ export interface SIMByState {
 export interface OperatorHealth {
   id: string
   name: string
-  code: string
   status: 'healthy' | 'degraded' | 'down'
   health_pct: number
-  latency_ms: number
-  sla_target: number
-  active_sessions: number
-  auth_rate: number
-  last_check: string
+  code?: string
+  sla_target?: number
+  active_sessions?: number
+  last_health_check?: string
+  latency_ms?: number
+  auth_rate?: number
+  latency_sparkline?: number[]
+  sla_latency_ms?: number
 }
 
 export interface TopAPN {
@@ -23,15 +25,20 @@ export interface TopAPN {
   bytes_total: number
 }
 
+export type AlertSource = 'sim' | 'operator' | 'infra' | 'policy' | 'system'
+
 export interface DashboardAlert {
   id: string
   type: string
   severity: 'critical' | 'warning' | 'info'
+  source: AlertSource
   state: string
   message: string
-  entity_type?: string
-  entity_id?: string
   detected_at: string
+  sim_id?: string
+  operator_id?: string
+  apn_id?: string
+  meta?: Record<string, unknown>
 }
 
 export interface DashboardMetrics {
@@ -58,6 +65,13 @@ export interface TrafficHeatmapCell {
   day: number
   hour: number
   value: number
+  raw_bytes: number
+}
+
+export interface TopIPPool {
+  id: string
+  name: string
+  usage_pct: number
 }
 
 export interface DashboardData {
@@ -75,4 +89,5 @@ export interface DashboardData {
   sparklines: Record<string, number[]>
   system_status: 'operational' | 'degraded' | 'critical'
   alert_counts: { critical: number; warning: number; info: number }
+  top_ip_pool?: TopIPPool | null
 }

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useTabUrlSync } from '@/hooks/use-tab-url-sync'
 import {
   ArrowLeft,
   RefreshCw,
@@ -13,7 +14,12 @@ import {
   Loader2,
   Lock,
   Activity,
+  TrendingUp,
   Plus,
+  Shield,
+  Layers,
+  FileText,
+  ExternalLink,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -46,9 +52,11 @@ import {
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import { TimeframeSelector } from '@/components/ui/timeframe-selector'
-import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool } from '@/hooks/use-apns'
+import { Spinner } from '@/components/ui/spinner'
+import { useAPN, useAPNIPPools, useAPNSims, useUpdateAPN, useDeleteAPN, useCreateIPPool, useAPNReferencingPolicies } from '@/hooks/use-apns'
+import { useSIMList } from '@/hooks/use-sims'
+import { useAPNTraffic } from '@/hooks/use-apn-traffic'
 import { useOperatorList } from '@/hooks/use-operators'
 import { useIpPoolAddresses } from '@/hooks/use-settings'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -59,22 +67,16 @@ import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { formatBytes } from '@/lib/format'
 import { stateVariant } from '@/lib/sim-utils'
+import { InfoRow } from '@/components/ui/info-row'
+import { RelatedAuditTab, RelatedNotificationsPanel, RelatedAlertsPanel, FavoriteToggle } from '@/components/shared'
+import { QuickViewPanelBody } from '@/components/sims/quick-view-panel'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
+import { KPICard } from '@/components/shared/kpi-card'
 
 const APN_TYPE_DISPLAY: Record<string, string> = {
   private_managed: 'Private Managed',
   operator_managed: 'Operator Managed',
   customer_managed: 'Customer Managed',
-}
-
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <span className={cn('text-sm text-text-primary', mono && 'font-mono text-xs')}>
-        {value}
-      </span>
-    </div>
-  )
 }
 
 function ConfigTab({ apn, operatorName }: { apn: NonNullable<ReturnType<typeof useAPN>['data']>; operatorName: string }) {
@@ -183,7 +185,9 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div />
+        <InfoTooltip term="static_ip">
+          <span className="text-xs text-text-secondary font-medium">IP Pools</span>
+        </InfoTooltip>
         <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5" />
           Create IP Pool
@@ -333,36 +337,36 @@ function IPPoolsTab({ apnId }: { apnId: string }) {
               <div>
                 <div className="text-xs text-text-secondary mb-2">Assigned / Reserved ({reservedAddresses.length})</div>
                 <div className="rounded-[var(--radius-md)] border border-border overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead className="bg-bg-elevated">
-                      <tr>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">IP</th>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">State</th>
-                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">SIM</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table className="text-xs">
+                    <TableHeader className="bg-bg-elevated">
+                      <TableRow>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">IP</TableHead>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">State</TableHead>
+                        <TableHead className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-text-tertiary font-medium">SIM</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {reservedAddresses.map((addr) => (
-                        <tr key={addr.id} className="border-t border-border-subtle">
-                          <td className="px-3 py-1.5 font-mono text-text-primary">{addr.address_v4 || addr.address_v6}</td>
-                          <td className="px-3 py-1.5">
+                        <TableRow key={addr.id} className="border-t border-border-subtle">
+                          <TableCell className="px-3 py-1.5 font-mono text-text-primary">{addr.address_v4 || addr.address_v6}</TableCell>
+                          <TableCell className="px-3 py-1.5">
                             <Badge variant={addr.state === 'assigned' ? 'warning' : 'secondary'} className="text-[9px]">
                               {addr.state.toUpperCase()}
                             </Badge>
-                          </td>
-                          <td className="px-3 py-1.5">
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
                             {addr.sim_iccid ? (
                               <span className="font-mono text-accent">{addr.sim_iccid}</span>
                             ) : addr.sim_id ? (
-                              <span className="font-mono text-text-tertiary">{addr.sim_id.slice(0, 12)}</span>
+                              <span className="font-mono text-text-tertiary">{addr.sim_id.slice(0, 12) /* UUID slice ok: sim_iccid absent path, secondary info in IP allocation row */}</span>
                             ) : (
                               <span className="text-text-tertiary">-</span>
                             )}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             )}
@@ -450,9 +454,9 @@ function SIMsTab({ apnId }: { apnId: string }) {
       <Table>
         <TableHeader className="bg-bg-elevated">
           <TableRow>
-            <TableHead>ICCID</TableHead>
-            <TableHead>IMSI</TableHead>
-            <TableHead>MSISDN</TableHead>
+            <TableHead><InfoTooltip term="ICCID">ICCID</InfoTooltip></TableHead>
+            <TableHead><InfoTooltip term="IMSI">IMSI</InfoTooltip></TableHead>
+            <TableHead><InfoTooltip term="MSISDN">MSISDN</InfoTooltip></TableHead>
             <TableHead>IP Address</TableHead>
             <TableHead>State</TableHead>
             <TableHead>RAT</TableHead>
@@ -464,6 +468,15 @@ function SIMsTab({ apnId }: { apnId: string }) {
               key={sim.id}
               className="cursor-pointer"
               onClick={() => setSelectedSim(sim)}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open SIM ${sim.iccid} quick view`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSelectedSim(sim)
+                }
+              }}
             >
               <TableCell>
                 <span
@@ -503,14 +516,16 @@ function SIMsTab({ apnId }: { apnId: string }) {
       </Table>
       {hasNextPage && (
         <div className="px-4 py-3 border-t border-border-subtle">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2"
+            className="w-full text-center text-xs text-text-tertiary hover:text-accent transition-colors py-1 flex items-center justify-center gap-2 h-auto"
           >
             {isFetchingNextPage && <Spinner className="h-3 w-3" />}
             {isFetchingNextPage ? 'Loading...' : 'Load more SIMs'}
-          </button>
+          </Button>
         </div>
       )}
     </Card>
@@ -523,86 +538,34 @@ function SIMsTab({ apnId }: { apnId: string }) {
       width="lg"
     >
       {selectedSim && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">ICCID</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.iccid}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IMSI</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.imsi}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">MSISDN</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.msisdn ?? '-'}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">IP Address</div>
-              <div className="font-mono text-xs text-text-primary">{selectedSim.ip_address || '-'}</div>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">State</div>
-              <Badge variant={stateVariant(selectedSim.state)} className="text-[10px]">
-                {selectedSim.state.toUpperCase()}
-              </Badge>
-            </div>
-            <div className="rounded-[var(--radius-sm)] border border-border p-3">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary mb-1">RAT Type</div>
-              <div className="text-xs text-text-primary">{selectedSim.rat_type ? (RAT_DISPLAY[selectedSim.rat_type] ?? selectedSim.rat_type) : '-'}</div>
-            </div>
-          </div>
-          {selectedSim.created_at && (
-            <div className="text-xs text-text-tertiary">
-              Created: {new Date(selectedSim.created_at).toLocaleString()}
-            </div>
-          )}
-          <div className="flex items-center justify-end pt-2">
-            <Button size="sm" className="gap-2" onClick={() => { setSelectedSim(null); navigate(`/sims/${selectedSim.id}`) }}>
-              Open Full Detail
-            </Button>
-          </div>
-        </div>
+        <QuickViewPanelBody sim={selectedSim} onClose={() => setSelectedSim(null)} />
       )}
     </SlidePanel>
     </>
   )
 }
 
-const TIMEFRAME_POINTS: Record<string, { count: number; labelFn: (i: number) => string }> = {
-  '15m': { count: 15, labelFn: (i) => `${i}m` },
-  '1h': { count: 12, labelFn: (i) => `${i * 5}m` },
-  '6h': { count: 12, labelFn: (i) => `${i * 30}m` },
-  '24h': { count: 24, labelFn: (i) => `${String(i).padStart(2, '0')}:00` },
-  '7d': { count: 7, labelFn: (i) => `Day ${i + 1}` },
-  '30d': { count: 30, labelFn: (i) => `Day ${i + 1}` },
-}
+function TrafficTab({ apnId }: { apnId: string }) {
+  const [period, setPeriod] = useState('24h')
+  const { data: trafficData, isLoading, isError } = useAPNTraffic(apnId, period)
 
-function generateMockTraffic(timeframe: string) {
-  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
-  const scale = timeframe === '15m' ? 0.1 : timeframe === '1h' ? 0.3 : timeframe === '6h' ? 0.6 : timeframe === '7d' ? 3 : timeframe === '30d' ? 10 : 1
-  return Array.from({ length: cfg.count }, (_, i) => ({
-    label: cfg.labelFn(i),
-    bytes_in: Math.floor((Math.random() * 200_000_000 + 10_000_000) * scale),
-    bytes_out: Math.floor((Math.random() * 100_000_000 + 5_000_000) * scale),
-  }))
-}
+  const series = useMemo(() => {
+    if (!trafficData?.series) return []
+    return trafficData.series.map((b) => ({
+      label: new Date(b.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      bytes_in: b.bytes_in,
+      bytes_out: b.bytes_out,
+      total: b.bytes_in + b.bytes_out,
+      auth_count: b.auth_count,
+    }))
+  }, [trafficData])
 
-function generateMockFrequency(timeframe: string, base: number) {
-  const cfg = TIMEFRAME_POINTS[timeframe] ?? TIMEFRAME_POINTS['24h']
-  const scale = timeframe === '15m' ? 0.2 : timeframe === '1h' ? 0.5 : timeframe === '6h' ? 0.8 : timeframe === '7d' ? 2 : timeframe === '30d' ? 5 : 1
-  return Array.from({ length: cfg.count }, (_, i) => ({
-    label: cfg.labelFn(i),
-    count: Math.floor((Math.random() * base + base * 0.2) * scale),
-  }))
-}
-
-function TrafficTab() {
-  const [timeframe, setTimeframe] = useState('24h')
-
-  const mockData = useMemo(() => generateMockTraffic(timeframe), [timeframe])
-  const mockAuthData = useMemo(() => generateMockFrequency(timeframe, 400), [timeframe])
-  const mockAcctData = useMemo(() => generateMockFrequency(timeframe, 250), [timeframe])
+  const totals = useMemo(() => {
+    const tIn = series.reduce((a, b) => a + b.bytes_in, 0)
+    const tOut = series.reduce((a, b) => a + b.bytes_out, 0)
+    const tRec = series.reduce((a, b) => a + b.auth_count, 0)
+    return { tIn, tOut, tTotal: tIn + tOut, tRec }
+  }, [series])
 
   const tooltipStyle = {
     backgroundColor: 'var(--color-bg-elevated)',
@@ -612,124 +575,162 @@ function TrafficTab() {
     fontSize: '12px',
   }
 
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-danger/30 bg-danger-dim p-6 text-center">
+        <AlertCircle className="h-8 w-8 text-danger mx-auto mb-2" />
+        <p className="text-sm text-danger">Failed to load traffic data.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {/* Header with period selector */}
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">Traffic & Request Metrics</span>
-        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">Traffic Overview</h3>
+          <p className="text-[11px] text-text-tertiary mt-0.5">Aggregated from CDR hourly rollups</p>
+        </div>
+        <TimeframeSelector
+          options={[
+            { value: '1h', label: '1h' },
+            { value: '6h', label: '6h' },
+            { value: '24h', label: '24h' },
+            { value: '7d', label: '7d' },
+            { value: '30d', label: '30d' },
+          ]}
+          value={period}
+          onChange={(v) => setPeriod(typeof v === 'string' ? v : v.value)}
+          allowCustom={false}
+        />
       </div>
 
+      {/* KPI strip */}
+      <div className="grid grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-accent" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes In</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tIn)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-2 w-2 rounded-full bg-success" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Bytes Out</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tOut)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">Total Volume</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(totals.tTotal)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="h-3 w-3 text-text-tertiary" />
+              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-medium">CDR Records</div>
+            </div>
+            <div className="font-mono text-xl font-bold text-text-primary">{totals.tRec.toLocaleString()}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main traffic chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Traffic Trend</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Bytes Over Time</CardTitle>
+            <div className="flex items-center gap-3 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-accent" /><span className="text-text-tertiary">In</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-success" /><span className="text-text-tertiary">Out</span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockData}>
-                <defs>
-                  <linearGradient id="apnGradIn" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="apnGradOut" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-purple)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--color-purple)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockData.length / 8) - 1)} />
-                <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={65} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatBytes(Number(value))]} />
-                <Area type="monotone" dataKey="bytes_in" stroke="var(--color-accent)" fill="url(#apnGradIn)" strokeWidth={2} name="Bytes In" />
-                <Area type="monotone" dataKey="bytes_out" stroke="var(--color-purple)" fill="url(#apnGradOut)" strokeWidth={2} name="Bytes Out" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[280px] flex flex-col items-center justify-center gap-2">
+              <TrendingUp className="h-8 w-8 text-text-tertiary opacity-40" />
+              <p className="text-[12px] text-text-secondary">No traffic in this period</p>
+              <p className="text-[10px] text-text-tertiary">CDR rollups refresh every 30 minutes</p>
+            </div>
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={series}>
+                  <defs>
+                    <linearGradient id="apnBytesInHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="apnBytesOutHero" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
+                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatBytes(Number(value)), name]} />
+                  <Area type="monotone" dataKey="bytes_in" stackId="1" stroke="var(--color-accent)" fill="url(#apnBytesInHero)" strokeWidth={2} name="In" />
+                  <Area type="monotone" dataKey="bytes_out" stackId="1" stroke="var(--color-success)" fill="url(#apnBytesOutHero)" strokeWidth={2} name="Out" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-accent">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total In</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-purple">{formatBytes(mockData.reduce((a, d) => a + d.bytes_out, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total Out</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="font-mono text-xl font-bold text-text-primary">{formatBytes(mockData.reduce((a, d) => a + d.bytes_in + d.bytes_out, 0))}</div>
-            <div className="text-[10px] uppercase tracking-wider text-text-tertiary mt-1">Total</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4 text-accent" />
-              <CardTitle>Access-Request Frequency</CardTitle>
+      {/* Record count chart */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>CDR Records Per Bucket</CardTitle>
+            <span className="text-[10px] text-text-tertiary">Auth + Accounting events</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-[180px] w-full" />
+          ) : series.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-[12px] text-text-tertiary">
+              No records yet
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[200px]">
+          ) : (
+            <div className="h-[180px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockAuthData}>
+                <AreaChart data={series}>
                   <defs>
-                    <linearGradient id="apnGradAuth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
+                    <linearGradient id="apnRecordCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAuthData.length / 6) - 1)} />
+                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Requests']} />
-                  <Area type="monotone" dataKey="count" stroke="var(--color-success)" fill="url(#apnGradAuth)" strokeWidth={2} name="Auth Requests" />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Records']} />
+                  <Area type="monotone" dataKey="auth_count" stroke="var(--color-accent)" fill="url(#apnRecordCount)" strokeWidth={2} name="Records" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="text-center mt-2">
-              <span className="font-mono text-sm font-semibold text-success">{Math.round(mockAuthData.reduce((a, d) => a + d.count, 0) / mockAuthData.length)}/interval avg</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-warning" />
-              <CardTitle>Accounting-Update Frequency</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockAcctData}>
-                  <defs>
-                    <linearGradient id="apnGradAcct" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-warning)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="label" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(mockAcctData.length / 6) - 1)} />
-                  <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value) => [value, 'Updates']} />
-                  <Area type="monotone" dataKey="count" stroke="var(--color-warning)" fill="url(#apnGradAcct)" strokeWidth={2} name="Acct Updates" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center mt-2">
-              <span className="font-mono text-sm font-semibold text-warning">{Math.round(mockAcctData.reduce((a, d) => a + d.count, 0) / mockAcctData.length)}/interval avg</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -741,6 +742,61 @@ const APN_TYPE_OPTIONS = [
 ]
 
 const RAT_TYPE_OPTIONS_LIST = ['nb_iot', 'lte_m', 'lte', 'nr_5g']
+
+function PoliciesReferencingTab({ apnId }: { apnId: string }) {
+  const navigate = useNavigate()
+  const { data: policies = [], isLoading } = useAPNReferencingPolicies(apnId)
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 mt-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-10 rounded bg-bg-elevated animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (policies.length === 0) {
+    return (
+      <div className="mt-4 flex flex-col items-center justify-center py-12 gap-3">
+        <FileText className="h-8 w-8 text-text-tertiary" />
+        <p className="text-sm text-text-secondary">No policies reference this APN</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Scope</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead className="w-8" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {policies.map((p) => (
+            <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(`/policies/${p.id}`)}>
+              <TableCell className="text-sm font-medium text-text-primary">{p.name}</TableCell>
+              <TableCell>
+                <Badge variant="secondary" className="text-[10px]">{p.scope}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={p.state === 'active' ? 'success' : 'secondary'} className="text-[10px]">{p.state}</Badge>
+              </TableCell>
+              <TableCell>
+                <ExternalLink className="h-3.5 w-3.5 text-text-tertiary" />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
 
 function EditAPNDialog({
   open,
@@ -815,14 +871,14 @@ function EditAPNDialog({
           <label className="text-xs font-medium text-text-secondary mb-1.5 block">RAT Types</label>
           <div className="flex flex-wrap gap-2">
             {RAT_TYPE_OPTIONS_LIST.map((rat) => (
-              <button key={rat} type="button" onClick={() => toggleRat(rat)} className={cn(
-                'px-2.5 py-1 rounded text-xs font-mono border transition-colors',
+              <Button key={rat} type="button" variant="ghost" size="sm" onClick={() => toggleRat(rat)} className={cn(
+                'px-2.5 py-1 rounded text-xs font-mono border transition-colors h-auto',
                 form.supported_rat_types.includes(rat)
                   ? 'border-accent bg-accent-dim text-accent'
                   : 'border-border bg-bg-elevated text-text-secondary hover:border-text-tertiary',
               )}>
                 {RAT_DISPLAY[rat] ?? rat}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -839,10 +895,18 @@ function EditAPNDialog({
   )
 }
 
+const APN_TABS = [
+  'overview', 'config', 'ip-pools', 'sims', 'traffic', 'policies', 'audit', 'alerts',
+] as const
+
 export default function ApnDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('config')
+  const [activeTab, setActiveTab] = useTabUrlSync({
+    defaultTab: 'overview',
+    aliases: { notifications: 'alerts' },
+    validTabs: [...APN_TABS],
+  })
 
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -861,6 +925,31 @@ export default function ApnDetailPage() {
     if (!apn || !operators) return 'Unknown'
     return operators.find((o) => o.id === apn.operator_id)?.name ?? 'Unknown'
   }, [apn, operators])
+
+  // KPI data
+  const { data: simListData } = useSIMList({ apn_id: id ?? '' })
+  const { data: trafficData } = useAPNTraffic(id ?? '', '24h')
+
+  const simTotal = simListData?.pages.flatMap((p) => p.data).length ?? 0
+
+  const traffic24h = useMemo<number>(() => {
+    if (!trafficData?.series || trafficData.series.length === 0) return 0
+    return trafficData.series.reduce((acc, b) => acc + b.bytes_in + b.bytes_out, 0)
+  }, [trafficData])
+
+  const topOperator = useMemo<string>(() => {
+    const firstPage = simListData?.pages[0]?.data ?? []
+    if (firstPage.length === 0) return '—'
+    const counts: Record<string, number> = {}
+    for (const sim of firstPage) {
+      const opName = (sim as { operator_name?: string }).operator_name ?? sim.operator_id ?? 'Unknown'
+      counts[opName] = (counts[opName] ?? 0) + 1
+    }
+    const topEntry = Object.entries(counts).sort(([, a], [, b]) => b - a)[0]
+    return topEntry ? topEntry[0] : '—'
+  }, [simListData])
+
+  const hasMoreSims = simListData?.pages[0]?.meta?.has_more ?? false
 
   if (isLoading) {
     return (
@@ -917,6 +1006,12 @@ export default function ApnDetailPage() {
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               {apn.display_name || apn.name}
             </h1>
+            <FavoriteToggle
+              type="apn"
+              id={id ?? ''}
+              label={`APN: ${apn.name}`}
+              path={`/apns/${id}`}
+            />
             <Badge variant={apn.state === 'active' ? 'success' : 'secondary'} className="gap-1 flex-shrink-0">
               {apn.state === 'active' && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
               {apn.state.toUpperCase()}
@@ -949,8 +1044,51 @@ export default function ApnDetailPage() {
         </div>
       </div>
 
+      {/* KPI Row — APN health summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          title="SIMs"
+          value={simTotal}
+          sparklineData={[]}
+          color="var(--color-accent)"
+          subtitle="Connected to this APN"
+          delay={0}
+        />
+        <KPICard
+          title="Traffic (24h)"
+          value={traffic24h}
+          formatter={(n) => formatBytes(n)}
+          sparklineData={[]}
+          color="var(--color-success)"
+          subtitle="Inbound + outbound"
+          delay={80}
+        />
+        <KPICard
+          title="Top Operator"
+          value={0}
+          label={topOperator || '—'}
+          sparklineData={[]}
+          color="var(--color-warning)"
+          subtitle={hasMoreSims ? 'Based on first 50 SIMs' : 'By SIM count'}
+          delay={160}
+        />
+        <KPICard
+          title="APN State"
+          value={0}
+          label={apn.state.toUpperCase()}
+          sparklineData={[]}
+          color={apn.state === 'active' ? 'var(--color-success)' : 'var(--color-text-tertiary)'}
+          subtitle={APN_TYPE_DISPLAY[apn.apn_type] ?? apn.apn_type}
+          delay={240}
+        />
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="overview" className="gap-1.5">
+            <Settings className="h-3.5 w-3.5" />
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="config" className="gap-1.5">
             <Settings className="h-3.5 w-3.5" />
             Configuration
@@ -961,14 +1099,31 @@ export default function ApnDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="sims" className="gap-1.5">
             <Wifi className="h-3.5 w-3.5" />
-            Connected SIMs
+            SIMs
           </TabsTrigger>
           <TabsTrigger value="traffic" className="gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
             Traffic
           </TabsTrigger>
+          <TabsTrigger value="policies" className="gap-1.5">
+            <FileText className="h-3.5 w-3.5" />
+            Policies
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5">
+            <Shield className="h-3.5 w-3.5" />
+            Audit
+          </TabsTrigger>
+          {/* Alerts tab — merged with Notifications (FIX-222) */}
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
         </TabsList>
 
+        {/* Overview tab — config summary (read-heavy first) */}
+        <TabsContent value="overview">
+          <ConfigTab apn={apn} operatorName={operatorName} />
+        </TabsContent>
         <TabsContent value="config">
           <ConfigTab apn={apn} operatorName={operatorName} />
         </TabsContent>
@@ -979,7 +1134,27 @@ export default function ApnDetailPage() {
           <SIMsTab apnId={apn.id} />
         </TabsContent>
         <TabsContent value="traffic">
-          <TrafficTab />
+          <TrafficTab apnId={apn.id} />
+        </TabsContent>
+        <TabsContent value="audit">
+          <div className="mt-4">
+            <RelatedAuditTab entityId={apn.id} entityType="apn" />
+          </div>
+        </TabsContent>
+        {/* Alerts tab — notifications concatenated below alerts */}
+        <TabsContent value="alerts">
+          <div className="mt-4 space-y-6">
+            <RelatedAlertsPanel entityId={apn.id} entityType="apn" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.5px] text-text-secondary font-medium mb-3">
+                System Notifications
+              </p>
+              <RelatedNotificationsPanel entityId={apn.id} />
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="policies">
+          <PoliciesReferencingTab apnId={apn.id} />
         </TabsContent>
       </Tabs>
 

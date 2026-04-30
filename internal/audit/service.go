@@ -3,17 +3,14 @@ package audit
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
 type AuditStore interface {
-	Create(ctx context.Context, entry *Entry) (*Entry, error)
-	GetLastHash(ctx context.Context, tenantID uuid.UUID) (string, error)
-	GetRange(ctx context.Context, tenantID uuid.UUID, count int) ([]Entry, error)
+	CreateWithChain(ctx context.Context, entry *Entry) (*Entry, error)
+	GetBatch(ctx context.Context, afterID int64, limit int) ([]Entry, error)
 }
 
 type EventPublisher interface {
@@ -29,12 +26,11 @@ type Subscription interface {
 }
 
 type FullService struct {
-	store      AuditStore
-	publisher  EventPublisher
-	logger     zerolog.Logger
-	tenantMu   sync.Map
-	sub        Subscription
-	auditSubj  string
+	store     AuditStore
+	publisher EventPublisher
+	logger    zerolog.Logger
+	sub       Subscription
+	auditSubj string
 }
 
 func NewFullService(store AuditStore, publisher EventPublisher, logger zerolog.Logger) *FullService {
@@ -81,21 +77,7 @@ func (s *FullService) handleAuditEvent(subject string, data []byte) {
 	}
 }
 
-func (s *FullService) getTenantMutex(tenantID uuid.UUID) *sync.Mutex {
-	val, _ := s.tenantMu.LoadOrStore(tenantID, &sync.Mutex{})
-	return val.(*sync.Mutex)
-}
-
 func (s *FullService) ProcessEntry(ctx context.Context, event AuditEvent) error {
-	mu := s.getTenantMutex(event.TenantID)
-	mu.Lock()
-	defer mu.Unlock()
-
-	prevHash, err := s.store.GetLastHash(ctx, event.TenantID)
-	if err != nil {
-		return err
-	}
-
 	var beforeData, afterData json.RawMessage
 	if len(event.BeforeData) > 0 {
 		beforeData = event.BeforeData
@@ -119,13 +101,10 @@ func (s *FullService) ProcessEntry(ctx context.Context, event AuditEvent) error 
 		IPAddress:     event.IPAddress,
 		UserAgent:     event.UserAgent,
 		CorrelationID: event.CorrelationID,
-		PrevHash:      prevHash,
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	entry.Hash = ComputeHash(*entry, prevHash)
-
-	_, err = s.store.Create(ctx, entry)
+	_, err := s.store.CreateWithChain(ctx, entry)
 	return err
 }
 
@@ -136,12 +115,56 @@ func (s *FullService) PublishAuditEvent(ctx context.Context, event AuditEvent) e
 	return s.publisher.Publish(ctx, s.auditSubj, event)
 }
 
-func (s *FullService) VerifyChain(ctx context.Context, tenantID uuid.UUID, count int) (*VerifyResult, error) {
-	entries, err := s.store.GetRange(ctx, tenantID, count)
-	if err != nil {
-		return nil, err
+const verifyBatchSize = 5000
+
+func (s *FullService) VerifyChain(ctx context.Context) (*VerifyResult, error) {
+	result := &VerifyResult{Verified: true}
+	prevHash := GenesisHash
+	var afterID int64
+	isFirst := true
+
+	for {
+		batch, err := s.store.GetBatch(ctx, afterID, verifyBatchSize)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		for _, entry := range batch {
+			result.TotalRows++
+			result.EntriesChecked++
+
+			if isFirst {
+				if entry.PrevHash != GenesisHash {
+					result.Verified = false
+					result.FirstInvalid = &entry.ID
+					return result, nil
+				}
+				isFirst = false
+			} else {
+				if entry.PrevHash != prevHash {
+					result.Verified = false
+					result.FirstInvalid = &entry.ID
+					return result, nil
+				}
+			}
+
+			expectedHash := ComputeHash(entry, prevHash)
+			if entry.Hash != expectedHash {
+				result.Verified = false
+				result.FirstInvalid = &entry.ID
+				return result, nil
+			}
+
+			prevHash = entry.Hash
+		}
+
+		afterID = batch[len(batch)-1].ID
 	}
-	return VerifyChain(entries), nil
+
+	return result, nil
 }
 
 func (s *FullService) CreateEntry(_ context.Context, p CreateEntryParams) (*Entry, error) {

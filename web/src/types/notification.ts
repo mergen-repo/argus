@@ -1,3 +1,9 @@
+export interface NotificationEntityRef {
+  entity_type: string
+  entity_id: string
+  display_name: string
+}
+
 export interface Notification {
   id: string
   tenant_id: string
@@ -10,6 +16,7 @@ export interface Notification {
   read_at?: string
   resource_type?: string
   resource_id?: string
+  entity_refs?: NotificationEntityRef[]
   created_at: string
 }
 

@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btopcu/argus/internal/audit"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/severity"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -16,31 +19,51 @@ const (
 	lockTTL       = 30 * time.Second
 )
 
+// simForStateChange is a local normalization of both the segment-resolution
+// path (store.SIMBulkInfo) and the sim_ids path (store.SIMSummary). The state
+// change processor only needs ID/ICCID/State so we strip the rest.
+type simForStateChange struct {
+	ID    uuid.UUID
+	ICCID string
+	State string
+}
+
 type BulkStateChangeProcessor struct {
-	jobs     *store.JobStore
-	sims     *store.SIMStore
-	segments *store.SegmentStore
-	distLock *DistributedLock
-	eventBus *bus.EventBus
-	logger   zerolog.Logger
+	jobs         *store.JobStore
+	sims         *store.SIMStore
+	segments     *store.SegmentStore
+	readSegments *store.SegmentStore
+	distLock     *DistributedLock
+	eventBus     *bus.EventBus
+	auditor      audit.Auditor
+	logger       zerolog.Logger
 }
 
 func NewBulkStateChangeProcessor(
 	jobs *store.JobStore,
 	sims *store.SIMStore,
 	segments *store.SegmentStore,
+	readSegments *store.SegmentStore,
 	distLock *DistributedLock,
 	eventBus *bus.EventBus,
 	logger zerolog.Logger,
 ) *BulkStateChangeProcessor {
 	return &BulkStateChangeProcessor{
-		jobs:     jobs,
-		sims:     sims,
-		segments: segments,
-		distLock: distLock,
-		eventBus: eventBus,
-		logger:   logger.With().Str("processor", JobTypeBulkStateChange).Logger(),
+		jobs:         jobs,
+		sims:         sims,
+		segments:     segments,
+		readSegments: readSegments,
+		distLock:     distLock,
+		eventBus:     eventBus,
+		logger:       logger.With().Str("processor", JobTypeBulkStateChange).Logger(),
 	}
+}
+
+// SetAuditor wires an audit.Auditor after construction. Mirrors the optional
+// dependency pattern used by BulkPolicyAssignProcessor.SetCoADispatcher so the
+// processor degrades gracefully when the auditor is not injected (e.g. tests).
+func (p *BulkStateChangeProcessor) SetAuditor(a audit.Auditor) {
+	p.auditor = a
 }
 
 func (p *BulkStateChangeProcessor) Type() string {
@@ -59,13 +82,45 @@ func (p *BulkStateChangeProcessor) Process(ctx context.Context, j *store.Job) er
 	return p.processForward(ctx, j, payload)
 }
 
-func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
-	simDetails, err := p.segments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
-	if err != nil {
-		return fmt.Errorf("list segment sims: %w", err)
+// resolveSIMs fans out to either the sim_ids batch fetch (explicit list path)
+// or the segment resolution path. Both return a normalized slice so the main
+// loop stays branch-free. The sim_ids path MUST pre-filter via
+// sims.GetSIMsByIDs (which is tenant-scoped) to keep 10K-SIM jobs from doing
+// per-SIM round trips inside the loop. If both SimIDs and SegmentID are set
+// in the payload the sim_ids path wins (defensive precedence — the enqueue
+// validator is expected to enforce "exactly one of", but the processor is
+// safe either way).
+func (p *BulkStateChangeProcessor) resolveSIMs(ctx context.Context, j *store.Job, payload BulkStateChangePayload) ([]simForStateChange, error) {
+	if len(payload.SimIDs) > 0 {
+		rows, err := p.sims.GetSIMsByIDs(ctx, j.TenantID, payload.SimIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get sims by ids: %w", err)
+		}
+		out := make([]simForStateChange, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, simForStateChange{ID: r.ID, ICCID: r.ICCID, State: r.State})
+		}
+		return out, nil
 	}
 
-	total := len(simDetails)
+	details, err := p.readSegments.ListMatchingSIMIDsWithDetails(ctx, payload.SegmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list segment sims: %w", err)
+	}
+	out := make([]simForStateChange, 0, len(details))
+	for _, d := range details {
+		out = append(out, simForStateChange{ID: d.ID, ICCID: d.ICCID, State: d.State})
+	}
+	return out, nil
+}
+
+func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
+	sims, err := p.resolveSIMs(ctx, j, payload)
+	if err != nil {
+		return err
+	}
+
+	total := len(sims)
 	if total == 0 {
 		result, _ := json.Marshal(BulkResult{TotalCount: 0})
 		return p.jobs.Complete(ctx, j.ID, nil, result)
@@ -82,7 +137,7 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 
 	holderID := j.ID.String()
 
-	for i, sim := range simDetails {
+	for i, sim := range sims {
 		if (i+1)%bulkBatchSize == 0 {
 			cancelled, checkErr := p.jobs.CheckCancelled(ctx, j.ID)
 			if checkErr == nil && cancelled {
@@ -130,6 +185,28 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 			continue
 		}
 
+		// AC-8: per-SIM audit with bulk_job_id stored in correlation_id.
+		// Only emitted on successful TransitionState — failed transitions are
+		// recorded via error_report, not audit.
+		p.emitStateChangeAudit(ctx, j, sim.ID, previousState, payload.TargetState, payload.Reason)
+
+		// FIX-212 AC-3 — emit sim.updated per SIM. Policy matcher consumes
+		// these to re-evaluate rules after bulk state changes (F-119).
+		if p.eventBus != nil {
+			display := ""
+			if sim.ICCID != "" {
+				display = "ICCID " + sim.ICCID
+			}
+			env := bus.NewEnvelope("sim.state_changed", j.TenantID.String(), "info").
+				WithSource("sim").
+				WithTitle(fmt.Sprintf("SIM %s → %s (bulk)", previousState, payload.TargetState)).
+				SetEntity("sim", sim.ID.String(), display).
+				WithMeta("old_state", previousState).
+				WithMeta("new_state", payload.TargetState).
+				WithMeta("bulk_job_id", j.ID.String())
+			_ = p.eventBus.Publish(ctx, bus.SubjectSIMUpdated, env)
+		}
+
 		undoRecords = append(undoRecords, StateUndoRecord{
 			SimID:         sim.ID,
 			PreviousState: previousState,
@@ -139,6 +216,58 @@ func (p *BulkStateChangeProcessor) processForward(ctx context.Context, j *store.
 	}
 
 	return p.completeJob(ctx, j, processed, failed, total, errors, undoRecords)
+}
+
+// emitStateChangeAudit records a sim.state_change entry with the bulk job ID
+// stored in correlation_id (groups all per-SIM entries by bulk run).
+// Degrades gracefully: nil auditor is a no-op; write failures are logged but
+// never propagated — the state transition already succeeded and a failed
+// audit write should not block legitimate mutations.
+func (p *BulkStateChangeProcessor) emitStateChangeAudit(
+	ctx context.Context,
+	j *store.Job,
+	simID uuid.UUID,
+	previousState, targetState string,
+	reason *string,
+) {
+	if p.auditor == nil {
+		return
+	}
+
+	beforeJSON, beforeErr := json.Marshal(map[string]any{"state": previousState})
+	if beforeErr != nil {
+		p.logger.Warn().Err(beforeErr).Str("sim_id", simID.String()).Msg("marshal audit before state failed")
+		return
+	}
+
+	after := map[string]any{"state": targetState}
+	if reason != nil && *reason != "" {
+		after["reason"] = *reason
+	}
+	afterJSON, afterErr := json.Marshal(after)
+	if afterErr != nil {
+		p.logger.Warn().Err(afterErr).Str("sim_id", simID.String()).Msg("marshal audit after state failed")
+		return
+	}
+
+	jobID := j.ID
+	_, auditErr := p.auditor.CreateEntry(ctx, audit.CreateEntryParams{
+		TenantID:      j.TenantID,
+		UserID:        j.CreatedBy,
+		Action:        "sim.state_change",
+		EntityType:    "sim",
+		EntityID:      simID.String(),
+		BeforeData:    beforeJSON,
+		AfterData:     afterJSON,
+		CorrelationID: &jobID,
+	})
+	if auditErr != nil {
+		p.logger.Warn().
+			Err(auditErr).
+			Str("sim_id", simID.String()).
+			Str("job_id", j.ID.String()).
+			Msg("audit write failed for bulk state change — continuing")
+	}
 }
 
 func (p *BulkStateChangeProcessor) processUndo(ctx context.Context, j *store.Job, payload BulkStateChangePayload) error {
@@ -224,6 +353,11 @@ func (p *BulkStateChangeProcessor) completeJob(ctx context.Context, j *store.Job
 		"failed_count":    failed,
 	})
 
+	subject, env := buildBulkJobEvent(JobTypeBulkStateChange, j.ID.String(), j.TenantID.String(), processed, failed, total)
+	if err := p.eventBus.Publish(ctx, subject, env); err != nil {
+		p.logger.Warn().Err(err).Str("bulk_job_id", j.ID.String()).Msg("failed to publish bulk_job event")
+	}
+
 	return nil
 }
 
@@ -240,4 +374,36 @@ func (p *BulkStateChangeProcessor) publishProgress(ctx context.Context, j *store
 			"progress_pct":    float64(processed+failed) / float64(total) * 100.0,
 		})
 	}
+}
+
+// buildBulkJobEvent constructs the Tier 3 Envelope for a terminal bulk job
+// state. Severity and subject are chosen by outcome:
+//   - all success (failed==0) → Info + SubjectBulkJobCompleted
+//   - partial (some success, some fail) → Medium + SubjectBulkJobCompleted
+//   - total fail (processed==0, including cancelled/zero-work) → High + SubjectBulkJobFailed
+//
+// The returned subject and envelope are ready for eventBus.Publish.
+func buildBulkJobEvent(jobType, jobID, tenantID string, processed, failed, total int) (string, *bus.Envelope) {
+	subject := bus.SubjectBulkJobCompleted
+	eventType := "bulk_job.completed"
+	sev := severity.Info
+
+	if processed == 0 {
+		sev = severity.High
+		subject = bus.SubjectBulkJobFailed
+		eventType = "bulk_job.failed"
+	} else if failed > 0 {
+		sev = severity.Medium
+	}
+
+	env := bus.NewEnvelope(eventType, tenantID, sev).
+		WithSource(subject).
+		WithTitle(fmt.Sprintf("Bulk %s job completed: %d ok, %d failed", jobType, processed, failed)).
+		WithMeta("bulk_job_id", jobID).
+		WithMeta("total_count", total).
+		WithMeta("success_count", processed).
+		WithMeta("fail_count", failed).
+		WithMeta("job_type", jobType)
+
+	return subject, env
 }

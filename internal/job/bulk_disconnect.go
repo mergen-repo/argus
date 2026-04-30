@@ -9,9 +9,9 @@ import (
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	"github.com/btopcu/argus/internal/store"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
-
 
 type BulkDisconnectPayload struct {
 	SimIDs    []string `json:"sim_ids"`
@@ -94,10 +94,13 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 				if idx := strings.Index(nasIP, ":"); idx > 0 {
 					nasIP = nasIP[:idx]
 				}
+				sessTenantID, _ := uuid.Parse(sess.TenantID)
 				_, _ = p.dmSender.SendDM(ctx, session.DMRequest{
 					NASIP:         nasIP,
 					AcctSessionID: sess.AcctSessionID,
 					IMSI:          sess.IMSI,
+					SessionID:     sess.ID,
+					TenantID:      sessTenantID,
 				})
 			}
 
@@ -108,14 +111,12 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 			}
 
 			if p.eventBus != nil {
-				_ = p.eventBus.Publish(ctx, bus.SubjectSessionEnded, map[string]interface{}{
-					"session_id":      sess.ID,
-					"sim_id":          sess.SimID,
-					"tenant_id":       sess.TenantID,
-					"operator_id":     sess.OperatorID,
-					"imsi":            sess.IMSI,
-					"terminate_cause": payload.Reason,
-				})
+				env := bus.NewSessionEnvelope("session.ended", sess.TenantID, sess.SimID, sess.ICCID, "Session ended (bulk)").
+					WithMeta("session_id", sess.ID).
+					WithMeta("operator_id", sess.OperatorID).
+					WithMeta("imsi", sess.IMSI).
+					WithMeta("termination_cause", payload.Reason)
+				_ = p.eventBus.Publish(ctx, bus.SubjectSessionEnded, env)
 			}
 			disconnected++
 		}
@@ -138,11 +139,11 @@ func (p *BulkDisconnectProcessor) Process(ctx context.Context, job *store.Job) e
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
 			"job_id":             job.ID.String(),
-			"tenant_id":         job.TenantID.String(),
-			"type":              JobTypeBulkDisconnect,
-			"state":             "completed",
+			"tenant_id":          job.TenantID.String(),
+			"type":               JobTypeBulkDisconnect,
+			"state":              "completed",
 			"disconnected_count": disconnected,
-			"failed_count":      failed,
+			"failed_count":       failed,
 		})
 	}
 

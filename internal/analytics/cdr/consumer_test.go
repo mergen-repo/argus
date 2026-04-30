@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,6 +140,37 @@ func TestRatingIntegration_500MB_5G(t *testing.T) {
 	require.NotNil(t, result)
 	assert.InDelta(t, 7.5, result.UsageCost, 0.01)
 	assert.InDelta(t, 5.0, result.CarrierCost, 0.01)
+}
+
+// TestHandleEvent_DropsMalformedIMSI verifies that when imsiStrict=true and a
+// session event carries an invalid IMSI ("abc"), handleEvent drops the record
+// (no CDR write) and increments argus_imsi_invalid_total{source="cdr"} by 1
+// (FIX-207 AC-4).
+func TestHandleEvent_DropsMalformedIMSI(t *testing.T) {
+	reg := obsmetrics.NewRegistry()
+
+	c := &Consumer{
+		reg:        reg,
+		imsiStrict: true,
+		logger:     zerolog.Nop(),
+	}
+
+	pre := testutil.ToFloat64(reg.IMSIInvalidTotal.WithLabelValues("cdr"))
+
+	payload := `{
+		"session_id": "00000000-0000-0000-0000-000000000001",
+		"sim_id":     "00000000-0000-0000-0000-000000000002",
+		"tenant_id":  "00000000-0000-0000-0000-000000000003",
+		"operator_id":"00000000-0000-0000-0000-000000000004",
+		"imsi":       "abc"
+	}`
+
+	c.handleEvent("argus.events.session.started", []byte(payload))
+
+	post := testutil.ToFloat64(reg.IMSIInvalidTotal.WithLabelValues("cdr"))
+	if post != pre+1 {
+		t.Errorf("IMSIInvalidTotal{cdr}: pre=%.0f post=%.0f, want increment of 1", pre, post)
+	}
 }
 
 func TestRatingIntegration_ZeroCost(t *testing.T) {

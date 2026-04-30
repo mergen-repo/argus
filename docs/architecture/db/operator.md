@@ -9,8 +9,7 @@
 | code | VARCHAR(20) | NOT NULL, UNIQUE | Short code (e.g., "turkcell") |
 | mcc | VARCHAR(3) | NOT NULL | Mobile Country Code |
 | mnc | VARCHAR(3) | NOT NULL | Mobile Network Code |
-| adapter_type | VARCHAR(30) | NOT NULL | mock, radius, diameter, sba |
-| adapter_config | JSONB | NOT NULL, DEFAULT '{}' | Connection config (host, port, shared_secret — encrypted) |
+| adapter_config | JSONB | NOT NULL, DEFAULT '{}' | Nested per-protocol config: `{radius:{enabled,host,port,shared_secret,...}, diameter:{enabled,...}, sba:{enabled,...}, http:{enabled,...}, mock:{enabled,...}}`. AES-GCM encrypted envelope at rest (STORY-090 Wave 2 D2-B — `adapter_type` column dropped via migration 20260418120000). Secrets masked to `"****"` on API responses. |
 | sm_dp_plus_url | VARCHAR(500) | | SM-DP+ API endpoint |
 | sm_dp_plus_config | JSONB | DEFAULT '{}' | SM-DP+ auth config (encrypted) |
 | supported_rat_types | VARCHAR[] | NOT NULL, DEFAULT '{}' | Supported RAT types: nb_iot, lte_m, lte, nr_5g |

@@ -6,6 +6,12 @@ import {
   Radio,
   Shield,
   Activity,
+  Heart,
+  CheckCircle2,
+  Zap,
+  ChevronRight,
+  Archive,
+  ServerCrash,
 } from 'lucide-react'
 import {
   LineChart,
@@ -18,11 +24,20 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useSystemMetrics, useHealthCheck, useRealtimeMetrics } from '@/hooks/use-settings'
+import { Badge } from '@/components/ui/badge'
+import {
+  useSystemMetrics,
+  useHealthCheck,
+  useRealtimeMetrics,
+  useHealthLive,
+  useHealthReady,
+  useBackupStatus,
+} from '@/hooks/use-settings'
 import { useAuthStore } from '@/stores/auth'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
   postgres: Database,
@@ -43,19 +58,34 @@ function serviceIcon(name: string): React.ElementType {
 
 function statusColor(status: string) {
   switch (status) {
-    case 'healthy': return 'var(--color-success)'
-    case 'degraded': return 'var(--color-warning)'
-    case 'down': return 'var(--color-danger)'
-    default: return 'var(--color-text-tertiary)'
+    case 'healthy':
+    case 'ok':
+    case 'alive':
+      return 'var(--color-success)'
+    case 'degraded':
+      return 'var(--color-warning)'
+    case 'down':
+    case 'unhealthy':
+    case 'error':
+      return 'var(--color-danger)'
+    default:
+      return 'var(--color-text-tertiary)'
   }
 }
 
 function statusGlow(status: string) {
   switch (status) {
-    case 'healthy': return '0 0 12px rgba(0,255,136,0.3)'
-    case 'degraded': return '0 0 12px rgba(255,184,0,0.3)'
-    case 'down': return '0 0 12px rgba(255,68,102,0.3)'
-    default: return 'none'
+    case 'healthy':
+    case 'ok':
+    case 'alive':
+      return '0 0 12px rgba(0,255,136,0.3)'
+    case 'degraded':
+      return '0 0 12px rgba(255,184,0,0.3)'
+    case 'down':
+    case 'unhealthy':
+      return '0 0 12px rgba(255,68,102,0.3)'
+    default:
+      return 'none'
   }
 }
 
@@ -107,6 +137,301 @@ interface LatencyPoint {
   p50: number
   p95: number
   p99: number
+}
+
+function ProbeCards() {
+  const { data: liveData, isLoading: liveLoading } = useHealthLive()
+  const { data: readyData, isLoading: readyLoading } = useHealthReady()
+
+  const depTotal = readyData
+    ? [readyData.db, readyData.redis, readyData.nats].length
+    : 3
+  const depOk = readyData
+    ? [readyData.db, readyData.redis, readyData.nats].filter((d) => d.status === 'ok').length
+    : 0
+
+  const readyState = readyData?.state ?? 'unknown'
+  const uptime = liveData?.uptime ?? readyData?.uptime ?? '–'
+  const goroutines = liveData?.goroutines ?? 0
+
+  return (
+    <div>
+      <h2 className="text-xs font-medium uppercase tracking-[1.5px] text-text-tertiary mb-3">
+        Health Probes
+      </h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Liveness */}
+        <Card className="relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ backgroundColor: 'var(--color-success)' }} />
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Heart className="h-3.5 w-3.5" style={{ color: 'var(--color-success)' }} />
+              <span className="text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary">Liveness</span>
+            </div>
+            {liveLoading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="h-2 w-2 rounded-full pulse-dot flex-shrink-0"
+                    style={{ backgroundColor: 'var(--color-success)', boxShadow: statusGlow('ok') }}
+                  />
+                  <span className="font-mono text-sm font-semibold" style={{ color: 'var(--color-success)' }}>alive</span>
+                </div>
+                <div className="font-mono text-[11px] text-text-tertiary">
+                  {goroutines.toLocaleString()} goroutines
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Readiness */}
+        <Card className="relative overflow-hidden">
+          <div
+            className="absolute top-0 left-0 right-0 h-[2px]"
+            style={{ backgroundColor: statusColor(readyState) }}
+          />
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle2 className="h-3.5 w-3.5 text-text-tertiary" />
+              <span className="text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary">Readiness</span>
+            </div>
+            {readyLoading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="h-2 w-2 rounded-full pulse-dot flex-shrink-0"
+                    style={{ backgroundColor: statusColor(readyState), boxShadow: statusGlow(readyState) }}
+                  />
+                  <span
+                    className="font-mono text-sm font-semibold capitalize"
+                    style={{ color: statusColor(readyState) }}
+                  >
+                    {readyState}
+                  </span>
+                </div>
+                <div className="font-mono text-[11px] text-text-tertiary">
+                  {depOk}/{depTotal} deps ok
+                </div>
+                {readyData && (
+                  <div className="mt-2 space-y-0.5">
+                    {[
+                      { name: 'DB', probe: readyData.db },
+                      { name: 'Redis', probe: readyData.redis },
+                      { name: 'NATS', probe: readyData.nats },
+                    ].map(({ name, probe }) => (
+                      <div key={name} className="flex items-center justify-between">
+                        <span className="text-[10px] text-text-tertiary">{name}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: statusColor(probe.status) }}
+                          />
+                          <span className="font-mono text-[10px] text-text-tertiary">{probe.latency_ms}ms</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Startup */}
+        <Card className="relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ backgroundColor: 'var(--color-accent)' }} />
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap className="h-3.5 w-3.5 text-text-tertiary" />
+              <span className="text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary">Startup</span>
+            </div>
+            {liveLoading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="h-2 w-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: 'var(--color-accent)' }}
+                  />
+                  <span className="font-mono text-sm font-semibold" style={{ color: 'var(--color-accent)' }}>
+                    started
+                  </span>
+                </div>
+                <div className="font-mono text-[11px] text-text-tertiary">
+                  uptime {uptime}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Disk */}
+        <Card className="relative overflow-hidden">
+          <div
+            className="absolute top-0 left-0 right-0 h-[2px]"
+            style={{
+              backgroundColor: readyData?.disks?.some((d) => d.status === 'unhealthy')
+                ? 'var(--color-danger)'
+                : readyData?.disks?.some((d) => d.status === 'degraded')
+                ? 'var(--color-warning)'
+                : 'var(--color-success)',
+            }}
+          />
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <HardDrive className="h-3.5 w-3.5 text-text-tertiary" />
+              <span className="text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary">Disk</span>
+            </div>
+            {readyLoading ? (
+              <Skeleton className="h-12 w-full" />
+            ) : !readyData?.disks || readyData.disks.length === 0 ? (
+              <div className="text-[11px] text-text-tertiary font-mono">No mounts configured</div>
+            ) : (
+              <div className="space-y-1.5">
+                {readyData.disks.map((d) => (
+                  <div key={d.mount}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-mono text-[10px] text-text-secondary truncate max-w-[80px]">{d.mount}</span>
+                      <span
+                        className="font-mono text-[10px] font-medium"
+                        style={{ color: statusColor(d.status) }}
+                      >
+                        {d.used_pct.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-bg-hover)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(d.used_pct, 100)}%`,
+                          backgroundColor: statusColor(d.status),
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function BackupStatusCard() {
+  const navigate = useNavigate()
+  const { data: backup, isLoading } = useBackupStatus()
+
+  const rows = [
+    { label: 'daily', run: backup?.last_daily },
+    { label: 'weekly', run: backup?.last_weekly },
+    { label: 'monthly', run: backup?.last_monthly },
+  ]
+
+  function relativeTime(ts?: string): string {
+    if (!ts) return '–'
+    const diff = Date.now() - new Date(ts).getTime()
+    const mins = Math.floor(diff / 60000)
+    const hours = Math.floor(mins / 60)
+    const days = Math.floor(hours / 24)
+    if (days > 0) return `${days}d ago`
+    if (hours > 0) return `${hours}h ago`
+    if (mins > 0) return `${mins}m ago`
+    return 'just now'
+  }
+
+  return (
+    <div>
+      <h2 className="text-xs font-medium uppercase tracking-[1.5px] text-text-tertiary mb-3">
+        Backup Status
+      </h2>
+      <Card>
+        <CardHeader className="pb-0 pt-4 px-4 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-medium text-text-primary flex items-center gap-2">
+            <Archive className="h-4 w-4 text-text-tertiary" />
+            Scheduled Backups
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs text-text-secondary hover:text-text-primary h-7"
+            onClick={() => navigate('/settings#reliability')}
+          >
+            View History
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-3">
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-6 w-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-0">
+              {rows.map(({ label, run }, idx) => (
+                <div
+                  key={label}
+                  className={cn(
+                    'flex items-center gap-4 py-2.5',
+                    idx < rows.length - 1 && 'border-b border-border-subtle',
+                  )}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-[1.5px] text-text-tertiary w-14 flex-shrink-0">
+                    {label}
+                  </span>
+                  {run ? (
+                    <>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span
+                          className="h-2 w-2 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: statusColor(run.status === 'succeeded' ? 'ok' : run.status),
+                            boxShadow: statusGlow(run.status === 'succeeded' ? 'ok' : run.status),
+                          }}
+                        />
+                        <Badge
+                          variant="outline"
+                          className={cn('text-[10px] h-4 px-1.5', run.status === 'succeeded' ? 'border-success/30 text-success' : run.status === 'failed' ? 'border-danger/30 text-danger' : 'border-border')}
+                        >
+                          {run.status}
+                        </Badge>
+                      </div>
+                      <span className="text-[11px] text-text-secondary flex-shrink-0">
+                        {relativeTime(run.finished_at ?? run.started_at)}
+                      </span>
+                      <span className="text-[11px] text-text-tertiary font-mono flex-shrink-0">
+                        {run.size_mb > 0 ? `${run.size_mb.toFixed(1)} MB` : '–'}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[11px] text-text-tertiary">No backup yet</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {!isLoading && !backup?.last_daily && !backup?.last_weekly && !backup?.last_monthly && (
+            <div className="mt-2 pt-2 border-t border-border-subtle">
+              <p className="text-[11px] text-text-tertiary text-center">
+                No backups yet — backups start after{' '}
+                <span className="font-mono text-text-secondary">BACKUP_ENABLED=true</span>{' '}
+                and first @daily cron fires.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
 
 export default function SystemHealthPage() {
@@ -182,6 +507,13 @@ export default function SystemHealthPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-6 w-40" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4"><Skeleton className="h-20 w-full" /></CardContent>
+            </Card>
+          ))}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
@@ -189,10 +521,6 @@ export default function SystemHealthPage() {
               <CardContent className="pt-0"><Skeleton className="h-24 w-full" /></CardContent>
             </Card>
           ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card><CardContent className="p-4"><Skeleton className="h-48 w-full" /></CardContent></Card>
-          <Card><CardContent className="p-4"><Skeleton className="h-48 w-full" /></CardContent></Card>
         </div>
       </div>
     )
@@ -209,6 +537,9 @@ export default function SystemHealthPage() {
           </span>
         </div>
       </div>
+
+      {/* Health Probe Cards */}
+      <ProbeCards />
 
       {/* Service Status Cards */}
       <div>
@@ -259,6 +590,14 @@ export default function SystemHealthPage() {
               </Card>
             )
           })}
+          {services.length === 0 && (
+            <Card className="col-span-full">
+              <CardContent className="p-6 flex items-center justify-center gap-2 text-text-tertiary">
+                <ServerCrash className="h-4 w-4" />
+                <span className="text-sm">No service data available</span>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -375,6 +714,9 @@ export default function SystemHealthPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Backup Status */}
+      <BackupStatusCard />
     </div>
   )
 }

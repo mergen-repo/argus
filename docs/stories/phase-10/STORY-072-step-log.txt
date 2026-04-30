@@ -1,0 +1,31 @@
+STEP_1 PLAN: EXECUTED | items=16 | evidence=STORY-072-plan.md | result=PASS
+
+STEP_2 T1: anomaly_comments migration + store | files=migrations/20260415000001_anomaly_comments.{up,down}.sql,internal/store/anomaly_comment.go,internal/store/anomaly_comment_test.go | result=PASS
+STEP_2 T2: anomaly handler escalate/comments | files=internal/api/anomaly/handler.go,internal/api/anomaly/handler_lifecycle_test.go | result=PASS
+STEP_2 T3: ops handler snapshot+infra-health | files=internal/api/ops/handler.go,internal/api/ops/snapshot.go,internal/api/ops/infra_health.go,internal/api/ops/handler_test.go | result=PASS
+STEP_2 T4: router+main.go wiring | files=internal/gateway/router.go,cmd/argus/main.go | result=PASS
+STEP_2 T5: incidents endpoint | files=internal/api/ops/incidents.go,internal/api/ops/incidents_test.go | result=PASS
+STEP_2 T6: FE types+hooks | files=web/src/types/ops.ts,web/src/hooks/use-ops.ts | result=PASS
+STEP_2 T7: SCR-130 Performance page | files=web/src/pages/ops/performance.tsx | result=PASS
+STEP_2 T8: SCR-131 Errors page | files=web/src/pages/ops/errors.tsx | result=PASS
+STEP_2 T9: SCR-132 AAA Traffic page | files=web/src/pages/ops/aaa-traffic.tsx | result=PASS
+STEP_2 T10: SCR-133 NATS panel | files=web/src/pages/ops/_partials/nats-panel.tsx | result=PASS
+STEP_2 T11: SCR-134 DB panel | files=web/src/pages/ops/_partials/db-panel.tsx | result=PASS
+STEP_2 T12: SCR-135 Redis panel | files=web/src/pages/ops/_partials/redis-panel.tsx | result=PASS
+STEP_2 T13: SCR-133/134/135 Infra tabbed page | files=web/src/pages/ops/infra.tsx | result=PASS
+STEP_2 T14a: SCR-136 Job Queue page | files=web/src/pages/ops/jobs.tsx | result=PASS
+STEP_2 T14b: SCR-137 Backup page | files=web/src/pages/ops/backup.tsx | result=PASS
+STEP_2 T14c: SCR-138 Deploys page | files=web/src/pages/ops/deploys.tsx | result=PASS
+STEP_2 T14d: SCR-139 Incidents timeline | files=web/src/pages/ops/incidents.tsx | result=PASS
+STEP_2 T15: Alert ack/resolve/escalate UX expansion | files=web/src/pages/alerts/_partials/alert-actions.tsx,web/src/pages/alerts/_partials/comment-thread.tsx,web/src/pages/alerts/index.tsx | result=PASS
+STEP_2 T16: Sidebar SRE group + router ops routes + command palette | files=web/src/components/layout/sidebar.tsx,web/src/router.tsx,web/src/components/command-palette/command-palette.tsx | result=PASS
+STEP_2 T16b: ws-indicator click-to-reconnect | files=web/src/components/layout/ws-indicator.tsx | result=PASS (already present)
+
+STEP_2 FULL_TEST: go test ./... -count=1 | passed=2682 failed=0 | result=PASS
+STEP_2.5 LINT: npx tsc --noEmit=0 errors | npm run build=success 3.77s | hex-literals=0 | dead-code-removed=useAcknowledgeAlert,useResolveAlert | result=PASS
+
+STEP_3 GATE: EXECUTED | passes=6 | fixes=9 | result=PASS
+
+STEP_4 REVIEW: EXECUTED | items=14 | evidence=STORY-072-review.md | result=PASS
+STEP_5 COMMIT: EXECUTED | commit=1d76745 | result=PASS
+STEP_6 POSTPROC: EXECUTED | items=artifact+usertest+decisions+routemap | result=PASS

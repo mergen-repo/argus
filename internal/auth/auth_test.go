@@ -71,6 +71,30 @@ func (m *mockUserRepo) EnableTOTP(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (m *mockUserRepo) SetPasswordHash(_ context.Context, id uuid.UUID, hash string) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.PasswordHash = hash
+		now := time.Now()
+		u.PasswordChangedAt = &now
+	}
+	return nil
+}
+
+func (m *mockUserRepo) SetPasswordChangeRequired(_ context.Context, id uuid.UUID, required bool) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.PasswordChangeRequired = required
+	}
+	return nil
+}
+
+func (m *mockUserRepo) ClearLockout(_ context.Context, id uuid.UUID) error {
+	if u, ok := m.users[id.String()]; ok {
+		u.FailedLoginCount = 0
+		u.LockedUntil = nil
+	}
+	return nil
+}
+
 type mockSessionRepo struct {
 	sessions map[uuid.UUID]*UserSession
 }
@@ -126,6 +150,24 @@ func (m *mockSessionRepo) GetActiveByUserID(_ context.Context, userID uuid.UUID)
 	return result, nil
 }
 
+func (m *mockSessionRepo) ListActiveByUserID(_ context.Context, userID uuid.UUID, _ string, limit int) ([]UserSession, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	var result []UserSession
+	for _, sess := range m.sessions {
+		if sess.UserID == userID && sess.RevokedAt == nil && sess.ExpiresAt.After(time.Now()) {
+			result = append(result, *sess)
+		}
+	}
+	nextCursor := ""
+	if len(result) > limit {
+		nextCursor = result[limit-1].ID.String()
+		result = result[:limit]
+	}
+	return result, nextCursor, nil
+}
+
 type mockAuditLogger struct {
 	entries []string
 }
@@ -175,7 +217,7 @@ func TestLogin_ValidCredentials(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	result, lockInfo, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	result, lockInfo, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -211,7 +253,7 @@ func TestLogin_InvalidPassword(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	_, _, err := svc.Login(context.Background(), "test@example.com", "wrongpassword", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "test@example.com", "wrongpassword", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Expected ErrInvalidCredentials, got: %v", err)
 	}
@@ -230,7 +272,7 @@ func TestLogin_InvalidPassword(t *testing.T) {
 func TestLogin_InvalidEmail(t *testing.T) {
 	svc, _, _, _ := newTestService()
 
-	_, _, err := svc.Login(context.Background(), "nonexistent@example.com", "password", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "nonexistent@example.com", "password", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Expected ErrInvalidCredentials, got: %v", err)
 	}
@@ -242,13 +284,13 @@ func TestLogin_AccountLockout(t *testing.T) {
 	users.addUser(user)
 
 	for i := 0; i < 4; i++ {
-		_, _, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent")
+		_, _, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent", false)
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Fatalf("Attempt %d: Expected ErrInvalidCredentials, got: %v", i+1, err)
 		}
 	}
 
-	_, lockInfo, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent")
+	_, lockInfo, err := svc.Login(context.Background(), "test@example.com", "wrong", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountLocked) {
 		t.Fatalf("Expected ErrAccountLocked on 5th attempt, got: %v", err)
 	}
@@ -259,7 +301,7 @@ func TestLogin_AccountLockout(t *testing.T) {
 		t.Errorf("Expected 5 failed attempts, got %d", lockInfo.FailedAttempts)
 	}
 
-	_, lockInfo2, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	_, lockInfo2, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountLocked) {
 		t.Fatalf("Expected ErrAccountLocked even with correct password, got: %v", err)
 	}
@@ -273,7 +315,7 @@ func TestLogin_With2FA(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", true)
 	users.addUser(user)
 
-	result, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	result, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -302,7 +344,7 @@ func TestLogin_DisabledAccount(t *testing.T) {
 	user.State = "disabled"
 	users.addUser(user)
 
-	_, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	_, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if !errors.Is(err, ErrAccountDisabled) {
 		t.Fatalf("Expected ErrAccountDisabled, got: %v", err)
 	}
@@ -313,7 +355,7 @@ func TestRefresh_Valid(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -348,7 +390,7 @@ func TestRefresh_RevokedToken(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -369,7 +411,7 @@ func TestLogout(t *testing.T) {
 	user := createTestUser("test@example.com", "password123", false)
 	users.addUser(user)
 
-	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent")
+	loginResult, _, err := svc.Login(context.Background(), "test@example.com", "password123", "127.0.0.1", "TestAgent", false)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -438,5 +480,91 @@ func TestVerify2FA_NoSecretSet(t *testing.T) {
 	_, err := svc.Verify2FA(context.Background(), user.ID, "123456", "127.0.0.1", "TestAgent")
 	if !errors.Is(err, ErrInvalid2FACode) {
 		t.Fatalf("Expected ErrInvalid2FACode, got: %v", err)
+	}
+}
+
+// FIX-303: ensure UserInfo.OnboardingCompleted populates correctly at login.
+// Pure-Go unit tests would have caught the phantom-field bug that shipped:
+// the FE redirect guard checks `user.onboarding_completed === false`, but
+// the field never existed on the BE DTO before FIX-303.
+
+type fakeOnboardingLookup struct {
+	completed bool
+	err       error
+}
+
+func (f *fakeOnboardingLookup) IsCompleted(_ context.Context, _ uuid.UUID) (bool, error) {
+	return f.completed, f.err
+}
+
+func TestLogin_OnboardingIncomplete_FlagFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: false})
+	users.addUser(createTestUser("ti@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "ti@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true, want false (no completed session)")
+	}
+}
+
+func TestLogin_OnboardingCompleted_FlagTrue(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: true})
+	users.addUser(createTestUser("tc@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "tc@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if !result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = false, want true")
+	}
+}
+
+func TestLogin_OnboardingLookupError_FailSafeFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: true, err: errors.New("db down")})
+	users.addUser(createTestUser("te@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "te@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true on lookup error; want fail-safe false (redirect to wizard)")
+	}
+}
+
+func TestLogin_OnboardingLookupNil_FailSafeFalse(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	// No WithOnboardingSessions call — onboardingSessions stays nil
+	users.addUser(createTestUser("tn@example.com", "password123", false))
+
+	result, _, err := svc.Login(context.Background(), "tn@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if result.User.OnboardingCompleted {
+		t.Errorf("OnboardingCompleted = true with nil lookup; want fail-safe false")
+	}
+}
+
+func TestLogin_SuperAdmin_OnboardingBypass(t *testing.T) {
+	svc, users, _, _ := newTestService()
+	svc.WithOnboardingSessions(&fakeOnboardingLookup{completed: false})
+	user := createTestUser("super@example.com", "password123", false)
+	user.Role = "super_admin" // super_admin bypasses tenant-scoped onboarding
+	users.addUser(user)
+
+	result, _, err := svc.Login(context.Background(), "super@example.com", "password123", "127.0.0.1", "ua", false)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if !result.User.OnboardingCompleted {
+		t.Errorf("super_admin OnboardingCompleted = false; want true (role bypass)")
 	}
 }

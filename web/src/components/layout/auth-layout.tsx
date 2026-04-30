@@ -14,6 +14,9 @@ export function AuthLayout() {
         <div className="rounded-xl border border-border bg-bg-surface p-6 shadow-[var(--shadow-card)]">
           <Outlet />
         </div>
+        <p className="mt-4 text-center text-xs text-text-secondary">
+          Argus v{__APP_VERSION__}
+        </p>
       </div>
     </div>
   )

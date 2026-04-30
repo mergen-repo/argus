@@ -5,6 +5,110 @@
 > Transport: gorilla/websocket
 > All events are tenant-scoped — clients only receive events for their own tenant.
 
+## Event Envelope (FIX-212)
+
+Every NATS subject listed in [Event Catalog](#event-catalog) below is emitted as
+a canonical `bus.Envelope` (defined in `internal/bus/envelope.go`). The WebSocket
+hub forwards the envelope body as-is to connected clients.
+
+### Wire format (snake_case JSON, FIX-212 D1)
+
+```json
+{
+  "event_version": 1,
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "type": "session.started",
+  "timestamp": "2026-04-21T14:23:45.123Z",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "severity": "info",
+  "source": "aaa",
+  "title": "Session started",
+  "message": "RADIUS session established on operator turkcell",
+  "entity": {
+    "type": "sim",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "display_name": "ICCID 8990011234567890123"
+  },
+  "dedup_key": null,
+  "meta": {
+    "operator_id": "11111111-...",
+    "apn_id": "...",
+    "framed_ip": "10.20.30.40",
+    "rat_type": "LTE",
+    "nas_ip": "192.0.2.1"
+  }
+}
+```
+
+### Mandatory vs optional fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `event_version` | yes | Must equal `1`. Legacy shapes routed to a 1-release shim and counted via `argus_events_legacy_shape_total{subject}`. |
+| `id` | yes | UUID; unique per event. |
+| `type` | yes | Canonical event type (see [Event Catalog](#event-catalog)). |
+| `timestamp` | yes | RFC3339 UTC. |
+| `tenant_id` | yes | Parseable UUID. Infra-global subjects (`nats_consumer_lag`, `storage.*`, `anomaly_batch_crash`) use the `SystemTenantID` sentinel authored by the publisher (D5 closure). |
+| `severity` | yes | One of `critical`, `high`, `medium`, `low`, `info`. |
+| `source` | yes | Publishing domain (`sim`, `operator`, `infra`, `policy`, `system`, `aaa`, `analytics`, `notification`, `job`). Advisory; not CHECKed at envelope level. |
+| `title` | yes | Short human-readable summary. |
+| `message` | no | Long-form description. |
+| `entity` | no | Primary entity reference. When present, both `type` and `id` must be non-empty; `display_name` is publisher-authored (FE falls back to `id` on absence). |
+| `dedup_key` | no | Publisher may pre-author a dedup key (FIX-212 D4); default compute lives at `notification/service.go::alertParamsFromEnvelope` via `alertstate.DedupKey`. |
+| `meta` | no | Arbitrary per-subject map. See per-subject schema in [Event Catalog](#event-catalog). |
+
+### Name resolution (FIX-212 D2 hybrid)
+
+`entity.display_name` is filled by the publisher so subscribers never need
+synchronous DB/Redis lookups. Two wiring strategies are in play:
+
+- **Session publishers** (`radius/server.go`, `diameter/gx.go`, `diameter/gy.go`,
+  `sba/ausf.go`, `sba/udm.go`, `session/sweep.go`, `api/session/handler.go`,
+  `job/bulk_disconnect.go`): ICCID is embedded from the already-loaded SIM
+  context on the AAA hot path. `operator_name` and `apn_name` are NOT embedded
+  (hot-path SLO defense).
+- **All other publishers** (alert, operator.health_changed, anomaly, SIM
+  lifecycle, policy, IP, SLA, notification.dispatch): use the Redis-backed
+  `internal/events.Resolver` with 10-minute TTL. Cache invalidation piggybacks
+  on FIX-202's `argus.cache.invalidate` channel.
+
+### Backward-compat shim (D-078, 1-release grace)
+
+Consumers strict-parse into `bus.Envelope` first; on failure (unmarshal error
+or `event_version != 1`) they fall back to the legacy parser path and
+increment `argus_events_legacy_shape_total{subject}`. Removal of the shim is
+gated on that metric remaining at 0 for a full release cycle across all 14
+in-scope subjects.
+
+## Event Catalog
+
+The canonical event catalog lives at `internal/api/events/catalog.go` and is
+exposed read-only via `GET /api/v1/events/catalog` (FIX-212 AC-5). Consumers
+should prefer the endpoint over hardcoding types — the catalog is the single
+source of truth for per-subject `default_severity`, `entity_type`, and
+`meta_schema`.
+
+In-scope subjects (FIX-212 scope D6):
+
+- `session.started`, `session.updated`, `session.ended` (sim entity, info)
+- `sim.state_changed` (sim entity, info; NEW publisher closes F-119)
+- `operator_down`, `operator_recovered`, `operator.health_changed` (operator entity)
+- `sla_violation` (operator)
+- `anomaly.detected`, `anomaly_sim_cloning`, `anomaly_data_spike`, `anomaly_auth_flood` (sim entity)
+- `policy_violation`, `policy.updated`, `policy.rollout_progress` (sim / policy entity)
+- `nats_consumer_lag`, `storage.threshold_exceeded`, `anomaly_batch_crash` (infra, SystemTenantID)
+- `ip.reclaimed`, `ip.released` (ip / sim entity)
+- `sla.report.generated` (operator entity)
+- `notification.dispatch` (no entity — notification is itself the row anchor)
+- `auth.attempt` (sim entity)
+
+Deferred to D-077 (internal plumbing): `SubjectJob*`, `SubjectCacheInvalidate`,
+`SubjectBackup*`, `SubjectAuditCreate`. These fire through their own
+consumers; they don't reach the WS relay or notification dispatch path and
+are not surfaced in the live event stream.
+
+
+
 ## Connection
 
 ### Authentication
@@ -33,7 +137,7 @@ If no auth message is received within 5 seconds (method 2) and no query param to
 ### Heartbeat
 
 - **Ping/Pong**: Server sends WebSocket ping frame every 30 seconds.
-- **Pong timeout**: If no pong received within 10 seconds, server closes the connection.
+- **Pong timeout**: If no pong received within 90 seconds, server closes the connection. Configurable via `WS_PONG_TIMEOUT` env var (default 90s).
 - **Client-side**: Standard WebSocket implementations handle pong automatically. If implementing custom client, respond to ping with pong.
 
 ### Reconnection Strategy
@@ -68,28 +172,6 @@ After authentication, clients can subscribe to specific event types:
 // Server confirms:
 { "type": "subscribe.ok", "data": { "events": ["session.started", "session.ended", "alert.new"] } }
 ```
-
----
-
-## Event Envelope
-
-All events share this structure:
-
-```json
-{
-  "type": "event.name",
-  "id": "evt_unique_id",
-  "timestamp": "2026-03-18T14:02:00.123Z",
-  "data": { ... }
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Event type identifier (dot-separated) |
-| `id` | string | Unique event ID (for deduplication on reconnect) |
-| `timestamp` | string (ISO 8601) | Server-side event creation time |
-| `data` | object | Event-specific payload (see below) |
 
 ---
 
@@ -156,6 +238,31 @@ Fired when an AAA session terminates (RADIUS Accounting-Stop or Diameter CCR-T).
 
 `terminate_cause` values: `user_request`, `idle_timeout`, `session_timeout`, `admin_disconnect`, `policy_disconnect`, `nas_reboot`, `nas_error`, `operator_disconnect`, `lost_carrier`, `port_error`.
 
+### 2a. session.updated
+
+Fired on RADIUS Acct-Interim-Update and Diameter CCR-U. Carries running byte/duration counters so dashboards can animate in-flight sessions without polling. NATS subject: `argus.events.session.updated` (shared with CDR consumer per STORY-032). Relay-to-WS added in commit `52208ea` (post-Phase-10 dashboard wiring).
+
+```json
+{
+  "type": "session.updated",
+  "id": "evt_u1u2u3u4",
+  "timestamp": "2026-03-18T14:32:15.789Z",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sim_id": "660e8400-e29b-41d4-a716-446655440001",
+    "tenant_id": "770e8400-e29b-41d4-a716-446655440009",
+    "operator_id": "770e8400-e29b-41d4-a716-446655440002",
+    "operator_name": "turkcell",
+    "apn_id": "880e8400-e29b-41d4-a716-446655440003",
+    "rat_type": "lte_m",
+    "bytes_in": 845216,
+    "bytes_out": 127302,
+    "duration_sec": 1815,
+    "updated_at": "2026-03-18T14:32:15.789Z"
+  }
+}
+```
+
 ### 3. sim.state_changed
 
 Fired when a SIM transitions between states.
@@ -197,20 +304,30 @@ Fired when operator health status changes (healthy/degraded/down transitions).
     "operator_name": "turkcell",
     "previous_status": "healthy",
     "current_status": "degraded",
-    "uptime_24h_pct": 99.2,
-    "latency_ms_p95": 45,
-    "consecutive_failures": 3,
     "circuit_breaker_state": "half_open",
-    "last_successful_check": "2026-03-18T14:08:00.000Z",
-    "last_failed_check": "2026-03-18T14:10:00.000Z",
+    "latency_ms": 320,
     "failure_reason": "Connection timeout after 5000ms",
-    "affected_sim_count": 234567
+    "timestamp": "2026-03-18T14:10:00.012Z"
   }
 }
 ```
 
 `current_status` values: `healthy`, `degraded`, `down`.
 `circuit_breaker_state` values: `closed` (normal), `open` (rejecting), `half_open` (testing recovery).
+
+`operator_name`, `latency_ms`, and `failure_reason` are omitted when empty (Go `omitempty`).
+
+### Triggers
+
+Event is published by `internal/operator/health.go` `checkOperator` when either:
+- **Status flip**: `prevStatus != currentStatus` on a per-(operator, protocol) tick.
+- **Latency delta**: `|currentLatency - prevLatency| / prevLatency > 0.10` (both > 0 guard). Cold start (`prevLatency == 0`) suppresses the latency trigger until the second tick populates it — avoids noise on startup.
+
+Steady-state operation with small latency jitter (< 10%) and no status change produces no events. The `lastLatency` map refreshes every tick regardless of publish so the next delta is measured against the freshest sample. The down/recovered alert path remains gated on status flip alone; latency-only publishes do not re-fire `AlertTypeOperatorDown`.
+
+### Tenant scope
+
+`OperatorHealthEvent` carries no `tenant_id` field (operators are cross-tenant resources). The WS hub's `relayNATSEvent` falls back to `BroadcastAll` when `tenant_id` is absent — every connected client receives this event regardless of tenant. Frontend filters by matching `operator_id` against its local operator list; unknown IDs are no-ops.
 
 ### 5. alert.new
 
@@ -393,15 +510,20 @@ Fired every 1 second. Contains aggregated real-time metrics for the system dashb
 
 ### Reconnect Message
 
+Sent by the server before planned maintenance or graceful shutdown to allow clients to reconnect gracefully.
+
 ```json
 {
   "type": "reconnect",
   "data": {
-    "reason": "Server maintenance scheduled",
-    "delay_seconds": 5
+    "reason": "server shutting down",
+    "after_ms": 2000
   }
 }
 ```
+
+- `reason`: Human-readable reason for the reconnect request.
+- `after_ms`: Milliseconds to wait before reconnecting.
 
 Client should close the connection and reconnect after the specified delay.
 

@@ -1,0 +1,110 @@
+FIX-222 STEP LOG — Operator/APN Detail Polish
+===============================================
+
+2026-04-23 STEP_1 PLAN — planner agent
+  Story: FIX-222 (P2, M effort, Wave 6)
+  Findings: F-52, F-53, F-54, F-56, F-57, F-58, F-68, F-69, F-70, F-88, F-184, F-185
+  Plan: docs/stories/fix-ui-review/FIX-222-plan.md
+  Waves: 3, Tasks: 8
+  Scope decisions (DEV-298..DEV-302) logged in decisions.md
+  Key pivots from dispatch:
+    - eSIM Profiles tab BUILT not deferred (DEV-298): store+API+route all exist;
+      FIX-235 is a provisioning-pipeline refactor unrelated to reverse-link tab.
+    - AC-3/AC-7 SIMs server-side filter SATISFIED-BY-EXISTING (DEV-299):
+      OperatorSimsTab uses useSIMList({operator_id}); APN uses {apn_id}.
+    - Agreements tab KEPT (DEV-300): roaming still active; FIX-238 still PENDING.
+    - Final tab count 11->9 (spec said 8 — diff is transitional Agreements).
+    - AC-5 Top Operator client-derived from first page of SIMs (DEV-301);
+      backend endpoint deferred to D-110.
+    - AC-3 protocols auto-probe & persisted "last probe result" DEFERRED (DEV-302);
+      live Test Connection + breaker state shipped.
+  Next: plan approval -> dispatch Wave 1 (Task 1, 2, 3 in parallel)
+
+2026-04-23 STEP_2 DEV W1 T1 — Extract KPICard to shared primitive
+  Files created: web/src/components/shared/kpi-card.tsx
+  Files modified: web/src/pages/dashboard/index.tsx
+  Action: Moved KPICard + KPICardProps from dashboard inline to shared module.
+  Removed: ArrowUpRight, ArrowDownRight, Minus, AnimatedCounter from dashboard imports (only used in KPICard).
+  Dashboard now imports KPICard from @/components/shared/kpi-card.
+  Verify: grep "KPICard" dashboard/index.tsx → import only, no re-declaration. tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W1 T2 — InfoTooltip component + glossary copy
+  Files created: web/src/components/ui/info-tooltip.tsx, web/src/lib/glossary-tooltips.ts
+  Action: glossary-tooltips.ts exports 9-term GLOSSARY_TOOLTIPS record. InfoTooltip wraps
+  shadcn Button (ghost/icon) with lucide Info icon; 500ms mouseenter delay; ESC closes;
+  tap/click toggles; aria-label + aria-expanded; dev console.warn for unknown terms.
+  Verify: grep hex → 0 matches. tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W1 T3 — useTabUrlSync hook
+  Files created: web/src/hooks/use-tab-url-sync.ts
+  Action: Hook reads ?tab= param; resolves aliases (circuit→health, notifications→alerts)
+  with replace:true on mount; validates against validTabs; setTab writes with replace:true.
+  Pattern mirrors use-timeframe-url-sync.ts.
+  Verify: tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W2 T4 — EsimProfilesTab component
+  Files created: web/src/components/operators/EsimProfilesTab.tsx
+  Action: Table with EID/ICCID (InfoTooltip), Profile State (Badge), SIM (EntityLink),
+  Created At. Summary strip (Available/Enabled/Disabled counts). Skeleton + EmptyState.
+  useESimList({operator_id}) already supports operator_id filter. Load-more button.
+  Verify: grep hex → 0 matches. tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W2 T5 — Operator Detail refactor
+  Files modified: web/src/pages/operators/detail.tsx
+  Action:
+  1. useState('overview') → useTabUrlSync({defaultTab:'overview', aliases:{circuit:'health',notifications:'alerts'}, validTabs:[...]})
+  2. KPI row (4 cards grid-cols-1/2/4) above Tabs: SIMs (useSIMList total), Active Sessions
+     (useOperatorSessions count), Auth/s 1h avg (useOperatorMetrics buckets), Uptime % 24h
+     (useOperatorHealthHistory up-count ratio).
+  3. circuit tab REMOVED — CircuitBreakerTab moved into health tab below HealthTimelineTab.
+  4. notifications tab REMOVED — RelatedNotificationsPanel concatenated into alerts tab.
+  5. esim tab ADDED — EsimProfilesTab renders there.
+  6. Tab order: overview/protocols/health/traffic/sessions/sims/esim/alerts/audit/agreements (10 tabs; 9 after FIX-238).
+  7. InfoTooltip wraps MCC/MNC in header subtitle; ICCID/IMSI/MSISDN/APN in SIMs table headers.
+  Verify: grep hex → 0 new matches. tab count=10. tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W2 T6 — APN Detail refactor
+  Files modified: web/src/pages/apns/detail.tsx
+  Action:
+  1. useState('config') → useTabUrlSync({defaultTab:'overview', aliases:{notifications:'alerts'}, validTabs:[...]})
+  2. KPI row (4 cards): SIMs, Traffic 24h (formatBytes sum), Top Operator (client-side first-page group-by, subtitle discloses "Based on first 50 SIMs" if hasNextPage), APN State.
+  3. overview tab ADDED as first tab — renders ConfigTab content (read-heavy first).
+  4. Tab order per AC-6: overview/config/ip-pools/sims/traffic/policies/audit/alerts (8 tabs).
+  5. notifications tab REMOVED — merged into alerts tab (concat pattern).
+  6. InfoTooltip wraps ICCID/IMSI/MSISDN in SIMs table headers.
+  Verify: grep ?tab=notifications → URL replaces to ?tab=alerts. tab count=8. tsc --noEmit PASS.
+
+2026-04-23 STEP_2 DEV W3 T7 — Verification sweep + doc updates
+  Files modified: docs/GLOSSARY.md (added MCC, MNC entries; updated EID copy)
+  Files modified: docs/ROUTEMAP.md (added D-117, D-118, D-119 tech debt rows)
+  Files verified: decisions.md DEV-298..DEV-302 confirmed present (added by planner).
+  Grep InfoTooltip count: 11 uses across both pages.
+  Grep hex new files: 0 matches.
+  Build: npm run build PASS (✓ built in 2.60s).
+
+2026-04-23 STEP_2 DEV W3 T8 — Unit tests
+  Files created: web/src/components/ui/__tests__/info-tooltip.test.tsx
+  Files created: web/src/hooks/__tests__/use-tab-url-sync.test.tsx
+  Action: Type-level smoke tests (consistent with project test pattern — no vitest runner
+  configured; tsc --noEmit is the test runner). InfoTooltip test verifies 9 glossary terms
+  present + non-empty. useTabUrlSync test verifies alias targets valid, no alias chains
+  (infinite-redirect safety per plan Bug Pattern Warning).
+  Verify: tsc --noEmit PASS.
+
+2026-04-23 STEP_2.5 LINT
+  raw-button=0 hex=0
+  tsc --noEmit: PASS (all files, 0 errors)
+  npm run build: PASS (built in 2.60s, 0 errors, 0 warnings)
+  InfoTooltip count (both pages): 11 uses
+  Tab count operator: 10 (9 after FIX-238 removes Agreements)
+  Tab count APN: 8
+
+STEP_3 GATE: EXECUTED | 2026-04-23 | team=lead+3scouts | findings=29(1-MED+1-LOW+27-PASS) | fixes=1(F-A1 EsimProfilesTab isError+Retry) | deferred=4(D-117,D-118,D-119 pre-existing; D-120 new) | go-test=3531-pass tsc=PASS build=PASS | evidence=docs/stories/fix-ui-review/FIX-222-gate.md | result=PASS-WITH-DEFERRALS
+
+STEP_4 REVIEW: EXECUTED | 2026-04-23 | docs-updated=5(SCR-041-operator-detail.md:KPI-row+10-tabs+health-merge+eSIM+alerts-merge, SCR-032-apn-detail.md:KPI-row+8-tabs+overview-first+alerts-merge, FRONTEND.md:KPICard+InfoTooltip+useTabUrlSync-shared-components, USERTEST.md:FIX-222-section-8-scenarios, glossary-tooltips.ts:EID-wording-aligned-to-GLOSSARY) | findings=1(EID-tooltip-wording-drift→FIXED-inline) | checks=decisions-DEV-298..302=PRESENT, routemap-D-117..D-120=PRESENT, tsc=PASS(0-errors), no-new-envvars=PASS, no-new-api=PASS, no-mocks-to-retire=PASS | next-story-impact=FIX-223+FIX-224-should-consume-shared-KPICard | result=PASS
+
+2026-04-23 STEP_4 REVIEW: EXECUTED | docs-updated=5(SCR-041+SCR-032+FRONTEND+USERTEST+GLOSSARY-align) | findings=1-fixed-inline(EID-tooltip-copy) | DEV-298..302=verified | D-117..120=verified | result=PASS
+
+2026-04-23 STEP_5 COMMIT: EXECUTED | items=1 files=25 commit=3950716 | result=PASS
+
+2026-04-23 STEP_6 HANDOFF: EXECUTED | ROUTEMAP=FIX-222-DONE+FIX-223-IN-PROGRESS(Plan) | CLAUDE.md=session-updated | next=FIX-223 | result=PASS

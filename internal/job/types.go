@@ -17,6 +17,25 @@ const (
 	JobTypeS3Archival       = "s3_archival"
 	JobTypeDataRetention    = "data_retention"
 	JobTypeStorageMonitor   = "storage_monitor"
+	JobTypePartitionCreate  = "partition_create"
+	JobTypeBackupDaily      = "backup_daily"
+	JobTypeBackupWeekly     = "backup_weekly"
+	JobTypeBackupMonthly    = "backup_monthly"
+	JobTypeBackupVerify     = "backup_verify"
+	JobTypeBackupCleanup             = "backup_cleanup"
+	JobTypeScheduledReportRun        = "scheduled_report_run"
+	JobTypeIPGraceRelease            = "ip_grace_release"
+	JobTypeKVKKPurgeDaily            = "kvkk_purge_daily"
+	JobTypeSMSOutboundSend           = "sms_outbound_send"
+	JobTypeWebhookRetry              = "webhook_retry"
+	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
+	JobTypeDataIntegrityScan         = "data_integrity_scan"
+	JobTypeAlertsRetention           = "alerts_retention"
+	JobTypeStuckRolloutReaper        = "stuck_rollout_reaper"
+	JobTypeCoAFailureAlerter         = "coa_failure_alerter"
+	JobTypeQuotaBreachChecker        = "quota_breach_checker"
+	JobTypeESimOTATimeoutReaper      = "esim_ota_timeout_reaper"
+	JobTypeESimStockAlerter          = "esim_stock_alerter"
 )
 
 var AllJobTypes = []string{
@@ -36,4 +55,23 @@ var AllJobTypes = []string{
 	JobTypeS3Archival,
 	JobTypeDataRetention,
 	JobTypeStorageMonitor,
+	JobTypePartitionCreate,
+	JobTypeBackupDaily,
+	JobTypeBackupWeekly,
+	JobTypeBackupMonthly,
+	JobTypeBackupVerify,
+	JobTypeBackupCleanup,
+	JobTypeScheduledReportRun,
+	JobTypeIPGraceRelease,
+	JobTypeKVKKPurgeDaily,
+	JobTypeSMSOutboundSend,
+	JobTypeWebhookRetry,
+	JobTypeScheduledReportSweeper,
+	JobTypeDataIntegrityScan,
+	JobTypeAlertsRetention,
+	JobTypeStuckRolloutReaper,
+	JobTypeCoAFailureAlerter,
+	JobTypeQuotaBreachChecker,
+	JobTypeESimOTATimeoutReaper,
+	JobTypeESimStockAlerter,
 }

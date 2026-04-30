@@ -246,7 +246,7 @@ go test ./...
 # Unit tests only (skip integration)
 go test -short ./...
 
-# Integration tests only
+# Integration tests only (name-based)
 go test -run Integration ./internal/store/...
 go test -run Integration ./internal/cache/...
 go test -run Integration ./internal/bus/...
@@ -254,6 +254,31 @@ go test -run Integration ./internal/bus/...
 # Specific package with verbose output
 go test -v -count=1 ./internal/policy/dsl/...
 ```
+
+### Build-Tag-Gated Integration Tests
+
+Some integration tests require external infrastructure (OTel Collector, Prometheus, in-memory exporters) and are gated behind the `integration` build tag to avoid running in standard CI. These tests are **not** skipped by `-short` — they must be explicitly opted in with `-tags integration`.
+
+```bash
+# Run build-tag-gated integration tests
+go test -tags integration ./internal/observability/...
+
+# Run with race detector (recommended)
+go test -tags integration -race ./internal/observability/...
+```
+
+Gate pattern used in test files:
+```go
+//go:build integration
+
+package observability_test
+
+// Tests use tracetest.InMemoryExporter + sdktrace.NewSimpleSpanProcessor
+// to assert span attributes without requiring a live OTLP endpoint.
+```
+
+Files using this pattern (as of STORY-065):
+- `internal/observability/integration_test.go` — end-to-end trace + metrics + correlation_id propagation (19 tests)
 
 ## Benchmark Tests
 
@@ -367,16 +392,16 @@ E2E tests run against a full Docker Compose stack (`deploy/docker-compose.yml`) 
 // e2e/playwright.config.ts
 export default defineConfig({
   testDir: './e2e',
-  baseURL: 'https://localhost',
+  baseURL: 'http://localhost:8084',
   use: {
-    ignoreHTTPSErrors: true,
+    ignoreHTTPSErrors: false,
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: 'docker compose -f deploy/docker-compose.yml up -d',
-    url: 'https://localhost/api/health',
+    url: 'http://localhost:8084/api/health',
     reuseExistingServer: true,
     timeout: 120000,
   },
@@ -450,7 +475,12 @@ test-e2e:
 	cd e2e && npx playwright test
 
 test-all: test test-integration test-frontend test-e2e
+
+lint-sql:
+	@grep -rn "SELECT \*" internal/store/ && exit 1 || echo "lint-sql: PASS"
 ```
+
+`make lint-sql` is a CI guard (added in STORY-064) that fails the build if any `SELECT *` pattern is found in the store layer (`internal/store/`). Enforces explicit column selection across all DB queries, preventing accidental schema drift exposure and query plan regressions.
 
 ## Test Data Fixtures
 

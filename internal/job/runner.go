@@ -10,6 +10,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/bus"
+	"github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
@@ -43,6 +44,7 @@ type Runner struct {
 	sub        *nats.Subscription
 	wg         sync.WaitGroup
 	stopCh     chan struct{}
+	reg        *metrics.Registry
 
 	activeMu    sync.Mutex
 	activeCount map[uuid.UUID]int
@@ -77,6 +79,10 @@ func NewRunner(jobs *store.JobStore, eventBus *bus.EventBus, distLock *Distribut
 
 func (r *Runner) Register(p Processor) {
 	r.processors[p.Type()] = p
+}
+
+func (r *Runner) SetMetrics(reg *metrics.Registry) {
+	r.reg = reg
 }
 
 func (r *Runner) Start() error {
@@ -207,7 +213,12 @@ func (r *Runner) processJob(msg JobMessage, processor Processor) {
 		return
 	}
 
-	if err := processor.Process(ctx, job); err != nil {
+	start := time.Now()
+	procErr := processor.Process(ctx, job)
+	duration := time.Since(start)
+	r.recordMetrics(msg.Type, duration, procErr)
+
+	if procErr != nil {
 		close(renewDone)
 
 		if ctx.Err() != nil {
@@ -215,8 +226,8 @@ func (r *Runner) processJob(msg JobMessage, processor Processor) {
 			return
 		}
 
-		log.Error().Err(err).Msg("job processing failed")
-		errReport, _ := json.Marshal(map[string]string{"error": err.Error()})
+		log.Error().Err(procErr).Msg("job processing failed")
+		errReport, _ := json.Marshal(map[string]string{"error": procErr.Error()})
 		_ = r.jobs.Fail(ctx, msg.JobID, errReport)
 
 		_ = r.eventBus.Publish(context.Background(), bus.SubjectJobCompleted, map[string]interface{}{
@@ -224,13 +235,25 @@ func (r *Runner) processJob(msg JobMessage, processor Processor) {
 			"tenant_id": msg.TenantID.String(),
 			"type":      msg.Type,
 			"state":     "failed",
-			"error":     err.Error(),
+			"error":     procErr.Error(),
 		})
 		return
 	}
 
 	close(renewDone)
 	log.Info().Msg("job completed")
+}
+
+func (r *Runner) recordMetrics(jobType string, duration time.Duration, err error) {
+	if r.reg == nil {
+		return
+	}
+	result := "success"
+	if err != nil {
+		result = "failure"
+	}
+	r.reg.JobRunsTotal.WithLabelValues(jobType, result).Inc()
+	r.reg.JobDuration.WithLabelValues(jobType).Observe(duration.Seconds())
 }
 
 func (r *Runner) renewLockLoop(ctx context.Context, jobID uuid.UUID, done chan struct{}) {

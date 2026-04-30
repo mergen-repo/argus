@@ -41,7 +41,7 @@ func TestIsAuthEndpoint(t *testing.T) {
 		{"/api/v1/auth/2fa/verify", true},
 		{"/api/v1/sims", false},
 		{"/api/v1/auth/logout", false},
-		{"/api/v1/auth/refresh", false},
+		{"/api/v1/auth/refresh", true},
 		{"/api/health", false},
 	}
 
@@ -55,21 +55,28 @@ func TestIsAuthEndpoint(t *testing.T) {
 
 func TestExtractIP(t *testing.T) {
 	tests := []struct {
+		name       string
 		remoteAddr string
 		want       string
 	}{
-		{"192.168.1.1:12345", "192.168.1.1"},
-		{"10.0.0.1:8080", "10.0.0.1"},
-		{"127.0.0.1:443", "127.0.0.1"},
+		{"ipv4 with port", "192.168.1.1:12345", "192.168.1.1"},
+		{"ipv4 loopback", "127.0.0.1:443", "127.0.0.1"},
+		{"ipv4 private", "10.0.0.1:8080", "10.0.0.1"},
+		{"ipv6 bracketed with port", "[2001:db8::1]:4500", "2001:db8::1"},
+		{"ipv6 loopback bracketed", "[::1]:53142", "::1"},
+		{"ipv6 bare", "2001:db8::1", "2001:db8::1"},
+		{"ipv4 bare no port", "192.168.1.1", "192.168.1.1"},
 	}
 
 	for _, tt := range tests {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
-		req.RemoteAddr = tt.remoteAddr
-		got := extractIP(req)
-		if got != tt.want {
-			t.Errorf("extractIP(remoteAddr=%q) = %q, want %q", tt.remoteAddr, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
+			req.RemoteAddr = tt.remoteAddr
+			got := extractIP(req)
+			if got != tt.want {
+				t.Errorf("extractIP(remoteAddr=%q) = %q, want %q", tt.remoteAddr, got, tt.want)
+			}
+		})
 	}
 }
 

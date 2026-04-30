@@ -1,20 +1,25 @@
 -- SEED-02: System Initial Data
 -- Idempotent: all entries use ON CONFLICT DO NOTHING
 
+BEGIN;
+
 -- Mock operator (for development/testing)
-INSERT INTO operators (id, name, code, mcc, mnc, adapter_type, adapter_config, supported_rat_types, health_status, state)
+-- STORY-090 Wave 2 D2-B: adapter_type column dropped; adapter_config
+-- carries the nested per-protocol enablement flags.
+-- STORY-089 (2026-04-18): the mock operator does NOT enable the http sub-key.
+-- No simulator path emulates 'mock'; all http routing goes through the three real operators.
+INSERT INTO operators (id, name, code, mcc, mnc, adapter_config, supported_rat_types, health_status, state)
 VALUES (
     '00000000-0000-0000-0000-000000000100',
     'Mock Simulator',
     'mock',
     '999',
     '99',
-    'mock',
-    '{"host": "localhost", "port": 1812}',
+    '{"mock":{"enabled":true,"latency_ms":5,"simulated_imsi_count":1000}}',
     ARRAY['nb_iot', 'lte_m', 'lte', 'nr_5g'],
     'healthy',
     'active'
-) ON CONFLICT (code) DO NOTHING;
+) ON CONFLICT DO NOTHING;
 
 -- Grant mock operator to demo tenant
 INSERT INTO operator_grants (id, tenant_id, operator_id, enabled)
@@ -38,3 +43,5 @@ BEGIN
     END IF;
 END
 $$;
+
+COMMIT;

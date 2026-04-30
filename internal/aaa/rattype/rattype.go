@@ -43,6 +43,8 @@ var aliasMap = map[string]string{
 	"cat_m1":  LTEM,
 	"nb-iot":  NBIOT,
 	"nbiot":   NBIOT,
+	"lte-m":   LTEM,
+	"cat-m1":  LTEM,
 	"eutran":  LTE,
 	"e-utran": LTE,
 	"nr":      NR5G,
@@ -161,6 +163,22 @@ func DisplayName(canonical string) string {
 
 func IsValid(value string) bool {
 	return canonicalSet[value]
+}
+
+// IsRecognized returns true if raw is an explicit canonical value or a known alias.
+// Unlike IsValid(Normalize(raw)), this does not treat unknown inputs as valid.
+func IsRecognized(raw string) bool {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if canonicalSet[lower] {
+		return true
+	}
+	if _, ok := aliasMap[lower]; ok {
+		return true
+	}
+	if _, ok := displayToCanonical[lower]; ok {
+		return true
+	}
+	return false
 }
 
 func AllCanonical() []string {

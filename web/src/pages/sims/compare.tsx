@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   Search,
@@ -16,14 +16,23 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { RAT_DISPLAY } from '@/lib/constants'
 import { stateVariant, stateLabel } from '@/lib/sim-utils'
 import { timeAgo } from '@/lib/format'
-import type { SIM, ApiResponse } from '@/types/sim'
+import type { SIM, ApiResponse, SIMFieldDiff } from '@/types/sim'
+import { useSIMComparePair } from '@/hooks/use-sims'
 
-const MAX_SIMS = 3
+const MAX_SIMS = 4
 
 function useSearchSIM(query: string) {
   return useQuery({
@@ -127,9 +136,10 @@ function SearchBox({ index, value, selectedSim, onSelect, onRemove, onQueryChang
       {open && results && results.length > 0 && (
         <div className="absolute z-50 top-full mt-1 left-0 right-0 rounded-[var(--radius-sm)] border border-border bg-bg-elevated shadow-lg max-h-[200px] overflow-y-auto">
           {results.map((sim) => (
-            <button
+            <Button
               key={sim.id}
-              className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors border-b border-border-subtle last:border-0"
+              variant="ghost"
+              className="w-full text-left px-3 py-2 h-auto justify-start hover:bg-bg-hover transition-colors border-b border-border-subtle last:border-0 rounded-none"
               onClick={() => {
                 onSelect(sim)
                 setQuery('')
@@ -148,7 +158,7 @@ function SearchBox({ index, value, selectedSim, onSelect, onRemove, onQueryChang
                   <span className="text-[10px] text-text-tertiary">{sim.operator_name}</span>
                 )}
               </div>
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -283,66 +293,133 @@ function ComparisonTable({ sims }: { sims: (SIM | undefined)[] }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-elevated border-b border-border">
-              <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium w-36">
-                Property
-              </th>
-              {sims.map((sim, i) => (
-                <th key={i} className="text-left px-4 py-3 min-w-[200px]">
-                  {sim ? (
-                    <button
-                      className="flex items-center gap-2 hover:text-accent transition-colors group"
-                      onClick={() => navigate(`/sims/${sim.id}`)}
-                    >
-                      <span className="text-sm font-medium text-text-primary group-hover:text-accent">
-                        SIM {i + 1}
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-bg-elevated border-b border-border hover:bg-bg-elevated">
+            <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium w-36">
+              Property
+            </TableHead>
+            {sims.map((sim, i) => (
+              <TableHead key={i} className="min-w-[200px]">
+                {sim ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex items-center gap-2 hover:text-accent transition-colors group h-auto p-0"
+                    onClick={() => navigate(`/sims/${sim.id}`)}
+                  >
+                    <span className="text-sm font-medium text-text-primary group-hover:text-accent">
+                      SIM {i + 1}
+                    </span>
+                    <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
+                  </Button>
+                ) : (
+                  <span className="text-xs text-text-tertiary">SIM {i + 1}</span>
+                )}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const diff = hasDiff(row)
+            return (
+              <TableRow
+                key={row.label}
+                className={cn(
+                  'border-b border-border-subtle last:border-0 transition-colors',
+                  diff && 'bg-accent/5',
+                )}
+              >
+                <TableCell className="px-4 py-2.5">
+                  <span className="text-xs text-text-secondary">{row.label}</span>
+                  {diff && (
+                    <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                  )}
+                </TableCell>
+                {sims.map((sim, i) => (
+                  <TableCell key={i} className="px-4 py-2.5">
+                    {sim ? (
+                      <span className={cn('text-sm text-text-primary', row.mono && 'font-mono text-xs')}>
+                        {row.getValue(sim)}
                       </span>
-                      <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-text-tertiary">SIM {i + 1}</span>
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const diff = hasDiff(row)
-              return (
-                <tr
-                  key={row.label}
-                  className={cn(
-                    'border-b border-border-subtle last:border-0 transition-colors',
-                    diff && 'bg-accent/5',
-                  )}
-                >
-                  <td className="px-4 py-2.5">
-                    <span className="text-xs text-text-secondary">{row.label}</span>
-                    {diff && (
-                      <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                    ) : (
+                      <span className="text-xs text-text-tertiary">--</span>
                     )}
-                  </td>
-                  {sims.map((sim, i) => (
-                    <td key={i} className="px-4 py-2.5">
-                      {sim ? (
-                        <span className={cn('text-sm text-text-primary', row.mono && 'font-mono text-xs')}>
-                          {row.getValue(sim)}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-text-tertiary">--</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </TableCell>
+                ))}
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </Card>
+  )
+}
+
+function PairCompareTable({ simA, simB, diff }: { simA: SIM; simB: SIM; diff: SIMFieldDiff[] }) {
+  const navigate = useNavigate()
+  return (
+    <Card className="overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-bg-elevated border-b border-border hover:bg-bg-elevated">
+            <TableHead className="text-[10px] uppercase tracking-[1px] text-text-tertiary font-medium w-36">
+              Field
+            </TableHead>
+            <TableHead className="min-w-[200px]">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex items-center gap-2 hover:text-accent transition-colors group h-auto p-0"
+                onClick={() => navigate(`/sims/${simA.id}`)}
+              >
+                <span className="text-sm font-medium text-text-primary group-hover:text-accent">SIM 1</span>
+                <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
+              </Button>
+            </TableHead>
+            <TableHead className="min-w-[200px]">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex items-center gap-2 hover:text-accent transition-colors group h-auto p-0"
+                onClick={() => navigate(`/sims/${simB.id}`)}
+              >
+                <span className="text-sm font-medium text-text-primary group-hover:text-accent">SIM 2</span>
+                <ExternalLink className="h-3 w-3 text-text-tertiary group-hover:text-accent" />
+              </Button>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {diff.map((row) => (
+            <TableRow
+              key={row.field}
+              className={cn(
+                'border-b border-border-subtle last:border-0 transition-colors',
+                !row.equal && 'bg-accent/5',
+              )}
+            >
+              <TableCell className="px-4 py-2.5">
+                <span className="text-xs text-text-secondary">{row.field}</span>
+                {!row.equal && (
+                  <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                )}
+              </TableCell>
+              <TableCell className="px-4 py-2.5">
+                <span className="font-mono text-xs text-text-primary">
+                  {row.value_a == null ? '--' : String(row.value_a)}
+                </span>
+              </TableCell>
+              <TableCell className="px-4 py-2.5">
+                <span className="font-mono text-xs text-text-primary">
+                  {row.value_b == null ? '--' : String(row.value_b)}
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </Card>
   )
 }
@@ -356,7 +433,7 @@ function EmptyState() {
         </div>
         <h3 className="text-sm font-semibold text-text-primary mb-1">No SIMs selected</h3>
         <p className="text-xs text-text-secondary">
-          Search and add up to 3 SIM cards above to compare their properties side by side.
+          Search and add up to {MAX_SIMS} SIM cards above to compare their properties side by side.
         </p>
       </div>
     </div>
@@ -370,8 +447,8 @@ function LoadingSkeleton() {
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-6 w-48" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {Array.from({ length: 3 }).map((_, i) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {Array.from({ length: MAX_SIMS }).map((_, i) => (
           <Skeleton key={i} className="h-12 w-full" />
         ))}
       </div>
@@ -386,22 +463,50 @@ function LoadingSkeleton() {
   )
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export default function SIMComparePage() {
   const navigate = useNavigate()
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [searchParams] = useSearchParams()
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const a = searchParams.get('sim_id_a') ?? ''
+    const b = searchParams.get('sim_id_b') ?? ''
+    return [a, b].filter((id) => UUID_RE.test(id))
+  })
   const [queries, setQueries] = useState<string[]>(['', '', ''])
 
-  const results = useCompareSIMs(selectedIds)
+  const isPair = selectedIds.length === 2
+
+  const pairCompare = useSIMComparePair(
+    isPair ? selectedIds[0] : '',
+    isPair ? selectedIds[1] : '',
+  )
+
+  const legacyResults = useCompareSIMs(isPair ? [] : selectedIds)
 
   const sims = useMemo(() => {
+    if (isPair) {
+      if (pairCompare.data) {
+        return [pairCompare.data.sim_a as SIM, pairCompare.data.sim_b as SIM]
+      }
+      return selectedIds.map(() => undefined)
+    }
     const simMap = new Map<string, SIM>()
-    results.forEach((r) => {
+    legacyResults.forEach((r) => {
       if (r.data) simMap.set(r.data.id, r.data)
     })
     return selectedIds.map((id) => simMap.get(id))
-  }, [results, selectedIds])
+  }, [isPair, pairCompare.data, legacyResults, selectedIds])
 
-  const anyLoading = results.some((r) => r.isLoading)
+  const anyLoading = isPair
+    ? pairCompare.isLoading
+    : legacyResults.some((r) => r.isLoading)
+
+  const pairError = isPair && pairCompare.isError
+    ? (pairCompare.error as { response?: { status?: number } })?.response?.status === 404
+      ? 'One or both SIMs could not be found.'
+      : 'Failed to compare SIMs. Please try again.'
+    : null
 
   const handleSelect = useCallback((index: number, sim: SIM) => {
     if (selectedIds.includes(sim.id)) return
@@ -438,25 +543,38 @@ export default function SIMComparePage() {
         />
         <div className="flex items-center justify-between">
           <h1 className="text-[16px] font-semibold text-text-primary">SIM Comparison</h1>
-          {selectedIds.length < MAX_SIMS && selectedIds.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={handleAddSlot}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add SIM ({selectedIds.length}/{MAX_SIMS})
-            </Button>
+          {selectedIds.length > 0 && (
+            <div className="flex items-center gap-2">
+              {selectedIds.length >= MAX_SIMS && (
+                <span className="text-xs text-warning bg-warning/10 border border-warning/20 rounded-[var(--radius-sm)] px-2 py-1">
+                  Max {MAX_SIMS} SIMs for compare. Remove one to add another.
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleAddSlot}
+                disabled={selectedIds.length >= MAX_SIMS}
+                aria-disabled={selectedIds.length >= MAX_SIMS}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add SIM ({selectedIds.length}/{MAX_SIMS})
+              </Button>
+            </div>
           )}
         </div>
       </div>
 
-      <div className={cn('grid gap-3', visibleSlots === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3')}>
+      <div className={cn('grid gap-3', visibleSlots === 2 ? 'grid-cols-1 md:grid-cols-2' : visibleSlots === 4 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3')}>
         {Array.from({ length: visibleSlots }).map((_, i) => {
           const simId = selectedIds[i]
           const sim = simId ? sims.find((s) => s?.id === simId) ?? null : null
-          const isLoadingThis = simId ? results.find((r) => r.data?.id === simId)?.isLoading ?? false : false
+          const isLoadingThis = simId
+            ? (isPair
+                ? pairCompare.isLoading
+                : legacyResults.find((r) => r.data?.id === simId)?.isLoading ?? false)
+            : false
 
           return (
             <SearchBox
@@ -481,6 +599,12 @@ export default function SIMComparePage() {
 
       {selectedIds.length === 0 ? (
         <EmptyState />
+      ) : pairError ? (
+        <Card>
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-text-secondary">{pairError}</p>
+          </CardContent>
+        </Card>
       ) : anyLoading ? (
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -491,7 +615,15 @@ export default function SIMComparePage() {
         </Card>
       ) : (
         <>
-          <ComparisonTable sims={sims} />
+          {isPair && pairCompare.data ? (
+            <PairCompareTable
+              simA={pairCompare.data.sim_a as SIM}
+              simB={pairCompare.data.sim_b as SIM}
+              diff={pairCompare.data.diff}
+            />
+          ) : (
+            <ComparisonTable sims={sims} />
+          )}
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-text-tertiary">

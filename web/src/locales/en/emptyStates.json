@@ -1,0 +1,57 @@
+{
+  "sims": {
+    "title": "No SIMs yet",
+    "description": "Import your fleet to get started.",
+    "cta": "Import your first SIMs"
+  },
+  "apns": {
+    "title": "No APNs configured",
+    "description": "Create an APN to manage your data connections.",
+    "cta": "Create APN"
+  },
+  "operators": {
+    "title": "No operators found",
+    "description": "Add an operator to start managing connectivity.",
+    "cta": "Add Operator"
+  },
+  "policies": {
+    "title": "No policies defined",
+    "description": "Create a policy to control SIM behavior.",
+    "cta": "Create Policy"
+  },
+  "jobs": {
+    "title": "No jobs running",
+    "description": "Bulk operations and scheduled jobs will appear here.",
+    "cta": null
+  },
+  "notifications": {
+    "title": "No notifications",
+    "description": "You're all caught up!",
+    "cta": null
+  },
+  "users": {
+    "title": "No users found",
+    "description": "Invite team members to collaborate.",
+    "cta": "Invite User"
+  },
+  "audit": {
+    "title": "No audit events",
+    "description": "Audit events will appear as actions are performed.",
+    "cta": null
+  },
+  "violations": {
+    "title": "No policy violations",
+    "description": "Your fleet is compliant.",
+    "cta": null
+  },
+  "anomalies": {
+    "title": "No anomalies detected",
+    "description": "Everything looks normal.",
+    "cta": null
+  },
+  "announcements": {
+    "title": "No announcements",
+    "description": "Create an announcement to inform your users.",
+    "cta": "Create Announcement"
+  }
+}
