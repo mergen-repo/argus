@@ -29,7 +29,6 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	reportsapi "github.com/btopcu/argus/internal/api/reports"
-	roamingapi "github.com/btopcu/argus/internal/api/roaming"
 	searchapi "github.com/btopcu/argus/internal/api/search"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
@@ -93,7 +92,6 @@ type RouterDeps struct {
 	RevokeSessionsHandler *systemapi.RevokeSessionsHandler
 	CapacityHandler       *systemapi.CapacityHandler
 	OnboardingHandler     *onboardingapi.Handler
-	RoamingHandler        *roamingapi.Handler
 	WebhookHandler        *webhookapi.Handler
 	SMSHandler            *smsapi.Handler
 	OpsHandler            *opsapi.Handler
@@ -906,31 +904,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/sms/send", deps.SMSHandler.Send)
 				r.Get("/api/v1/sms/history", deps.SMSHandler.History)
 			})
-		}
-
-		if deps.RoamingHandler != nil {
-			r.Group(func(r chi.Router) {
-				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-				r.Use(RequireRole("api_user"))
-				r.Get("/api/v1/roaming-agreements", deps.RoamingHandler.List)
-				r.Get("/api/v1/roaming-agreements/{id}", deps.RoamingHandler.Get)
-			})
-
-			r.Group(func(r chi.Router) {
-				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-				r.Use(RequireRole("operator_manager"))
-				r.Post("/api/v1/roaming-agreements", deps.RoamingHandler.Create)
-				r.Patch("/api/v1/roaming-agreements/{id}", deps.RoamingHandler.Update)
-				r.Delete("/api/v1/roaming-agreements/{id}", deps.RoamingHandler.Terminate)
-			})
-
-			if deps.OperatorHandler != nil {
-				r.Group(func(r chi.Router) {
-					r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-					r.Use(RequireRole("api_user"))
-					r.Get("/api/v1/operators/{id}/roaming-agreements", deps.RoamingHandler.ListForOperator)
-				})
-			}
 		}
 
 	})

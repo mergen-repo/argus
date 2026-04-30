@@ -112,7 +112,7 @@ export function Component() {
           <SecCard
             title="Anomaly Detection"
             tone="danger"
-            body="Statistical models run on 5-minute CDR windows. Sudden spikes in auth failures, unusual data volumes, or SIM roaming outside declared regions trigger alerts. Persistent anomalies can auto-suspend the SIM via policy action."
+            body="Statistical models run on 5-minute CDR windows. Sudden spikes in auth failures, unusual data volumes, or SIM access from disallowed operator region trigger alerts. Persistent anomalies can auto-suspend the SIM via policy action."
           />
         </div>
       </Sub>
@@ -124,7 +124,7 @@ export function Component() {
             title="Change of Authorization (CoA)"
             rfc="RFC 5176"
             body="Argus sends a CoA-Request to the operator NAS (port 3799) to modify session attributes mid-flight. Used to dynamically change QoS class, rate limit, or APN parameters without dropping the session."
-            triggers={['Policy rule change applied to live SIM', 'Data cap threshold reached — throttle to 64kbps', 'Roaming zone change — update QoS class']}
+            triggers={['Policy rule change applied to live SIM', 'Data cap threshold reached — throttle to 64kbps', 'Operator/region change — update QoS class']}
             triggerColor="text-accent"
           />
           <CoaPanel

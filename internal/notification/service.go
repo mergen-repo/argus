@@ -724,7 +724,6 @@ var publisherSourceMap = map[string]string{
 	"operator_down":                 "operator",
 	"operator_recovered":            "operator",
 	"sla_violation":                 "operator",
-	"roaming.agreement.renewal_due": "operator",
 	// SIM anomaly prefixes (emitted by anomaly engine + batch detector)
 	"anomaly_sim_cloning": "sim",
 	"anomaly_data_spike":  "sim",

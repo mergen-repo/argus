@@ -1300,51 +1300,6 @@ func TestHandleAlertPersist_AnomalyBatchCrash_NoTitleSynthesizes(t *testing.T) {
 	}
 }
 
-// TestHandleAlertPersist_RoamingRenewal_FullEnvelope — shape A (AlertPayload JSON).
-// NOTE: roaming_renewal publisher emits notification.AlertPayload which has no
-// TenantID field; test injects to exercise the source='operator' path.
-func TestHandleAlertPersist_RoamingRenewal_FullEnvelope(t *testing.T) {
-	email := &mockEmailSender{}
-	alertStore := &mockAlertStore{}
-	svc, sub := newPersistSvc(t, email, alertStore)
-	defer svc.Stop()
-
-	tenantID := uuid.New()
-	agreementID := uuid.New()
-	payload := map[string]interface{}{
-		"alert_id":    "roaming-renewal-xyz",
-		"alert_type":  "roaming.agreement.renewal_due",
-		"tenant_id":   tenantID.String(),
-		"severity":    "medium",
-		"title":       "Roaming agreement expiring in 30 days",
-		"description": "Agreement with VodafoneDE expires on 2026-05-21",
-		"entity_type": "roaming_agreement",
-		"entity_id":   agreementID.String(),
-		"metadata": map[string]interface{}{
-			"partner_operator_name": "VodafoneDE",
-			"days_to_expiry":        float64(30),
-		},
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	}
-	data, _ := json.Marshal(payload)
-	sub.Publish("argus.events.alert.triggered", data)
-
-	time.Sleep(50 * time.Millisecond)
-
-	alertStore.mu.Lock()
-	defer alertStore.mu.Unlock()
-	if len(alertStore.calls) != 1 {
-		t.Fatalf("alert persist calls = %d, want 1", len(alertStore.calls))
-	}
-	p := alertStore.calls[0]
-	if p.Source != "operator" {
-		t.Errorf("source = %q, want operator", p.Source)
-	}
-	if p.Type != "roaming.agreement.renewal_due" {
-		t.Errorf("type = %q, want roaming.agreement.renewal_due", p.Type)
-	}
-}
-
 // TestHandleAlertPersist_InvalidSeverity_CoercesToInfo — severity drift must not drop the event.
 func TestHandleAlertPersist_InvalidSeverity_CoercesToInfo(t *testing.T) {
 	email := &mockEmailSender{}
@@ -1494,8 +1449,8 @@ func TestHandleAlertPersist_NilAlertStore_DispatchStillRuns(t *testing.T) {
 }
 
 // TestParseAlertPayload_MissingTenantID_UsesSentinel — FIX-209 Gate F-A1.
-// Five of seven publishers (operator.AlertEvent, nats_consumer_lag,
-// anomaly_batch_crash, storage_monitor explicit-nil, roaming_renewal
+// Several publishers (operator.AlertEvent, nats_consumer_lag,
+// anomaly_batch_crash, storage_monitor explicit-nil,
 // notification.AlertPayload) do NOT emit tenant_id — plan AC-3 + PAT-006
 // forbid rewriting publishers in this story. parseAlertPayload must fall
 // back to the system-tenant sentinel so these alerts still persist.

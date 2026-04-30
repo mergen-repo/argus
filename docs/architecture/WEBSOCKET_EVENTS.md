@@ -93,7 +93,7 @@ In-scope subjects (FIX-212 scope D6):
 - `session.started`, `session.updated`, `session.ended` (sim entity, info)
 - `sim.state_changed` (sim entity, info; NEW publisher closes F-119)
 - `operator_down`, `operator_recovered`, `operator.health_changed` (operator entity)
-- `sla_violation`, `roaming.agreement.renewal_due` (operator / agreement)
+- `sla_violation` (operator)
 - `anomaly.detected`, `anomaly_sim_cloning`, `anomaly_data_spike`, `anomaly_auth_flood` (sim entity)
 - `policy_violation`, `policy.updated`, `policy.rollout_progress` (sim / policy entity)
 - `nats_consumer_lag`, `storage.threshold_exceeded`, `anomaly_batch_crash` (infra, SystemTenantID)

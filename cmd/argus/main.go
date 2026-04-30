@@ -59,7 +59,6 @@ import (
 	otaapi "github.com/btopcu/argus/internal/api/ota"
 	policyapi "github.com/btopcu/argus/internal/api/policy"
 	reportsapi "github.com/btopcu/argus/internal/api/reports"
-	roamingapi "github.com/btopcu/argus/internal/api/roaming"
 	searchapi "github.com/btopcu/argus/internal/api/search"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
@@ -515,6 +514,14 @@ func runServe(cfg *config.Config) {
 
 	if err := auth.CheckAndAuditRotation(ctx, cfg, auditSvc, bootID, log.Logger); err != nil {
 		log.Warn().Err(err).Msg("jwt key rotation audit failed")
+	}
+
+	// FIX-238 AC-10: boot-time one-shot — archive policy_versions whose DSL
+	// contains the 'roaming' keyword. Idempotent; second run finds zero rows.
+	if archivedCount, archiveErr := job.ArchiveRoamingKeywordPolicyVersions(ctx, pg.Pool, auditSvc, log.Logger); archiveErr != nil {
+		log.Warn().Err(archiveErr).Msg("roaming_keyword_archiver: sweep failed; continuing")
+	} else {
+		log.Info().Int("archived", archivedCount).Msg("roaming_keyword_archiver: boot sweep complete")
 	}
 
 	tenantHandler := tenantapi.NewHandler(tenantStore, auditSvc, log.Logger)
@@ -1569,22 +1576,6 @@ func runServe(cfg *config.Config) {
 	_ = announcementHandler
 	log.Info().Msg("STORY-077 UX polish handlers wired")
 
-	// STORY-071 — Roaming Agreement Management
-	roamingAgreementStore := store.NewRoamingAgreementStore(pg.Pool)
-	roamingHandler := roamingapi.NewHandler(roamingAgreementStore, operatorStore, auditSvc, log.Logger)
-
-	roamingRenewalAlertDays := cfg.RoamingRenewalAlertDays
-	if roamingRenewalAlertDays <= 0 {
-		roamingRenewalAlertDays = 30
-	}
-	roamingRenewalProc := job.NewRoamingRenewalSweeper(roamingAgreementStore, userStore, jobStore, eventBus, rdb.Client, roamingRenewalAlertDays, log.Logger)
-	jobRunner.Register(roamingRenewalProc)
-	log.Info().Msg("STORY-071 roaming_renewal_sweep processor registered")
-
-	if cronScheduler != nil {
-		cronScheduler.AddEntry(job.CronEntry{Name: "roaming_renewal_sweep", Schedule: cfg.RoamingRenewalCron, JobType: job.JobTypeRoamingRenewal})
-	}
-
 	dataIntegrityProc := job.NewDataIntegrityDetector(pg.Pool, jobStore, eventBus, metricsReg, log.Logger)
 	jobRunner.Register(dataIntegrityProc)
 	log.Info().Msg("FIX-207 data_integrity_scan processor registered")
@@ -1720,7 +1711,6 @@ func runServe(cfg *config.Config) {
 		SystemConfigHandler:  systemConfigHandler,
 		CapacityHandler:      capacityHandler,
 		OnboardingHandler:    onboardingHandler,
-		RoamingHandler:       roamingHandler,
 		WebhookHandler:       webhookHandler,
 		SMSHandler:           smsHandler,
 		OpsHandler:           opsHandler,

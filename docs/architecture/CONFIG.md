@@ -116,7 +116,7 @@ Row-Level Security is enabled on all multi-tenant tables as defense-in-depth (mi
 | `argus.jobs.queue` | Job queue (pull-based) | Job runner |
 | `argus.jobs.completed` | Job completion notification | Dashboard, WebSocket broadcaster |
 | `argus.jobs.progress` | Job progress updates (percent + message) | WebSocket broadcaster |
-| `argus.events.alert.triggered` | Alert triggered (anomaly, threshold, roaming renewal) | Alert engine, notification dispatcher |
+| `argus.events.alert.triggered` | Alert triggered (anomaly, threshold) | Alert engine, notification dispatcher |
 | `argus.events.audit.create` | Audit log entry created | Audit consumer, WebSocket broadcaster |
 | `argus.cache.invalidate` | Cache invalidation broadcast | All instances |
 
@@ -283,12 +283,11 @@ These variables set the expected platform-wide capacity targets shown in the Sys
 
 ---
 
-## Roaming Agreements (SVC-06) — STORY-071
+## Roaming Agreements — REMOVED (FIX-238, 2026-04-30)
 
-| Variable | Type | Default | Required | Description |
-|----------|------|---------|----------|-------------|
-| `ROAMING_RENEWAL_ALERT_DAYS` | int | `30` | No | Number of days before a roaming agreement's `end_date` at which the renewal sweeper publishes an alert to `bus.SubjectAlertTriggered`. Alerts are deduped per `{agreement_id}:{YYYY-MM}` via Redis SETNX (TTL 35 days). |
-| `ROAMING_RENEWAL_CRON` | string | `0 6 * * *` | No | Cron schedule for the `roaming_renewal_sweep` job. Default: daily at 06:00 UTC. Supports 5-field cron expressions or `@daily`/`@hourly` shorthands. |
+`ROAMING_RENEWAL_ALERT_DAYS` and `ROAMING_RENEWAL_CRON` were removed along with
+the roaming agreements feature (STORY-071). The variables are no longer read by
+the binary. Any deployment env files referencing them should drop the entries.
 
 ---
 
@@ -619,10 +618,6 @@ CRON_ENABLED=true
 CRON_PURGE_SWEEP=@daily
 CRON_IP_RECLAIM=@hourly
 CRON_SLA_REPORT=@daily
-
-# === Roaming Agreements ===
-ROAMING_RENEWAL_ALERT_DAYS=30
-ROAMING_RENEWAL_CRON=0 6 * * *
 
 # === eSIM SM-DP+ (optional) ===
 # ESIM_SMDP_PROVIDER=generic

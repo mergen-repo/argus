@@ -259,9 +259,9 @@ func BenchmarkPolicyEvaluateComplex(b *testing.B) {
 							Value: "5g_nr",
 						},
 						Right: &dsl.CompiledCondition{
-							Field: "roaming",
+							Field: "max_sessions",
 							Op:    "eq",
-							Value: false,
+							Value: int64(1),
 						},
 					},
 					Assignments: map[string]interface{}{
@@ -304,7 +304,6 @@ func BenchmarkPolicyEvaluateComplex(b *testing.B) {
 		DayOfWeek:     "monday",
 		SessionCount:  2,
 		BandwidthUsed: 5000000,
-		Roaming:       false,
 	}
 
 	b.ResetTimer()

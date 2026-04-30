@@ -14,7 +14,6 @@ type SoRDecision struct {
 	IMSIPrefix          string      `json:"imsi_prefix,omitempty"`
 	RATType             string      `json:"rat_type,omitempty"`
 	CostPerMB           float64     `json:"cost_per_mb,omitempty"`
-	AgreementID         *uuid.UUID  `json:"agreement_id,omitempty"`
 	EvaluatedAt         time.Time   `json:"evaluated_at"`
 	Cached              bool        `json:"cached"`
 }
@@ -48,7 +47,6 @@ const (
 	ReasonRATPreference      = "rat_preference"
 	ReasonManualLock         = "manual_lock"
 	ReasonDefault            = "default"
-	ReasonRoamingAgreement   = "roaming_agreement_applied"
 )
 
 var DefaultRATPreferenceOrder = []string{

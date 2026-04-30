@@ -193,7 +193,7 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 |------|-------------|-------------|------------------|
 | `POLICY_NOT_FOUND` | 404 | Policy or policy version not found | `{"status":"error","error":{"code":"POLICY_NOT_FOUND","message":"Policy not found"}}` |
 | `DSL_SYNTAX_ERROR` | 422 | Policy DSL has syntax errors; cannot be parsed | `{"status":"error","error":{"code":"DSL_SYNTAX_ERROR","message":"Policy DSL syntax error","details":[{"line":7,"column":12,"message":"Expected '{' after MATCH keyword","snippet":"  MATCH\n       ^"}]}}` |
-| `DSL_COMPILE_ERROR` | 422 | Policy DSL is syntactically valid but semantically invalid (unknown identifiers, type mismatches, etc.) | `{"status":"error","error":{"code":"DSL_COMPILE_ERROR","message":"Policy DSL compilation error","details":[{"line":8,"message":"Unknown condition 'location'. Supported: usage, time_of_day, rat_type, apn, operator, roaming, session_count, bandwidth_used"}]}}` |
+| `DSL_COMPILE_ERROR` | 422 | Policy DSL is syntactically valid but semantically invalid (unknown identifiers, type mismatches, etc.) | `{"status":"error","error":{"code":"DSL_COMPILE_ERROR","message":"Policy DSL compilation error","details":[{"line":8,"message":"Unknown condition 'location'. Supported: usage, time_of_day, rat_type, apn, operator, session_count, bandwidth_used"}]}}` |
 | `ROLLOUT_IN_PROGRESS` | 422 | Cannot start a new rollout while one is already in progress for this policy | `{"status":"error","error":{"code":"ROLLOUT_IN_PROGRESS","message":"A rollout is already in progress for this policy","details":[{"rollout_id":"uuid","current_stage":2,"state":"in_progress"}]}}` |
 | `VERSION_NOT_DRAFT` | 422 | Attempted to modify or activate a policy version that is not in draft state | `{"status":"error","error":{"code":"VERSION_NOT_DRAFT","message":"Policy version is not in draft state and cannot be modified","details":[{"version_id":"uuid","current_state":"active"}]}}` |
 
@@ -511,7 +511,7 @@ Constraint: `chk_alerts_state CHECK (state IN ('open','acknowledged','resolved',
 | Source | Meaning |
 |---|---|
 | `sim` | SIM-level detection (anomalies engine + batch). Links back to `anomalies.id` via `alerts.meta.anomaly_id`. |
-| `operator` | Mobile operator health, SLA, roaming — from operator/health.go + job/roaming_renewal.go. |
+| `operator` | Mobile operator health and SLA — from operator/health.go. |
 | `infra` | Infrastructure: NATS consumer lag, storage monitor, anomaly-batch crash. |
 | `policy` | Policy engine violations. |
 | `system` | Fallback for unknown `alert_type` values (log-warn on persist). |
@@ -526,7 +526,6 @@ The notification subscriber `parseAlertPayload` resolves `source` from `alert_ty
 |---|---|---|
 | `anomaly_sim_cloning` / `anomaly_data_spike` / `anomaly_auth_flood` / `anomaly_nas_flood` / `anomaly_velocity` / `anomaly_location` | `sim` | `internal/analytics/anomaly/engine.go`, `batch.go` |
 | `operator_down`, `operator_recovered`, `sla_violation` | `operator` | `internal/operator/health.go` |
-| `roaming.agreement.renewal_due` | `operator` | `internal/job/roaming_renewal.go` |
 | `nats_consumer_lag` | `infra` | `internal/bus/consumer_lag.go` |
 | `storage.*` (prefix match) | `infra` | `internal/job/storage_monitor.go` |
 | `anomaly_batch_crash` | `infra` | `internal/job/anomaly_batch_supervisor.go` |

@@ -97,7 +97,6 @@ opt out via their notification preferences.
 - `operator_recovered` — operator circuit breaker closed after recovery.
 - `sla_violation` — SLA metric breached (latency, availability, or error rate).
 - `policy_violation` — individual policy rule violation (quota overage, APN mismatch, etc.).
-- `roaming.agreement.renewal_due` — roaming agreement expiry within the configured lookahead window.
 - `storage.threshold_exceeded` — database or object storage utilization above threshold.
 - `policy.rollout_progress` — staged policy rollout advancing or completing a stage.
 - `anomaly_sim_cloning` — same IMSI authenticated from 2+ NAS IPs within a short window.

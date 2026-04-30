@@ -1,7 +1,7 @@
 # Screen Index — Argus
 
-> Total: 83 screens (+ 5 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192); 2 added by FIX-228 (SCR-193..194); 1 added by FIX-229 (SCR-195); 4 added by Phase 11 — Enterprise Readiness Pack (SCR-196..198 + SCR-021f device-binding tab); 5 removed by FIX-245 (SCR-142 Cost, SCR-146 DSAR, SCR-147 Compliance, SCR-149 Kill Switches, SCR-152 Maintenance)
-> Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
+> Total: 81 screens (+ 5 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071 (REMOVED FIX-238); 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192); 2 added by FIX-228 (SCR-193..194); 1 added by FIX-229 (SCR-195); 4 added by Phase 11 — Enterprise Readiness Pack (SCR-196..198 + SCR-021f device-binding tab); 5 removed by FIX-245 (SCR-142 Cost, SCR-146 DSAR, SCR-147 Compliance, SCR-149 Kill Switches, SCR-152 Maintenance); 2 removed by FIX-238 (SCR-150 Roaming Agreements List, SCR-151 Roaming Agreement Detail)
+> Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153. SCR-150/151 (Roaming Agreements, STORY-071) were removed by FIX-238 (2026-04-30); IDs retired, do not reuse.
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
 
@@ -50,8 +50,8 @@
 | SCR-132 | SMS Gateway | Communications | /sms | JWT (sim_manager+) | STORY-069 AC-12: send form + outbound history table |
 | SCR-133 | Data Portability | Compliance | /compliance/data-portability | JWT (self or tenant_admin+) | STORY-069 AC-9: GDPR export request form + status |
 | SCR-134 | Notification Preferences | Settings | /settings#notifications (consolidated; was /settings/notifications#preferences → now a Simple+Advanced toggle within SCR-113 notification tab; FIX-240 + FIX-232) | JWT (any) | STORY-069 AC-7/8: preferences matrix + templates editor; `/notifications?tab=preferences` → `/settings#notifications` redirect |
-| SCR-150 | Roaming Agreements List | Operator | /roaming-agreements | JWT (api_user+) | STORY-071: list with state/type badges, operator column, cursor pagination, empty state; New Agreement slide-panel; operator_manager can create |
-| SCR-151 | Roaming Agreement Detail | Operator | /roaming-agreements/:id | JWT (api_user+) | STORY-071: SLA terms, cost terms, validity timeline progress bar, auto-renew checkbox, notes; operator_manager can update/terminate |
+| ~~SCR-150~~ | ~~Roaming Agreements List~~ | — | — | — | REMOVED FIX-238 (2026-04-30): roaming agreements feature deleted; ID retired, do not reuse |
+| ~~SCR-151~~ | ~~Roaming Agreement Detail~~ | — | — | — | REMOVED FIX-238 (2026-04-30): roaming agreements feature deleted; ID retired, do not reuse |
 | SCR-160 | Ops Performance | Operations (SRE) | /ops/performance | JWT (super_admin) | STORY-072 SCR-130 alias: HTTP p50/p95/p99 latency trend, AAA auth rate, error rate sparklines; 15s polling + WS realtime invalidation |
 | SCR-161 | Ops Errors | Operations (SRE) | /ops/errors | JWT (super_admin) | STORY-072 SCR-131 alias: Error rate histogram, top error codes table, 4xx/5xx breakdown; sourced from Ops Snapshot |
 | SCR-162 | Ops AAA Traffic | Operations (SRE) | /ops/aaa-traffic | JWT (super_admin) | STORY-072 SCR-132 alias: AAA auth volume, active sessions gauge, success/failure ratio ring chart; WebSocket-fed realtime + 5s poll |

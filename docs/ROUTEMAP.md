@@ -463,7 +463,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | FIX-246 | Quotas + Resources merge → "Tenant Usage" dashboard + threshold alerts | P2 | M | [x] DONE 2026-04-27 · D-168 (compliance.tsx hook), D-170 (trend sparkline), D-171 (breach payload) | FIX-209 |
 | FIX-235 | M2M eSIM Provisioning Pipeline — SGP.22 → SGP.02 refactor + SM-SR + bulk | P2 | XL | [~] IN PROGRESS · Review | — |
 | FIX-245 | Remove 5 Admin Sub-pages (Cost/Compliance/DSAR/Maintenance) + Kill Switches→env | P2 | L | [x] DONE 2026-04-27 · DEV-575..578 | — |
-| FIX-238 | Remove Roaming Feature (full stack) | P2 | L | [ ] PENDING | FIX-212 |
+| FIX-238 | Remove Roaming Feature (full stack) | P2 | L | [x] DONE 2026-04-30 · DEV-579 · F-229 closed | FIX-212 |
 | FIX-247 | Remove Admin Global Sessions UI (backend retain) | P2 | S | [ ] PENDING | — |
 
 ---

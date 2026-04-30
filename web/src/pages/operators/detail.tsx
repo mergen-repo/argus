@@ -17,8 +17,6 @@ import {
   Pencil,
   Trash2,
   Signal,
-  Handshake,
-  Plus,
   Layers,
   Wifi,
   Radio,
@@ -65,9 +63,7 @@ import {
   useUpdateOperator,
 } from '@/hooks/use-operators'
 import { useOperatorHealthHistory, useOperatorMetrics, useOperatorSessions, useOperatorTraffic } from '@/hooks/use-operator-detail'
-import { useOperatorRoamingAgreements } from '@/hooks/use-roaming-agreements'
 import { formatBytes } from '@/lib/format'
-import type { RoamingAgreement, AgreementState, AgreementType } from '@/types/roaming'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { cn } from '@/lib/utils'
@@ -960,79 +956,6 @@ function EditOperatorDialog({
   )
 }
 
-function agreementStateBadge(state: AgreementState) {
-  switch (state) {
-    case 'active': return <Badge variant="success">active</Badge>
-    case 'draft': return <Badge variant="warning">draft</Badge>
-    case 'expired': return <Badge variant="danger">expired</Badge>
-    case 'terminated': return <Badge variant="secondary">terminated</Badge>
-    default: return <Badge variant="secondary">{state}</Badge>
-  }
-}
-
-function typeBadge(type: AgreementType) {
-  switch (type) {
-    case 'international': return <Badge variant="default">international</Badge>
-    case 'national': return <Badge variant="secondary">national</Badge>
-    case 'MVNO': return <Badge className="bg-purple-dim text-purple border-transparent">MVNO</Badge>
-    default: return <Badge variant="outline">{type}</Badge>
-  }
-}
-
-function AgreementsTab({ operatorId }: { operatorId: string }) {
-  const navigate = useNavigate()
-  const { data, isLoading, isError } = useOperatorRoamingAgreements(operatorId)
-  const agreements = data?.data ?? []
-
-  if (isLoading) return <div className="py-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-  if (isError) return <div className="py-4 text-sm text-danger flex items-center gap-2"><AlertCircle className="h-4 w-4" />Failed to load agreements.</div>
-
-  return (
-    <div className="space-y-3 py-2">
-      <div className="flex justify-end">
-        <Button size="sm" variant="outline" onClick={() => navigate(`/roaming-agreements?operator_id=${operatorId}`)}>
-          <Plus className="h-4 w-4 mr-1" />
-          New Agreement
-        </Button>
-      </div>
-      {agreements.length === 0 ? (
-        <EmptyState
-          icon={Handshake}
-          title="No roaming agreements"
-          description="No roaming agreements have been created for this operator."
-        />
-      ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b border-border-subtle hover:bg-transparent">
-                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Partner</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">Type</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">State</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-[0.5px] text-text-secondary font-medium py-2">End Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agreements.map((ag: RoamingAgreement) => (
-                <TableRow
-                  key={ag.id}
-                  className="cursor-pointer border-b border-border-subtle hover:bg-bg-hover transition-colors"
-                  onClick={() => navigate(`/roaming-agreements/${ag.id}`)}
-                >
-                  <TableCell className="py-2">{ag.partner_operator_name}</TableCell>
-                  <TableCell className="py-2">{typeBadge(ag.agreement_type)}</TableCell>
-                  <TableCell className="py-2">{agreementStateBadge(ag.state)}</TableCell>
-                  <TableCell className="py-2 text-text-secondary">{ag.end_date}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
-    </div>
-  )
-}
-
 function OperatorSimsTab({ operatorId }: { operatorId: string }) {
   const navigate = useNavigate()
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useSIMList({ operator_id: operatorId })
@@ -1159,7 +1082,7 @@ function OperatorSimsTab({ operatorId }: { operatorId: string }) {
 
 const OPERATOR_TABS = [
   'overview', 'protocols', 'health', 'traffic', 'sessions',
-  'sims', 'esim', 'alerts', 'audit', 'agreements',
+  'sims', 'esim', 'alerts', 'audit',
 ] as const
 
 export default function OperatorDetailPage() {
@@ -1167,7 +1090,7 @@ export default function OperatorDetailPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useTabUrlSync({
     defaultTab: 'overview',
-    aliases: { circuit: 'health', notifications: 'alerts' },
+    aliases: { circuit: 'health', notifications: 'alerts', agreements: 'overview' },
     validTabs: [...OPERATOR_TABS],
   })
   const [testResult, setTestResult] = useState<{ success: boolean; latency_ms: number; error?: string } | null>(null)
@@ -1413,10 +1336,6 @@ export default function OperatorDetailPage() {
             <Shield className="h-3.5 w-3.5" />
             Audit
           </TabsTrigger>
-          <TabsTrigger value="agreements" className="gap-1.5">
-            <Handshake className="h-3.5 w-3.5" />
-            Agreements
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -1467,9 +1386,6 @@ export default function OperatorDetailPage() {
           <div className="mt-4">
             <RelatedAuditTab entityId={operator.id} entityType="operator" />
           </div>
-        </TabsContent>
-        <TabsContent value="agreements">
-          <AgreementsTab operatorId={operator.id} />
         </TabsContent>
       </Tabs>
 

@@ -26,7 +26,7 @@ import {
   HardDrive,
   Star,
   Clock,
-  Handshake,
+
   Gauge,
   XCircle,
   Antenna,
@@ -92,7 +92,7 @@ const navGroups: NavGroup[] = [
       { label: 'Notifications', icon: Bell, path: '/notifications' },
       { label: 'Reports', icon: FileBarChart, path: '/reports', minRole: 'analyst' },
       { label: 'Capacity', icon: HardDrive, path: '/capacity', minRole: 'analyst' },
-      { label: 'Roaming', icon: Handshake, path: '/roaming-agreements', minRole: 'operator_manager' },
+
     ],
   },
   {

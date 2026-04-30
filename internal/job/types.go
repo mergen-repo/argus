@@ -29,7 +29,6 @@ const (
 	JobTypeSMSOutboundSend           = "sms_outbound_send"
 	JobTypeWebhookRetry              = "webhook_retry"
 	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
-	JobTypeRoamingRenewal            = "roaming_renewal_sweep"
 	JobTypeDataIntegrityScan         = "data_integrity_scan"
 	JobTypeAlertsRetention           = "alerts_retention"
 	JobTypeStuckRolloutReaper        = "stuck_rollout_reaper"
@@ -68,7 +67,6 @@ var AllJobTypes = []string{
 	JobTypeSMSOutboundSend,
 	JobTypeWebhookRetry,
 	JobTypeScheduledReportSweeper,
-	JobTypeRoamingRenewal,
 	JobTypeDataIntegrityScan,
 	JobTypeAlertsRetention,
 	JobTypeStuckRolloutReaper,

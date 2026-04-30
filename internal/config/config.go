@@ -133,9 +133,6 @@ type Config struct {
 	CronQuotaBreachCheck      string        `envconfig:"CRON_QUOTA_BREACH_CHECK" default:"@hourly"`
 	CronFleetDigest           string        `envconfig:"CRON_FLEET_DIGEST" default:"*/15 * * * *"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
-	RoamingRenewalAlertDays   int           `envconfig:"ROAMING_RENEWAL_ALERT_DAYS" default:"30"`
-	RoamingRenewalCron        string        `envconfig:"ROAMING_RENEWAL_CRON" default:"0 6 * * *"`
-
 	GeoIPDBPath string `envconfig:"GEOIP_DB_PATH" default:""`
 
 	StorageAlertPct float64 `envconfig:"STORAGE_ALERT_PCT" default:"80"`

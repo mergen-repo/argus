@@ -585,7 +585,7 @@ export default function PolicyEditorPage() {
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">operator</code> — Operator name <span className="text-text-tertiary">(=, !=, IN)</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">rat_type</code> — Radio type <span className="text-text-tertiary">(=, IN) values: nb_iot, lte_m, lte, nr_5g</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">sim_type</code> — SIM type <span className="text-text-tertiary">(=, IN) values: physical, esim</span></div>
-                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">roaming</code> — Roaming state <span className="text-text-tertiary">(=) values: true, false</span></div>
+
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-accent">metadata.*</code> — Custom fields <span className="text-text-tertiary">(=) e.g. metadata.fleet_id = "fleet-01"</span></div>
                     </div>
                     <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`MATCH {
@@ -615,7 +615,7 @@ export default function PolicyEditorPage() {
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_count</code> — Active sessions <span className="text-text-tertiary">(&gt;, &lt;, =) e.g. 3</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">session_duration</code> — Current session length <span className="text-text-tertiary">(&gt;, &lt;) e.g. 2h</span></div>
                       <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">bandwidth_used</code> — Current rate <span className="text-text-tertiary">(&gt;, &lt;) e.g. 5mbps</span></div>
-                      <div><code className="bg-bg-elevated px-1.5 py-0.5 rounded font-mono text-purple">roaming</code> — Roaming status <span className="text-text-tertiary">(=) true/false</span></div>
+
                     </div>
                     <pre className="bg-bg-elevated rounded-[var(--radius-sm)] p-2 font-mono text-[11px] text-text-tertiary mt-2 whitespace-pre overflow-x-auto">{`WHEN usage > 1GB AND time_of_day IN (08:00-18:00) {
     bandwidth_down = 512kbps
@@ -624,7 +624,7 @@ export default function PolicyEditorPage() {
 WHEN usage BETWEEN 800MB 1GB {
     ACTION notify(quota_warning, 80%)
 }
-WHEN NOT roaming = true {
+WHEN apn = "iot.local" {
     bandwidth_down = 5mbps
 }`}</pre>
                   </div>

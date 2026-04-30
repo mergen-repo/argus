@@ -114,15 +114,17 @@ The MATCH block determines which SIMs/sessions a policy applies to. All clauses 
 | `operator` | string | `IN`, `=` | Operator names | Match by operator |
 | `rat_type` | enum | `IN`, `=` | `nb_iot`, `lte_m`, `lte`, `nr_5g` | Match by RAT type |
 | `sim_type` | enum | `IN`, `=` | `physical`, `esim` | Match by SIM type |
-| `roaming` | boolean | `=` | `true`, `false` | Match roaming status |
 | `metadata.*` | string | `=`, `!=`, `IN` | Any string | Match by SIM metadata field |
+
+> Note: the `roaming` boolean match field was removed by FIX-238 (2026-04-30)
+> alongside the roaming agreements feature. Existing policies referencing it
+> are auto-archived at boot by `internal/job/roaming_keyword_archiver.go`.
 
 Example:
 ```
 MATCH {
     apn IN ("iot.fleet", "iot.meter")
     rat_type IN (nb_iot, lte_m)
-    roaming = false
     metadata.fleet_id = "fleet-alpha"
 }
 ```
@@ -138,7 +140,6 @@ WHEN blocks inside the RULES section define conditional behavior based on runtim
 | `rat_type` | enum | `IN`, `=` | `nb_iot`, `lte_m`, `lte`, `nr_5g` | Current session RAT type |
 | `apn` | string | `IN`, `=` | APN names | Current session APN |
 | `operator` | string | `IN`, `=` | Operator names | Current session operator |
-| `roaming` | boolean | `=` | `true`, `false` | Is session roaming |
 | `session_count` | integer | `>`, `>=`, `<`, `<=`, `=` | Number | Active session count for this SIM |
 | `bandwidth_used` | data rate | `>`, `>=`, `<`, `<=` | Number + rate unit (kbps/mbps/gbps) | Current bandwidth utilization |
 | `session_duration` | duration | `>`, `>=`, `<`, `<=` | Number + time unit (s/min/h/d) | Current session duration |
@@ -165,10 +166,6 @@ WHEN usage > 500MB AND rat_type = lte {
 
 WHEN (time_of_day IN (00:00-06:00) OR day_of_week IN (sat, sun)) AND usage < 1GB {
     bandwidth_down = 4mbps  # weekend/off-peak bonus
-}
-
-WHEN NOT roaming = true {
-    bandwidth_down = 2mbps
 }
 ```
 
@@ -270,13 +267,6 @@ POLICY "iot-fleet-standard" {
         WHEN time_of_day IN (00:00-06:00) {
             bandwidth_down = 2mbps
             bandwidth_up = 512kbps
-        }
-
-        # Roaming restrictions
-        WHEN roaming = true {
-            bandwidth_down = 256kbps
-            bandwidth_up = 128kbps
-            ACTION notify(roaming_detected, 0%)
         }
 
         # Anti-abuse: too many sessions

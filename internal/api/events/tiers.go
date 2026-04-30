@@ -40,7 +40,6 @@ var tier3Events = map[string]struct{}{
 	"operator_recovered":            {},
 	"sla_violation":                 {},
 	"policy_violation":              {},
-	"roaming.agreement.renewal_due": {},
 	"storage.threshold_exceeded":    {},
 	"policy.rollout_progress":       {},
 	"anomaly_sim_cloning":           {},

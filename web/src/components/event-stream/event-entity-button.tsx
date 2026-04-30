@@ -18,8 +18,7 @@ const ROUTE_MAP: Record<string, (id: string) => string> = {
   apn: (id) => `/apns/${id}`,
   policy: (id) => `/policies/${id}`,
   session: (id) => `/sessions/${id}`,
-  agreement: (id) => `/roaming-agreements/${id}`,
-  roaming_agreement: (id) => `/roaming-agreements/${id}`,
+
   consumer: () => '/ops/infra',
   system: () => '/system/health',
   job: () => '/jobs',

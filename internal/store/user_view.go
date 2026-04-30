@@ -21,7 +21,7 @@ var validViewPages = map[string]bool{
 	"sims": true, "apns": true, "operators": true, "policies": true,
 	"sessions": true, "jobs": true, "audit": true, "cdrs": true,
 	"notifications": true, "violations": true, "alerts": true,
-	"anomalies": true, "users": true, "api_keys": true, "roaming": true,
+	"anomalies": true, "users": true, "api_keys": true,
 	"esim": true, "segments": true,
 }
 

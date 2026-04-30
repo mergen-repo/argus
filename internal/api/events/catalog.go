@@ -202,19 +202,6 @@ var Catalog = []CatalogEntry{
 		Tier: "operational",
 	},
 	{
-		Type:            "roaming.agreement.renewal_due",
-		Source:          "operator",
-		DefaultSeverity: severity.Medium,
-		EntityType:      "agreement",
-		Description:     "A roaming agreement is within its renewal window.",
-		MetaSchema: map[string]string{
-			"partner_operator_id":   "uuid",
-			"partner_operator_name": "string",
-			"expires_at":            "string",
-		},
-		Tier: "operational",
-	},
-	{
 		Type:            "storage.threshold_exceeded",
 		Source:          "infra",
 		DefaultSeverity: severity.High,

@@ -160,7 +160,6 @@ broken DSL ships in seed data.
 
 ### Should Have (v1 but lower priority within development phases)
 - F-071: SIM comparison — side-by-side debug view
-- F-072: Roaming agreement management UI
 ### Won't Have (explicitly excluded)
 - Predictive analytics / ML-based predictions (deferred to FUTURE.md FTR-002: AI & Predictive Intelligence)
 - Own SM-DP+ server
@@ -474,3 +473,7 @@ Every event in the platform is classified into one of three tiers:
 Moving an event between tiers requires a story-level decision (`docs/decisions.md`)
 plus updates to `internal/api/events/tiers.go`, the catalog, and a regression
 test. The canonical taxonomy lives at `docs/architecture/EVENTS.md`.
+
+## Changelog
+
+- **F-229 / FIX-238 (2026-04-30)**: Roaming Agreements feature removed (full-stack sweep). `roaming_agreements` DB table dropped (see migration `20260505000001_drop_roaming_agreements`); roaming DSL fields removed from policy engine; `roaming.agreement.renewal_due` event removed from catalog, tiers, and notification mapping; F-072 removed from Should Have list. Roaming network selection (SoR engine, F-022) is unaffected — it routes by RAT-type preference and has no dependency on the removed agreements table.

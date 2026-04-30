@@ -29,7 +29,7 @@ var unitSet = map[string]bool{
 
 var validMatchFields = map[string]bool{
 	"apn": true, "operator": true, "rat_type": true,
-	"sim_type": true, "roaming": true,
+	"sim_type": true,
 }
 
 var validChargingModels = map[string]bool{

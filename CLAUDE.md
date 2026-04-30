@@ -117,10 +117,11 @@ docs/            → All documentation
 
 - Mode: AUTOPILOT (UI Review Remediation — full track, all 10 waves)
 - Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: — (Wave 10 4/6 DONE — FIX-245 closed; FIX-238 next)
+- Story: — (Wave 10 P2 IN PROGRESS; FIX-238 DONE; FIX-247 PENDING)
 - Step: —
-- Last closed: FIX-245 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove 5 Admin Sub-pages + Kill Switches→env; F-313; Cost/Compliance/DSAR/Maintenance + Kill Switches DB→env refactor; 25/25 ACs PASS; 2 migrations DROP kill_switches+maintenance_windows CASCADE + data_portability_ready template cleanup + seed/004 edit; ~10 BE deletions handlers/store/CLI/compliance pkg/data_portability bg job; Kill Switches REWRITE env-backed Service with 30s TTL cache RWMutex + clock+getenv test seams + IsEnabled signature preserved + Toggle/Reload/GetAll dropped; 5 KILLSWITCH_* env vars (RADIUS_AUTH/SESSION_CREATE/BULK_OPERATIONS/EXTERNAL_NOTIFICATIONS/READ_ONLY_MODE — all unset=permit, on/true/1=block); main.go rewired complianceapi+complianceHandler+DataPortabilityProcessor removed; 7 FE pages deleted + 7 hooks removed + 9 orphan types deleted + 5 sidebar entries + 6 routes removed; NEW docs/operational/EMERGENCY_PROCEDURES.md (~130 lines, 5 sections) + CONFIG.md Kill Switch table + SCREENS.md count 88→83; 5 USERTEST scenarios; PAT-026 NEW (orphan background job silently emits events for deleted feature — sweep all 6 layers handler/store/DB/seed/job/main.go); DEV-575..578; F-A1 HIGH fixed at Gate orphan DataPortabilityProcessor deleted; killswitch -race PASS 10/10; 3880 Go tests; 0 deferred D-NNN entries)
-- Wave 10 P2 IN PROGRESS (4/6 — FIX-240 + FIX-246 + FIX-235 + FIX-245 DONE; FIX-238/247 PENDING)
+- Last closed: FIX-238 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove Roaming Feature full stack; F-229 closed; 10/10 ACs PASS; full BE/FE/DB/DSL/test/doc sweep; AC-10 boot-time keyword archiver + idempotent audit; DEV-579; PAT-026 RECURRENCE; GLOSSARY 7 entries updated; 4 USERTEST scenarios added; 3803 Go tests PASS; tsc 0; 0 deferred D-NNN)
+- Wave 10 P2 IN PROGRESS (5/6 — FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 DONE; FIX-247 PENDING)
+- Earlier: FIX-245 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove 5 Admin Sub-pages + Kill Switches→env; PAT-026 NEW; DEV-575..578)
 - Earlier: FIX-235 [x] DONE 2026-04-27 (Wave 10 P2 XL — M2M eSIM Provisioning Pipeline; commit 124ff00; PAT-025; D-172..D-179)
 - Earlier: FIX-246 [x] DONE 2026-04-27 (Wave 10 P2 M — Quotas+Resources merge; commit 6e57b81; D-170/D-171; PAT-024)
 - Earlier: FIX-240 [x] DONE 2026-04-27 (Wave 10 P2 M — Unified Settings Page + Tabbed Reorganization; commit c543ed7)

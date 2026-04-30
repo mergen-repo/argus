@@ -52,3 +52,9 @@
 ### Out of Scope (v1)
 
 EIR (Equipment Identity Register) integration via Diameter S13 (4G/EPC) or 5G N17 is OUT OF SCOPE for Phase 11 v1 per ADR-004. No EIR client packages, no S13 stub handlers, no N17 SBA mock, no AVP scaffolding. All enforcement is local; integration with operator EIRs is a future-track item.
+
+## Removed Components
+
+| Story | Component | Removed By | Note |
+|-------|-----------|------------|------|
+| STORY-071 | Roaming Agreement Management (SVC-06 sub-component: `internal/api/roaming/`, `internal/store/roaming_agreements.go`, routes `/roaming-agreements`, `/operators/:id/roaming-agreements`) | FIX-238 (2026-04-30) | Full-stack removal: DB table `roaming_agreements` (TBL-43) dropped, DSL roaming fields removed, event `roaming.agreement.renewal_due` removed from catalog/tiers/notification. SoR engine (`internal/operator/sor/`) is UNAFFECTED — routing by RAT-type preference continues. |

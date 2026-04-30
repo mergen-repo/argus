@@ -198,7 +198,7 @@ func TestParser_CompoundConditions(t *testing.T) {
 		},
 		{
 			name: "OR",
-			cond: "roaming = true OR usage > 1GB",
+			cond: "rat_type = lte OR usage > 1GB",
 			op:   "OR",
 		},
 	}
@@ -240,7 +240,7 @@ func TestParser_NotCondition(t *testing.T) {
 	src := `POLICY "test" {
     MATCH { apn = "test" }
     RULES {
-        WHEN NOT roaming = true {
+        WHEN NOT rat_type = lte {
             bandwidth_down = 2mbps
         }
     }
@@ -271,7 +271,7 @@ func TestParser_ParenthesizedCondition(t *testing.T) {
 	src := `POLICY "test" {
     MATCH { apn = "test" }
     RULES {
-        WHEN (roaming = true OR usage > 1GB) AND rat_type = lte {
+        WHEN (sim_type = iot OR usage > 1GB) AND rat_type = lte {
             bandwidth_down = 64kbps
         }
     }

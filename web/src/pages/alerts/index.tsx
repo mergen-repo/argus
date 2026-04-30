@@ -145,12 +145,7 @@ const RUNBOOKS: Record<string, string[]> = {
     'Restart the anomaly batch processor',
     'Review recent schema or config changes that may have caused crash',
   ],
-  'roaming.agreement.renewal_due': [
-    'Contact partner operator to initiate renewal discussions',
-    'Review current agreement terms and pricing',
-    'Update agreement record before expiry to avoid service disruption',
-    'Escalate to commercial team if negotiation is required',
-  ],
+
   sla_violation: [
     'Check operator performance metrics for the affected period',
     'Escalate to partner operator NOC',

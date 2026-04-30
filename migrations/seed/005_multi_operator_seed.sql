@@ -166,7 +166,7 @@ INSERT INTO policies (id, tenant_id, name, description, scope, state, created_by
     ('00000000-0000-0000-0000-000000000502', '00000000-0000-0000-0000-000000000001', 'XYZ Business Hours',  'Allow access weekdays 09:00–18:00 local time', 'tenant', 'active', '00000000-0000-0000-0000-000000000010'),
     -- ABC
     ('00000000-0000-0000-0000-000000000511', '00000000-0000-0000-0000-000000000002', 'ABC Data Cap',        '10GB monthly cap for ABC SIMs',                'tenant', 'active', '00000000-0000-0000-0000-000000000010'),
-    ('00000000-0000-0000-0000-000000000512', '00000000-0000-0000-0000-000000000002', 'ABC Roaming Block',   'Deny sessions from operators not granted',    'tenant', 'active', '00000000-0000-0000-0000-000000000010')
+    ('00000000-0000-0000-0000-000000000512', '00000000-0000-0000-0000-000000000002', 'ABC Secondary Cap',   'Secondary data cap for ABC IoT/M2M APNs',     'tenant', 'active', '00000000-0000-0000-0000-000000000010')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules, state, activated_at, created_by) VALUES
@@ -186,10 +186,10 @@ INSERT INTO policy_versions (id, policy_id, version, dsl_content, compiled_rules
         'POLICY "abc-data-cap" { MATCH { apn IN ("iot.abc.local", "m2m.abc.local") } RULES { bandwidth_down = 10mbps } }',
         '{"rules":[{"when":{"apn_in":["iot.abc.local","m2m.abc.local"],"monthly_bytes_gt":10737418240},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010'),
-    -- FIX-243: simplified from broken IF-THEN syntax (DEV-516)
+    -- FIX-238: renamed from abc-roaming-block; DSL updated to apn IN match (roaming keyword removed)
     ('00000000-0000-0000-0000-000000000612', '00000000-0000-0000-0000-000000000512', 1,
-        'POLICY "abc-roaming-block" { MATCH { roaming = false } RULES { bandwidth_down = 10mbps } }',
-        '{"rules":[{"when":{"operator_not_granted":true},"then":{"action":"reject"}}]}',
+        'POLICY "abc-data-cap-secondary" { MATCH { apn IN ("iot.abc.local", "m2m.abc.local") } RULES { bandwidth_down = 5mbps } }',
+        '{"rules":[{"when":{"apn_in":["iot.abc.local","m2m.abc.local"],"monthly_bytes_gt":5368709120},"then":{"action":"reject"}}]}',
         'active', NOW(), '00000000-0000-0000-0000-000000000010')
 ON CONFLICT DO NOTHING;
 

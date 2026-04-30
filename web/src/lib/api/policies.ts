@@ -83,7 +83,7 @@ export async function fetchVocab(): Promise<DSLVocab> {
     return vocabCache
   } catch {
     vocabCache = {
-      match_fields: ['apn', 'imsi', 'tenant', 'msisdn', 'rat_type', 'sim_type', 'roaming', 'operator', 'group'],
+      match_fields: ['apn', 'imsi', 'tenant', 'msisdn', 'rat_type', 'sim_type', 'operator', 'group'],
       charging_models: ['prepaid', 'postpaid', 'hybrid'],
       overage_actions: ['block', 'throttle', 'notify_only', 'charge'],
       billing_cycles: ['daily', 'weekly', 'monthly'],

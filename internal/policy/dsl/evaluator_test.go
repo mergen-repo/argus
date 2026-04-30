@@ -400,29 +400,6 @@ func TestEvaluator_AllActionTypes(t *testing.T) {
 	}
 }
 
-func TestEvaluator_BoolCondition(t *testing.T) {
-	src := `POLICY "test" {
-    MATCH { apn = "iot.data" }
-    RULES {
-        WHEN roaming = true {
-            bandwidth_down = 256kbps
-        }
-    }
-}`
-	compiled := compileForEval(src)
-
-	evalTrue := NewEvaluator()
-	resultTrue, _ := evalTrue.Evaluate(SessionContext{APN: "iot.data", Roaming: true}, compiled)
-	if resultTrue.MatchedRules != 1 {
-		t.Error("expected roaming=true to match")
-	}
-
-	resultFalse, _ := evalTrue.Evaluate(SessionContext{APN: "iot.data", Roaming: false}, compiled)
-	if resultFalse.MatchedRules != 0 {
-		t.Error("expected roaming=false to not match")
-	}
-}
-
 func TestEvaluator_MatchIN(t *testing.T) {
 	src := `POLICY "test" {
     MATCH {

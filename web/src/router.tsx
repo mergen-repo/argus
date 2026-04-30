@@ -68,8 +68,6 @@ const UserDetailPage = lazy(() => import('@/pages/settings/user-detail'))
 const TenantDetailPage = lazy(() => import('@/pages/system/tenant-detail'))
 const WebhooksPage = lazy(() => import('@/pages/webhooks/index'))
 const SMSPage = lazy(() => import('@/pages/sms/index'))
-const RoamingAgreementsPage = lazy(() => import('@/pages/roaming/index'))
-const RoamingAgreementDetailPage = lazy(() => import('@/pages/roaming/detail'))
 
 const OpsPerformancePage = lazy(() => import('@/pages/ops/performance'))
 const OpsErrorsPage = lazy(() => import('@/pages/ops/errors'))
@@ -170,8 +168,7 @@ export const router = createBrowserRouter([
           { path: '/violations/:id', element: lazySuspense(ViolationDetailPage) },
           { path: '/webhooks', element: lazySuspense(WebhooksPage) },
           { path: '/sms', element: lazySuspense(SMSPage) },
-          { path: '/roaming-agreements', element: lazySuspense(RoamingAgreementsPage) },
-          { path: '/roaming-agreements/:id', element: lazySuspense(RoamingAgreementDetailPage) },
+
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
           { path: '/system/tenants', element: lazySuspense(TenantManagementPage) },
           { path: '/system/tenants/:id', element: lazySuspense(TenantDetailPage) },

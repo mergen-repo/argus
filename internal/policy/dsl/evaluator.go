@@ -12,7 +12,6 @@ type SessionContext struct {
 	Operator        string            `json:"operator"`
 	APN             string            `json:"apn"`
 	RATType         string            `json:"rat_type"`
-	Roaming         bool              `json:"roaming"`
 	Usage           int64             `json:"usage"`
 	TimeOfDay       string            `json:"time_of_day"`
 	DayOfWeek       string            `json:"day_of_week"`
@@ -115,8 +114,6 @@ func (e *Evaluator) getMatchFieldValue(ctx SessionContext, field string) interfa
 		return ctx.RATType
 	case "sim_type":
 		return ctx.SimType
-	case "roaming":
-		return ctx.Roaming
 	default:
 		if strings.HasPrefix(field, "metadata.") {
 			key := strings.TrimPrefix(field, "metadata.")
@@ -245,8 +242,6 @@ func (e *Evaluator) getConditionFieldValue(ctx SessionContext, field string) int
 		return ctx.APN
 	case "operator":
 		return ctx.Operator
-	case "roaming":
-		return ctx.Roaming
 	case "session_count":
 		return int64(ctx.SessionCount)
 	case "bandwidth_used":

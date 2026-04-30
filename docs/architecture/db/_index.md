@@ -50,7 +50,6 @@
 | TBL-40 | notification_preferences | Notifications | → TBL-01 (tenant_id); event_type × channel matrix; RLS enabled | No |
 | TBL-41 | notification_templates | Notifications | Global (no tenant_id); locale-keyed TR/EN; 28 seed rows | No |
 | TBL-42 | sms_outbound | SMS Gateway | → TBL-01 (tenant_id); body stored as SHA-256 hash + 80-char preview (GDPR); RLS enabled. Original STORY-069 migration (20260413000001) included an unsatisfiable FK to partitioned `sims(id)` which blocked table creation; repair migration 20260417000004 restores the table without the FK (sim_id is enforced in application code), matching STORY-064's precedent for partitioned-sims references. | No |
-| TBL-43 | roaming_agreements | Operator | → TBL-01 (tenant_id), → TBL-05/TBL-06 (operator_id); partial unique index on (tenant_id, operator_id) WHERE state='active'; RLS enabled | No |
 | TBL-44 | anomaly_comments | Analytics/Anomalies | → TBL-28 (anomaly_id), → TBL-02 (author_id); body varchar(2000); index on (anomaly_id, created_at DESC); RLS via app.current_tenant | No |
 | TBL-45 | kill_switches | Admin/Operations | System-level (no tenant_id); key + enabled + reason + toggled_by + toggled_at; 5 canonical keys seeded | No |
 | TBL-46 | maintenance_windows | Admin/Operations | → TBL-01 (tenant_id nullable — may be system-wide); affected_services JSONB; notify_plan JSONB; RLS enabled | No |
@@ -75,7 +74,7 @@
 | Domain | File | Tables |
 |--------|------|--------|
 | Platform (Tenant, User, API Key) | [platform.md](platform.md) | TBL-01, TBL-02, TBL-03, TBL-04, TBL-34, TBL-35 |
-| Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23, TBL-43 |
+| Operator | [operator.md](operator.md) | TBL-05, TBL-06, TBL-23, ~~TBL-43~~ (REMOVED FIX-238) |
 | SIM & APN | [sim-apn.md](sim-apn.md) | TBL-07, TBL-08, TBL-09, TBL-10, TBL-11, TBL-12, TBL-24, TBL-25 |
 | Policy | [policy.md](policy.md) | TBL-13, TBL-14, TBL-15, TBL-16 |
 | AAA & Analytics | [aaa-analytics.md](aaa-analytics.md) | TBL-17, TBL-18, TBL-27, TBL-28 |
