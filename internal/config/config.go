@@ -22,6 +22,12 @@ type Config struct {
 	DatabaseConnMaxLife    time.Duration `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"30m"`
 	DatabaseReadReplicaURL string        `envconfig:"DATABASE_READ_REPLICA_URL"`
 
+	// FIX-301: AutoMigrate runs golang-migrate in-process at runServe boot,
+	// before the application pool opens. Default true for dev/staging where
+	// docker-compose flow expects schema-on-boot. Set false in production
+	// blue-green deploys that prefer "migrate then deploy".
+	AutoMigrate bool `envconfig:"ARGUS_AUTO_MIGRATE" default:"true"`
+
 	RedisURL          string        `envconfig:"REDIS_URL" required:"true"`
 	RedisMaxConns     int           `envconfig:"REDIS_MAX_CONNS" default:"100"`
 	RedisReadTimeout  time.Duration `envconfig:"REDIS_READ_TIMEOUT" default:"3s"`

@@ -46,6 +46,7 @@ All variables are read once at startup. Changing a variable requires restart (ex
 | `DATABASE_MAX_IDLE_CONNS` | int | `10` | No | Maximum idle connections kept in pool. |
 | `DATABASE_CONN_MAX_LIFETIME` | duration | `30m` | No | Maximum time a connection can be reused. Prevents stale connections after PG failover. |
 | `DATABASE_READ_REPLICA_URL` | string | — | No | Read replica connection string. If set, all read-only queries (list, get, analytics) use this connection. Write queries always go to primary. |
+| `ARGUS_AUTO_MIGRATE` | bool | `true` | No | **FIX-301**: Run pending migrations in-process at `argus serve` boot, before opening the application pool. Eliminates the boot race where pgx caches pre-migration relation OIDs. golang-migrate uses a Postgres advisory lock so multi-replica boots are safe. Set `false` in production blue-green deploys that prefer "migrate then deploy" via a separate `argus migrate up` step. |
 
 ### Connection String Examples
 

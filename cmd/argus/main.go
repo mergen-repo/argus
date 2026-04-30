@@ -200,6 +200,53 @@ func parseSubcommand(args []string) (sub string, subArgs []string, err error) {
 	}
 }
 
+// runMigrationsInProcess applies pending migrations (up-only) before the
+// application pool opens. FIX-301: eliminates the boot race where pgx caches
+// pre-migration relation OIDs in connection-level prepared-statement caches,
+// then DDL DROP/CREATE leaves stale OIDs and produces "could not open relation
+// with OID" until restart.
+//
+// golang-migrate uses a Postgres advisory lock (keyed on the DSN), so multi-
+// replica boots are safe — losers wait for the winner and observe ErrNoChange.
+// Up-only here: down migrations remain exclusive to `argus migrate down`.
+// Returns nil on success or migrate.ErrNoChange. Caller decides whether to fatal.
+func runMigrationsInProcess(cfg *config.Config) error {
+	migrationsPath := os.Getenv("ARGUS_MIGRATIONS_PATH")
+	if migrationsPath == "" {
+		migrationsPath = "file:///app/migrations"
+	}
+
+	m, err := migrate.New(migrationsPath, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("auto-migrate: create migrator: %w", err)
+	}
+	defer func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			log.Error().Err(srcErr).Msg("auto-migrate: source close error")
+		}
+		if dbErr != nil {
+			log.Error().Err(dbErr).Msg("auto-migrate: db close error")
+		}
+	}()
+
+	if err := m.Up(); err != nil {
+		if errors.Is(err, migrate.ErrNoChange) {
+			log.Info().Msg("auto-migrate: schema already at latest version")
+			return nil
+		}
+		return fmt.Errorf("auto-migrate: up failed: %w", err)
+	}
+
+	v, dirty, vErr := m.Version()
+	if vErr != nil {
+		log.Info().Msg("auto-migrate: applied (version unavailable)")
+		return nil
+	}
+	log.Info().Uint("version", v).Bool("dirty", dirty).Msg("auto-migrate: applied")
+	return nil
+}
+
 // runMigrate executes database migrations using golang-migrate.
 func runMigrate(cfg *config.Config, args []string) {
 	migrationsPath := os.Getenv("ARGUS_MIGRATIONS_PATH")
@@ -416,6 +463,17 @@ func runServe(cfg *config.Config) {
 
 	ctx, cancel := context.WithTimeout(appCtx, 30*time.Second)
 	defer cancel()
+
+	// FIX-301: Run pending migrations in-process BEFORE opening the application
+	// pool. Eliminates the boot race where boot tasks warm the pool against the
+	// pre-migration schema and pgx caches stale relation OIDs.
+	if cfg.AutoMigrate {
+		if err := runMigrationsInProcess(cfg); err != nil {
+			log.Fatal().Err(err).Msg("auto-migrate failed at boot")
+		}
+	} else {
+		log.Info().Msg("auto-migrate disabled (ARGUS_AUTO_MIGRATE=false); assuming schema is current")
+	}
 
 	pg, err := store.NewPostgresWithMetrics(ctx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMaxIdleConns, cfg.DatabaseConnMaxLife, metricsReg)
 	if err != nil {

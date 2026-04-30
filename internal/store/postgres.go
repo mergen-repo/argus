@@ -44,6 +44,15 @@ func newPostgres(ctx context.Context, dsn string, maxConns, maxIdleConns int32, 
 	cfg.MaxConnIdleTime = 5 * time.Minute
 	cfg.HealthCheckPeriod = 30 * time.Second
 
+	// FIX-301: pgx v5 defaults to QueryExecModeCacheStatement, which pins relation
+	// OIDs in per-connection prepared-statement and description caches. After a
+	// DDL change (migrations DROP/CREATE, partition rotation, shadow-swap rebuild),
+	// connections that ran a query before the DDL retain stale OIDs and fail with
+	// `could not open relation with OID <N>` (SQLSTATE XX000) until recycled.
+	// Switching to QueryExecModeExec uses unnamed prepared statements per call —
+	// no OID pinning, immune to runtime DDL.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
 	// Attach tracers. otelpgx provides QueryTracer + BatchTracer + CopyFromTracer
 	// + PrepareTracer + ConnectTracer + pgxpool.AcquireTracer semantics; the slow
 	// query tracer piggybacks on QueryTracer only. The composite fans callbacks

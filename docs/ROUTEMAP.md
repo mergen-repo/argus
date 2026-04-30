@@ -335,10 +335,10 @@ Architectural decisions (documented, not blocking UAT):
 
 | # | Story | Severity | UAT | Effort | Status | Notes |
 |---|-------|---------|-----|--------|--------|-------|
-| FIX-301 | Startup Race — Prepared-Statement OID Cache | CRITICAL | UAT-002 + all SIM ops | M | [ ] PENDING | Production blocker — restart fixes |
-| FIX-302 | Audit Hash Chain Broken at Entry 1 | CRITICAL | UAT-001/012 | M | [ ] PENDING | RECURRENCE batch1 F-10 |
-| FIX-303 | SCR-003 Onboarding Wizard Missing | CRITICAL | UAT-001 | L | [ ] PENDING | RECURRENCE batch1 F-9 |
-| FIX-304 | 5G SBA :8443 Listener Not Bound | CRITICAL | UAT-019 | S | [ ] PENDING | App not listening despite port published |
+| FIX-301 | Startup Race — Prepared-Statement OID Cache | CRITICAL | UAT-002 + all SIM ops | M | [x] DONE 2026-04-30 | DEV-581; in-process migrate (Layer 1) + pgx ExecMode override (Layer 2); ARGUS_AUTO_MIGRATE env added |
+| FIX-302 | Audit Hash Chain Broken at Entry 1 | CRITICAL | UAT-001/012 | M | [ ] PENDING — Plan ready | Plan: ComputeHash timezone + microsecond padding bugs |
+| FIX-303 | Onboarding Phantom Field + Route Rename | CRITICAL | UAT-001 | M | [ ] PENDING — Plan ready | Plan: UserInfo.OnboardingCompleted + /setup→/onboarding |
+| FIX-304 | 5G SBA :8443 Listener Not Bound | CRITICAL | UAT-019 | S | [ ] PENDING — Plan ready | Plan: SBA_ENABLED default false→true |
 | FIX-305 | SIM Suspend Does Not Auto-Fire DM | HIGH | UAT-003/022 | M | [ ] PENDING | Sessions stay active after suspend |
 | FIX-306 | `/api/v1/anomalies` Listing Route 404 | HIGH | UAT-010/021 | S | [ ] PENDING | Cascades to UAT-021 entirely |
 | FIX-307 | Email Pipeline Silent (0 emails fired) | HIGH | UAT-001/013 | M | [ ] PENDING | Mailhog 0 throughout UAT |
