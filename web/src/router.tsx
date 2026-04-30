@@ -68,8 +68,6 @@ const UserDetailPage = lazy(() => import('@/pages/settings/user-detail'))
 const TenantDetailPage = lazy(() => import('@/pages/system/tenant-detail'))
 const WebhooksPage = lazy(() => import('@/pages/webhooks/index'))
 const SMSPage = lazy(() => import('@/pages/sms/index'))
-const DataPortabilityPage = lazy(() => import('@/pages/compliance/data-portability'))
-
 const RoamingAgreementsPage = lazy(() => import('@/pages/roaming/index'))
 const RoamingAgreementDetailPage = lazy(() => import('@/pages/roaming/detail'))
 
@@ -83,16 +81,11 @@ const OpsDeploysPage = lazy(() => import('@/pages/ops/deploys'))
 const OpsIncidentsPage = lazy(() => import('@/pages/ops/incidents'))
 
 const TenantUsagePage = lazy(() => import('@/pages/admin/tenant-usage'))
-const AdminCostPage = lazy(() => import('@/pages/admin/cost'))
-const AdminCompliancePage = lazy(() => import('@/pages/admin/compliance'))
 const AdminSecurityEventsPage = lazy(() => import('@/pages/admin/security-events'))
 const AdminGlobalSessionsPage = lazy(() => import('@/pages/admin/sessions-global'))
 const AdminAPIUsagePage = lazy(() => import('@/pages/admin/api-usage'))
-const AdminDSARPage = lazy(() => import('@/pages/admin/dsar'))
 const AdminPurgeHistoryPage = lazy(() => import('@/pages/admin/purge-history'))
 const AdminDeliveryPage = lazy(() => import('@/pages/admin/delivery'))
-const AdminKillSwitchesPage = lazy(() => import('@/pages/admin/kill-switches'))
-const AdminMaintenancePage = lazy(() => import('@/pages/admin/maintenance'))
 const AdminAnnouncementsPage = lazy(() => import('@/pages/admin/announcements'))
 const AdminImpersonateListPage = lazy(() => import('@/pages/admin/impersonate-list'))
 
@@ -177,7 +170,6 @@ export const router = createBrowserRouter([
           { path: '/violations/:id', element: lazySuspense(ViolationDetailPage) },
           { path: '/webhooks', element: lazySuspense(WebhooksPage) },
           { path: '/sms', element: lazySuspense(SMSPage) },
-          { path: '/compliance/data-portability', element: lazySuspense(DataPortabilityPage) },
           { path: '/roaming-agreements', element: lazySuspense(RoamingAgreementsPage) },
           { path: '/roaming-agreements/:id', element: lazySuspense(RoamingAgreementDetailPage) },
           { path: '/system/health', element: lazySuspense(SystemHealthPage) },
@@ -194,16 +186,11 @@ export const router = createBrowserRouter([
           { path: '/admin/tenant-usage', element: lazySuspense(TenantUsagePage) },
           { path: '/admin/quotas', element: <Navigate to="/admin/tenant-usage" replace /> },
           { path: '/admin/resources', element: <Navigate to="/admin/tenant-usage" replace /> },
-          { path: '/admin/cost', element: lazySuspense(AdminCostPage) },
-          { path: '/admin/compliance', element: lazySuspense(AdminCompliancePage) },
           { path: '/admin/security-events', element: lazySuspense(AdminSecurityEventsPage) },
           { path: '/admin/sessions', element: lazySuspense(AdminGlobalSessionsPage) },
           { path: '/admin/api-usage', element: lazySuspense(AdminAPIUsagePage) },
-          { path: '/admin/dsar', element: lazySuspense(AdminDSARPage) },
           { path: '/admin/purge-history', element: lazySuspense(AdminPurgeHistoryPage) },
           { path: '/admin/delivery', element: lazySuspense(AdminDeliveryPage) },
-          { path: '/admin/kill-switches', element: lazySuspense(AdminKillSwitchesPage) },
-          { path: '/admin/maintenance', element: lazySuspense(AdminMaintenancePage) },
           { path: '/admin/announcements', element: lazySuspense(AdminAnnouncementsPage) },
           { path: '/admin/impersonate', element: lazySuspense(AdminImpersonateListPage) },
           { path: '*', element: <NotFoundPage /> },

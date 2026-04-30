@@ -37,12 +37,6 @@ func runRoot(t *testing.T, args ...string) (string, string, error) {
 		userPurgeTenantID = ""
 		userPurgeUserID = ""
 		userPurgeConfirm = false
-		// compliance flags
-		complianceExportTenantID = ""
-		complianceExportFormat = "json"
-		complianceExportFrom = ""
-		complianceExportTo = ""
-		complianceExportOutput = ""
 		// sim flags
 		simBulkTenantID = ""
 		simBulkOperation = ""

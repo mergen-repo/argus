@@ -44,7 +44,6 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
-	complianceapi "github.com/btopcu/argus/internal/api/compliance"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
@@ -1363,10 +1362,6 @@ func runServe(cfg *config.Config) {
 	slaHandler := slaapi.NewHandler(slaReportStore, operatorStore, slaReportEngine, log.Logger)
 	alertHandler.WithReportEngine(slaReportEngine)
 	notifHandler := notifapi.NewHandler(notifStore, notifConfigStore, auditSvc, log.Logger)
-	complianceHandler := complianceapi.NewHandler(complianceSvc, tenantStore, auditSvc, log.Logger,
-		complianceapi.WithJobStore(jobStore),
-		complianceapi.WithEventBus(eventBus),
-	)
 	violationHandler := violationapi.NewHandler(violationStore, log.Logger,
 		violationapi.WithAuditSvc(auditSvc),
 		violationapi.WithSIMStore(simStore),
@@ -1452,7 +1447,6 @@ func runServe(cfg *config.Config) {
 	reportStorage := selectReportStorage(cfg, s3Impl, log.Logger)
 	scheduledReportProc := job.NewScheduledReportProcessor(jobStore, scheduledReportStore, scheduledReportEngine, reportStorage, eventBus, metricsReg, log.Logger)
 	scheduledReportSweeper := job.NewScheduledReportSweeper(jobStore, scheduledReportStore, jobStore, eventBus, log.Logger)
-	dataPortabilityProc := job.NewDataPortabilityProcessor(jobStore, userStore, tenantStore, cdrStore, auditStore, reportStorage, eventBus, pg.Pool, auditSvc, log.Logger)
 	smsGatewayProc := job.NewSMSGatewayProcessor(smsOutboundStore, smsGatewaySender, rdb.Client, eventBus, log.Logger)
 
 	jobRunner.Register(kvkkPurgeProc)
@@ -1460,9 +1454,8 @@ func runServe(cfg *config.Config) {
 	jobRunner.Register(webhookRetryProc)
 	jobRunner.Register(scheduledReportProc)
 	jobRunner.Register(scheduledReportSweeper)
-	jobRunner.Register(dataPortabilityProc)
 	jobRunner.Register(smsGatewayProc)
-	log.Info().Msg("STORY-069 processors registered (kvkk_purge, ip_grace_release, webhook_retry, scheduled_report+sweeper, data_portability, sms_outbound_send)")
+	log.Info().Msg("STORY-069 processors registered (kvkk_purge, ip_grace_release, webhook_retry, scheduled_report+sweeper, sms_outbound_send)")
 
 	if cronScheduler != nil {
 		cronScheduler.AddEntry(job.CronEntry{Name: "kvkk_purge_daily", Schedule: "@daily", JobType: job.JobTypeKVKKPurgeDaily})
@@ -1492,16 +1485,9 @@ func runServe(cfg *config.Config) {
 		})
 	}
 
-	// STORY-073 — Admin compliance screens
-	killSwitchStore := store.NewKillSwitchStore(pg.Pool)
-	maintenanceWindowStore := store.NewMaintenanceWindowStore(pg.Pool)
-	killSwitchSvc := killswitch.NewService(killSwitchStore, auditSvc, log.Logger)
-	if err := killSwitchSvc.Reload(ctx); err != nil {
-		log.Warn().Err(err).Msg("kill-switch initial load failed — defaulting to all OFF")
-	}
+	// Kill-switch service — env-backed, no DB dependency.
+	killSwitchSvc := killswitch.NewService(log.Logger)
 	adminHandler := adminapi.NewHandler(
-		killSwitchStore,
-		maintenanceWindowStore,
 		tenantStore,
 		sessionStore,
 		apiKeyStore,
@@ -1510,7 +1496,6 @@ func runServe(cfg *config.Config) {
 		notifStore,
 		smsOutboundStore,
 		auditStore,
-		killSwitchSvc,
 		auditSvc,
 		pg.Pool,
 		rdb.Client,
@@ -1725,7 +1710,6 @@ func runServe(cfg *config.Config) {
 		EventsCatalogHandler: eventsCatalogHandler,
 		NotificationHandler:  notifHandler,
 		MetricsHandler:       metricsHandler,
-		ComplianceHandler:    complianceHandler,
 		ViolationHandler:     violationHandler,
 		DashboardHandler:     dashboardHandler,
 		SLAHandler:           slaHandler,
@@ -2440,7 +2424,7 @@ func (a *onboardingBulkImportAdapter) EnqueueImport(ctx context.Context, tenantI
 // FIX-248 DEV-558: backend selector for report storage. Reads `REPORT_STORAGE`
 // env (set via `cfg.ReportStorage`) and instantiates either the LocalFS or
 // S3 backend. Both implement `storage.Storage` so downstream consumers
-// (scheduled_report, data_portability) accept the interface and don't care
+// (scheduled_report) accept the interface and don't care
 // which backend is wired.
 //
 // Defaults to LocalFS for Docker dev environments without S3 access; the

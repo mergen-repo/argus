@@ -14,7 +14,6 @@ import (
 	auditapi "github.com/btopcu/argus/internal/api/audit"
 	authapi "github.com/btopcu/argus/internal/api/auth"
 	cdrapi "github.com/btopcu/argus/internal/api/cdr"
-	complianceapi "github.com/btopcu/argus/internal/api/compliance"
 	dashboardapi "github.com/btopcu/argus/internal/api/dashboard"
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
@@ -83,7 +82,6 @@ type RouterDeps struct {
 	SMSWebhookHandler     *notifapi.SMSWebhookHandler
 	DiagnosticsHandler    *diagapi.Handler
 	MetricsHandler        *metricsapi.Handler
-	ComplianceHandler     *complianceapi.Handler
 	ViolationHandler      *violationapi.Handler
 	DashboardHandler      *dashboardapi.Handler
 	SLAHandler            *slaapi.Handler
@@ -163,7 +161,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 	if deps.KillSwitchSvc != nil {
 		r.Use(KillSwitchMiddleware(deps.KillSwitchSvc, []string{
 			"/api/v1/auth/",
-			"/api/v1/admin/kill-switches",
 			"/health",
 			"/api/health",
 		}))
@@ -789,23 +786,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			})
 		}
 
-		if deps.ComplianceHandler != nil {
-			r.Group(func(r chi.Router) {
-				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-				r.Use(RequireRole("tenant_admin"))
-				r.Get("/api/v1/compliance/dashboard", deps.ComplianceHandler.Dashboard)
-				r.Get("/api/v1/compliance/btk-report", deps.ComplianceHandler.BTKReport)
-				r.Put("/api/v1/compliance/retention", deps.ComplianceHandler.UpdateRetention)
-				r.Get("/api/v1/compliance/dsar/{simId}", deps.ComplianceHandler.DataSubjectAccess)
-				r.Post("/api/v1/compliance/erasure/{simId}", deps.ComplianceHandler.RightToErasure)
-			})
-
-			r.Group(func(r chi.Router) {
-				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
-				r.Use(RequireRole("api_user"))
-				r.Post("/api/v1/compliance/data-portability/{user_id}", deps.ComplianceHandler.RequestDataPortability)
-			})
-		}
 
 		if deps.SLAHandler != nil {
 			r.Group(func(r chi.Router) {
@@ -982,15 +962,9 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(RequireRole("super_admin"))
 			r.Get("/api/v1/admin/tenants/usage", deps.AdminHandler.ListTenantUsage)
 			r.Get("/api/v1/admin/tenants/resources", deps.AdminHandler.ListTenantResources)
-			r.Get("/api/v1/admin/cost/by-tenant", deps.AdminHandler.ListCostByTenant)
 			r.Get("/api/v1/admin/sessions/active", deps.AdminHandler.ListActiveSessions)
 			r.Post("/api/v1/admin/sessions/{session_id}/revoke", deps.AdminHandler.ForceLogoutSession)
 			r.Get("/api/v1/admin/api-keys/usage", deps.AdminHandler.ListAPIKeyUsage)
-			r.Get("/api/v1/admin/kill-switches", deps.AdminHandler.ListKillSwitches)
-			r.Patch("/api/v1/admin/kill-switches/{key}", deps.AdminHandler.ToggleKillSwitch)
-			r.Get("/api/v1/admin/maintenance-windows", deps.AdminHandler.ListMaintenanceWindows)
-			r.Post("/api/v1/admin/maintenance-windows", deps.AdminHandler.CreateMaintenanceWindow)
-			r.Delete("/api/v1/admin/maintenance-windows/{id}", deps.AdminHandler.DeleteMaintenanceWindow)
 			r.Get("/api/v1/admin/delivery/status", deps.AdminHandler.GetDeliveryStatus)
 			r.Get("/api/v1/admin/purge-history", deps.AdminHandler.ListPurgeHistory)
 			// Impersonation
@@ -1007,7 +981,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 			r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 			r.Use(RequireRole("tenant_admin"))
 			r.Get("/api/v1/admin/tenants/quotas", deps.AdminHandler.ListTenantQuotas)
-			r.Get("/api/v1/admin/dsar/queue", deps.AdminHandler.ListDSARQueue)
 		})
 
 		// Impersonation exit (any authenticated user can call this to drop impersonation)

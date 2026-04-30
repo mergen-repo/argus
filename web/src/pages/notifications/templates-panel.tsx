@@ -18,7 +18,6 @@ const EVENT_TYPES = [
   'session.ended',
   'anomaly.detected',
   'policy.violation',
-  'data_portability_ready',
   'webhook.dead_letter',
   'report_ready',
 ]

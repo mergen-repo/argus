@@ -476,6 +476,26 @@ These variables are only meaningful in development mode (`APP_ENV=development`):
 
 ---
 
+## Kill Switches (FIX-245)
+
+Kill switches are read from environment variables at runtime with a 30-second in-process TTL cache. No DB table, no admin UI. Semantic: variable **unset** (or any value other than `on`, `true`, `1`) = feature **permitted/mutating**. Setting to `on` **blocks** the named operation system-wide.
+
+| Variable | Default | Effect when active | TTL cache | Restart needed |
+|----------|---------|-------------------|-----------|----------------|
+| `KILLSWITCH_RADIUS_AUTH` | unset (permit) | Blocks all RADIUS Access-Request handling — NAS receives Access-Reject | 30s | Recommended |
+| `KILLSWITCH_SESSION_CREATE` | unset (permit) | Blocks new session creation (RADIUS Accounting-Start, SBA UE-Registration) | 30s | Recommended |
+| `KILLSWITCH_BULK_OPERATIONS` | unset (permit) | Blocks all bulk endpoints (`POST /api/v1/sims/bulk-*`, `/api/v1/esim-profiles/bulk-switch`, import jobs) | 30s | Recommended |
+| `KILLSWITCH_EXTERNAL_NOTIFICATIONS` | unset (permit) | Suppresses all outbound notifications (SMTP, Telegram, webhook dispatch) | 30s | Recommended |
+| `KILLSWITCH_READ_ONLY_MODE` | unset (mutations OK) | Blocks all state-changing API operations (POST/PUT/PATCH/DELETE); read-only GETs and WebSocket pass through | 30s | Recommended |
+
+> **Implementation**: `internal/killswitch/service.go` — `Service` caches `os.Getenv` results for 30s to avoid syscall overhead on high-throughput paths. The cache TTL is measured via an injectable `clock` seam (test-friendly). `IsEnabled(name)` returns `true` when the env var resolves to `on`, `true`, or `1` (case-insensitive).
+>
+> **No restart required for immediate effect**: the 30-second cache means toggles take effect within one TTL window without restarting the process. A restart accelerates propagation to instant.
+>
+> **Operational reference**: see `docs/operational/EMERGENCY_PROCEDURES.md` for toggle runbook.
+
+---
+
 ## CI/CD & Ops Tooling (STORY-067)
 
 ### Deploy Scripts (bluegreen-flip.sh / rollback.sh)
@@ -662,4 +682,11 @@ OTEL_BSP_EXPORT_TIMEOUT_SEC=5
 METRICS_ENABLED=true
 METRICS_NAMESPACE=argus
 METRICS_TENANT_LABEL_ENABLED=true
+
+# === Kill Switches (FIX-245) — all unset by default (permit/mutate) ===
+# KILLSWITCH_RADIUS_AUTH=on
+# KILLSWITCH_SESSION_CREATE=on
+# KILLSWITCH_BULK_OPERATIONS=on
+# KILLSWITCH_EXTERNAL_NOTIFICATIONS=on
+# KILLSWITCH_READ_ONLY_MODE=on
 ```

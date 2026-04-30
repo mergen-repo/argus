@@ -1,6 +1,6 @@
 # Screen Index — Argus
 
-> Total: 88 screens (+ 5 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192); 2 added by FIX-228 (SCR-193..194); 1 added by FIX-229 (SCR-195); 4 added by Phase 11 — Enterprise Readiness Pack (SCR-196..198 + SCR-021f device-binding tab)
+> Total: 83 screens (+ 5 SIM detail tabs) — includes 4 added by STORY-068; 7 added by STORY-069; 2 added by STORY-071; 10 added by STORY-072; 12 added by STORY-073; 5 added by STORY-075; 2 added by STORY-077; 12 backfilled by audit 2026-04-17 (SCR-180..191); 1 added by FIX-214 (SCR-192); 2 added by FIX-228 (SCR-193..194); 1 added by FIX-229 (SCR-195); 4 added by Phase 11 — Enterprise Readiness Pack (SCR-196..198 + SCR-021f device-binding tab); 5 removed by FIX-245 (SCR-142 Cost, SCR-146 DSAR, SCR-147 Compliance, SCR-149 Kill Switches, SCR-152 Maintenance)
 > Note: SCR-130..134 are assigned to STORY-069 screens. STORY-072 ops screens use SCR-160..169. STORY-073 admin screens use SCR-140..149, SCR-152, SCR-153 (SCR-150/151 are reserved for STORY-071 Roaming Agreements).
 > Pattern Library: [screens/_patterns.md](screens/_patterns.md)
 > Design: Dark-first, data-dense, group-first UX, premium visual quality
@@ -64,15 +64,10 @@
 | SCR-169 | Ops Incidents Timeline | Operations (SRE) | /ops/incidents | JWT (super_admin) | STORY-072 SCR-139 alias: Severity-sorted merged anomaly+audit incident feed (LIMIT 200); sourced from API-238 |
 | SCR-140 | Tenant Usage Dashboard | Admin | /admin/tenant-usage | JWT (super_admin) | FIX-246: unified quota+resource page (merged from old SCR-140 /admin/resources + SCR-141 /admin/quotas). Per-tenant card grid: 4 quota bars (SIMs/sessions/API-RPS/storage) with 4-tier color (success/warning/danger/critical), 80% warning pulse ring, 95% critical pulse ring, card/table toggle, sort/search/filter toolbar, 30s auto-refresh, SlidePanel drill-down. Old routes `/admin/resources` + `/admin/quotas` redirect here (301-replace). |
 | SCR-141 | Quota Breakdown | Admin | MERGED → SCR-140 | — | STORY-073 (original). MERGED INTO SCR-140 by FIX-246 — page deleted, route redirected to `/admin/tenant-usage`. |
-| SCR-142 | Cost by Tenant | Admin | /admin/cost | JWT (super_admin) | STORY-073: 6-month RADIUS/operator/SMS/storage cost breakdown table + sparklines |
-| SCR-143 | Security Events | Admin | /admin/security-events | JWT (tenant_admin+) | STORY-073: auth failures, role changes, kill-switch activity; sourced from /audit?actions= |
+| SCR-143 | Security Events | Admin | /admin/security-events | JWT (tenant_admin+) | STORY-073: auth failures, role changes; sourced from /audit?actions= |
 | SCR-144 | Global Sessions | Admin | /admin/sessions | JWT (tenant_admin+) | STORY-073: all active sessions with idle timer, force-logout button; tenant_admin scoped |
 | SCR-145 | API Key Usage | Admin | /admin/api-usage | JWT (super_admin) | STORY-073: per-key rate limit consumption bars, error rate, anomaly flag |
-| SCR-146 | DSAR Queue | Admin | /admin/dsar | JWT (tenant_admin+) | STORY-073: data portability / KVKK purge / SIM erasure job queue with SLA countdown |
-| SCR-147 | Compliance Overview | Admin | /admin/compliance | JWT (tenant_admin+) | STORY-073: compliance posture cards for read-only mode, quotas, audit trail, DSAR pipeline |
 | SCR-148 | Purge History | Admin | /admin/purge-history | JWT (super_admin) | STORY-073: permanently purged SIM records with iccid/msisdn/tenant/actor/reason |
-| SCR-149 | Kill Switches | Admin | /admin/kill-switches | JWT (super_admin) | STORY-073: 5 canonical circuit breakers with enable/disable slide-panel + reason field |
-| SCR-152 | Maintenance Windows | Admin | /admin/maintenance | JWT (super_admin) | STORY-073: schedule/cancel maintenance windows with affected services + notify plan |
 | SCR-153 | Delivery Channel Status | Admin | /admin/delivery | JWT (super_admin) | STORY-073: per-channel health cards (webhook/email/sms/in-app/telegram) with latency p50/p95/p99 |
 | SCR-170 | Session Detail | Sessions | /sessions/:id | JWT (sim_manager+) | STORY-075: SoR/policy/quota/audit/alerts tabs + force-disconnect dialog |
 | SCR-171 | User Detail | Settings | /settings/users/:id | JWT (tenant_admin+) | STORY-075: overview/activity/sessions/permissions/notifications tabs + unlock/reset/revoke actions |

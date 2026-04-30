@@ -65,7 +65,6 @@ func init() {
 	rootCmd.AddCommand(userCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(complianceCmd)
 	rootCmd.AddCommand(simCmd)
 	rootCmd.AddCommand(backupCmd)
 }

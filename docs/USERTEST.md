@@ -5366,6 +5366,59 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 2. `web/src/components/shared/virtual-table.tsx` import edilebilir, 1000+ satır listesinde `useVirtualizer` ile sadece görünür penceredeki satırları render eder; Home/End/PgUp/PgDn klavye nav çalışır.
 3. `useBulkPreviewCount` hook'u herhangi bir resource için `POST /{resource}/bulk/preview-count` çağrısı yapar.
 
+## FIX-245: Remove 5 Admin Sub-pages + Kill Switches → ENV
+
+**Ortam:** `make up` (postgres + nats + redis + argus + nginx ayakta olmalı)
+**Ön koşul:** Admin hesabı (`admin@argus.io` / `admin`) ile giriş yapılmış olmalı.
+
+### UT-245-01: Kaldırılan 5 Route — 404 Dönmeli
+
+1. Tarayıcıda şu 6 URL'yi tek tek ziyaret edin:
+   - `http://localhost:8084/admin/cost`
+   - `http://localhost:8084/admin/compliance`
+   - `http://localhost:8084/admin/dsar`
+   - `http://localhost:8084/admin/maintenance`
+   - `http://localhost:8084/admin/kill-switches`
+   - `http://localhost:8084/compliance/data-portability`
+2. **Beklenen:** Her URL için React Router "Not Found" sayfası (veya 404 redirect) görünmeli; sayfa içeriği render edilmemeli.
+3. **Hata durumu:** Sayfa boş beyaz ekran veya hata yerine içerik gösteriyorsa test BAŞARISIZ.
+
+### UT-245-02: Sidebar — Kaldırılan 5 Menü Öğesi Yok
+
+1. `/admin/tenant-usage` sayfasına gidin (super_admin olarak giriş yapmış olmalısınız).
+2. Sol sidebar'daki ADMIN grubuna bakın.
+3. **Beklenen:** Şu öğeler GÖRÜNMEMELI: "Cost", "Compliance", "DSAR", "Maintenance", "Kill Switches".
+4. **Beklenen:** Şu öğeler GÖRÜNMELI: "Tenant Usage", "Security Events", "API Usage", "Purge History", "Delivery Status".
+5. Sidebar'ı yenilemeden `Ctrl+Shift+R` ile hard-reload yapın → aynı sonuç.
+
+### UT-245-03: Kill Switch — Env Değişkeni ile Toggle
+
+1. Argus servisi durdurulmuş durumda (eğer `make up` çalışıyorsa `docker compose stop argus`).
+2. `.env` dosyasına ekleyin: `KILLSWITCH_RADIUS_AUTH=on`
+3. `docker compose start argus` ile servisi başlatın.
+4. RADIUS test isteği gönderin (veya loglarda "kill switch active" mesajı arayın):
+   ```bash
+   curl -s http://localhost:8080/api/v1/health | jq '.kill_switches'
+   ```
+   Alternatif olarak Go test çalıştırın: `go test -run TestKillSwitch ./internal/killswitch/...`
+5. **Beklenen:** `KILLSWITCH_RADIUS_AUTH` değeri okunuyor; `IsEnabled("radius_auth")` → `true`.
+6. `.env`'den satırı kaldırın, `docker compose restart argus` → `IsEnabled("radius_auth")` → `false` (default permit).
+
+### UT-245-04: Kill Switch — DB Tablosu Kalktı, Yeni Migration Çalışıyor
+
+1. `docker compose exec postgres psql -U argus -c "\dt kill_switches"` çalıştırın.
+2. **Beklenen:** `Did not find any relation named "kill_switches"` hatası (tablo yok).
+3. `docker compose exec postgres psql -U argus -c "\dt maintenance_windows"` çalıştırın.
+4. **Beklened:** Aynı — tablo yok.
+5. Migration geçmişini kontrol edin: `docker compose exec postgres psql -U argus -c "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 5"` → `20260504000001` ve `20260504000002` listelenmeli.
+
+### UT-245-05: Varsayılan Davranış — Kill Switch OFF = İş Durmuyor
+
+1. `.env` dosyasında hiçbir `KILLSWITCH_*` değişkeni tanımlı değil.
+2. `POST /api/v1/sims` veya herhangi bir bulk işlem deneyin → HTTP 200/201 beklenmeli.
+3. RADIUS authentication testi: `go test -run TestRadiusAuth ./internal/aaa/...` → PASS beklenmeli.
+4. **Beklenen:** Hiçbir switch `on` olmadan sistem normal çalışıyor; kill switch mekanizması iş durdurmaz.
+
 ## FIX-248: Reports Subsystem Refactor — pipeline fix + storage abstraction
 
 > Wave C cleanup cron (D-167) and 5 new builders (D-165) deferred.

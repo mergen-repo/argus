@@ -1,7 +1,7 @@
 -- FIX-237 — remove deprecated consumer-voice + Tier 1 templates
 DELETE FROM notification_templates
  WHERE event_type IN (
-    'welcome','sim_state_change','session_login','onboarding_completed','data_portability_ready'
+    'welcome','sim_state_change','session_login','onboarding_completed'
  );
 
 -- FIX-237: 17 event types × 2 locales (tr, en) = 34 rows

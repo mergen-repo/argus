@@ -1,0 +1,19 @@
+2026-04-27T15:12:39Z STEP_1 PLAN: STARTED | story=FIX-245 | mode=AUTOPILOT | wave=10
+2026-04-27T15:19:10Z STEP_1 PLAN: EXECUTED | items=5 tasks=14 | evidence=docs/stories/fix-ui-review/FIX-245-plan.md | result=PASS
+2026-04-27T15:22:38Z STEP_2 DEV T1: EXECUTED | files=2 drops=2 db_migrate=PASS | result=PASS
+2026-04-27T15:22:50Z STEP_2 DEV T2: EXECUTED | files=2 mod=1 seed_clean=PASS | result=PASS
+2026-04-27T15:30:00Z STEP_2 DEV T3: EXECUTED | files=5 deleted=5 (cost_by_tenant.go dsar_queue.go maintenance_window.go kill_switch.go handler_test.go) handler.go_modified=drop_ksSvc+ksStore+mwStore | result=PASS
+2026-04-27T15:30:00Z STEP_2 DEV T4: EXECUTED | audit_decisions=compliance_store:KEEP(report+job),cost_analytics:KEEP(analytics/cost+main.go),compliance_pkg:KEEP(job/purge_sweep),ks_store:DELETE,mw_store:DELETE,api/compliance:DELETE(4files) deleted=6 | result=PASS
+2026-04-27T15:30:00Z STEP_2 DEV T5: EXECUTED | routes_removed=13 imports_removed=1(complianceapi) allowlist_entry_removed=1 middleware_docfix=1 | result=PASS
+2026-04-27T15:30:00Z STEP_2 DEV T6: EXECUTED | files=2(compliance.go+compliance_test.go) root.go_modified=remove_AddCommand | result=PASS
+2026-04-27T15:50:00Z STEP_2 DEV T7: EXECUTED | files=2 ttl=30s seams=2(clock+getenv) | result=PASS
+2026-04-27T15:50:00Z STEP_2 DEV T8: EXECUTED | callers_audited=3 only_IsEnabled=YES | result=PASS
+2026-04-27T15:50:00Z STEP_2 DEV T9: EXECUTED | main.go_rewired=YES go_build_full=PASS | result=PASS
+2026-04-27T16:10:00Z STEP_2 DEV T10: EXECUTED | files_deleted=7 hooks_removed=7(useKillSwitches+useToggleKillSwitch+useMaintenanceWindows+useCreateMaintenanceWindow+useDeleteMaintenanceWindow+useCostByTenant+useDSARQueue) types_removed=9(KillSwitch+ToggleKillSwitchRequest+MaintenanceWindow+CreateMaintenanceWindowRequest+CostTenant+DSARQueueItem+DSARFilters+TenantResourceItem+TenantQuota) | result=PASS
+2026-04-27T16:10:00Z STEP_2 DEV T11: EXECUTED | sidebar_removed=5(DSAR+Cost+Compliance+KillSwitches+Maintenance) router_removed=6(AdminCost+AdminCompliance+AdminDSAR+AdminKillSwitches+AdminMaintenance+DataPortability) | result=PASS
+2026-04-27T17:00:00Z STEP_2 DEV T12: EXECUTED | tests_cleaned=1(tenant_test.go compliance flags) go_vet_fixed=1(undefined:complianceExportTenantID) grep_sweeps=CLEAN | result=PASS
+2026-04-27T17:00:00Z STEP_2 DEV T13: EXECUTED | docs=3(CONFIG.md+SCREENS.md+FIX-245-step-log.txt) emergency_procedures=NEW(docs/operational/EMERGENCY_PROCEDURES.md) screens_removed=5(SCR-142+146+147+149+152) screens_total=83 | result=PASS
+2026-04-27T17:00:00Z STEP_2 DEV T14: EXECUTED | go_build=PASS go_vet=PASS go_test=3893(110pkgs) tsc=PASS vite=PASS db_migrate=PASS db_seed=PASS | result=PASS
+2026-04-27T15:47:55Z STEP_2.5 LINT: EXECUTED | tsc=PASS go_build=PASS go_vet=PASS | result=PASS
+2026-04-27T15:59:02Z STEP_3 GATE: EXECUTED | scouts=3 findings=8 fixes=6 | result=PASS
+2026-04-27T18:00:00Z STEP_4 REVIEW: EXECUTED | items=7 | evidence=docs/stories/fix-ui-review/FIX-245-review.md | result=PASS

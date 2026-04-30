@@ -26,7 +26,6 @@ const (
 	JobTypeScheduledReportRun        = "scheduled_report_run"
 	JobTypeIPGraceRelease            = "ip_grace_release"
 	JobTypeKVKKPurgeDaily            = "kvkk_purge_daily"
-	JobTypeDataPortabilityExport     = "data_portability_export"
 	JobTypeSMSOutboundSend           = "sms_outbound_send"
 	JobTypeWebhookRetry              = "webhook_retry"
 	JobTypeScheduledReportSweeper    = "scheduled_report_sweeper"
@@ -66,7 +65,6 @@ var AllJobTypes = []string{
 	JobTypeScheduledReportRun,
 	JobTypeIPGraceRelease,
 	JobTypeKVKKPurgeDaily,
-	JobTypeDataPortabilityExport,
 	JobTypeSMSOutboundSend,
 	JobTypeWebhookRetry,
 	JobTypeScheduledReportSweeper,

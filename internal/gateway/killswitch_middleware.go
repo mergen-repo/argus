@@ -15,7 +15,7 @@ type killSwitchChecker interface {
 // KillSwitchMiddleware returns an HTTP middleware that intercepts non-GET
 // mutations when the "read_only_mode" kill switch is active, returning
 // 503 SERVICE_DEGRADED. The allowPrefixes list is always passed through
-// regardless of the kill-switch state (e.g., /api/v1/auth/, /api/v1/admin/kill-switches).
+// regardless of the kill-switch state (e.g., /api/v1/auth/, /health).
 func KillSwitchMiddleware(ks killSwitchChecker, allowPrefixes []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
