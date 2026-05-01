@@ -211,6 +211,12 @@ jobs:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [govulncheck, gosec, web-audit]
+    # Expose the secret-presence flag as job-level env so step `if:`
+    # expressions can branch on it. GitHub Actions does not allow direct
+    # `secrets.X != ''` in step conditions, but env vars derived from
+    # secrets ARE permitted. Empty secret ⇒ env is the empty string.
+    env:
+      HAS_GHCR: ${{ secrets.GHCR_TOKEN != '' && 'yes' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -228,16 +234,21 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Login + push are gated on HAS_GHCR. When the GHCR secrets are
+      # absent (typical for a fresh repo or a fork), the login + push
+      # steps skip and the job falls back to the build-only path so the
+      # Dockerfile is still verified. Configure GHCR_USERNAME +
+      # GHCR_TOKEN repository secrets to enable registry push.
       - name: Log in to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_GHCR == 'yes'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Build and push (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Build and push (main, GHCR configured)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_GHCR == 'yes'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -254,8 +265,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build only (PR)
-        if: github.event_name == 'pull_request'
+      - name: Build only (PR, or main without GHCR)
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && env.HAS_GHCR != 'yes')
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -263,9 +274,9 @@ jobs:
           push: false
           tags: |
             ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.short_sha }}
-            ${{ steps.meta.outputs.image }}:pr-${{ github.event.number }}
+            ${{ steps.meta.outputs.image }}:${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || steps.meta.outputs.safe_branch }}
           build-args: |
-            VERSION=pr-${{ github.event.number }}-${{ steps.meta.outputs.short_sha }}
+            VERSION=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || steps.meta.outputs.safe_branch }}-${{ steps.meta.outputs.short_sha }}
             GIT_SHA=${{ steps.meta.outputs.short_sha }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
           cache-from: type=gha
@@ -277,6 +288,16 @@ jobs:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: [build-image]
+    # Job-level secret check via `vars` workaround: GitHub Actions does
+    # not allow `secrets.X` directly in job-level `if:`. Instead we mirror
+    # the build-image pattern: each step that uses an SSH secret is
+    # conditioned on `env.HAS_STAGING == 'yes'`, populated from the
+    # secret. When unset, every step short-circuits and the job
+    # completes as success-with-skipped-steps. Configure
+    # STAGING_SSH_HOST + STAGING_SSH_USER + STAGING_SSH_KEY repository
+    # secrets to enable real deployment.
+    env:
+      HAS_STAGING: ${{ secrets.STAGING_SSH_HOST != '' && 'yes' || '' }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -285,7 +306,15 @@ jobs:
         id: meta
         run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Skip deploy (no staging secrets configured)
+        if: env.HAS_STAGING != 'yes'
+        run: |
+          echo "::notice::STAGING_SSH_* secrets not configured; deploy-staging is a no-op."
+          echo "Configure STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_KEY,"
+          echo "and TEST_TENANT_TOKEN repository secrets to enable real deployments."
+
       - name: SSH deploy to staging
+        if: env.HAS_STAGING == 'yes'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
@@ -296,9 +325,11 @@ jobs:
             make deploy-staging
 
       - name: Wait for staging to stabilise
+        if: env.HAS_STAGING == 'yes'
         run: sleep 60
 
       - name: Smoke test staging
+        if: env.HAS_STAGING == 'yes'
         run: |
           chmod +x deploy/scripts/smoke-test.sh
           deploy/scripts/smoke-test.sh "${{ secrets.STAGING_SSH_HOST }}:8084" "${{ steps.meta.outputs.short_sha }}"
@@ -306,6 +337,7 @@ jobs:
           TEST_TENANT_TOKEN: ${{ secrets.TEST_TENANT_TOKEN }}
 
       - name: Tag successful deploy
+        if: env.HAS_STAGING == 'yes'
         run: |
           ISO_TS=$(date -u +"%Y%m%dT%H%M%SZ")
           git tag "deploy-staging-${ISO_TS}"
