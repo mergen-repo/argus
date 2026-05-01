@@ -5685,4 +5685,70 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 4. **Beklenen:** "Revoke all sessions" eylemi (FIX-244 AC-6 ile gelen) görünür ve tıklanabilir.
 5. Tıklayın → onay dialog'u → onaylayın → `DELETE /api/v1/users/{id}/sessions` (veya muadil endpoint) HTTP 200 dönmeli; o kullanıcının tüm aktif auth session'ları sonlandırılmalı.
 6. **Beklenen:** Backend auth session store hâlâ çalışıyor — login/logout/refresh-token akışları etkilenmemiş. (FIX-247 sadece admin global sessions UI'sini kaldırır; per-user revoke yolu açık kalır.)
+
+---
+
+## STORY-093: IMEI Capture — RADIUS + Diameter S6a + 5G SBA
+
+**Ortam:** `make up` (postgres + nats + redis + argus ayakta olmalı) VEYA `go test` komutu ile birim/entegrasyon testleri.
+**Kapsam:** Backend-only. Tüm senaryolar API-düzeyi veya birim test çalıştırması ile doğrulanır; UI walthrough gerekmez.
+
+### UT-093-01: RADIUS — Geçerli 3GPP-IMEISV VSA ile IMEI Capture
+
+1. `go test -v ./internal/aaa/radius/... -run TestExtract3GPPIMEISV` komutunu çalıştırın.
+2. **Beklenen:** Geçerli BCD-kodlu VSA fixture'ı için test `IMEI = "359211089765432"`, `SoftwareVersion = "17"` değerlerini döndürmeli; test PASS.
+3. Access-Request loglarını tail edin: `docker logs argus 2>&1 | grep -i imei` — RADIUS auth sonrası `imei=` alanını içeren bir log satırı görülmeli.
+4. **Beklenen:** `SessionContext.IMEI` alanı 15 haneli IMEI içermeli.
+
+### UT-093-02: RADIUS — Hatalı BCD VSA (Malformed) — Auth Bloklanmamalı
+
+1. `go test -v ./internal/aaa/radius/... -run TestExtract3GPPIMEISV_Malformed` komutunu çalıştırın.
+2. **Beklenen:** Hatalı/kısa BCD dizisi için `SessionContext.IMEI = ""` (boş), test PASS, panik yok.
+3. Log çıktısında `level=warn` + `malformed` veya `imei` içeren bir satır görülmeli (AC-6).
+4. `argus_imei_capture_parse_errors_total{protocol="radius"}` sayacı 1 artmış olmalı:
+   ```
+   curl -s http://localhost:8080/metrics | grep 'imei_capture_parse_errors_total{protocol="radius"}'
+   ```
+
+### UT-093-03: 5G SBA AUSF — `pei` Alanı ile IMEI Capture
+
+1. `go test -v ./internal/aaa/sba/... -run TestAUSFAuthenticationInitiation` komutunu çalıştırın.
+2. **Beklenen:** `pei = "imei-359211089765432"` içeren fixture → `AuthContext.IMEI = "359211089765432"`, test PASS.
+3. Ayrıca `imeisv-` prefix testini çalıştırın: `pei = "imeisv-3592110897654321"` → `IMEI = "359211089765432"`, `SoftwareVersion = "21"`.
+4. Tanınmayan prefix (`mac-`, `eui-`) için: `SessionContext.IMEI = ""` (sessizce yok sayılır), hata yok.
+
+### UT-093-04: 5G SBA AUSF — Hatalı `pei` — Sayaç Artmalı
+
+1. `go test -v ./internal/aaa/sba/... -run TestAUSFAuthenticationInitiation_PEIMalformed_CounterIncrements` komutunu çalıştırın.
+2. **Beklenen:** Test PASS. Hatalı PEI formatı (örn. `imei-abc123`) için `argus_imei_capture_parse_errors_total{protocol="5g_sba"}` sayacı 1 artmalı.
+3. Ayrıca `TestUDMRegistration_PEIMalformed_CounterIncrements` çalıştırın → aynı sonuç.
+4. Auth yanıtı hâlâ 201 (HTTP) veya başarı kodu dönmeli — IMEI parse hatası auth'u bloklamamalı (AC-5).
+
+### UT-093-05: 5G SBA UDM — `pei` Alanı Session'a Yazılmalı
+
+1. `go test -v ./internal/aaa/sba/... -run TestUDMRegistration_PEIPopulatesSession` komutunu çalıştırın.
+2. **Beklenen:** UDM Registration yanıtında oluşturulan `session.Session.IMEI` alanı `"359211089765432"` değerini taşımalı, test PASS.
+3. Redis'te session kontrolü (opsiyonel):
+   ```
+   docker exec -it argus-redis redis-cli HGET sessions:<session_id> imei
+   ```
+   → 15 haneli IMEI string dönmeli (veya `omitempty` ile boş kayıt yoksa anahtar yok).
+
+### UT-093-06: Diameter S6a — Terminal-Information AVP Parser
+
+1. `go test -v ./internal/aaa/diameter/... -run TestExtractTerminalInformation` komutunu çalıştırın.
+2. **Beklenen:** Full AVP 350 fixture (1402 + 1403 sub-AVP) → `IMEI = "359211089765432"`, `SoftwareVersion = "17"`, test PASS.
+3. IMEI-SV only fixture (AVP 1404 only) → `IMEI = "359211089765432"` (ilk 15), `SoftwareVersion = "32"` (son 2), test PASS.
+4. Malformed grouped AVP → `IMEI = ""`, WARN log, panik yok, test PASS.
+5. **Not:** Diameter S6a listener henüz yoktur (D-182 → STORY-094'e ertelenmiştir). Bu test yalnızca parser katmanını doğrular.
+
+### UT-093-07: Regresyon — Mevcut Auth Akışı Değişmemeli
+
+1. `make test` komutunu çalıştırın → tüm test paketi (3841 test) yeşil olmalı, 0 başarısız.
+2. Özellikle `internal/aaa/radius/`, `internal/aaa/diameter/`, `internal/aaa/sba/` paketleri PASS olmalı.
+3. `go vet ./...` temiz çıkmalı.
+4. Herhangi bir Access-Request (gerçek veya simülatör) gönderildiğinde:
+   - IMEI VSA/AVP/PEI yoksa: `SessionContext.IMEI = ""`, auth normal devam eder.
+   - IMEI mevcut ve geçerliyse: `SessionContext.IMEI` dolu, auth normal devam eder.
+   - Her iki durumda da auth sonucu DEĞİŞMEMELİ — IMEI capture tamamen read-only (AC-5).
 7. **Smoke (opsiyonel — backend dormant handler):** `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/admin/sessions/active` → HTTP 200 dönebilir (handler dormant ama erişilebilir; D-180 zero-callers audit ardından kaldırılacak).

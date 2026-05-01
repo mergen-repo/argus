@@ -15,6 +15,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -23,6 +24,10 @@ type AUSFHandler struct {
 	sessionMgr *session.Manager
 	eventBus   *bus.EventBus
 	logger     zerolog.Logger
+	// reg threads the metrics registry into ParsePEI so the
+	// argus_imei_capture_parse_errors_total{protocol="5g_sba"} counter
+	// fires on malformed PEI input (STORY-093 AC-6, gate F-A1). Nil-safe.
+	reg *obsmetrics.Registry
 
 	mu       sync.RWMutex
 	contexts map[string]*AuthContext
@@ -30,10 +35,11 @@ type AUSFHandler struct {
 	allowedSlices []SNSSAI
 }
 
-func NewAUSFHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, logger zerolog.Logger) *AUSFHandler {
+func NewAUSFHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, reg *obsmetrics.Registry, logger zerolog.Logger) *AUSFHandler {
 	return &AUSFHandler{
 		sessionMgr: sessionMgr,
 		eventBus:   eventBus,
+		reg:        reg,
 		logger:     logger.With().Str("component", "sba_ausf").Logger(),
 		contexts:   make(map[string]*AuthContext),
 		allowedSlices: []SNSSAI{
@@ -60,6 +66,8 @@ func (h *AUSFHandler) HandleAuthentication(w http.ResponseWriter, r *http.Reques
 		writeProblem(w, http.StatusBadRequest, "MANDATORY_IE_INCORRECT", "supiOrSuci is required")
 		return
 	}
+
+	imei, imeiSV, _ := ParsePEI(req.PEI, h.logger, h.reg)
 
 	if req.ServingNetworkName == "" {
 		writeProblem(w, http.StatusBadRequest, "MANDATORY_IE_INCORRECT", "servingNetworkName is required")
@@ -100,6 +108,8 @@ func (h *AUSFHandler) HandleAuthentication(w http.ResponseWriter, r *http.Reques
 		HxresStar:          hxresStar,
 		AllowedNSSAI:       h.filterAllowedNSSAI(req.RequestedNSSAI),
 		CreatedAt:          time.Now().UTC(),
+		IMEI:               imei,
+		SoftwareVersion:    imeiSV,
 	}
 
 	h.mu.Lock()
@@ -127,6 +137,8 @@ func (h *AUSFHandler) HandleAuthentication(w http.ResponseWriter, r *http.Reques
 		Str("supi", supi).
 		Str("serving_network", req.ServingNetworkName).
 		Int("requested_slices", len(req.RequestedNSSAI)).
+		Str("imei", imei).
+		Str("imei_sv", imeiSV).
 		Msg("5G-AKA authentication initiated")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -206,13 +218,15 @@ func (h *AUSFHandler) HandleConfirmation(w http.ResponseWriter, r *http.Request)
 		}
 
 		sess := &session.Session{
-			IMSI:          extractIMSI(authCtx.SUPI),
-			AcctSessionID: "5g-sba-" + authCtxID,
-			RATType:       rattype.NR5G,
-			SessionState:  "active",
-			StartedAt:     time.Now().UTC(),
-			ProtocolType:  session.ProtocolType5GSBA,
-			SliceInfo:     sliceInfoJSON,
+			IMSI:            extractIMSI(authCtx.SUPI),
+			AcctSessionID:   "5g-sba-" + authCtxID,
+			RATType:         rattype.NR5G,
+			SessionState:    "active",
+			StartedAt:       time.Now().UTC(),
+			ProtocolType:    session.ProtocolType5GSBA,
+			SliceInfo:       sliceInfoJSON,
+			IMEI:            authCtx.IMEI,
+			SoftwareVersion: authCtx.SoftwareVersion,
 		}
 		if err := h.sessionMgr.Create(context.Background(), sess); err != nil {
 			h.logger.Error().Err(err).

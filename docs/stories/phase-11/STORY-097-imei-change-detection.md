@@ -39,6 +39,10 @@ The grace-period countdown alert is the second feature: a scheduled job notifies
 - Blocked by: STORY-094 (TBL-59 / API-330 schema), STORY-096 (enforcement is what creates mismatch states worth recording)
 - Blocks: none in Phase 11
 
+## STORY-093 Handoff Notes (added by Reviewer 2026-05-01)
+- **D-183 (5G non-3GPP PEI raw retention):** PROTOCOLS.md §PEI documents forensic retention for `mac-` / `eui64-` prefix forms. Currently `internal/aaa/sba/imei.go:73-74` returns `("", "", true)` and silently discards non-3GPP PEI values. `SessionContext` has no `PEIRaw` field. If STORY-094 does not implement this, STORY-097 is the latest target: add `SessionContext.PEIRaw string`, extend `ParsePEI` to populate it for non-3GPP prefixes, and propagate to `session.Session`. See ROUTEMAP D-183 for full context.
+- **`SessionContext.IMEI` dependency:** Change-detection in this story (AC-1) reads `SessionContext.IMEI` produced by STORY-093 parsers. Confirm at task start that the IMEI value is present in the session blob for all three protocol paths (RADIUS, Diameter S6a, 5G SBA) — STORY-093 confirms RADIUS + 5G SBA wired; Diameter S6a listener wiring targets STORY-094 (D-182).
+
 ## Test Scenarios
 - [ ] Integration: 5 successful auths → 5 rows in `imei_history` with `was_mismatch=false`, `alarm_raised=false`.
 - [ ] Integration: 1 mismatch under `strict` → 1 row with `was_mismatch=true`, `alarm_raised=true`, severity `high` notification, audit row written.

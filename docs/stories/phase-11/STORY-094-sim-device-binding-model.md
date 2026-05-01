@@ -40,6 +40,12 @@ This story plumbs the data model and the parser/evaluator. It does not enforce a
 - Blocked by: STORY-093 (capture must populate `SessionContext.IMEI`), STORY-022 (Policy DSL baseline)
 - Blocks: STORY-095, STORY-096, STORY-097
 
+## STORY-093 Handoff Notes (added by Reviewer 2026-05-01)
+- **`session.Session.IMEI` / `SoftwareVersion` contract:** STORY-093 Gate extended `internal/aaa/session/session.go` with `IMEI string` and `SoftwareVersion string` fields (JSON `omitempty`). The S6a enricher in this story MUST read `session.Session.IMEI` from the in-memory/Redis session blob — NOT from a context-value stash. Field is populated by AUSF and UDM paths for SBA; RADIUS wires it via `SessionContext`. See `internal/aaa/session/session.go:89-90` and `internal/policy/dsl/evaluator.go:24-25`.
+- **D-182 (Diameter listener deferral):** `internal/aaa/diameter/imei.go` ships parser-only (zero production callers) per ADR-004 §Out-of-Scope. STORY-094 S6a enricher is the intended first consumer — wire `ExtractTerminalInformation` at the Diameter Notify-Request / ULR listen path in this story (see ROUTEMAP D-182).
+- **D-183 (5G non-3GPP PEI raw retention):** PROTOCOLS.md §PEI documents that `mac-` / `eui64-` prefix forms should be preserved as forensic `PEIRaw`. This is currently unimplemented (`SessionContext` has no `PEIRaw` field). Evaluate whether to add `SessionContext.PEIRaw string` + `ParsePEI` extension in this story or defer to STORY-097. If deferred again, re-target D-183 to STORY-097 in ROUTEMAP.
+- **D-184 (AC-10 1M-SIM bench):** Run the literal 1M-SIM bench during STORY-094 binding pre-check and record the result in the STORY-094 plan §Perf note. Update STORY-093-plan.md §AC-10 Perf Addendum with the measured p95 number.
+
 ## Test Scenarios
 - [ ] Integration: migrate up → `sims` table has all six new columns; `imei_history` and `sim_imei_allowlist` exist; `\d sims` shows partial index `idx_sims_binding_mode`.
 - [ ] Integration: migrate down → all three migrations roll back cleanly, no orphan indexes, no orphan FKs.

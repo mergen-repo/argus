@@ -29,6 +29,7 @@ type AuthenticationRequest struct {
 	ServingNetworkName string   `json:"servingNetworkName"`
 	RequestedNSSAI     []SNSSAI `json:"requestedNssai,omitempty"`
 	ResynchronizationInfo *ResyncInfo `json:"resynchronizationInfo,omitempty"`
+	PEI                string   `json:"pei,omitempty"`
 }
 
 type ResyncInfo struct {
@@ -99,6 +100,7 @@ type Amf3GppAccessRegistration struct {
 	GUAMI              GUAMI  `json:"guami"`
 	RATType            string `json:"ratType"`
 	InitialRegInd      bool   `json:"initialRegistrationInd"`
+	PEI                string `json:"pei,omitempty"`
 }
 
 type ProblemDetails struct {
@@ -122,6 +124,8 @@ type AuthContext struct {
 	AllowedNSSAI       []SNSSAI  `json:"allowedNssai,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
 	Confirmed          bool      `json:"confirmed"`
+	IMEI               string    `json:"imei,omitempty"`
+	SoftwareVersion    string    `json:"softwareVersion,omitempty"`
 }
 
 func (p ProblemDetails) Error() string {

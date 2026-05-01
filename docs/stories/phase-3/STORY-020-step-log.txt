@@ -1,0 +1,6 @@
+BACKFILL — STORY-020 closed 2026-03-20 (predates step-log convention; full evidence in deliverable + gate + review artifacts)
+STEP_1 PLAN: EXECUTED | items=backfill | evidence=docs/stories/phase-3/STORY-020-plan.md | result=PASS | ts=2026-03-20T00:00:00Z
+STEP_2 DEV: EXECUTED | items=backfill | evidence=internal/aaa/sba/ | result=PASS | ts=2026-03-20T00:00:00Z
+STEP_3 GATE: EXECUTED | items=backfill | evidence=docs/stories/phase-3/STORY-020-gate.md | result=PASS | ts=2026-03-20T00:00:00Z
+STEP_4 REVIEW: EXECUTED | items=backfill | evidence=docs/stories/phase-3/STORY-020-review.md | result=PASS | ts=2026-03-20T00:00:00Z
+STEP_5 COMMIT: EXECUTED | items=backfill | evidence=git-history (Phase 3 commits) | result=PASS | ts=2026-03-20T00:00:00Z

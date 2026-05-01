@@ -73,6 +73,21 @@ type Session struct {
 	TerminateCause string          `json:"terminate_cause,omitempty"`
 	ProtocolType   string          `json:"protocol_type,omitempty"`
 	SliceInfo      json.RawMessage `json:"slice_info,omitempty"`
+	// IMEI / SoftwareVersion: device-identity fields captured by the AAA
+	// engine via STORY-093 parsers (RADIUS 3GPP-IMEISV VSA, Diameter S6a
+	// Terminal-Information AVP, 5G SBA PEI). They are forwarded by hot-path
+	// session creators (AUSFHandler.HandleConfirmation, UDMHandler.HandleRegistration)
+	// so STORY-094 enrichers / change-detection workflows can read the
+	// captured device identity without re-parsing the wire frame.
+	//
+	// AC-9 / gate F-A2 — these fields live ONLY in-memory + on the Redis
+	// cache blob. They are NOT propagated to store.CreateRadiusSessionParams
+	// (DB schema unchanged) and NOT written to any audit row (audit shape
+	// preserved). When SQL persistence becomes necessary it lands as
+	// dedicated work in STORY-094+ (binding pre-check) — at that point the
+	// flat fields migrate onto SessionContext.Device per PROTOCOLS.md.
+	IMEI            string `json:"imei,omitempty"`
+	SoftwareVersion string `json:"software_version,omitempty"`
 	// SorDecision holds the JSONB payload written by the SoR engine when it
 	// selects an operator for this session. Engine wiring is deferred to D-148
 	// (FIX-24x); until then this field is nil and the sessions.sor_decision DB

@@ -489,6 +489,9 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 				if sim.APNID != nil {
 					sessCtx.APN = sim.APNID.String()
 				}
+				imei, sv, _ := Extract3GPPIMEISV(r.Packet, logger, s.reg)
+				sessCtx.IMEI = imei
+				sessCtx.SoftwareVersion = sv
 
 				policyResult, pErr := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
 				if pErr == nil && policyResult != nil {
@@ -647,6 +650,9 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		if sim.APNID != nil {
 			sessCtx.APN = sim.APNID.String()
 		}
+		imei, sv, _ := Extract3GPPIMEISV(r.Packet, s.logger, s.reg)
+		sessCtx.IMEI = imei
+		sessCtx.SoftwareVersion = sv
 
 		policyResult, err := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
 		if err != nil {

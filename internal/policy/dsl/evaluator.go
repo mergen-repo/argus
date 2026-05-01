@@ -20,6 +20,9 @@ type SessionContext struct {
 	SessionDuration int64             `json:"session_duration"`
 	Metadata        map[string]string `json:"metadata"`
 	SimType         string            `json:"sim_type"`
+	// Phase 11 STORY-093 — IMEI capture (flat fields, zero-value safe)
+	IMEI            string            `json:"imei,omitempty"`
+	SoftwareVersion string            `json:"software_version,omitempty"`
 }
 
 type PolicyResult struct {

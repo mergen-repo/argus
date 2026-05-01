@@ -10,6 +10,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/rattype"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -18,12 +19,17 @@ type UDMHandler struct {
 	sessionMgr *session.Manager
 	eventBus   *bus.EventBus
 	logger     zerolog.Logger
+	// reg threads the metrics registry into ParsePEI so the
+	// argus_imei_capture_parse_errors_total{protocol="5g_sba"} counter
+	// fires on malformed PEI input (STORY-093 AC-6, gate F-A1). Nil-safe.
+	reg *obsmetrics.Registry
 }
 
-func NewUDMHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, logger zerolog.Logger) *UDMHandler {
+func NewUDMHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, reg *obsmetrics.Registry, logger zerolog.Logger) *UDMHandler {
 	return &UDMHandler{
 		sessionMgr: sessionMgr,
 		eventBus:   eventBus,
+		reg:        reg,
 		logger:     logger.With().Str("component", "sba_udm").Logger(),
 	}
 }
@@ -144,21 +150,27 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	imei, imeiSV, _ := ParsePEI(reg.PEI, h.logger, h.reg)
+
 	h.logger.Info().
 		Str("supi", supi).
 		Str("amf_instance_id", reg.AmfInstanceID).
 		Str("rat_type", reg.RATType).
 		Bool("initial_reg", reg.InitialRegInd).
+		Str("imei", imei).
+		Str("imei_sv", imeiSV).
 		Msg("UDM AMF registration")
 
 	if h.sessionMgr != nil && reg.InitialRegInd {
 		sess := &session.Session{
-			IMSI:          extractIMSI(supi),
-			AcctSessionID: "5g-reg-" + uuid.New().String(),
-			RATType:       rattype.FromSBA(reg.RATType),
-			SessionState:  "active",
-			StartedAt:     time.Now().UTC(),
-			ProtocolType:  session.ProtocolType5GSBA,
+			IMSI:            extractIMSI(supi),
+			AcctSessionID:   "5g-reg-" + uuid.New().String(),
+			RATType:         rattype.FromSBA(reg.RATType),
+			SessionState:    "active",
+			StartedAt:       time.Now().UTC(),
+			ProtocolType:    session.ProtocolType5GSBA,
+			IMEI:            imei,
+			SoftwareVersion: imeiSV,
 		}
 		if err := h.sessionMgr.Create(r.Context(), sess); err != nil {
 			h.logger.Error().Err(err).Str("supi", supi).Msg("failed to create session for AMF registration")

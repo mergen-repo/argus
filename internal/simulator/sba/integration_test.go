@@ -36,8 +36,8 @@ func init() {
 // UDM paths:
 //   /nudm-uecm/v1/<supi>/registrations/amf-3gpp-access  (PUT → HandleRegistration; DELETE → 405)
 func newArgusHandlers() http.Handler {
-	ausf := argussba.NewAUSFHandler(nil, nil, zerolog.Nop())
-	udm := argussba.NewUDMHandler(nil, nil, zerolog.Nop())
+	ausf := argussba.NewAUSFHandler(nil, nil, nil, zerolog.Nop())
+	udm := argussba.NewUDMHandler(nil, nil, nil, zerolog.Nop())
 
 	mux := http.NewServeMux()
 

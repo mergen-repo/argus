@@ -1,6 +1,6 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-04-27 (Phase 11: Enterprise Readiness Pack added — IMEI Ecosystem + Native Syslog, 6 stories PENDING)
+> Last updated: 2026-05-01 (Phase 11: STORY-093 IMEI Capture DONE — 1/6 stories)
 > Current phase: Runtime Alignment [DONE] — all 3 stories shipped 2026-04-18 (STORY-092 + STORY-090 + STORY-089) + Mini Phase Gate PASS 2026-04-18 (7/7 steps, 3167 tests PASS, docs/reports/runtime-alignment-gate.md). Next: Documentation Phase D1 (Specification).
 > Previous phase: Test Infrastructure + Tech Debt Cleanup [DONE] — AUTOPILOT 2026-04-17 (STORY-083, 084, 085, 087, 088 + Mini Phase Gate PASS)
 > Overall progress: Phase 10 DONE (24/24); Test Infra 5/5 DONE (080, 082, 083, 084, 085); Tech Debt 2/2 DONE (087, 088); Runtime Alignment 3/3 DONE (092, 090, 089 all 2026-04-18); Documentation Phase next (activates after Mini Phase Gate PASS)
@@ -510,7 +510,7 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 
 | # | Story | Effort | Priority | Status | Step | Dependencies | Completed |
 |---|-------|--------|----------|--------|------|-------------|-----------|
-| STORY-093 | IMEI Capture — RADIUS + Diameter S6a + 5G SBA | L | P0 | [ ] PENDING | — | STORY-015, STORY-019, STORY-020 | — |
+| STORY-093 | IMEI Capture — RADIUS + Diameter S6a + 5G SBA | L | P0 | [x] DONE | — | STORY-015, STORY-019, STORY-020 | 2026-05-01 |
 | STORY-094 | SIM-Device Binding Model + Policy DSL Extension | M | P0 | [ ] PENDING | — | STORY-093, STORY-022 | — |
 | STORY-095 | IMEI Pool Management (white/grey/black + bulk) | M | P0 | [ ] PENDING | — | STORY-094 | — |
 | STORY-096 | Binding Enforcement & Mismatch Handling | L | P0 | [ ] PENDING | — | STORY-094, STORY-095 | — |
@@ -849,6 +849,9 @@ Sayfalar: Sessions, Policies, Violations, eSIM, Topology, Jobs, Audit Log, Notif
 | D-179 | FIX-235 Gate (F-U7..F-U9) | Inline dead `StatCard` helper in `pages/operators/_tabs/esim-tab.tsx` (used once; two main panels re-implement the visual treatment as inline divs — either factor through `StatCard` or delete the helper). Reconcile profile-state badge case consistency. Low-priority cleanup. | Phase 12 cleanup | OPEN |
 | D-180 | FIX-247 DEV-580 | Dormant admin global sessions backend handler `internal/api/admin/sessions_global.go` — kept as safe-harbor per AC-5 (auth session store mandatory for login/logout/revoke). Verify zero callers project-wide (FE + programmatic + integration tests + curl/postman) before deletion; then drop handler + 2 routes (`GET /admin/sessions/active`, `POST /admin/sessions/{id}/revoke`) + admin handler imports. Auth session store + DB tables MUST stay. | Future cleanup story | OPEN |
 | D-181 | FIX-251 retroactive Gate (2026-04-30) | Systemic inline-scan-vs-helper drift audit across `internal/store/*.go`. PAT-006 RECURRENCE #3 was caught only after triggering a 500 in production (`/api/v1/operators` after FIX-215 column-add). Other store tables share the same risk shape: `sim.go` (`simColumns` + inline `rows.Scan` in `List` line 345 alongside `scanSIM` helper), `policy.go` (11 inline scans alongside 3 helpers), `cdr.go` (10 inline scans), `ippool.go` (7 inline scans), `session_radius.go` (5), `notification.go` (3). Add `TestColumnsAndScanCountConsistency`-style guard per table (no-DB structural test asserting column count == scan-destination count) OR refactor all inline list scans to delegate to the `scanXxx` helper to eliminate the drift surface entirely. | future test-hardening / refactor story | OPEN |
+| D-182 | STORY-093 Gate (F-A3) | `internal/aaa/diameter/imei.go` `ExtractTerminalInformation` ships parser-only (zero production callers; PAT-026 inverse risk). Plan T3 narrowed STORY-093 scope to "parser-only, no listener / CER / Application-Id wiring" per ADR-004 §Out-of-Scope and DEV-409. STORY-094 S6a enricher is the intended consumer. Until then, the parser exists without a caller; imei.go:9 doc-comment names the future caller. Verify call-site materialises during STORY-094 binding pre-check; if STORY-094 chooses a different surface, route the orphan parser to deletion or relocation. | STORY-094 | OPEN |
+| D-183 | STORY-093 Gate (F-A5) | PROTOCOLS.md:556 forensic-retention contract for non-3GPP PEI forms (`mac-` / `eui64-`) is unimplemented in `internal/aaa/sba/imei.go:73-74` — parser returns `("", "", true)` and silently ignores. There is no `SessionContext.PEIRaw` field. Forward gap (STORY-093 spec did not require it). Land alongside STORY-094 binding pre-check (when raw forensic identifier matters) or STORY-097 change-detection workflow — extend `SessionContext` with `PEIRaw string` and propagate through `ParsePEI` for the `mac-` / `eui64-` cases, OR document deferral as permanent if the use case never materialises. | STORY-094 / STORY-097 | OPEN |
+| D-184 | STORY-093 Gate (F-A7) | AC-10 1M-SIM bench evidence currently substituted with parser microbenchmarks (RADIUS 43 ns/op + Diameter 104 ns/op + 5G SBA 22 ns/op = ~169 ns aggregate; 1183× margin under the 200 µs target). Real 1M-SIM rig is out of CI. Schedule a literal AC-10 run on the real bench when STORY-094 binding pre-check lands (which has its own perf budget and re-uses the same hot path). Update plan §AC-10 Perf Addendum with the measured number. | STORY-094 | OPEN |
 
 ---
 

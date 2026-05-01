@@ -180,8 +180,8 @@ func TestSBAFullFlow_NsmfAllocates(t *testing.T) {
 	// Mount the full SBA handler surface on an httptest.Server. We don't use
 	// aaasba.NewServer directly (it owns NRF heartbeats + TLS boot) — this
 	// mirrors the approach the simulator integration_test.go takes.
-	ausf := NewAUSFHandler(nil, nil, zerolog.Nop())
-	udm := NewUDMHandler(nil, nil, zerolog.Nop())
+	ausf := NewAUSFHandler(nil, nil, nil, zerolog.Nop())
+	udm := NewUDMHandler(nil, nil, nil, zerolog.Nop())
 	nsmf := NewNsmfHandler(resolver, simStore, ipPoolStore, nil /* simCache nil — permitted */, zerolog.Nop())
 
 	mux := http.NewServeMux()

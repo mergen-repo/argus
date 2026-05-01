@@ -41,7 +41,7 @@ func newTestClient(t *testing.T, serverURL string) *Client {
 // newAUSFMux returns a ServeMux wired to the real AUSFHandler — same routing
 // as internal/aaa/sba/server.go:75-84.
 func newAUSFMux() *http.ServeMux {
-	handler := argussba.NewAUSFHandler(nil, nil, zerolog.Nop())
+	handler := argussba.NewAUSFHandler(nil, nil, nil, zerolog.Nop())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nausf-auth/v1/ue-authentications", handler.HandleAuthentication)
 	mux.HandleFunc("/nausf-auth/v1/ue-authentications/", func(w http.ResponseWriter, r *http.Request) {

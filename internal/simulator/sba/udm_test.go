@@ -21,7 +21,7 @@ import (
 // The real handler only accepts PUT on the registration path (returns 405 for
 // DELETE). Tests that require DELETE are wired to a separate mock mux.
 func newUDMMux() *http.ServeMux {
-	handler := argussba.NewUDMHandler(nil, nil, zerolog.Nop())
+	handler := argussba.NewUDMHandler(nil, nil, nil, zerolog.Nop())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nudm-uecm/v1/", handler.HandleRegistration)
 	mux.HandleFunc("/nudm-ueau/v1/", func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +209,7 @@ func TestUDM_RegisterCanary_ShapeValidation(t *testing.T) {
 
 	// Use real handler which echoes the body back.
 	mux := http.NewServeMux()
-	handler := argussba.NewUDMHandler(nil, nil, zerolog.Nop())
+	handler := argussba.NewUDMHandler(nil, nil, nil, zerolog.Nop())
 	mux.HandleFunc("/nudm-uecm/v1/", handler.HandleRegistration)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

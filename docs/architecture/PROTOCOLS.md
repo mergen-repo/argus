@@ -557,7 +557,16 @@ Note: NB-IoT and LTE-M are variants of E-UTRAN. Standard RADIUS/Diameter may rep
 
 ### SessionContext Population
 
-After protocol-specific parsing the AAA engine writes a uniform structure into the policy SessionContext **before** policy DSL evaluation:
+After protocol-specific parsing the AAA engine writes the captured device identity onto `SessionContext` **before** policy DSL evaluation. STORY-093 ships the *flat* shape (lower touch, no struct nesting); STORY-094 will migrate this surface to a nested `SessionContext.Device { ... }` struct as the binding pre-check + change-detection workflow lands and additional fields (TAC, IMEISV, PEIRaw, CaptureProtocol, BindingStatus) are populated alongside IMEI / SoftwareVersion.
+
+**STORY-093 (current — flat fields on `SessionContext`):**
+
+```go
+SessionContext.IMEI            string  // normalized 15 digits, or empty
+SessionContext.SoftwareVersion string  // 2 digits, or empty
+```
+
+**STORY-094+ (forward — nested `Device` struct):**
 
 ```
 SessionContext.Device {

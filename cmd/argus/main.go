@@ -1351,6 +1351,7 @@ func runServe(cfg *config.Config) {
 			SessionMgr:  sbaSessionMgr,
 			EventBus:    eventBus,
 			Logger:      log.Logger,
+			MetricsReg:  metricsReg,
 			SIMResolver: sbaSIMCache,
 			SIMStore:    simStore,
 			IPPoolStore: ippoolStore,

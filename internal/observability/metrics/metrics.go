@@ -97,6 +97,10 @@ type Registry struct {
 
 	IMSIInvalidTotal *prometheus.CounterVec
 
+	// STORY-093 — IMEI capture parser error counter.
+	// Labels: protocol ("radius" | "diameter_s6a" | "5g_sba"). Bounded cardinality.
+	IMEICaptureParseErrorsTotal *prometheus.CounterVec
+
 	DataIntegrityViolationsTotal *prometheus.CounterVec
 
 	AggregatesCacheHits    *prometheus.CounterVec
@@ -318,6 +322,12 @@ func NewRegistry() *Registry {
 		Help: "Malformed IMSIs rejected by IMSI_STRICT_VALIDATION. Labels: source.",
 	}, []string{"source"})
 	reg.MustRegister(r.IMSIInvalidTotal)
+
+	r.IMEICaptureParseErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_imei_capture_parse_errors_total",
+		Help: "IMEI/SV parser errors during AAA capture. Labels: protocol (radius|diameter_s6a|5g_sba). STORY-093.",
+	}, []string{"protocol"})
+	reg.MustRegister(r.IMEICaptureParseErrorsTotal)
 
 	r.DataIntegrityViolationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_data_integrity_violations_total",
@@ -578,6 +588,16 @@ func (r *Registry) IncNASIPMissing() {
 		return
 	}
 	r.NASIPMissingTotal.Inc()
+}
+
+// IncIMEICaptureParseErrors increments the IMEI/SV parse-error counter for the
+// given protocol label. Label values: "radius", "diameter_s6a", "5g_sba". STORY-093.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncIMEICaptureParseErrors(protocol string) {
+	if r == nil || r.IMEICaptureParseErrorsTotal == nil {
+		return
+	}
+	r.IMEICaptureParseErrorsTotal.WithLabelValues(protocol).Inc()
 }
 
 // IncIMSIInvalid increments the malformed-IMSI counter for the given source label.

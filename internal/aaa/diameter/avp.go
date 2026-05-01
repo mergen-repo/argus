@@ -66,6 +66,11 @@ const (
 	AVPCodeQoSClassIdentifier     uint32 = 1028
 	AVPCodeRATType3GPP            uint32 = 1032
 
+	AVPCodeTerminalInformation uint32 = 350
+	AVPCodeIMEI                uint32 = 1402
+	AVPCodeSoftwareVersion     uint32 = 1403
+	AVPCodeIMEISV              uint32 = 1404
+
 	AVPCodeMaxRequestedBandwidthUL uint32 = 516
 	AVPCodeMaxRequestedBandwidthDL uint32 = 515
 

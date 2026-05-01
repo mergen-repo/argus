@@ -13,6 +13,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/eap"
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
@@ -30,6 +31,12 @@ type ServerDeps struct {
 	EventBus        *bus.EventBus
 	EAPStateMachine *eap.StateMachine
 	Logger          zerolog.Logger
+
+	// MetricsReg is forwarded to AUSFHandler / UDMHandler so PEI parse-error
+	// counter argus_imei_capture_parse_errors_total{protocol="5g_sba"} fires
+	// on malformed input (STORY-093 AC-6, gate F-A1). May be nil — counter
+	// helper is nil-safe.
+	MetricsReg *obsmetrics.Registry
 
 	// STORY-092 Wave 3 (D3-B): deps required by the Nsmf_PDUSession mock
 	// handler. All three may be nil; when any of them is nil, the Nsmf
@@ -78,8 +85,8 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		logger:     logger,
 	}
 
-	s.ausfHandler = NewAUSFHandler(deps.SessionMgr, deps.EventBus, logger)
-	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, logger)
+	s.ausfHandler = NewAUSFHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
+	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
 	s.eapProxyHandler = NewEAPProxyHandler(deps.EAPStateMachine, logger)
 	s.nrfRegistration = NewNRFRegistration(nrfCfg, logger)
 	s.nsmfHandler = NewNsmfHandler(deps.SIMResolver, deps.SIMStore, deps.IPPoolStore, deps.SIMCache, logger)

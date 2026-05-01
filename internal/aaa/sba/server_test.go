@@ -69,6 +69,55 @@ func TestAUSFAuthenticationInitiation(t *testing.T) {
 	}
 }
 
+func TestAUSFAuthenticationInitiation_WithPEI(t *testing.T) {
+	srv := newTestServer()
+
+	body := `{"supiOrSuci":"imsi-286010123456789","servingNetworkName":"5G:mnc001.mcc286.3gppnetwork.org","pei":"imei-359211089765432"}`
+	req := httptest.NewRequest(http.MethodPost, "/nausf-auth/v1/ue-authentications", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.ausfHandler.HandleAuthentication(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AuthenticationResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.AuthType != AuthType5GAKA {
+		t.Errorf("expected auth type %s, got %s", AuthType5GAKA, resp.AuthType)
+	}
+
+	if resp.AuthData5G == nil {
+		t.Fatal("expected 5gAuthData to be present")
+	}
+
+	link, ok := resp.Links["5g-aka"]
+	if !ok {
+		t.Fatal("expected 5g-aka link")
+	}
+	if !strings.Contains(link.Href, "/5g-aka-confirmation") {
+		t.Errorf("unexpected link href: %s", link.Href)
+	}
+
+	authCtxID := strings.TrimPrefix(link.Href, "/nausf-auth/v1/ue-authentications/")
+	authCtxID = strings.TrimSuffix(authCtxID, "/5g-aka-confirmation")
+	authCtx, found := srv.ausfHandler.GetContext(authCtxID)
+	if !found {
+		t.Fatal("expected auth context to be stored")
+	}
+	if authCtx.IMEI != "359211089765432" {
+		t.Errorf("expected IMEI 359211089765432, got %q", authCtx.IMEI)
+	}
+	if authCtx.SoftwareVersion != "" {
+		t.Errorf("expected empty SoftwareVersion for imei- prefix, got %q", authCtx.SoftwareVersion)
+	}
+}
+
 func TestAUSFAuthenticationConfirmationSuccess(t *testing.T) {
 	srv := newTestServer()
 

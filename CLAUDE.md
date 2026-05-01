@@ -115,10 +115,10 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: — (Wave 10 P2 6/6 COMPLETE; Phase Gate PASS commit e00d0ff + e46e0db handoffs; AUTOPILOT STOPPED per protocol)
-- Phase: UI Review Remediation [IN PROGRESS] — 2026-04-19
-- Story: —
-- Step: —
+- Mode: AUTOPILOT (Phase 11: Enterprise Readiness Pack — started 2026-05-01)
+- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01
+- Story: STORY-093 — IMEI Capture (RADIUS + Diameter S6a + 5G SBA)
+- Step: Plan
 - Last closed: FIX-247 [x] DONE 2026-04-30 (Wave 10 P2 S — Remove Admin Global Sessions UI; F-320 closed; 9/9 ACs PASS; UI-only removal pattern — page/hook/route/sidebar deleted, BE handler+routes+store retained per AC-5; DEV-580; PAT-026 RECURRENCE [FIX-247] — limited sweep documented exception; D-180 routed for dormant handler cleanup; tsc PASS, vite build 2.65s, go build/vet/test PASS; combined Gate+Review S-story dispatch)
 - Wave 10 P2 6/6 COMPLETE (FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 + FIX-247)
 - Earlier: FIX-238 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove Roaming Feature full stack; F-229 closed; 10/10 ACs PASS; full BE/FE/DB/DSL/test/doc sweep; AC-10 boot-time keyword archiver + idempotent audit; DEV-579; PAT-026 RECURRENCE; GLOSSARY 7 entries updated; 4 USERTEST scenarios added; 3803 Go tests PASS; tsc 0; 0 deferred D-NNN)
