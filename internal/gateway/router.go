@@ -54,62 +54,63 @@ import (
 )
 
 type RouterDeps struct {
-	Health                *HealthHandler
-	AuthHandler           *authapi.AuthHandler
-	TenantHandler         *tenantapi.Handler
-	UserHandler           *userapi.Handler
-	AuditHandler          *auditapi.Handler
-	APIKeyHandler         *apikeyapi.Handler
-	OperatorHandler       *operatorapi.Handler
-	APNHandler            *apnapi.Handler
-	IPPoolHandler         *ippoolapi.Handler
-	SIMHandler            *simapi.Handler
-	ESimHandler           *esimapi.Handler
-	SegmentHandler        *segmentapi.Handler
-	BulkHandler           *simapi.BulkHandler
-	JobHandler            *jobapi.Handler
-	MSISDNHandler         *msisdnapi.Handler
-	SessionHandler        *sessionapi.Handler
-	PolicyHandler         *policyapi.Handler
-	OTAHandler            *otaapi.Handler
-	CDRHandler            *cdrapi.Handler
-	AnalyticsHandler      *analyticsapi.Handler
-	AnomalyHandler        *anomalyapi.Handler
-	AlertHandler          *alertapi.Handler
-	EventsCatalogHandler  *eventsapi.Handler
-	NotificationHandler   *notifapi.Handler
-	SMSWebhookHandler     *notifapi.SMSWebhookHandler
-	DiagnosticsHandler    *diagapi.Handler
-	MetricsHandler        *metricsapi.Handler
-	ViolationHandler      *violationapi.Handler
-	DashboardHandler      *dashboardapi.Handler
-	SLAHandler            *slaapi.Handler
-	ReportsHandler        *reportsapi.Handler
-	ReportDownload        *reportsapi.DownloadDeps // FIX-248 DEV-561: nil → no public download route
-	ReliabilityHandler    *systemapi.ReliabilityHandler
-	StatusHandler         *systemapi.StatusHandler
-	SystemConfigHandler   *systemapi.ConfigHandler
-	RevokeSessionsHandler *systemapi.RevokeSessionsHandler
-	CapacityHandler       *systemapi.CapacityHandler
-	OnboardingHandler     *onboardingapi.Handler
-	WebhookHandler        *webhookapi.Handler
-	SMSHandler            *smsapi.Handler
-	OpsHandler            *opsapi.Handler
-	AdminHandler          *adminapi.Handler
-	SearchHandler         *searchapi.Handler
-	AnnouncementHandler   *announcementapi.Handler
-	UndoHandler           *undoapi.Handler
-	KillSwitchSvc         killSwitchChecker
-	APIKeyStore           *store.APIKeyStore
-	TenantLimits          *TenantLimitsMiddleware
-	BulkRateLimiter       *BulkRateLimiter
-	RedisClient           *redis.Client
-	RateLimitPerMinute    int
-	RateLimitPerHour      int
-	JWTSecret             string
-	JWTSecretPrevious     string
-	Logger                zerolog.Logger
-	MetricsReg            *metrics.Registry
+	Health                  *HealthHandler
+	AuthHandler             *authapi.AuthHandler
+	TenantHandler           *tenantapi.Handler
+	UserHandler             *userapi.Handler
+	AuditHandler            *auditapi.Handler
+	APIKeyHandler           *apikeyapi.Handler
+	OperatorHandler         *operatorapi.Handler
+	APNHandler              *apnapi.Handler
+	IPPoolHandler           *ippoolapi.Handler
+	SIMHandler              *simapi.Handler
+	SIMDeviceBindingHandler *simapi.DeviceBindingHandler
+	ESimHandler             *esimapi.Handler
+	SegmentHandler          *segmentapi.Handler
+	BulkHandler             *simapi.BulkHandler
+	JobHandler              *jobapi.Handler
+	MSISDNHandler           *msisdnapi.Handler
+	SessionHandler          *sessionapi.Handler
+	PolicyHandler           *policyapi.Handler
+	OTAHandler              *otaapi.Handler
+	CDRHandler              *cdrapi.Handler
+	AnalyticsHandler        *analyticsapi.Handler
+	AnomalyHandler          *anomalyapi.Handler
+	AlertHandler            *alertapi.Handler
+	EventsCatalogHandler    *eventsapi.Handler
+	NotificationHandler     *notifapi.Handler
+	SMSWebhookHandler       *notifapi.SMSWebhookHandler
+	DiagnosticsHandler      *diagapi.Handler
+	MetricsHandler          *metricsapi.Handler
+	ViolationHandler        *violationapi.Handler
+	DashboardHandler        *dashboardapi.Handler
+	SLAHandler              *slaapi.Handler
+	ReportsHandler          *reportsapi.Handler
+	ReportDownload          *reportsapi.DownloadDeps // FIX-248 DEV-561: nil → no public download route
+	ReliabilityHandler      *systemapi.ReliabilityHandler
+	StatusHandler           *systemapi.StatusHandler
+	SystemConfigHandler     *systemapi.ConfigHandler
+	RevokeSessionsHandler   *systemapi.RevokeSessionsHandler
+	CapacityHandler         *systemapi.CapacityHandler
+	OnboardingHandler       *onboardingapi.Handler
+	WebhookHandler          *webhookapi.Handler
+	SMSHandler              *smsapi.Handler
+	OpsHandler              *opsapi.Handler
+	AdminHandler            *adminapi.Handler
+	SearchHandler           *searchapi.Handler
+	AnnouncementHandler     *announcementapi.Handler
+	UndoHandler             *undoapi.Handler
+	KillSwitchSvc           killSwitchChecker
+	APIKeyStore             *store.APIKeyStore
+	TenantLimits            *TenantLimitsMiddleware
+	BulkRateLimiter         *BulkRateLimiter
+	RedisClient             *redis.Client
+	RateLimitPerMinute      int
+	RateLimitPerHour        int
+	JWTSecret               string
+	JWTSecretPrevious       string
+	Logger                  zerolog.Logger
+	MetricsReg              *metrics.Registry
 
 	CORSConfig           *CORSConfig
 	SecurityHeadersCfg   *SecurityHeadersConfig
@@ -459,6 +460,16 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/sims/{id}/terminate", deps.SIMHandler.Terminate)
 			})
 
+			if deps.SIMDeviceBindingHandler != nil {
+				r.Group(func(r chi.Router) {
+					r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+					r.Use(RequireRole("sim_manager"))
+					r.Get("/api/v1/sims/{id}/device-binding", deps.SIMDeviceBindingHandler.Get)
+					r.Patch("/api/v1/sims/{id}/device-binding", deps.SIMDeviceBindingHandler.Patch)
+					r.Get("/api/v1/sims/{id}/imei-history", deps.SIMDeviceBindingHandler.GetIMEIHistory)
+				})
+			}
+
 			r.Group(func(r chi.Router) {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("analyst"))
@@ -516,6 +527,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("sim_manager"))
 				r.Post("/api/v1/sims/bulk/import", deps.BulkHandler.Import)
+				r.With(bulkRL).Post("/api/v1/sims/bulk/device-bindings", deps.BulkHandler.DeviceBindingsCSV)
 				r.With(bulkRL).Post("/api/v1/sims/bulk/state-change", deps.BulkHandler.StateChange)
 				// FIX-236 DEV-549: filter-based bulk variants (preview + state change).
 				r.With(bulkRL).Post("/api/v1/sims/bulk/preview-count", deps.BulkHandler.PreviewCount)
@@ -790,7 +802,6 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/dashboard", deps.DashboardHandler.GetDashboard)
 			})
 		}
-
 
 		if deps.SLAHandler != nil {
 			r.Group(func(r chi.Router) {

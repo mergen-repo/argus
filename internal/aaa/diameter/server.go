@@ -11,6 +11,7 @@ import (
 
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/rs/zerolog"
 )
@@ -34,7 +35,12 @@ type ServerDeps struct {
 	// without a Framed-IP-Address AVP (matches pre-STORY-092 behaviour).
 	IPPoolStore *store.IPPoolStore
 	SIMStore    *store.SIMStore
-	Logger      zerolog.Logger
+	// MetricsReg forwards the Prometheus registry into the S6a handler so the
+	// argus_imei_capture_parse_errors_total{protocol="diameter_s6a"} counter
+	// fires on malformed Terminal-Information AVP input (STORY-094 D-182).
+	// Nil-safe: when absent the counter is not incremented (dev/test builds).
+	MetricsReg *obsmetrics.Registry
+	Logger     zerolog.Logger
 }
 
 type PeerState int
@@ -101,9 +107,10 @@ type Server struct {
 	eventBus   *bus.EventBus
 	logger     zerolog.Logger
 
-	gxHandler *GxHandler
-	gyHandler *GyHandler
-	stateMap  *SessionStateMap
+	gxHandler  *GxHandler
+	gyHandler  *GyHandler
+	s6aHandler *S6aHandler
+	stateMap   *SessionStateMap
 
 	listener net.Listener
 	peers    sync.Map
@@ -142,6 +149,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, deps.IPPoolStore, deps.SIMStore, stateMap, logger)
 	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
+	s.s6aHandler = NewS6aHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
 
 	s.hopID.Store(uint32(time.Now().UnixNano() & 0xFFFFFFFF))
 	s.endID.Store(uint32(time.Now().UnixNano()>>32) & 0xFFFFFFFF)
@@ -357,6 +365,14 @@ func (s *Server) handleMessage(peer *Peer, msg *Message) {
 		s.handleCCR(peer, msg)
 	case CommandRAR:
 		s.logger.Debug().Msg("received RAR — not handled as server")
+	case CommandULR:
+		ans := s.s6aHandler.HandleULR(msg)
+		s.addOriginAVPs(ans)
+		s.sendMessage(peer, ans)
+	case CommandNTR:
+		ans := s.s6aHandler.HandleNTR(msg)
+		s.addOriginAVPs(ans)
+		s.sendMessage(peer, ans)
 	default:
 		s.logger.Warn().
 			Uint32("cmd", msg.CommandCode).

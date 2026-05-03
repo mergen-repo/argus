@@ -484,6 +484,19 @@ func (p *Parser) parseConditionExpr() Condition {
 	return p.parseOrExpr()
 }
 
+// isConditionTerminator reports whether the given token type ends a
+// SimpleCondition (used by the STORY-094 standalone function-call shape
+// to decide whether a comparator is expected after the closing ')').
+// Terminators are: WHEN-body start ('{'), boolean combinators (AND/OR),
+// group close (')'), block close ('}'), and EOF.
+func isConditionTerminator(t TokenType) bool {
+	switch t {
+	case TokenLBrace, TokenAnd, TokenOr, TokenRParen, TokenRBrace, TokenEOF:
+		return true
+	}
+	return false
+}
+
 func (p *Parser) parseOrExpr() Condition {
 	left := p.parseAndExpr()
 	for p.current().Type == TokenOr {
@@ -536,7 +549,53 @@ func (p *Parser) parseSimpleCondition() Condition {
 		return cond
 	}
 	cond.Field = p.current().Literal
+	identTok := p.current()
 	p.advance()
+
+	// STORY-094 — function-call shape: IDENT '(' (IDENT | STRING) ')'.
+	// Encodes Field as "<funcname>(<arg>)" so the evaluator can dispatch
+	// by prefix. Supports two callers:
+	//   tac(device.imei) == "35921108"
+	//   device.imei_in_pool("blacklist")        — standalone (truthy)
+	// Nested function calls are NOT supported in v1.
+	if p.current().Type == TokenLParen {
+		p.advance() // consume '('
+		var argLit string
+		argTok := p.current()
+		switch argTok.Type {
+		case TokenIdent, TokenString:
+			argLit = argTok.Literal
+			p.advance()
+		case TokenRParen:
+			p.addError(argTok.Line, argTok.Column, "DSL_SYNTAX_ERROR",
+				fmt.Sprintf("function call %q requires an argument", cond.Field))
+			p.advance()
+			return cond
+		default:
+			p.addError(argTok.Line, argTok.Column, "DSL_SYNTAX_ERROR",
+				fmt.Sprintf("expected identifier or string argument in function call, got %s", argTok.Type))
+			return cond
+		}
+		if _, ok := p.expect(TokenRParen); !ok {
+			return cond
+		}
+		cond.Field = fmt.Sprintf("%s(%s)", cond.Field, argLit)
+
+		// Standalone (truthy) form: no comparator follows. The next token
+		// is a condition terminator (block start, AND/OR, group close, EOF).
+		// Synthesize op="=" with value=true so the evaluator dispatches
+		// the function and compares against the synthetic truthy value.
+		if isConditionTerminator(p.current().Type) {
+			cond.Operator = "="
+			cond.Values = []Value{&BoolValue{
+				Val:    true,
+				Line:   identTok.Line,
+				Column: identTok.Column,
+			}}
+			return cond
+		}
+		// fall through to operator parsing for `tac(device.imei) == "..."`
+	}
 
 	opTok := p.current()
 	switch opTok.Type {

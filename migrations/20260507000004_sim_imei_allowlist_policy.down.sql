@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS sim_imei_allowlist_via_parent_sim ON sim_imei_allowlist;

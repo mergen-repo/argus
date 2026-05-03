@@ -56,6 +56,13 @@ This story does not change AAA enforcement — STORY-096 wires the pre-check tha
 - [ ] E2E: SIM List → toolbar IMEI Lookup → enter 15-digit IMEI → drawer opens → click Bound SIM link → navigates to SIM Detail.
 - [ ] Regression: full `make test` + Vitest + existing E2E suites green.
 
+## STORY-094 Handoff Notes (added by Reviewer 2026-05-01)
+
+- **D-187 — `simAllowlistStore` dormant:** `simAllowlistStore` is instantiated in `cmd/argus/main.go:630-631` but has no production consumer in STORY-094. STORY-095 MUST wire it through a real API consumer (Add/Remove/List/IsAllowed via pool-management endpoints). Comment in main.go updated to flag this: `// simAllowlistStore: production consumer ships in STORY-095 (D-187)`. Verify the dormant store gains a real caller; if STORY-095 chooses a different surface, route the store to deletion or relocation.
+- **`device.imei_in_pool` placeholder:** STORY-094 shipped `device.imei_in_pool('whitelist'|'greylist'|'blacklist')` returning `false` always (placeholder). STORY-095 MUST replace the placeholder evaluator with a real `IMEIPoolStore` lookup that applies both exact full-IMEI and TAC-range matching against TBL-56/57/58.
+- **Migration continuity:** STORY-094 shipped migrations `20260507000001..000004`. STORY-095 must use a timestamp > `20260507000004` for the pool-tables migration.
+- **PAT-031 guard:** Any PATCH handler in STORY-095 that accepts nullable fields must use non-pointer `json.RawMessage` + `decodeOptionalStringField` pattern (see PAT-031 in bug-patterns.md).
+
 ## Effort Estimate
 - Size: M
 - Complexity: Medium (3 tables + 5 endpoints + 2 frontend screens + bulk job; pattern reuse from STORY-013)

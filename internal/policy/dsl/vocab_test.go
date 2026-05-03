@@ -7,6 +7,12 @@ func TestVocab_NonEmpty(t *testing.T) {
 	if len(v.MatchFields) == 0 {
 		t.Error("MatchFields should not be empty")
 	}
+	if len(v.ConditionFields) == 0 {
+		t.Error("ConditionFields should not be empty")
+	}
+	if len(v.Functions) == 0 {
+		t.Error("Functions should not be empty")
+	}
 	if len(v.ChargingModels) == 0 {
 		t.Error("ChargingModels should not be empty")
 	}
@@ -30,7 +36,8 @@ func TestVocab_NonEmpty(t *testing.T) {
 func TestVocab_Sorted(t *testing.T) {
 	v := Vocab()
 	for _, list := range [][]string{
-		v.MatchFields, v.ChargingModels, v.OverageActions,
+		v.MatchFields, v.ConditionFields, v.Functions,
+		v.ChargingModels, v.OverageActions,
 		v.BillingCycles, v.Units, v.RuleKeywords, v.Actions,
 	} {
 		for i := 1; i < len(list); i++ {
@@ -72,5 +79,17 @@ func TestVocab_ContainsKnownEntries(t *testing.T) {
 	}
 	if !containsStr(v.Actions, "notify") {
 		t.Errorf("Actions should contain 'notify', got %v", v.Actions)
+	}
+	if !containsStr(v.ConditionFields, "device.imei") {
+		t.Errorf("ConditionFields should contain 'device.imei', got %v", v.ConditionFields)
+	}
+	if !containsStr(v.ConditionFields, "sim.binding_mode") {
+		t.Errorf("ConditionFields should contain 'sim.binding_mode', got %v", v.ConditionFields)
+	}
+	if !containsStr(v.Functions, "tac") {
+		t.Errorf("Functions should contain 'tac', got %v", v.Functions)
+	}
+	if !containsStr(v.Functions, "device.imei_in_pool") {
+		t.Errorf("Functions should contain 'device.imei_in_pool', got %v", v.Functions)
 	}
 }

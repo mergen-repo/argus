@@ -5752,3 +5752,105 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    - IMEI mevcut ve geçerliyse: `SessionContext.IMEI` dolu, auth normal devam eder.
    - Her iki durumda da auth sonucu DEĞİŞMEMELİ — IMEI capture tamamen read-only (AC-5).
 7. **Smoke (opsiyonel — backend dormant handler):** `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/admin/sessions/active` → HTTP 200 dönebilir (handler dormant ama erişilebilir; D-180 zero-callers audit ardından kaldırılacak).
+
+---
+
+## STORY-094: SIM-Device Binding Model + Policy DSL Extension
+
+> Backend-only story. Tüm testler API seviyesinde (curl / Go integration test) veya unit test seviyesinde çalıştırılır. UI kontrollerinde değişiklik yoktur.
+
+### UT-094-01: GET /device-binding — Binding Yapılandırılmamış SIM
+
+1. `make db-seed` ile temiz bir veritabanı oluşturun.
+2. Herhangi bir SIM ID'si alın: `SIM_ID=$(psql -c "SELECT id FROM sims LIMIT 1" -t | tr -d ' ')`.
+3. `curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/v1/sims/$SIM_ID/device-binding` çalıştırın.
+4. **Beklenen:** HTTP 200, `data.binding_mode = null`, `data.bound_imei = null`, `data.binding_status = null`, `data.history_count = 0`.
+
+### UT-094-02: PATCH /device-binding — binding_mode ve bound_imei Set Etme
+
+1. `SIM_ID` alın.
+2. `curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"binding_mode":"strict","bound_imei":"359211089765432"}' http://localhost:8084/api/v1/sims/$SIM_ID/device-binding` çalıştırın.
+3. **Beklenen:** HTTP 200, `data.binding_mode = "strict"`, `data.bound_imei = "359211089765432"`.
+4. Ardından GET ile kontrol edin — değişiklik kalıcı olmalı.
+5. `psql -c "SELECT count(*) FROM audit_logs WHERE action='sim.binding_mode_changed' AND entity_id='$SIM_ID'"` → 1 satır döndürmeli (audit kaydı oluşturuldu).
+
+### UT-094-03: PATCH /device-binding — Geçersiz binding_mode (422)
+
+1. `curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"binding_mode":"bogus_mode"}' http://localhost:8084/api/v1/sims/$SIM_ID/device-binding` çalıştırın.
+2. **Beklenen:** HTTP 422, `error.code = "INVALID_BINDING_MODE"`, DB'de değişiklik yok, audit satırı yok.
+
+### UT-094-04: PATCH /device-binding — Geçersiz bound_imei (422)
+
+1. `curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"bound_imei":"123"}' http://localhost:8084/api/v1/sims/$SIM_ID/device-binding` çalıştırın.
+2. **Beklenen:** HTTP 422, `error.code = "INVALID_IMEI"` (15 basamaklı olmalı şartı ihlali).
+
+### UT-094-05: PATCH /device-binding — binding_mode=null ile Temizleme (F-LEAD-1 fix)
+
+1. Önce UT-094-02 ile `binding_mode="strict"` set edin.
+2. `curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"binding_mode":null}' http://localhost:8084/api/v1/sims/$SIM_ID/device-binding` çalıştırın.
+3. **Beklenen:** HTTP 200, `data.binding_mode = null` — explicit null, alanı temizlemiş olmalı (F-LEAD-1 gate fix: `*json.RawMessage` pointer yerine value-typed decoder).
+
+### UT-094-06: PATCH /device-binding — No-op (F-A6 guard)
+
+1. `binding_mode="strict"` ve `bound_imei="359211089765432"` set edin.
+2. Aynı değerlerle tekrar PATCH yapın.
+3. **Beklenen:** HTTP 200, `data` aynı; `psql -c "SELECT count(*) FROM audit_logs WHERE action='sim.binding_mode_changed' AND entity_id='$SIM_ID'"` → önceki sayımdan artış YOK (F-A6 no-op guard çalışıyor).
+
+### UT-094-07: GET /imei-history — Cursor Pagination
+
+1. İmei history tablosuna test verisi ekleyin (fixture veya integration test ile).
+2. `curl -H "Authorization: Bearer $TOKEN" "http://localhost:8084/api/v1/sims/$SIM_ID/imei-history?limit=2"` çalıştırın.
+3. **Beklenen:** `meta.has_more = true`, `meta.next_cursor` dolu.
+4. `cursor` değeriyle ikinci sayfayı çekin → ilk sayfada olmayan satırlar gelir, döngü tamamlanır.
+
+### UT-094-08: GET /imei-history — Protokol Filtresi
+
+1. `curl -H "Authorization: Bearer $TOKEN" "http://localhost:8084/api/v1/sims/$SIM_ID/imei-history?protocol=radius"` çalıştırın.
+2. **Beklenen:** Yalnızca `capture_protocol = "radius"` olan satırlar döner; diğer protokol satırları yok.
+
+### UT-094-09: Cross-Tenant Erişim — 404
+
+1. Farklı bir tenant'ın SIM ID'sini alın (ya da geçersiz UUID kullanın).
+2. `curl -H "Authorization: Bearer $TOKEN_TENANT_A" http://localhost:8084/api/v1/sims/$SIM_ID_TENANT_B/device-binding` çalıştırın.
+3. **Beklenen:** HTTP 404, `error.code = "SIM_NOT_FOUND"` (RLS izolasyonu çalışıyor).
+
+### UT-094-10: POST /sims/bulk/device-bindings — CSV Yükle (202 + Job)
+
+1. 3 satırlı test CSV oluşturun:
+   ```
+   iccid,bound_imei,binding_mode
+   89901234567890123456,359211089765432,strict
+   UNKNOWN_ICCID_99999,359211089765433,strict
+   89901234567890123457,BAD_IMEI,strict
+   ```
+2. `curl -X POST -H "Authorization: Bearer $TOKEN" -F "file=@test.csv" http://localhost:8084/api/v1/sims/bulk/device-bindings` çalıştırın.
+3. **Beklenen:** HTTP 202, `data.job_id` dolu.
+4. Job tamamlanınca result endpoint'i kontrol edin → 1 başarı + 2 hata (`unknown_iccid` ve `invalid_imei`).
+
+### UT-094-11: DSL — device.binding_status ve sim.binding_mode Politikası (AC-13)
+
+1. Aşağıdaki DSL politikasını oluşturun:
+   ```
+   WHEN device.binding_status == "mismatch" AND sim.binding_mode IN ("strict","tac-lock") THEN reject
+   ```
+2. Policy dry-run endpoint'ini kullanarak politikayı `binding_status="mismatch"`, `binding_mode="strict"` olan sentetik bir SessionContext ile çalıştırın.
+3. **Beklenen:** `result.allow = false` (politika tetiklendi).
+4. `binding_status="verified"` ile tekrar çalıştırın → `result.allow = true`.
+5. `make test` → `go test ./internal/policy/dsl/...` tümü PASS (AC-11/12/13 regresyon).
+
+### UT-094-12: Diameter S6a Notify-Request — IMEI Capture (D-182 Kapatma)
+
+1. Test ortamında Diameter S6a Notify-Request simüle edin (ya da `go test ./internal/aaa/diameter/... -run TestS6aIMEICapture`).
+2. Terminal-Information AVP (kod 350) geçerli IMEI ve SW version içersin.
+3. **Beklenen:** `session.IMEI` ve `session.SoftwareVersion` Redis'te güncellenir; DB'de değişiklik yok; `argus_imei_capture_parse_errors_total{protocol="diameter_s6a"}` artmaz.
+
+### UT-094-13: Diameter S6a — Malformed AVP — Sayaç Artışı
+
+1. `go test ./internal/aaa/diameter/... -run TestS6aIMEICapture_Malformed` çalıştırın.
+2. **Beklenen:** `argus_imei_capture_parse_errors_total{protocol="diameter_s6a"}` 1 artar; session alanları boş kalır; panik yok.
+
+### UT-094-14: Regresyon — make db-seed + binding_mode=NULL Doğrulama (DEV-410 / AC-15)
+
+1. `make db-seed` çalıştırın (temiz DB üzerinde).
+2. `psql -c "SELECT COUNT(*) FROM sims WHERE binding_mode IS NOT NULL"` → **0** dönmeli.
+3. `make test` çalıştırın → tüm paket yeşil (F-B1, F-A2, F-A6, F-LEAD-1 regresyon testleri dahil).

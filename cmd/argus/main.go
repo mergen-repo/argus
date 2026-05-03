@@ -30,9 +30,9 @@ import (
 	aaasession "github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/analytics/aggregates"
 	anomalysvc "github.com/btopcu/argus/internal/analytics/anomaly"
-	"github.com/btopcu/argus/internal/analytics/digest"
 	cdrsvc "github.com/btopcu/argus/internal/analytics/cdr"
 	costsvc "github.com/btopcu/argus/internal/analytics/cost"
+	"github.com/btopcu/argus/internal/analytics/digest"
 	analyticmetrics "github.com/btopcu/argus/internal/analytics/metrics"
 	adminapi "github.com/btopcu/argus/internal/api/admin"
 	alertapi "github.com/btopcu/argus/internal/api/alert"
@@ -627,6 +627,9 @@ func runServe(cfg *config.Config) {
 	ippoolStore := store.NewIPPoolStore(pg.Pool)
 	adapterRegistry := adapter.NewRegistry()
 	simStore := store.NewSIMStore(pg.Pool)
+	simAllowlistStore := store.NewSIMIMEIAllowlistStore(pg.Pool, simStore)
+	_ = simAllowlistStore // simAllowlistStore: production consumer ships in STORY-095 (D-187)
+	imeiHistoryStore := store.NewIMEIHistoryStore(pg.Pool, simStore)
 	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	operatorMetricsCDRStore := store.NewCDRStore(pg.Pool)
 	aggSessionStore := store.NewRadiusSessionStore(pg.Pool)
@@ -690,6 +693,7 @@ func runServe(cfg *config.Config) {
 	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	cdrStore := store.NewCDRStore(pg.Pool)
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation), simapi.WithEventBus(eventBus))
+	deviceBindingHandler := simapi.NewDeviceBindingHandler(simStore, imeiHistoryStore, auditSvc, log.Logger)
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger,
@@ -829,6 +833,8 @@ func runServe(cfg *config.Config) {
 	ipReclaimProc := job.NewIPReclaimProcessor(jobStore, ippoolStore, eventBus, &auditRecorderAdapter{svc: auditSvc}, log.Logger)
 	slaReportProc := job.NewSLAReportProcessor(jobStore, slaReportStore, operatorStore, tenantStore, slaRadiusSessionStore, eventBus, log.Logger)
 	readSegmentStore := store.NewSegmentStore(readPool)
+	bulkDeviceBindingsProc := job.NewBulkDeviceBindingsProcessor(jobStore, simStore, eventBus, log.Logger)
+	bulkDeviceBindingsProc.SetAuditor(auditSvc)
 	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, readSegmentStore, distLock, eventBus, log.Logger)
 	bulkStateChangeProc.SetAuditor(auditSvc)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
@@ -856,6 +862,7 @@ func runServe(cfg *config.Config) {
 	jobRunner.Register(purgeSweepProc)
 	jobRunner.Register(ipReclaimProc)
 	jobRunner.Register(slaReportProc)
+	jobRunner.Register(bulkDeviceBindingsProc)
 	jobRunner.Register(bulkStateChangeProc)
 	jobRunner.Register(bulkPolicyAssignProc)
 	jobRunner.Register(otaProcessor)
@@ -1302,6 +1309,7 @@ func runServe(cfg *config.Config) {
 			SIMResolver: diamSimResolver,
 			IPPoolStore: ippoolStore,
 			SIMStore:    simStore,
+			MetricsReg:  metricsReg,
 			Logger:      log.Logger,
 		})
 
@@ -1747,64 +1755,65 @@ func runServe(cfg *config.Config) {
 	)
 
 	router := gateway.NewRouterWithDeps(gateway.RouterDeps{
-		Health:               health,
-		AuthHandler:          authHandler,
-		TenantHandler:        tenantHandler,
-		UserHandler:          userHandler,
-		AuditHandler:         auditHandler,
-		APIKeyHandler:        apiKeyHandler,
-		OperatorHandler:      operatorHandler,
-		APNHandler:           apnHandler,
-		IPPoolHandler:        ippoolHandler,
-		SIMHandler:           simHandler,
-		ESimHandler:          esimHandler,
-		SegmentHandler:       segmentHandler,
-		BulkHandler:          bulkHandler,
-		JobHandler:           jobHandler,
-		MSISDNHandler:        msisdnHandler,
-		SessionHandler:       sessionHandler,
-		PolicyHandler:        policyHandler,
-		OTAHandler:           otaHandler,
-		DiagnosticsHandler:   diagHandler,
-		CDRHandler:           cdrHandler,
-		AnalyticsHandler:     analyticsHandler,
-		AnomalyHandler:       anomalyHandler,
-		AlertHandler:         alertHandler,
-		EventsCatalogHandler: eventsCatalogHandler,
-		NotificationHandler:  notifHandler,
-		MetricsHandler:       metricsHandler,
-		ViolationHandler:     violationHandler,
-		DashboardHandler:     dashboardHandler,
-		SLAHandler:           slaHandler,
-		ReportsHandler:       reportsHandler,
-		ReportDownload:       buildReportDownloadDeps(reportStorage, cfg, log.Logger),
-		ReliabilityHandler:   reliabilityHandler,
-		StatusHandler:        statusHandler,
-		SystemConfigHandler:  systemConfigHandler,
-		CapacityHandler:      capacityHandler,
-		OnboardingHandler:    onboardingHandler,
-		WebhookHandler:       webhookHandler,
-		SMSHandler:           smsHandler,
-		OpsHandler:           opsHandler,
-		AdminHandler:         adminHandler,
-		SearchHandler:        searchHandler,
-		AnnouncementHandler:  announcementHandler,
-		UndoHandler:          undoHandler,
-		KillSwitchSvc:        killSwitchSvc,
-		APIKeyStore:          apiKeyStore,
-		TenantLimits:         tenantLimits,
-		BulkRateLimiter:      bulkRateLimiter,
-		RedisClient:          rdb.Client,
-		RateLimitPerMinute:   cfg.RateLimitPerMinute,
-		RateLimitPerHour:     cfg.RateLimitPerHour,
-		JWTSecret:            cfg.JWTSecret,
-		JWTSecretPrevious:    cfg.JWTSecretPrevious,
-		Logger:               log.Logger,
-		SecurityHeadersCfg:   &secHeadersCfg,
-		CORSConfig:           &corsCfg,
-		BruteForceCfg:        &bfCfg,
-		EnableInputSanitizer: true,
-		MetricsReg:           metricsReg,
+		Health:                  health,
+		AuthHandler:             authHandler,
+		TenantHandler:           tenantHandler,
+		UserHandler:             userHandler,
+		AuditHandler:            auditHandler,
+		APIKeyHandler:           apiKeyHandler,
+		OperatorHandler:         operatorHandler,
+		APNHandler:              apnHandler,
+		IPPoolHandler:           ippoolHandler,
+		SIMHandler:              simHandler,
+		SIMDeviceBindingHandler: deviceBindingHandler,
+		ESimHandler:             esimHandler,
+		SegmentHandler:          segmentHandler,
+		BulkHandler:             bulkHandler,
+		JobHandler:              jobHandler,
+		MSISDNHandler:           msisdnHandler,
+		SessionHandler:          sessionHandler,
+		PolicyHandler:           policyHandler,
+		OTAHandler:              otaHandler,
+		DiagnosticsHandler:      diagHandler,
+		CDRHandler:              cdrHandler,
+		AnalyticsHandler:        analyticsHandler,
+		AnomalyHandler:          anomalyHandler,
+		AlertHandler:            alertHandler,
+		EventsCatalogHandler:    eventsCatalogHandler,
+		NotificationHandler:     notifHandler,
+		MetricsHandler:          metricsHandler,
+		ViolationHandler:        violationHandler,
+		DashboardHandler:        dashboardHandler,
+		SLAHandler:              slaHandler,
+		ReportsHandler:          reportsHandler,
+		ReportDownload:          buildReportDownloadDeps(reportStorage, cfg, log.Logger),
+		ReliabilityHandler:      reliabilityHandler,
+		StatusHandler:           statusHandler,
+		SystemConfigHandler:     systemConfigHandler,
+		CapacityHandler:         capacityHandler,
+		OnboardingHandler:       onboardingHandler,
+		WebhookHandler:          webhookHandler,
+		SMSHandler:              smsHandler,
+		OpsHandler:              opsHandler,
+		AdminHandler:            adminHandler,
+		SearchHandler:           searchHandler,
+		AnnouncementHandler:     announcementHandler,
+		UndoHandler:             undoHandler,
+		KillSwitchSvc:           killSwitchSvc,
+		APIKeyStore:             apiKeyStore,
+		TenantLimits:            tenantLimits,
+		BulkRateLimiter:         bulkRateLimiter,
+		RedisClient:             rdb.Client,
+		RateLimitPerMinute:      cfg.RateLimitPerMinute,
+		RateLimitPerHour:        cfg.RateLimitPerHour,
+		JWTSecret:               cfg.JWTSecret,
+		JWTSecretPrevious:       cfg.JWTSecretPrevious,
+		Logger:                  log.Logger,
+		SecurityHeadersCfg:      &secHeadersCfg,
+		CORSConfig:              &corsCfg,
+		BruteForceCfg:           &bfCfg,
+		EnableInputSanitizer:    true,
+		MetricsReg:              metricsReg,
 	})
 
 	srv := &http.Server{

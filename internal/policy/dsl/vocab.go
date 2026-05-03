@@ -10,13 +10,15 @@ import "sort"
 //
 // FIX-243 Wave A — DSL real-time validate endpoint.
 type VocabSnapshot struct {
-	MatchFields    []string `json:"match_fields"`
-	ChargingModels []string `json:"charging_models"`
-	OverageActions []string `json:"overage_actions"`
-	BillingCycles  []string `json:"billing_cycles"`
-	Units          []string `json:"units"`
-	RuleKeywords   []string `json:"rule_keywords"`
-	Actions        []string `json:"actions"`
+	MatchFields     []string `json:"match_fields"`
+	ConditionFields []string `json:"condition_fields"`
+	Functions       []string `json:"functions"`
+	ChargingModels  []string `json:"charging_models"`
+	OverageActions  []string `json:"overage_actions"`
+	BillingCycles   []string `json:"billing_cycles"`
+	Units           []string `json:"units"`
+	RuleKeywords    []string `json:"rule_keywords"`
+	Actions         []string `json:"actions"`
 }
 
 // Vocab returns the snapshot of the DSL's whitelisted vocabulary.
@@ -24,13 +26,15 @@ type VocabSnapshot struct {
 // (FE autocomplete relies on stable ordering).
 func Vocab() VocabSnapshot {
 	return VocabSnapshot{
-		MatchFields:    sortedKeysBool(validMatchFields),
-		ChargingModels: sortedKeysBool(validChargingModels),
-		OverageActions: sortedKeysBool(validOverageActions),
-		BillingCycles:  sortedKeysBool(validBillingCycles),
-		Units:          sortedKeysBool(unitSet),
-		RuleKeywords:   ruleKeywordList(),
-		Actions:        validActionList(),
+		MatchFields:     sortedKeysBool(validMatchFields),
+		ConditionFields: conditionFieldList(),
+		Functions:       functionList(),
+		ChargingModels:  sortedKeysBool(validChargingModels),
+		OverageActions:  sortedKeysBool(validOverageActions),
+		BillingCycles:   sortedKeysBool(validBillingCycles),
+		Units:           sortedKeysBool(unitSet),
+		RuleKeywords:    ruleKeywordList(),
+		Actions:         validActionList(),
 	}
 }
 
@@ -58,4 +62,28 @@ func ruleKeywordList() []string {
 // (*Parser).validateAction.
 func validActionList() []string {
 	return []string{"block", "disconnect", "log", "notify", "suspend", "tag", "throttle"}
+}
+
+// conditionFieldList returns the canonical field names valid in WHEN
+// conditions. Kept in sync with the switch statement in
+// (*Evaluator).getConditionFieldValue. STORY-094 added the device.* and
+// sim.* fields. Returned alphabetically sorted.
+func conditionFieldList() []string {
+	return []string{
+		"device.binding_status",
+		"device.imei",
+		"device.imeisv",
+		"device.software_version",
+		"device.tac",
+		"sim.binding_mode",
+		"sim.binding_verified_at",
+		"sim.bound_imei",
+	}
+}
+
+// functionList returns the function names callable in WHEN conditions.
+// STORY-094 added tac() and device.imei_in_pool(). Returned
+// alphabetically sorted.
+func functionList() []string {
+	return []string{"device.imei_in_pool", "tac"}
 }

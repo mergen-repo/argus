@@ -68,6 +68,14 @@ This is the "teeth" of the IMEI epic — the story where stolen-device protectio
 - [ ] Unit: enforcer logic table — 6 modes × (bound IMEI present / absent) × (observed IMEI match / differ / empty) × (in pool / not).
 - [ ] Regression: full `make test` + existing AAA E2E suites green.
 
+## STORY-094 Handoff Notes (added by Reviewer 2026-05-01)
+
+- **D-184 — 1M-SIM benchmark re-targeted here:** STORY-094 has no enforcement on the AAA hot path, so the 1M-SIM bench is not meaningful there. D-184 target updated to STORY-096. Run the literal 1M-SIM bench when the binding pre-check lands on the auth hot path; record p95 latency overhead and update plan §Perf note.
+- **`BindingStatus` / `BindingMode` writes:** STORY-094 STORY-094 ships the column model (`sims.binding_status`, `sims.binding_mode`) and the `SetDeviceBinding` store method. STORY-096 is the FIRST story to write `binding_status` back to the DB during auth (e.g., transition `pending → verified`, `verified → mismatch`). Do not add binding_status writes in STORY-095.
+- **`imei_history.Append` stub:** STORY-094 shipped `IMEIHistoryStore` with `List` + a stub `Append`. STORY-096 is the consumer of `Append` on every auth that captures an IMEI. Implement the full `Append` method (per-protocol, `was_mismatch`, `alarm_raised` fields) during this story.
+- **PAT-006 guard:** The enforcer that calls `SetDeviceBinding` must pre-fetch existing state (as F-A2 mandated for the bulk worker) before any UPDATE that patches only some binding fields.
+- **PAT-031 guard:** Any new PATCH handler in STORY-096 that accepts nullable fields must use non-pointer `json.RawMessage` + `decodeOptionalStringField`.
+
 ## Effort Estimate
 - Size: L
 - Complexity: High (six modes × three protocols, perf budget, audit + notification + history side effects all in the auth-hot path)

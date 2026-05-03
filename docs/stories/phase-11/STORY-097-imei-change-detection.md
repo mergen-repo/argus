@@ -39,6 +39,13 @@ The grace-period countdown alert is the second feature: a scheduled job notifies
 - Blocked by: STORY-094 (TBL-59 / API-330 schema), STORY-096 (enforcement is what creates mismatch states worth recording)
 - Blocks: none in Phase 11
 
+## STORY-094 Handoff Notes (added by Reviewer 2026-05-01)
+
+- **D-183 (5G non-3GPP PEI raw retention) — re-targeted here:** D-183 target updated from "STORY-094 / STORY-097" to STORY-097 exclusively. STORY-094 kept SessionContext flat per AC-12 (no PEIRaw). This story must add `SessionContext.PEIRaw string`, extend `ParsePEI` for `mac-`/`eui64-` prefix forms, and propagate through `session.Session`. See ROUTEMAP D-183.
+- **Diameter S6a listener now wired (D-182 CLOSED):** STORY-094 Task 7 wired `ExtractTerminalInformation` at the Diameter S6a Notify-Request / ULR path (capture-only). STORY-097 change-detection can rely on `SessionContext.IMEI` being populated for all three protocols (RADIUS + Diameter S6a + 5G SBA). D-182 is RESOLVED.
+- **`imei_history.Append` implementation:** STORY-094 shipped `IMEIHistoryStore` with a stub `Append` (STORY-096 fully implements it). STORY-097 consumes append-produced rows via `IMEIHistoryStore.List` (API-330, already exposed). Confirm `Append` is fully implemented before change-detection writes.
+- **`SetDeviceBinding` for re-pair:** API-329 re-pair calls `SIMStore.ClearBoundIMEI` shipped in STORY-094. The method signature is `ClearBoundIMEI(ctx, tenantID, simID) error` — use directly.
+
 ## STORY-093 Handoff Notes (added by Reviewer 2026-05-01)
 - **D-183 (5G non-3GPP PEI raw retention):** PROTOCOLS.md §PEI documents forensic retention for `mac-` / `eui64-` prefix forms. Currently `internal/aaa/sba/imei.go:73-74` returns `("", "", true)` and silently discards non-3GPP PEI values. `SessionContext` has no `PEIRaw` field. If STORY-094 does not implement this, STORY-097 is the latest target: add `SessionContext.PEIRaw string`, extend `ParsePEI` to populate it for non-3GPP prefixes, and propagate to `session.Session`. See ROUTEMAP D-183 for full context.
 - **`SessionContext.IMEI` dependency:** Change-detection in this story (AC-1) reads `SessionContext.IMEI` produced by STORY-093 parsers. Confirm at task start that the IMEI value is present in the session blob for all three protocol paths (RADIUS, Diameter S6a, 5G SBA) — STORY-093 confirms RADIUS + 5G SBA wired; Diameter S6a listener wiring targets STORY-094 (D-182).

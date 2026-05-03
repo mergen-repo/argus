@@ -10,11 +10,11 @@ type BulkOpError struct {
 }
 
 type BulkStateChangePayload struct {
-	SegmentID   uuid.UUID          `json:"segment_id,omitempty"`
-	SimIDs      []uuid.UUID        `json:"sim_ids,omitempty"`
-	TargetState string             `json:"target_state"`
-	Reason      *string            `json:"reason,omitempty"`
-	UndoRecords []StateUndoRecord  `json:"undo_records,omitempty"`
+	SegmentID   uuid.UUID         `json:"segment_id,omitempty"`
+	SimIDs      []uuid.UUID       `json:"sim_ids,omitempty"`
+	TargetState string            `json:"target_state"`
+	Reason      *string           `json:"reason,omitempty"`
+	UndoRecords []StateUndoRecord `json:"undo_records,omitempty"`
 }
 
 type StateUndoRecord struct {
@@ -50,6 +50,28 @@ type EsimUndoRecord struct {
 	OldProfileID       uuid.UUID `json:"old_profile_id"`
 	NewProfileID       uuid.UUID `json:"new_profile_id"`
 	PreviousOperatorID uuid.UUID `json:"previous_operator_id"`
+}
+
+// DeviceBindingsBulkRowSpec is one row from the uploaded CSV: the ICCID to
+// update, the IMEI to bind (may be empty — means "clear"), and the binding mode.
+type DeviceBindingsBulkRowSpec struct {
+	ICCID       string `json:"iccid"`
+	BoundIMEI   string `json:"bound_imei"`
+	BindingMode string `json:"binding_mode"`
+}
+
+// DeviceBindingsBulkRowResult records the per-row outcome stored in the job's
+// error report. Outcome codes: "success", "unknown_iccid", "invalid_imei",
+// "invalid_mode", "store_error".
+type DeviceBindingsBulkRowResult struct {
+	ICCID    string `json:"iccid"`
+	Outcome  string `json:"outcome"`
+	ErrorMsg string `json:"error,omitempty"`
+}
+
+// BulkDeviceBindingsPayload is the job payload for JobTypeBulkDeviceBindings.
+type BulkDeviceBindingsPayload struct {
+	Rows []DeviceBindingsBulkRowSpec `json:"rows"`
 }
 
 type BulkResult struct {

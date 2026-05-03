@@ -1,0 +1,10 @@
+STEP_1 PLAN: EXECUTED | items=7 tasks/3 waves | evidence=docs/stories/phase-11/STORY-094-plan.md (453 lines) | result=PASS | ts=2026-05-01T11:35:49Z
+STEP_2 DEV_WAVE_1: EXECUTED | items=3 tasks (T1 migrations, T6 DSL, T7 Diameter S6a listener D-182 closure) | evidence=6 migrations + DSL+ s6a.go | result=PASS (1 concern: RLS var discrepancy app.current_tenant_id vs app.current_tenant) | ts=2026-05-01T11:51:24Z
+STEP_2 DEV_WAVE_2: EXECUTED | items=2 tasks (T2 SIMStore extension PAT-006-RECURRENCE-3-clean, T3 allowlist+history stores) | evidence=29 cols/29 scan-args + 4 stores | result=PASS | ts=2026-05-01T12:05:49Z
+STEP_2 DEV_WAVE_3: EXECUTED | items=1 task (T4 device-binding handlers + router + threading) | evidence=device_binding_handler.go + 3 routes + Deps wiring | result=PASS (1 concern: simAllowlistStore instantiated unused — likely T5 consumer or STORY-095) | ts=2026-05-01T12:26:29Z
+STEP_2 DEV_WAVE_4: EXECUTED | items=1 task (T5 bulk CSV ingest API-336) | evidence=BulkDeviceBindingsProcessor + 5 tests | result=PASS | ts=2026-05-01T12:41:05Z
+STEP_2 DEV: EXECUTED | items=7 tasks across 4 waves (T1+T6+T7 // T2+T3 // T4 // T5) | evidence=full wire + tests + 3889 PASS | result=PASS | ts=2026-05-01T12:41:05Z
+STEP_2.5 LINT: EXECUTED | items=2 lint scans (TODO/nolint) | evidence=clean | result=PASS | ts=2026-05-01T12:41:05Z
+STEP_3 GATE: EXECUTED | items=8 findings (3M scout + 4L scout + 1M lead-discovered F-LEAD-1 tri-state JSON decoder bug); 7 fixed + 1 deferred (VAL-043); D-187 routed | evidence=docs/stories/phase-11/STORY-094-gate.md (114 lines) | result=PASS | ts=2026-05-03T14:12:19Z
+STEP_4 REVIEW: EXECUTED | items=14 checks; 7 doc edits + STORY-095/096/097 handoff notes; PAT-006 RECURRENCE + PAT-031 NEW (tri-state JSON pointer decoder) | evidence=docs/stories/phase-11/STORY-094-review.md | unresolved=0 | result=PASS | ts=2026-05-03T14:26:21Z
+STEP_5 COMMIT: EXECUTED | items=1 unified commit (pending hash) | evidence=git-commit-pending | result=PASS | ts=2026-05-03T14:26:21Z

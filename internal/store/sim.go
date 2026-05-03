@@ -44,6 +44,13 @@ type SIM struct {
 	PurgeAt               *time.Time      `json:"purge_at"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
+	// STORY-094 device-binding columns (PAT-009 nullable pointers; scanned by scanSIM via simColumns).
+	BoundIMEI             *string    `json:"bound_imei,omitempty"`
+	BindingMode           *string    `json:"binding_mode,omitempty"`
+	BindingStatus         *string    `json:"binding_status,omitempty"`
+	BindingVerifiedAt     *time.Time `json:"binding_verified_at,omitempty"`
+	LastIMEISeenAt        *time.Time `json:"last_imei_seen_at,omitempty"`
+	BindingGraceExpiresAt *time.Time `json:"binding_grace_expires_at,omitempty"`
 }
 
 type SimStateHistory struct {
@@ -132,11 +139,16 @@ func (s *SIMStore) RecentVelocityPerHour(ctx context.Context, tenantID uuid.UUID
 	return float64(count) / 24.0, nil
 }
 
+// simColumns lists the 29 sims-table columns scanned by scanSIM. Column order
+// MUST match scanSIM's Scan-arg order exactly (PAT-006 RECURRENCE #3).
+// 23 base + 6 STORY-094 device-binding columns = 29 total.
 var simColumns = `id, tenant_id, operator_id, apn_id, iccid, imsi, msisdn,
 	ip_address_id, policy_version_id, esim_profile_id, sim_type, state, rat_type,
 	max_concurrent_sessions, session_idle_timeout_sec, session_hard_timeout_sec,
 	metadata, activated_at, suspended_at, terminated_at, purge_at,
-	created_at, updated_at`
+	created_at, updated_at,
+	bound_imei, binding_mode, binding_status,
+	binding_verified_at, last_imei_seen_at, binding_grace_expires_at`
 
 func scanSIM(row pgx.Row) (*SIM, error) {
 	var s SIM
@@ -146,6 +158,8 @@ func scanSIM(row pgx.Row) (*SIM, error) {
 		&s.MaxConcurrentSessions, &s.SessionIdleTimeoutSec, &s.SessionHardTimeoutSec,
 		&s.Metadata, &s.ActivatedAt, &s.SuspendedAt, &s.TerminatedAt, &s.PurgeAt,
 		&s.CreatedAt, &s.UpdatedAt,
+		&s.BoundIMEI, &s.BindingMode, &s.BindingStatus,
+		&s.BindingVerifiedAt, &s.LastIMEISeenAt, &s.BindingGraceExpiresAt,
 	)
 	return &s, err
 }
@@ -1596,6 +1610,118 @@ func (s *SIMStore) CountByPolicyID(ctx context.Context, tenantID, policyID uuid.
 }
 
 // ---------------------------------------------------------------------------
+// STORY-094 device-binding accessors.
+// All accessors are tenant-scoped (WHERE tenant_id = $2). Cross-tenant access
+// returns ErrSIMNotFound (matches GetByID semantics). Pointer args use a
+// "nil = clear column to NULL" contract — the SQL UPDATEs assign $n directly
+// without COALESCE so callers can intentionally NULL a column.
+// ---------------------------------------------------------------------------
+
+// DeviceBinding is the device-binding subset of SIM fields.
+// All fields are nullable (PAT-009): zero value is JSON null.
+type DeviceBinding struct {
+	BoundIMEI             *string    `json:"bound_imei,omitempty"`
+	BindingMode           *string    `json:"binding_mode,omitempty"`
+	BindingStatus         *string    `json:"binding_status,omitempty"`
+	BindingVerifiedAt     *time.Time `json:"binding_verified_at,omitempty"`
+	LastIMEISeenAt        *time.Time `json:"last_imei_seen_at,omitempty"`
+	BindingGraceExpiresAt *time.Time `json:"binding_grace_expires_at,omitempty"`
+}
+
+// scanDeviceBinding scans the 6 device-binding columns in declared order.
+// Caller is responsible for issuing a SELECT/RETURNING that emits these
+// columns in this exact order.
+func scanDeviceBinding(row pgx.Row) (*DeviceBinding, error) {
+	var d DeviceBinding
+	err := row.Scan(
+		&d.BoundIMEI, &d.BindingMode, &d.BindingStatus,
+		&d.BindingVerifiedAt, &d.LastIMEISeenAt, &d.BindingGraceExpiresAt,
+	)
+	return &d, err
+}
+
+// GetDeviceBinding returns the device-binding subset of fields for a SIM.
+// Cross-tenant or unknown ids return ErrSIMNotFound.
+func (s *SIMStore) GetDeviceBinding(ctx context.Context, tenantID, simID uuid.UUID) (*DeviceBinding, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT bound_imei, binding_mode, binding_status,
+		       binding_verified_at, last_imei_seen_at, binding_grace_expires_at
+		FROM sims
+		WHERE id = $1 AND tenant_id = $2
+	`, simID, tenantID)
+
+	binding, err := scanDeviceBinding(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get device binding: %w", err)
+	}
+	return binding, nil
+}
+
+// SetDeviceBinding updates the binding-mode, bound IMEI, and (optionally)
+// binding_status fields atomically. Pass nil for any argument to clear that
+// column (set to NULL). statusOverride is the operator-only manual status
+// override; when non-nil it is validated against ValidBindingStatuses and
+// rejected with an error if invalid. Cross-tenant or unknown ids return
+// ErrSIMNotFound.
+func (s *SIMStore) SetDeviceBinding(
+	ctx context.Context,
+	tenantID, simID uuid.UUID,
+	mode *string,
+	boundIMEI *string,
+	statusOverride *string,
+) (*DeviceBinding, error) {
+	if mode != nil && !IsValidBindingMode(*mode) {
+		return nil, fmt.Errorf("store: invalid binding_mode %q", *mode)
+	}
+	if statusOverride != nil && !IsValidBindingStatus(*statusOverride) {
+		return nil, fmt.Errorf("store: invalid binding_status %q", *statusOverride)
+	}
+
+	row := s.db.QueryRow(ctx, `
+		UPDATE sims
+		   SET binding_mode    = $3,
+		       bound_imei      = $4,
+		       binding_status  = $5,
+		       updated_at      = NOW()
+		 WHERE id = $1 AND tenant_id = $2
+		RETURNING bound_imei, binding_mode, binding_status,
+		          binding_verified_at, last_imei_seen_at, binding_grace_expires_at
+	`, simID, tenantID, mode, boundIMEI, statusOverride)
+
+	binding, err := scanDeviceBinding(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSIMNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: set device binding: %w", err)
+	}
+	return binding, nil
+}
+
+// ClearBoundIMEI clears bound_imei + binding_status (resets both to NULL).
+// Other binding columns (mode, verified_at, last_seen_at, grace_expires_at)
+// are left intact. Cross-tenant or unknown ids return ErrSIMNotFound.
+func (s *SIMStore) ClearBoundIMEI(ctx context.Context, tenantID, simID uuid.UUID) error {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE sims
+		   SET bound_imei     = NULL,
+		       binding_status = NULL,
+		       updated_at     = NOW()
+		 WHERE id = $1 AND tenant_id = $2
+	`, simID, tenantID)
+	if err != nil {
+		return fmt.Errorf("store: clear bound imei: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSIMNotFound
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // SIMWithNames — enriched SIM with joined parent-entity display fields.
 // ---------------------------------------------------------------------------
 
@@ -1617,6 +1743,13 @@ type SIMWithNames struct {
 // PAT-006: scanSIMWithNames is the ONLY scan helper for SIMWithNames.
 // If you add fields to SIMWithNames, update this function AND all tests.
 // Never inline-scan SIMWithNames rows elsewhere.
+//
+// STORY-094 boundary: the 6 device-binding fields on the embedded SIM
+// (BoundIMEI, BindingMode, BindingStatus, BindingVerifiedAt, LastIMEISeenAt,
+// BindingGraceExpiresAt) are intentionally NOT fetched by simEnrichedSelect
+// and NOT scanned here. Enriched paths leave them as zero/nil pointers and
+// json:"...,omitempty" suppresses them in API output. Surfacing binding via
+// enriched paths is a downstream API decision (not Task 2 scope).
 func scanSIMWithNames(row pgx.Row) (*SIMWithNames, error) {
 	var s SIMWithNames
 	err := row.Scan(

@@ -143,6 +143,9 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `ICCID_EXISTS` | 409 | ICCID already registered in the system | `{"status":"error","error":{"code":"ICCID_EXISTS","message":"A SIM with ICCID 89901112345678901234 already exists"}}` |
 | `IMSI_EXISTS` | 409 | IMSI already registered in the system | `{"status":"error","error":{"code":"IMSI_EXISTS","message":"A SIM with IMSI 286010123456789 already exists"}}` |
 | `SIM_HAS_ACTIVE_SESSION` | 422 | Operation cannot proceed because SIM has an active AAA session (e.g., certain state changes require session disconnect first) | `{"status":"error","error":{"code":"SIM_HAS_ACTIVE_SESSION","message":"SIM has an active session. Disconnect the session first or use force option.","details":[{"session_id":"abc-123","started_at":"2026-03-18T10:00:00Z"}]}}` |
+| `INVALID_BINDING_MODE` | 422 | `binding_mode` value is not in the allowed enum set (`strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`). NULL is accepted (disables binding). Added STORY-094. | `{"status":"error","error":{"code":"INVALID_BINDING_MODE","message":"binding_mode must be one of: strict, allowlist, first-use, tac-lock, grace-period, soft; got 'unknown'"}}` |
+| `INVALID_IMEI` | 422 | `bound_imei` is not exactly 15 ASCII decimal digits. Added STORY-094. | `{"status":"error","error":{"code":"INVALID_IMEI","message":"bound_imei must be exactly 15 numeric digits"}}` |
+| `INVALID_BINDING_STATUS` | 422 | `binding_status_override` value is not in the allowed enum set (`verified`, `pending`, `mismatch`, `unbound`, `disabled`). Added STORY-094. | `{"status":"error","error":{"code":"INVALID_BINDING_STATUS","message":"binding_status must be one of: verified, pending, mismatch, unbound, disabled; got 'unknown'"}}` |
 
 ---
 
@@ -334,6 +337,9 @@ const (
     CodeICCIDExists             = "ICCID_EXISTS"
     CodeIMSIExists              = "IMSI_EXISTS"
     CodeSIMHasActiveSession     = "SIM_HAS_ACTIVE_SESSION"
+    CodeInvalidBindingMode      = "INVALID_BINDING_MODE"      // STORY-094 device binding
+    CodeInvalidIMEI             = "INVALID_IMEI"              // STORY-094 device binding
+    CodeInvalidBindingStatus    = "INVALID_BINDING_STATUS"    // STORY-094 device binding
 
     // APN
     CodeAPNNotFound      = "APN_NOT_FOUND"

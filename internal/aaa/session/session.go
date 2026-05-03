@@ -699,6 +699,42 @@ func (m *Manager) UpdateCounters(ctx context.Context, id string, bytesIn, bytesO
 	return nil
 }
 
+// UpdateDeviceInfo writes IMEI and SoftwareVersion onto the Redis-cached
+// session blob. It is a read-modify-write against Redis only — no DB row is
+// touched, preserving the AC-9 / F-A2 contract (STORY-094 D-182 closure).
+// No-op when the session is not found in Redis or redisClient is nil.
+func (m *Manager) UpdateDeviceInfo(ctx context.Context, acctSessionID, imei, sv string) error {
+	if m.redisClient == nil || acctSessionID == "" {
+		return nil
+	}
+	acctKey := sessionAcctKeyPrefix + acctSessionID
+	sessionID, err := m.redisClient.Get(ctx, acctKey).Result()
+	if err != nil {
+		return nil
+	}
+	key := sessionKeyPrefix + sessionID
+	data, err := m.redisClient.Get(ctx, key).Bytes()
+	if err != nil {
+		return nil
+	}
+	var sess Session
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return nil
+	}
+	sess.IMEI = imei
+	sess.SoftwareVersion = sv
+	encoded, err := json.Marshal(sess)
+	if err != nil {
+		return nil
+	}
+	ttl := m.redisClient.TTL(ctx, key).Val()
+	if ttl <= 0 {
+		ttl = time.Duration(defaultHardTimeout) * time.Second
+	}
+	m.redisClient.Set(ctx, key, encoded, ttl)
+	return nil
+}
+
 func (m *Manager) TerminateWithCounters(ctx context.Context, id string, cause string, bytesIn, bytesOut uint64) error {
 	if m.sessionStore != nil {
 		uid, err := uuid.Parse(id)

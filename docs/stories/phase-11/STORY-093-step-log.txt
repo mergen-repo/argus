@@ -9,3 +9,5 @@ STEP_2.5 LINT: EXECUTED | items=3 lint scans (TODO/nolint/magic-numbers) | evide
 STEP_3 GATE: EXECUTED | items=7 findings (1H/1M/5L); 4 fixed + 3 deferred (D-182/183/184) | evidence=docs/stories/phase-11/STORY-093-gate.md | result=PASS | ts=2026-05-01T11:02:01Z
 STEP_4 REVIEW: EXECUTED | items=14 checks; 6 doc edits + STORY-094/097 handoff notes; PAT-017 RECURRENCE | evidence=docs/stories/phase-11/STORY-093-review.md | unresolved=0 | result=PASS | ts=2026-05-01T11:13:27Z
 STEP_5 COMMIT: EXECUTED | items=1 unified commit (pending hash) | evidence=git-commit-pending | result=PASS | ts=2026-05-01T11:13:27Z
+STEP_5 COMMIT_FINAL: EXECUTED | items=1 unified commit | evidence=commit=42b70c5 (42 files, 2299+/31-) | result=PASS | ts=2026-05-01T11:19:20Z
+STEP_6 POSTPROC: EXECUTED | items=6 checks (4 artefacts + step-log + USERTEST + step-log completeness + 0 unresolved findings) | evidence=persistence-verified | result=PASS | ts=2026-05-01T11:19:20Z

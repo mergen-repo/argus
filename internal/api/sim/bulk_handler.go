@@ -1043,3 +1043,139 @@ func (h *BulkHandler) OperatorSwitchByFilter(w http.ResponseWriter, r *http.Requ
 	})
 	h.dispatchByFilterJob(w, r, job.JobTypeBulkEsimSwitch, payload, len(ids))
 }
+
+// DeviceBindingsCSV — POST /api/v1/sims/bulk/device-bindings
+//
+// Accepts a multipart CSV file with columns: iccid, bound_imei, binding_mode.
+// Enqueues a bulk_device_bindings async job and returns 202 Accepted with the
+// job_id. Per-row outcomes are available via GET /api/v1/jobs/{id}/errors.
+func (h *BulkHandler) DeviceBindingsCSV(w http.ResponseWriter, r *http.Request) {
+	if h.checkBulkKillSwitch(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+			"File too large or invalid multipart form. Max size: 50MB")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+			"Missing 'file' field in multipart form")
+		return
+	}
+	defer file.Close()
+
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".csv") {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"File must be a CSV file")
+		return
+	}
+
+	csvData, err := io.ReadAll(file)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat,
+			"Failed to read uploaded file")
+		return
+	}
+
+	reader := csv.NewReader(strings.NewReader(string(csvData)))
+	reader.TrimLeadingSpace = true
+
+	headers, err := reader.Read()
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+			"Invalid CSV: cannot read header row")
+		return
+	}
+
+	normalized := make([]string, len(headers))
+	for i, h := range headers {
+		normalized[i] = strings.ToLower(strings.TrimSpace(h))
+	}
+
+	requiredCols := []string{"iccid", "bound_imei", "binding_mode"}
+	colIndex := make(map[string]int, len(requiredCols))
+	for _, col := range requiredCols {
+		colIndex[col] = -1
+	}
+	for i, h := range normalized {
+		if _, ok := colIndex[h]; ok {
+			colIndex[h] = i
+		}
+	}
+	var missingCols []string
+	for _, col := range requiredCols {
+		if colIndex[col] < 0 {
+			missingCols = append(missingCols, col)
+		}
+	}
+	if len(missingCols) > 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			fmt.Sprintf("Missing required CSV columns: %s", strings.Join(missingCols, ", ")),
+			[]map[string]interface{}{{"missing_columns": missingCols}},
+		)
+		return
+	}
+
+	var rows []job.DeviceBindingsBulkRowSpec
+	rowNum := 1
+	for {
+		rec, readErr := reader.Read()
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			apierr.WriteError(w, http.StatusBadRequest, apierr.CodeValidationError,
+				fmt.Sprintf("CSV parse error at row %d: %v", rowNum+1, readErr))
+			return
+		}
+		rows = append(rows, job.DeviceBindingsBulkRowSpec{
+			ICCID:       strings.TrimSpace(rec[colIndex["iccid"]]),
+			BoundIMEI:   strings.TrimSpace(rec[colIndex["bound_imei"]]),
+			BindingMode: strings.TrimSpace(rec[colIndex["binding_mode"]]),
+		})
+		rowNum++
+		if len(rows) > maxBulkSimIDs {
+			apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+				fmt.Sprintf("CSV exceeds maximum row limit of %d", maxBulkSimIDs))
+			return
+		}
+	}
+
+	if len(rows) == 0 {
+		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
+			"CSV file contains no data rows")
+		return
+	}
+
+	payload, _ := json.Marshal(job.BulkDeviceBindingsPayload{Rows: rows})
+
+	j, err := h.jobs.Create(r.Context(), store.CreateJobParams{
+		Type:       job.JobTypeBulkDeviceBindings,
+		Priority:   5,
+		Payload:    payload,
+		TotalItems: len(rows),
+		CreatedBy:  userIDFromRequest(r),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("create bulk device bindings job")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError,
+			"Failed to create job")
+		return
+	}
+
+	_ = h.eventBus.Publish(r.Context(), bus.SubjectJobQueue, job.JobMessage{
+		JobID:    j.ID,
+		TenantID: j.TenantID,
+		Type:     job.JobTypeBulkDeviceBindings,
+	})
+
+	apierr.WriteJSON(w, http.StatusAccepted, apierr.SuccessResponse{
+		Status: "success",
+		Data:   map[string]string{"job_id": j.ID.String()},
+	})
+}

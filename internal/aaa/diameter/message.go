@@ -25,6 +25,17 @@ const (
 	CommandCCA uint32 = 272
 	CommandRAR uint32 = 258
 	CommandRAA uint32 = 258
+
+	// S6a interface commands (3GPP TS 29.272).
+	CommandULR uint32 = 316
+	CommandULA uint32 = 316
+	CommandNTR uint32 = 323
+	CommandNTA uint32 = 323
+)
+
+const (
+	// ApplicationIDS6a is the Diameter S6a application ID per 3GPP TS 29.272.
+	ApplicationIDS6a uint32 = 16777251
 )
 
 type Message struct {

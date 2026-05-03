@@ -30,17 +30,17 @@ const (
 )
 
 const (
-	CodeInternalError      = "INTERNAL_ERROR"
-	CodeInvalidFormat      = "INVALID_FORMAT"
-	CodeInvalidParam       = "INVALID_PARAM"
-	CodeValidationError    = "VALIDATION_ERROR"
-	CodeNotFound           = "NOT_FOUND"
-	CodeAlertNotFound      = "ALERT_NOT_FOUND"
-	CodeAlertNoData        = "ALERT_NO_DATA"
+	CodeInternalError       = "INTERNAL_ERROR"
+	CodeInvalidFormat       = "INVALID_FORMAT"
+	CodeInvalidParam        = "INVALID_PARAM"
+	CodeValidationError     = "VALIDATION_ERROR"
+	CodeNotFound            = "NOT_FOUND"
+	CodeAlertNotFound       = "ALERT_NOT_FOUND"
+	CodeAlertNoData         = "ALERT_NO_DATA"
 	CodeSuppressionNotFound = "SUPPRESSION_NOT_FOUND"
-	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
-	CodeConflict           = "CONFLICT"
-	CodeAlreadyExists      = "ALREADY_EXISTS"
+	CodeServiceUnavailable  = "SERVICE_UNAVAILABLE"
+	CodeConflict            = "CONFLICT"
+	CodeAlreadyExists       = "ALREADY_EXISTS"
 	// CodeDuplicate is the wire code returned for tenant-scoped uniqueness
 	// conflicts that the spec calls out as DUPLICATE (e.g. duplicate
 	// suppression rule_name — FIX-229 plan §API Spec). Distinct from the
@@ -106,6 +106,10 @@ const (
 	CodePasswordChangeRequired = "PASSWORD_CHANGE_REQUIRED"
 
 	CodeInvalidCIDR = "INVALID_CIDR"
+
+	CodeInvalidBindingMode   = "INVALID_BINDING_MODE"
+	CodeInvalidIMEI          = "INVALID_IMEI"
+	CodeInvalidBindingStatus = "INVALID_BINDING_STATUS"
 
 	CodeInvalidDateRange = "INVALID_DATE_RANGE"
 

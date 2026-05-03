@@ -21,27 +21,35 @@ type SessionContext struct {
 	Metadata        map[string]string `json:"metadata"`
 	SimType         string            `json:"sim_type"`
 	// Phase 11 STORY-093 — IMEI capture (flat fields, zero-value safe)
-	IMEI            string            `json:"imei,omitempty"`
-	SoftwareVersion string            `json:"software_version,omitempty"`
+	IMEI            string `json:"imei,omitempty"`
+	SoftwareVersion string `json:"software_version,omitempty"`
+	// Phase 11 STORY-094 — IMEI/SIM binding fields (flat, zero-value safe).
+	// Hot-path AAA WILL NOT populate BindingStatus / BindingVerifiedAt in
+	// this story (no enforcement); they remain zero-valued so dry-run
+	// policies that reference them evaluate to "" against synthetic ctx.
+	BindingMode       string `json:"binding_mode,omitempty"`
+	BoundIMEI         string `json:"bound_imei,omitempty"`
+	BindingStatus     string `json:"binding_status,omitempty"`
+	BindingVerifiedAt string `json:"binding_verified_at,omitempty"` // RFC3339 string for DSL string compare
 }
 
 type PolicyResult struct {
-	Allow         bool                   `json:"allow"`
-	QoSAttributes map[string]interface{} `json:"qos_attributes"`
-	ChargingParams *ChargingResult       `json:"charging_params,omitempty"`
-	Actions       []ActionResult         `json:"actions"`
-	MatchedRules  int                    `json:"matched_rules"`
+	Allow          bool                   `json:"allow"`
+	QoSAttributes  map[string]interface{} `json:"qos_attributes"`
+	ChargingParams *ChargingResult        `json:"charging_params,omitempty"`
+	Actions        []ActionResult         `json:"actions"`
+	MatchedRules   int                    `json:"matched_rules"`
 }
 
 type ChargingResult struct {
-	Model           string  `json:"model"`
-	RatePerMB       float64 `json:"rate_per_mb"`
-	RatePerSession  float64 `json:"rate_per_session,omitempty"`
-	BillingCycle    string  `json:"billing_cycle"`
-	Quota           int64   `json:"quota"`
-	OverageAction   string  `json:"overage_action,omitempty"`
+	Model            string  `json:"model"`
+	RatePerMB        float64 `json:"rate_per_mb"`
+	RatePerSession   float64 `json:"rate_per_session,omitempty"`
+	BillingCycle     string  `json:"billing_cycle"`
+	Quota            int64   `json:"quota"`
+	OverageAction    string  `json:"overage_action,omitempty"`
 	OverageRatePerMB float64 `json:"overage_rate_per_mb,omitempty"`
-	RATMultiplier   float64 `json:"rat_multiplier"`
+	RATMultiplier    float64 `json:"rat_multiplier"`
 }
 
 type ActionResult struct {
@@ -234,6 +242,20 @@ func (e *Evaluator) evaluateSimpleCondition(ctx SessionContext, cond *CompiledCo
 }
 
 func (e *Evaluator) getConditionFieldValue(ctx SessionContext, field string) interface{} {
+	// STORY-094 — function-call dispatch: tac(<inner>), device.imei_in_pool(<pool>).
+	// Function-call Field strings are encoded by the parser as "<funcname>(<arg>)".
+	if strings.HasPrefix(field, "tac(") && strings.HasSuffix(field, ")") {
+		inner := field[len("tac(") : len(field)-1]
+		innerVal := e.getConditionFieldValue(ctx, inner)
+		innerStr, _ := innerVal.(string)
+		return tac(innerStr)
+	}
+	if strings.HasPrefix(field, "device.imei_in_pool(") && strings.HasSuffix(field, ")") {
+		// Placeholder: STORY-095 wires real pool lookup. Always returns false
+		// for whitelist, greylist, blacklist, and any other pool name.
+		return false
+	}
+
 	switch field {
 	case "usage":
 		return ctx.Usage
@@ -255,6 +277,26 @@ func (e *Evaluator) getConditionFieldValue(ctx SessionContext, field string) int
 		return ctx.DayOfWeek
 	case "sim_type":
 		return ctx.SimType
+	// STORY-094 — device & SIM binding fields
+	case "device.imei":
+		return ctx.IMEI
+	case "device.imeisv":
+		if ctx.IMEI != "" && ctx.SoftwareVersion != "" {
+			return ctx.IMEI + ctx.SoftwareVersion
+		}
+		return ""
+	case "device.software_version":
+		return ctx.SoftwareVersion
+	case "device.tac":
+		return tac(ctx.IMEI)
+	case "device.binding_status":
+		return ctx.BindingStatus
+	case "sim.binding_mode":
+		return ctx.BindingMode
+	case "sim.bound_imei":
+		return ctx.BoundIMEI
+	case "sim.binding_verified_at":
+		return ctx.BindingVerifiedAt
 	default:
 		if strings.HasPrefix(field, "metadata.") {
 			key := strings.TrimPrefix(field, "metadata.")
@@ -267,16 +309,27 @@ func (e *Evaluator) getConditionFieldValue(ctx SessionContext, field string) int
 	}
 }
 
+// tac returns the TAC (first 8 digits) of a 15-digit IMEI, or "" if not
+// 15 chars long. Defensive: parsers already validate digits, but we
+// re-check len here so a malformed runtime ctx never produces a partial
+// TAC.
+func tac(imei string) string {
+	if len(imei) != 15 {
+		return ""
+	}
+	return imei[:8]
+}
+
 func (e *Evaluator) evaluateCharging(ctx SessionContext, ch *CompiledCharging) *ChargingResult {
 	result := &ChargingResult{
-		Model:           ch.Model,
-		RatePerMB:       ch.RatePerMB,
-		RatePerSession:  ch.RatePerSession,
-		BillingCycle:    ch.BillingCycle,
-		Quota:           ch.Quota,
-		OverageAction:   ch.OverageAction,
+		Model:            ch.Model,
+		RatePerMB:        ch.RatePerMB,
+		RatePerSession:   ch.RatePerSession,
+		BillingCycle:     ch.BillingCycle,
+		Quota:            ch.Quota,
+		OverageAction:    ch.OverageAction,
 		OverageRatePerMB: ch.OverageRatePerMB,
-		RATMultiplier:   1.0,
+		RATMultiplier:    1.0,
 	}
 
 	if ch.RATMultiplier != nil {
