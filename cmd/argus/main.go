@@ -48,6 +48,7 @@ import (
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	eventsapi "github.com/btopcu/argus/internal/api/events"
+	imeipoolapi "github.com/btopcu/argus/internal/api/imei_pool"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -92,6 +93,7 @@ import (
 	"github.com/btopcu/argus/internal/ota"
 	"github.com/btopcu/argus/internal/policy"
 	"github.com/btopcu/argus/internal/policy/dryrun"
+	"github.com/btopcu/argus/internal/policy/dsl"
 	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/policy/rollout"
 	"github.com/btopcu/argus/internal/report"
@@ -692,9 +694,17 @@ func runServe(cfg *config.Config) {
 	nameCache := cache.NewNameCache(rdb.Client)
 	simSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	cdrStore := store.NewCDRStore(pg.Pool)
+	// STORY-095 Task 6: instantiate the IMEI pool store + thin DSL adapter
+	// so the policy evaluator can resolve device.imei_in_pool() predicates
+	// against real pool data. The adapter is a pointer-receiver wrapper so
+	// passing nil store still produces a safe (false, nil) lookup.
+	imeiPoolStore := store.NewIMEIPoolStore(pg.Pool)
+	imeiPoolDSLLookup := &imeiPoolLookupAdapter{store: imeiPoolStore}
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation), simapi.WithEventBus(eventBus))
 	deviceBindingHandler := simapi.NewDeviceBindingHandler(simStore, imeiHistoryStore, auditSvc, log.Logger)
+	imeiPoolHandler := imeipoolapi.NewHandler(imeiPoolStore, simStore, jobStore, eventBus, auditSvc, log.Logger)
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
+	dryRunSvc.SetIMEIPoolLookuper(imeiPoolDSLLookup)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
 	policyHandler := policyapi.NewHandler(policyStore, dryRunSvc, rolloutSvc, jobStore, eventBus, auditSvc, log.Logger,
 		policyapi.WithAggregates(aggSvc),
@@ -835,6 +845,11 @@ func runServe(cfg *config.Config) {
 	readSegmentStore := store.NewSegmentStore(readPool)
 	bulkDeviceBindingsProc := job.NewBulkDeviceBindingsProcessor(jobStore, simStore, eventBus, log.Logger)
 	bulkDeviceBindingsProc.SetAuditor(auditSvc)
+	// STORY-095 AC-5/AC-13: register the bulk IMEI-pool import processor so
+	// JobTypeBulkIMEIPoolImport jobs created by API-334 actually execute and
+	// emit `imei_pool.bulk_imported` audit events on completion.
+	bulkIMEIPoolImportProc := job.NewBulkIMEIPoolImportProcessor(jobStore, imeiPoolStore, eventBus, log.Logger)
+	bulkIMEIPoolImportProc.SetAuditor(auditSvc)
 	bulkStateChangeProc := job.NewBulkStateChangeProcessor(jobStore, simStore, segmentStore, readSegmentStore, distLock, eventBus, log.Logger)
 	bulkStateChangeProc.SetAuditor(auditSvc)
 	bulkPolicyAssignProc := job.NewBulkPolicyAssignProcessor(jobStore, simStore, segmentStore, distLock, eventBus, log.Logger)
@@ -863,6 +878,7 @@ func runServe(cfg *config.Config) {
 	jobRunner.Register(ipReclaimProc)
 	jobRunner.Register(slaReportProc)
 	jobRunner.Register(bulkDeviceBindingsProc)
+	jobRunner.Register(bulkIMEIPoolImportProc)
 	jobRunner.Register(bulkStateChangeProc)
 	jobRunner.Register(bulkPolicyAssignProc)
 	jobRunner.Register(otaProcessor)
@@ -1397,6 +1413,12 @@ func runServe(cfg *config.Config) {
 	// FIX-210 Task 4: wire metrics registry so the rate-limited publish
 	// path increments argus_alerts_rate_limited_publishes_total{publisher="enforcer"}.
 	policyEnforcer.SetMetricsRegistry(metricsReg)
+	// STORY-095 Task 6: wire the IMEI pool lookup so DSL
+	// `device.imei_in_pool()` predicates resolve against real pool data
+	// during enforcement (whitelist / greylist / blacklist with TAC-range
+	// matching). Nil-safe — the evaluator falls back to `false` if the
+	// adapter or its underlying store is nil.
+	policyEnforcer.SetIMEIPoolLookuper(imeiPoolDSLLookup)
 
 	if radiusServer != nil {
 		promAAARecorder := obsmetrics.NewPromAAARecorder(metricsReg, "radius")
@@ -1766,6 +1788,7 @@ func runServe(cfg *config.Config) {
 		IPPoolHandler:           ippoolHandler,
 		SIMHandler:              simHandler,
 		SIMDeviceBindingHandler: deviceBindingHandler,
+		IMEIPoolHandler:         imeiPoolHandler,
 		ESimHandler:             esimHandler,
 		SegmentHandler:          segmentHandler,
 		BulkHandler:             bulkHandler,
@@ -2635,3 +2658,22 @@ func (a *auditRecorderAdapter) Record(ctx context.Context, tenantID uuid.UUID, a
 	})
 	return err
 }
+
+// imeiPoolLookupAdapter bridges *store.IMEIPoolStore to the narrow
+// dsl.IMEIPoolLookuper interface the policy evaluator expects. Lives
+// here in main.go (PAT-017) so the dsl package does not import the
+// store package — same threading approach as auditRecorderAdapter
+// above. STORY-095 Task 6.
+type imeiPoolLookupAdapter struct {
+	store *store.IMEIPoolStore
+}
+
+func (a *imeiPoolLookupAdapter) LookupKind(ctx context.Context, tenantID uuid.UUID, imei string, pool string) (bool, error) {
+	if a == nil || a.store == nil {
+		return false, nil
+	}
+	return a.store.LookupKind(ctx, tenantID, store.PoolKind(pool), imei)
+}
+
+// Compile-time check: the adapter satisfies dsl.IMEIPoolLookuper.
+var _ dsl.IMEIPoolLookuper = (*imeiPoolLookupAdapter)(nil)

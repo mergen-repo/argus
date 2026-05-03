@@ -5854,3 +5854,140 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `make db-seed` çalıştırın (temiz DB üzerinde).
 2. `psql -c "SELECT COUNT(*) FROM sims WHERE binding_mode IS NOT NULL"` → **0** dönmeli.
 3. `make test` çalıştırın → tüm paket yeşil (F-B1, F-A2, F-A6, F-LEAD-1 regresyon testleri dahil).
+
+---
+
+## STORY-095: IMEI Pool Management (white/grey/black + bulk + lookup)
+
+> Backend (API-331..335) ve Frontend (SCR-196 + SCR-197) senaryoları. `make up` ile ortam ayakta olmalı.
+
+### UT-095-01: Whitelist Liste — Sayfalama ve Filtreler (API-331 / AC-2)
+
+1. Whitelist'e 5 kayıt ekleyin (3 full_imei, 2 tac_range).
+2. `GET /api/v1/imei-pools/whitelist?limit=3` isteği gönderin.
+3. **Beklenen:** HTTP 200, `data` dizisinde 3 kayıt, `meta.cursor` dolu.
+4. `?tac=35982110` filtresiyle tekrar sorgulayın → yalnızca TAC'ı eşleşen satır(lar) dönmeli.
+5. `?imei=<tam_15_hane>` filtresiyle sorgulayın → tam eşleşme bir kayıt dönmeli.
+
+### UT-095-02: CSV-Injection Koruması — Tek Kayıt Ekleme (API-332 / AC-3 + Gate F-A5 Düzeltmesi)
+
+1. `POST /api/v1/imei-pools/whitelist` body:
+   ```json
+   {"kind":"full_imei","imei_or_tac":"359821100012345","description":"=cmd|/C whoami"}
+   ```
+2. **Beklenen:** HTTP 422, `error.code = "CSV_INJECTION_REJECTED"`.
+3. Aynı isteği `description` olmadan veya güvenli değerle gönderin → HTTP 201, kayıt oluştu.
+
+### UT-095-03: Blacklist — Eksik Alan Doğrulaması (API-332 / AC-3)
+
+1. `POST /api/v1/imei-pools/blacklist` body (`block_reason` ve `imported_from` eksik):
+   ```json
+   {"kind":"full_imei","imei_or_tac":"359821100099999"}
+   ```
+2. **Beklenen:** HTTP 422, `error.code = "MISSING_BLOCK_REASON"` veya `"INVALID_IMPORTED_FROM"`.
+3. `imported_from="manual"` ve `block_reason="stolen"` ekleyerek tekrar gönderin → HTTP 201.
+
+### UT-095-04: Duplicate Kayıt — 409 IMEI_POOL_DUPLICATE (API-332 / AC-3)
+
+1. Whitelist'e aynı `imei_or_tac` değeriyle iki kez `POST /api/v1/imei-pools/whitelist` gönderin.
+2. **Beklenen:** İkinci istekte HTTP 409, `error.code = "IMEI_POOL_DUPLICATE"`.
+
+### UT-095-05: Cross-Tenant DELETE — 404 (API-333 / AC-4)
+
+1. Tenant A'ya ait bir whitelist kaydının `id`'sini alın.
+2. Tenant B tokeni ile `DELETE /api/v1/imei-pools/whitelist/{id}` gönderin.
+3. **Beklenen:** HTTP 404, `error.code = "POOL_ENTRY_NOT_FOUND"`.
+
+### UT-095-06: Bulk Import — 1000 Satır CSV (API-334 / AC-5 + Gate F-A1 Düzeltmesi)
+
+1. 1000 geçerli satır ve 5 hatalı satır içeren CSV hazırlayın (hatalı: 14 haneli IMEI, eksik `block_reason` vb.).
+2. `POST /api/v1/imei-pools/blacklist/import` multipart ile CSV yükleyin.
+3. **Beklenen:** HTTP 202, `data.job_id` dolu.
+4. Job tamamlanana kadar `GET /api/v1/jobs/{job_id}/result` ile polling yapın.
+5. **Beklenen sonuç:** `success_count=995`, `failure_count=5`; hata CSV indirilebilir.
+6. `psql -c "SELECT COUNT(*) FROM imei_blacklist WHERE tenant_id='<your_tenant>'"` → 995 dönmeli.
+7. `auditlog` tablosunda `imei_pool.bulk_imported` event'i bulunmalı.
+
+### UT-095-07: IMEI Lookup — 15 Haneli Geçerli IMEI (API-335 / AC-6)
+
+1. `GET /api/v1/imei-pools/lookup?imei=359821100012345` isteği gönderin (bu IMEI whitelist'e eklenmiş olmalı).
+2. **Beklenen:** HTTP 200, `data.lists` dizisinde en az 1 eleman (`kind="whitelist"`, `matched_via` dolu).
+3. `data.bound_sims` ve `data.history` şimdilik boş dizi dönmeli (D-188 — STORY-097 hedefi).
+
+### UT-095-08: IMEI Lookup — 14 Haneli Geçersiz IMEI (API-335 / AC-6)
+
+1. `GET /api/v1/imei-pools/lookup?imei=35982110001234` (14 hane) isteği gönderin.
+2. **Beklenen:** HTTP 422, `error.code = "INVALID_IMEI"`.
+
+### UT-095-09: DSL Politikası — device.imei_in_pool('blacklist') (AC-9)
+
+1. Aşağıdaki DSL politikasını oluşturun ve aktif edin:
+   ```
+   POLICY "imei-blacklist-block" {
+     WHEN device.imei_in_pool("blacklist") = true {
+       ACTION reject
+     }
+   }
+   ```
+2. Blacklist'te kayıtlı IMEI değerine sahip bir cihazla RADIUS Access-Request simüle edin.
+3. **Beklenen:** `Access-Reject` dönmeli.
+4. Aynı IMEI blacklist'ten silindikten sonra tekrar deneyin → `Access-Accept`.
+
+### UT-095-10: SCR-196 — 4 Sekme ve Hash Routing (AC-10)
+
+1. Tarayıcıda `http://localhost:8084/settings/imei-pools` adresine gidin.
+2. **Beklenen:** 4 sekme görünür: White List, Grey List, Black List, Bulk Import.
+3. URL'yi `#greylist` olarak değiştirin → Greylist sekmesi aktif olmalı.
+4. Sayfa yenilendikten sonra hash korunmalı ve aynı sekme açık kalmalı.
+
+### UT-095-11: SCR-196 — Kayıt Ekleme Dialog'u (AC-10)
+
+1. Whitelist sekmesine gidin, "Add Entry" düğmesine tıklayın.
+2. **kind=full_imei** seçin → IMEI giriş alanı görünmeli.
+3. **kind=tac_range** seçin → 8 haneli TAC giriş alanı görünmeli.
+4. Greylist sekmesine geçin → `quarantine_reason` alanı görünmeli.
+5. Blacklist sekmesine geçin → `block_reason` + `imported_from` dropdown görünmeli.
+
+### UT-095-12: SCR-196 — Move-Between-Lists (AC-7 / Gate F-A2 Düzeltmesi)
+
+1. Whitelist'teki bir satırın aksiyon menüsünü açın.
+2. "Move to Greylist" seçeneğini seçin → hedef liste seçimi Dialog'u açılmalı.
+3. Onayla → satır whitelist'ten kaybolur, greylist'te görünür.
+4. Her iki hareket için `auditlog`'da `imei_pool.entry_removed` (whitelist) ve `imei_pool.entry_added` (greylist) event'leri bulunmalı.
+
+### UT-095-13: SCR-196 — Bulk-Select Toolbar (AC-10 / Gate F-A3 Düzeltmesi)
+
+1. Whitelist sekmesinde checkbox kolonunu kullanarak 3 satır seçin.
+2. Araç çubuğunda "Delete 3" düğmesi görünmeli.
+3. Düğmeye tıklayın → onay Dialog'u açılmalı.
+4. Onaylayın → 3 kayıt silinmeli, toolbar kaybolmalı.
+
+### UT-095-14: SCR-196 — Bulk Import + CSV Pre-flight (AC-10 + Gate F-A11 Düzeltmesi)
+
+1. Bulk Import sekmesine gidin.
+2. `=cmd` içeren bir hücre barındıran CSV dosyasını sürükle-bırak ile yükleyin.
+3. **Beklenen:** "Potential CSV injection detected in rows: 1" uyarı paneli görünmeli (submit engellenmez).
+4. Normal bir CSV yükleyin → "Submit" ile job başlatın → ilerleme barı görünmeli → tamamlandığında success/failed sayıları.
+
+### UT-095-15: SCR-197 — IMEI Lookup — 3 Giriş Noktası (AC-11)
+
+1. **SCR-196'dan:** IMEI Pools sayfasındaki araç çubuğundaki "IMEI Lookup" butonuna tıklayın.
+2. **SCR-050'den:** Live Sessions sayfasındaki araç çubuğundaki "IMEI Lookup" butonuna tıklayın.
+3. **SCR-020'den:** SIM List sayfasındaki araç çubuğundaki "IMEI Lookup" butonuna tıklayın.
+4. Her üç noktadan modal açılmalı.
+
+### UT-095-16: SCR-197 — Lookup Sonuç Drawer'ı (AC-11)
+
+1. SCR-197 modalından 15 haneli geçerli IMEI girin → "Lookup" düğmesine tıklayın.
+2. **Beklenen:** SlidePanel drawer açılır, 3 bölüm görünür:
+   - **List Membership:** IMEI'nin bulunduğu pool(lar) dolu.
+   - **Bound SIMs:** Şimdilik boş dizi + "No bound SIMs" empty state (D-188 — STORY-097 hedefi).
+   - **History:** Şimdilik boş dizi + "No IMEI history" empty state (D-188).
+3. 14 haneli IMEI girildiğinde modal içinde inline 422 hatası görünmeli (toast değil).
+
+### UT-095-17: Regresyon — make test + make db-seed (AC-14)
+
+1. `make test` çalıştırın → 3935+ test PASS, 0 FAIL.
+2. `make db-seed` çalıştırın →
+   `psql -c "SELECT COUNT(*) FROM imei_whitelist UNION ALL SELECT COUNT(*) FROM imei_greylist UNION ALL SELECT COUNT(*) FROM imei_blacklist"` → tüm satırlar **0** dönmeli.
+3. Settings sidebar'ı kontrol edin → IMEI Pools menü girişi diğer sekmeleri bozmamış olmalı.

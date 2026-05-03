@@ -37,6 +37,7 @@ const (
 	JobTypeESimOTATimeoutReaper   = "esim_ota_timeout_reaper"
 	JobTypeESimStockAlerter       = "esim_stock_alerter"
 	JobTypeBulkDeviceBindings     = "bulk_device_bindings"
+	JobTypeBulkIMEIPoolImport     = "bulk_imei_pool_import"
 )
 
 var AllJobTypes = []string{
@@ -76,4 +77,5 @@ var AllJobTypes = []string{
 	JobTypeESimOTATimeoutReaper,
 	JobTypeESimStockAlerter,
 	JobTypeBulkDeviceBindings,
+	JobTypeBulkIMEIPoolImport,
 }

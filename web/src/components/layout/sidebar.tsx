@@ -37,6 +37,7 @@ import {
   PackageSearch,
   MessageSquare,
   Settings,
+  ScanLine,
 } from 'lucide-react'
 import { hasMinRole } from '@/lib/rbac'
 import { cn } from '@/lib/utils'
@@ -74,6 +75,7 @@ const navGroups: NavGroup[] = [
       { label: 'APNs', icon: Network, path: '/apns', minRole: 'sim_manager' },
       { label: 'Operators', icon: Building2, path: '/operators' },
       { label: 'IP Pools', icon: Globe, path: '/settings/ip-pools', minRole: 'operator_manager' },
+      { label: 'IMEI Pools', icon: ScanLine, path: '/settings/imei-pools', minRole: 'sim_manager' },
       { label: 'Sessions', icon: Radio, path: '/sessions', minRole: 'sim_manager' },
       { label: 'CDRs', icon: FileBarChart, path: '/cdrs', minRole: 'analyst' },
       { label: 'Policies', icon: Shield, path: '/policies', minRole: 'policy_editor' },

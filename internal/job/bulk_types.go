@@ -74,6 +74,43 @@ type BulkDeviceBindingsPayload struct {
 	Rows []DeviceBindingsBulkRowSpec `json:"rows"`
 }
 
+// IMEIPoolImportRowSpec is one row from the uploaded CSV for an IMEI pool import job.
+type IMEIPoolImportRowSpec struct {
+	Kind             string `json:"kind"`
+	IMEIOrTAC        string `json:"imei_or_tac"`
+	DeviceModel      string `json:"device_model,omitempty"`
+	Description      string `json:"description,omitempty"`
+	QuarantineReason string `json:"quarantine_reason,omitempty"`
+	BlockReason      string `json:"block_reason,omitempty"`
+	ImportedFrom     string `json:"imported_from,omitempty"`
+}
+
+// IMEIPoolImportRowResult records the per-row outcome for a BulkIMEIPoolImport job.
+// Outcome codes: "success", "imei_pool_duplicate", "invalid_imei_length",
+// "invalid_kind", "missing_quarantine_reason", "missing_block_reason",
+// "missing_imported_from", "invalid_imported_from", "invalid_csv_injection".
+type IMEIPoolImportRowResult struct {
+	RowNumber int    `json:"row_number"`
+	Outcome   string `json:"outcome"`
+	Message   string `json:"message,omitempty"`
+}
+
+// BulkIMEIPoolImportPayload is the job payload for JobTypeBulkIMEIPoolImport.
+type BulkIMEIPoolImportPayload struct {
+	TenantID string                  `json:"tenant_id"`
+	UserID   string                  `json:"user_id,omitempty"`
+	Pool     string                  `json:"pool"`
+	Rows     []IMEIPoolImportRowSpec `json:"rows"`
+}
+
+// BulkIMEIPoolImportResult is the result JSON stored in the job's result column.
+type BulkIMEIPoolImportResult struct {
+	Total        int                       `json:"total"`
+	SuccessCount int                       `json:"success_count"`
+	FailedCount  int                       `json:"failed_count"`
+	Rows         []IMEIPoolImportRowResult `json:"rows"`
+}
+
 type BulkResult struct {
 	ProcessedCount int         `json:"processed_count"`
 	FailedCount    int         `json:"failed_count"`

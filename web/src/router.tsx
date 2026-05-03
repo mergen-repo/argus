@@ -47,6 +47,7 @@ const UsersPage = lazy(() => import('@/pages/settings/users'))
 const ApiKeysPage = lazy(() => import('@/pages/settings/api-keys'))
 const IpPoolsPage = lazy(() => import('@/pages/settings/ip-pools'))
 const IpPoolDetailPage = lazy(() => import('@/pages/settings/ip-pool-detail'))
+const IMEIPoolsPage = lazy(() => import('@/pages/settings/imei-pools/index'))
 const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
 const SettingsPage = lazy(() => import('@/pages/settings/index'))
 const AlertRulesPage = lazy(() => import('@/pages/settings/alert-rules'))
@@ -155,6 +156,7 @@ export const router = createBrowserRouter([
           { path: '/settings/api-keys', element: lazySuspense(ApiKeysPage) },
           { path: '/settings/ip-pools', element: lazySuspense(IpPoolsPage) },
           { path: '/settings/ip-pools/:poolId', element: lazySuspense(IpPoolDetailPage) },
+          { path: '/settings/imei-pools', element: lazySuspense(IMEIPoolsPage) },
           { path: '/settings', element: lazySuspense(SettingsPage) },
           { path: '/settings/security', element: <Navigate to="/settings#security" replace /> },
           { path: '/settings/sessions', element: <Navigate to="/settings#sessions" replace /> },

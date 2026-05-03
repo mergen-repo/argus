@@ -8,3 +8,5 @@ STEP_2.5 LINT: EXECUTED | items=2 lint scans (TODO/nolint) | evidence=clean | re
 STEP_3 GATE: EXECUTED | items=8 findings (3M scout + 4L scout + 1M lead-discovered F-LEAD-1 tri-state JSON decoder bug); 7 fixed + 1 deferred (VAL-043); D-187 routed | evidence=docs/stories/phase-11/STORY-094-gate.md (114 lines) | result=PASS | ts=2026-05-03T14:12:19Z
 STEP_4 REVIEW: EXECUTED | items=14 checks; 7 doc edits + STORY-095/096/097 handoff notes; PAT-006 RECURRENCE + PAT-031 NEW (tri-state JSON pointer decoder) | evidence=docs/stories/phase-11/STORY-094-review.md | unresolved=0 | result=PASS | ts=2026-05-03T14:26:21Z
 STEP_5 COMMIT: EXECUTED | items=1 unified commit (pending hash) | evidence=git-commit-pending | result=PASS | ts=2026-05-03T14:26:21Z
+STEP_5 COMMIT_FINAL: EXECUTED | items=1 unified commit | evidence=commit=8b20650 (53 files, 4964+/214-) | result=PASS | ts=2026-05-03T14:30:43Z
+STEP_6 POSTPROC: EXECUTED | items=6 checks (4 artefacts + step-log + USERTEST + step-log completeness + 0 unresolved findings) | evidence=persistence-verified | result=PASS | ts=2026-05-03T14:30:43Z

@@ -18,6 +18,7 @@ import (
 	diagapi "github.com/btopcu/argus/internal/api/diagnostics"
 	esimapi "github.com/btopcu/argus/internal/api/esim"
 	eventsapi "github.com/btopcu/argus/internal/api/events"
+	imeipoolapi "github.com/btopcu/argus/internal/api/imei_pool"
 	ippoolapi "github.com/btopcu/argus/internal/api/ippool"
 	jobapi "github.com/btopcu/argus/internal/api/job"
 	metricsapi "github.com/btopcu/argus/internal/api/metrics"
@@ -65,6 +66,7 @@ type RouterDeps struct {
 	IPPoolHandler           *ippoolapi.Handler
 	SIMHandler              *simapi.Handler
 	SIMDeviceBindingHandler *simapi.DeviceBindingHandler
+	IMEIPoolHandler         *imeipoolapi.Handler
 	ESimHandler             *esimapi.Handler
 	SegmentHandler          *segmentapi.Handler
 	BulkHandler             *simapi.BulkHandler
@@ -474,6 +476,24 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
 				r.Use(RequireRole("analyst"))
 				r.Get("/api/v1/sims/{id}/usage", deps.SIMHandler.GetUsage)
+			})
+		}
+
+		if deps.IMEIPoolHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+				r.Use(RequireRole("sim_manager"))
+				// Static route must be registered before {kind} to avoid chi swallowing
+				// "lookup" as a pool kind value. Chi v5 prefers static over param segments.
+				r.Get("/api/v1/imei-pools/lookup", deps.IMEIPoolHandler.Lookup)
+				r.Get("/api/v1/imei-pools/{kind}", deps.IMEIPoolHandler.List)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+				r.Use(RequireRole("tenant_admin"))
+				r.Post("/api/v1/imei-pools/{kind}", deps.IMEIPoolHandler.Add)
+				r.Post("/api/v1/imei-pools/{kind}/import", deps.IMEIPoolHandler.BulkImport)
+				r.Delete("/api/v1/imei-pools/{kind}/{id}", deps.IMEIPoolHandler.Delete)
 			})
 		}
 

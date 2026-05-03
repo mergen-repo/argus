@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	cachePrefix = "dryrun:"
-	cacheTTL    = 5 * time.Minute
-	sampleLimit = 10
+	cachePrefix    = "dryrun:"
+	cacheTTL       = 5 * time.Minute
+	sampleLimit    = 10
 	asyncThreshold = 100000
 )
 
@@ -51,11 +51,11 @@ type BehavioralChange struct {
 }
 
 type SampleSIM struct {
-	SimID    string           `json:"sim_id"`
-	ICCID    string           `json:"iccid"`
-	Operator string           `json:"operator"`
-	APN      string           `json:"apn"`
-	RATType  string           `json:"rat_type"`
+	SimID    string            `json:"sim_id"`
+	ICCID    string            `json:"iccid"`
+	Operator string            `json:"operator"`
+	APN      string            `json:"apn"`
+	RATType  string            `json:"rat_type"`
 	Before   *dsl.PolicyResult `json:"before"`
 	After    *dsl.PolicyResult `json:"after"`
 }
@@ -73,6 +73,10 @@ type Service struct {
 	db          *pgxpool.Pool
 	cache       *redis.Client
 	logger      zerolog.Logger
+	// pools is the optional IMEI pool lookup wired in by main.go so
+	// dry-run evaluations resolve device.imei_in_pool() against real
+	// pool data instead of the placeholder. Safe to leave nil.
+	pools dsl.IMEIPoolLookuper
 }
 
 func NewService(
@@ -89,6 +93,24 @@ func NewService(
 		cache:       cache,
 		logger:      logger.With().Str("component", "dryrun_service").Logger(),
 	}
+}
+
+// SetIMEIPoolLookuper wires the IMEI pool lookup into the dry-run
+// service so device.imei_in_pool() predicates resolve against real
+// pool data (STORY-095 Task 6). Safe to leave unset — evaluator
+// falls back to the placeholder behaviour (returns false).
+func (s *Service) SetIMEIPoolLookuper(pools dsl.IMEIPoolLookuper) {
+	s.pools = pools
+}
+
+// newEvaluator returns a freshly-constructed dsl.Evaluator with the
+// pool lookup attached if available. Centralised so both eval paths
+// (evaluateSamples + evaluateExistingPolicy) get consistent wiring.
+func (s *Service) newEvaluator() *dsl.Evaluator {
+	if s.pools == nil {
+		return dsl.NewEvaluator()
+	}
+	return dsl.NewEvaluatorWithPools(s.pools)
 }
 
 func (s *Service) cacheKey(versionID uuid.UUID, segmentID *uuid.UUID) string {
@@ -337,12 +359,12 @@ func (s *Service) resolveAPNNamesByTenant(ctx context.Context, tenantID uuid.UUI
 }
 
 func (s *Service) evaluateSamples(ctx context.Context, compiled *dsl.CompiledPolicy, sims []store.SIM, totalAffected int) ([]SampleSIM, []BehavioralChange) {
-	evaluator := dsl.NewEvaluator()
+	evaluator := s.newEvaluator()
 	var samples []SampleSIM
 	changeAggregator := make(map[string]*BehavioralChange)
 
 	for _, sim := range sims {
-		sessCtx := buildSessionContext(sim)
+		sessCtx := buildSessionContext(sim).WithContext(ctx)
 
 		afterResult, err := evaluator.Evaluate(sessCtx, compiled)
 		if err != nil {
@@ -430,7 +452,7 @@ func (s *Service) evaluateExistingPolicy(ctx context.Context, versionID uuid.UUI
 		return nil
 	}
 
-	evaluator := dsl.NewEvaluator()
+	evaluator := s.newEvaluator()
 	result, err := evaluator.Evaluate(sessCtx, compiled)
 	if err != nil {
 		return nil

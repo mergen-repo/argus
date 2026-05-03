@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { EmptyState } from '@/components/shared/empty-state'
+import { IMEILookupTrigger } from '@/components/imei-lookup/imei-lookup-trigger'
 import { useExport } from '@/hooks/use-export'
 import {
   Table,
@@ -295,6 +296,7 @@ export default function SessionListPage() {
           <LiveDot />
         </div>
         <div className="flex items-center gap-2">
+          <IMEILookupTrigger size="sm" className="gap-2" />
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportCSV()} disabled={exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Export

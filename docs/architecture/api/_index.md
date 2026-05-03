@@ -618,7 +618,7 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 
 ---
 
-**Total: 269 REST endpoints + 11 WebSocket event types**
+**Total: 276 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
@@ -630,3 +630,4 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 > Index updated 2026-04-27 by FIX-244 review — 2 row additions (API-339..340) for bulk violation acknowledge + bulk dismiss endpoints; API-262 amended with `status`, `action_taken`, `date_from`, `date_to` filter params; API-260 amended with reason ≥3 chars validation + `details.remediation` write; API-266 amended with Nginx 301 from legacy `/violations/export.csv`. Policy Violations count 5→7. Total updated 269→271.
 > Index updated 2026-04-27 by FIX-236 review — 4 row additions (API-341..344) for filter-based SIM bulk endpoints (preview-count + state-change-by-filter + policy-assign-by-filter + operator-switch-by-filter). SIM Segments & Bulk count 10→14. Total updated 271→275. Existing per-id bulk endpoints (API-064..066) unchanged.
 > Index updated 2026-04-27 by FIX-248 review — 1 row addition (API-345) for the public HMAC-signed `/reports/download/{key_b64}` endpoint; API-206 amended with the FIX-248 scope reduction (KVKK/GDPR/BTK/cost_analysis removed). Reports count 5→6. Total updated 275→276.
+> Index updated 2026-05-03 by STORY-095 review — Total bold line corrected to 276 (was stale at 269; Phase 11 architect dispatch and subsequent FIX reviews had already appended API-327..345 with running changelog but never updated the bold count). No new endpoint rows — IMEI Pool Management (API-331..335) were registered by the Phase 11 architect dispatch on 2026-04-27.

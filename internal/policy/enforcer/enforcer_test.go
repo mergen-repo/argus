@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+// TestEnforcer_PropagatesRequestCtxToSessionContext (STORY-095 Gate F-A8) is
+// a static source-level guard: it reads enforcer.go and asserts the call to
+// e.evaluator.Evaluate threads `ctx` through SessionContext.WithContext so
+// device.imei_in_pool() lookups inherit the request deadline / cancellation.
+// A behavioural assertion would require building a real *PolicyStore +
+// real *SIM; the simpler textual guard is sufficient to prevent regression.
+func TestEnforcer_PropagatesRequestCtxToSessionContext(t *testing.T) {
+	src, err := os.ReadFile("enforcer.go")
+	if err != nil {
+		t.Fatalf("read enforcer.go: %v", err)
+	}
+	want := "e.evaluator.Evaluate(sessionCtx.WithContext(ctx), compiled)"
+	if !strings.Contains(string(src), want) {
+		t.Fatalf("F-A8 regression: enforcer.go must call %q so request ctx flows into SessionContext", want)
+	}
+}
 
 // newTestEnforcer builds a minimally-wired Enforcer for unit tests.
 // Store / bus / cache all nil — the FIX-210 rate limiter does not

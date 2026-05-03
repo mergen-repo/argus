@@ -68,6 +68,14 @@ This is the "teeth" of the IMEI epic — the story where stolen-device protectio
 - [ ] Unit: enforcer logic table — 6 modes × (bound IMEI present / absent) × (observed IMEI match / differ / empty) × (in pool / not).
 - [ ] Regression: full `make test` + existing AAA E2E suites green.
 
+## STORY-095 Handoff Notes (added by Reviewer 2026-05-03)
+
+- **`device.imei_in_pool(...)` is now functional:** STORY-095 replaced the STORY-094 placeholder evaluator with a real `IMEIPoolStore.LookupKind` call supporting both exact full-IMEI and TAC-range matching. The DSL predicate is safe to use in STORY-096 enforcement policies without any modification. Context cancellation propagates via `sessionCtx.WithContext(ctx)` (Gate F-A8 fix).
+- **D-189 — `bound_sims_count` placeholder (API-331):** API-331 currently returns `bound_sims_count=0` for all entries. STORY-096 should decide whether to implement this COUNT JOIN (via `sims.bound_imei = imei_whitelist.imei_or_tac` for full-IMEI rows) or drop the field from the response DTO. See ROUTEMAP D-189.
+- **D-187 — `simAllowlistStore` dormant:** The per-SIM allowlist store (`simAllowlistStore`) is instantiated in `cmd/argus/main.go` but has no production consumer. STORY-095 chose the org-wide pool surface; this per-SIM allowlist is the target for `binding_mode='allowlist'` enforcement in STORY-096. Wire `simAllowlistStore` to the allowlist pre-check logic or delete it if the design no longer needs it. See ROUTEMAP D-187.
+- **Blacklist hard-deny override:** `device.imei_in_pool("blacklist")` was verified functional in STORY-095. Use it in the binding enforcement pre-check as the final gate: blacklist match overrides all binding-mode verdicts (AC-13 in this story spec).
+- **PAT-026 guard:** If STORY-096 introduces any new job processor, ensure `cmd/argus/main.go` wiring is co-committed (paired `TestXxxProcessor_Type` + `TestJobTypeXxx_RegisteredInAllJobTypes` required per VAL-051).
+
 ## STORY-094 Handoff Notes (added by Reviewer 2026-05-01)
 
 - **D-184 — 1M-SIM benchmark re-targeted here:** STORY-094 has no enforcement on the AAA hot path, so the 1M-SIM bench is not meaningful there. D-184 target updated to STORY-096. Run the literal 1M-SIM bench when the binding pre-check lands on the auth hot path; record p95 latency overhead and update plan §Perf note.

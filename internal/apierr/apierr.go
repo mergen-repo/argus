@@ -111,6 +111,16 @@ const (
 	CodeInvalidIMEI          = "INVALID_IMEI"
 	CodeInvalidBindingStatus = "INVALID_BINDING_STATUS"
 
+	CodeInvalidPoolKind         = "INVALID_POOL_KIND"
+	CodeInvalidEntryKind        = "INVALID_ENTRY_KIND"
+	CodeInvalidTAC              = "INVALID_TAC"
+	CodeMissingQuarantineReason = "MISSING_QUARANTINE_REASON"
+	CodeMissingBlockReason      = "MISSING_BLOCK_REASON"
+	CodeInvalidImportedFrom     = "INVALID_IMPORTED_FROM"
+	CodeIMEIPoolDuplicate       = "IMEI_POOL_DUPLICATE"
+	CodePoolEntryNotFound       = "POOL_ENTRY_NOT_FOUND"
+	CodeCSVInjectionRejected    = "CSV_INJECTION_REJECTED"
+
 	CodeInvalidDateRange = "INVALID_DATE_RANGE"
 
 	CodeInvalidYear          = "INVALID_YEAR"

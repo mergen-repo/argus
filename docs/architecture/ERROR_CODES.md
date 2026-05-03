@@ -146,6 +146,15 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 | `INVALID_BINDING_MODE` | 422 | `binding_mode` value is not in the allowed enum set (`strict`, `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`). NULL is accepted (disables binding). Added STORY-094. | `{"status":"error","error":{"code":"INVALID_BINDING_MODE","message":"binding_mode must be one of: strict, allowlist, first-use, tac-lock, grace-period, soft; got 'unknown'"}}` |
 | `INVALID_IMEI` | 422 | `bound_imei` is not exactly 15 ASCII decimal digits. Added STORY-094. | `{"status":"error","error":{"code":"INVALID_IMEI","message":"bound_imei must be exactly 15 numeric digits"}}` |
 | `INVALID_BINDING_STATUS` | 422 | `binding_status_override` value is not in the allowed enum set (`verified`, `pending`, `mismatch`, `unbound`, `disabled`). Added STORY-094. | `{"status":"error","error":{"code":"INVALID_BINDING_STATUS","message":"binding_status must be one of: verified, pending, mismatch, unbound, disabled; got 'unknown'"}}` |
+| `INVALID_POOL_KIND` | 422 | `{kind}` path parameter is not one of `whitelist`, `greylist`, `blacklist`. Added STORY-095. | `{"status":"error","error":{"code":"INVALID_POOL_KIND","message":"pool kind must be one of: whitelist, greylist, blacklist; got 'unknown'"}}` |
+| `INVALID_ENTRY_KIND` | 422 | `kind` body field is not `full_imei` or `tac_range`. Added STORY-095. | `{"status":"error","error":{"code":"INVALID_ENTRY_KIND","message":"entry kind must be full_imei or tac_range"}}` |
+| `INVALID_TAC` | 422 | `imei_or_tac` value is not exactly 8 ASCII decimal digits when `kind=tac_range`. Added STORY-095. | `{"status":"error","error":{"code":"INVALID_TAC","message":"tac_range entry requires exactly 8 numeric digits"}}` |
+| `MISSING_QUARANTINE_REASON` | 422 | `quarantine_reason` is required for greylist entries but was absent or empty. Added STORY-095. | `{"status":"error","error":{"code":"MISSING_QUARANTINE_REASON","message":"quarantine_reason is required for greylist entries"}}` |
+| `MISSING_BLOCK_REASON` | 422 | `block_reason` is required for blacklist entries but was absent or empty. Added STORY-095. | `{"status":"error","error":{"code":"MISSING_BLOCK_REASON","message":"block_reason is required for blacklist entries"}}` |
+| `INVALID_IMPORTED_FROM` | 422 | `imported_from` value is not in (`manual`, `gsma_ceir`, `operator_eir`) — required for blacklist. Added STORY-095. | `{"status":"error","error":{"code":"INVALID_IMPORTED_FROM","message":"imported_from must be one of: manual, gsma_ceir, operator_eir"}}` |
+| `IMEI_POOL_DUPLICATE` | 409 | The `(tenant_id, imei_or_tac)` pair already exists in the target pool table (UNIQUE constraint). Added STORY-095. | `{"status":"error","error":{"code":"IMEI_POOL_DUPLICATE","message":"IMEI or TAC already exists in this pool"}}` |
+| `POOL_ENTRY_NOT_FOUND` | 404 | The pool entry with the given `id` does not exist for this tenant (cross-tenant isolation). Added STORY-095. | `{"status":"error","error":{"code":"POOL_ENTRY_NOT_FOUND","message":"pool entry not found"}}` |
+| `CSV_INJECTION_REJECTED` | 422 | A string field (`device_model`, `description`, `quarantine_reason`, `block_reason`, `imported_from`) starts with a CSV formula-trigger character (`=`, `+`, `-`, `@`, tab). Added STORY-095 Gate (F-A5). | `{"status":"error","error":{"code":"CSV_INJECTION_REJECTED","message":"field 'description' contains a CSV injection character"}}` |
 
 ---
 
@@ -340,6 +349,15 @@ const (
     CodeInvalidBindingMode      = "INVALID_BINDING_MODE"      // STORY-094 device binding
     CodeInvalidIMEI             = "INVALID_IMEI"              // STORY-094 device binding
     CodeInvalidBindingStatus    = "INVALID_BINDING_STATUS"    // STORY-094 device binding
+    CodeInvalidPoolKind         = "INVALID_POOL_KIND"         // STORY-095 IMEI pool management
+    CodeInvalidEntryKind        = "INVALID_ENTRY_KIND"        // STORY-095 IMEI pool management
+    CodeInvalidTAC              = "INVALID_TAC"               // STORY-095 IMEI pool management
+    CodeMissingQuarantineReason = "MISSING_QUARANTINE_REASON" // STORY-095 IMEI pool management
+    CodeMissingBlockReason      = "MISSING_BLOCK_REASON"      // STORY-095 IMEI pool management
+    CodeInvalidImportedFrom     = "INVALID_IMPORTED_FROM"     // STORY-095 IMEI pool management
+    CodeIMEIPoolDuplicate       = "IMEI_POOL_DUPLICATE"       // STORY-095 IMEI pool management
+    CodePoolEntryNotFound       = "POOL_ENTRY_NOT_FOUND"      // STORY-095 IMEI pool management
+    CodeCSVInjectionRejected    = "CSV_INJECTION_REJECTED"    // STORY-095 Gate F-A5
 
     // APN
     CodeAPNNotFound      = "APN_NOT_FOUND"

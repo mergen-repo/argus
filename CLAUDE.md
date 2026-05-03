@@ -116,10 +116,11 @@ docs/            → All documentation
 ## Active Session
 
 - Mode: AUTOPILOT (Phase 11: Enterprise Readiness Pack — started 2026-05-01)
-- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (1/6 stories DONE)
-- Story: STORY-094 — SIM-Device Binding Model + Policy DSL Extension
+- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (2/6 stories DONE)
+- Story: STORY-095 — IMEI Pool Management (white/grey/black + bulk + lookup)
 - Step: Plan
-- Last closed: STORY-093 [x] DONE 2026-05-01 (Phase 11 W1 L — IMEI Capture across RADIUS+Diameter S6a+5G SBA; 9 tasks/5 waves; commit 42b70c5; 42 files +2299/-31; 21 new tests + 3 microbenches; Gate F-A1 HIGH (SBA registry threading) + F-A2 MEDIUM (UDM Session IMEI propagation) + F-A4/F-A6 LOWs all FIXED; D-182/183/184 deferred (Diameter listener/PROTOCOLS.md device.peri_raw/1M-SIM bench rig); PAT-017 RECURRENCE filed; AC-9 hard-confirmed via empty git diff on internal/audit/+internal/store/; 3841 tests PASS; 169 ns aggregate vs 200 µs AC-10 budget = 1183× margin)
+- Last closed: STORY-094 [x] DONE 2026-05-03 (Phase 11 W2 M — SIM-Device Binding Model + Policy DSL Extension; 7 tasks/4 waves; commit 8b20650; 53 files +4964/-214; 35+ new tests; Gate 8 findings (3M+4L scout + 1M Lead-discovered F-LEAD-1 tri-state JSON pointer collapse); 7 fixed + 1 deferred (VAL-043); D-182 ✓ RESOLVED [Task 7], D-183→097, D-184→096, D-187→095 routed; PAT-006 RECURRENCE [F-A2 bulk field-clear] + PAT-031 NEW [F-LEAD-1 *json.RawMessage tri-state]; AC-9 hard-confirmed via empty git diff on internal/audit/; 3889 tests PASS; 4 migrations applied; AC-10 perf bench re-targeted to STORY-096)
+- Last closed: STORY-093 [x] DONE 2026-05-01 (Phase 11 W1 L — IMEI Capture across RADIUS+Diameter S6a+5G SBA; commit 42b70c5; 42 files +2299/-31; 21 new tests + 3 microbenches; Gate F-A1+F-A2+F-A4+F-A6 all FIXED; D-182/183/184 deferred — D-182 since closed in 094)
 - Last closed: FIX-247 [x] DONE 2026-04-30 (Wave 10 P2 S — Remove Admin Global Sessions UI; F-320 closed; 9/9 ACs PASS; UI-only removal pattern — page/hook/route/sidebar deleted, BE handler+routes+store retained per AC-5; DEV-580; PAT-026 RECURRENCE [FIX-247] — limited sweep documented exception; D-180 routed for dormant handler cleanup; tsc PASS, vite build 2.65s, go build/vet/test PASS; combined Gate+Review S-story dispatch)
 - Wave 10 P2 6/6 COMPLETE (FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 + FIX-247)
 - Earlier: FIX-238 [x] DONE 2026-04-30 (Wave 10 P2 L — Remove Roaming Feature full stack; F-229 closed; 10/10 ACs PASS; full BE/FE/DB/DSL/test/doc sweep; AC-10 boot-time keyword archiver + idempotent audit; DEV-579; PAT-026 RECURRENCE; GLOSSARY 7 entries updated; 4 USERTEST scenarios added; 3803 Go tests PASS; tsc 0; 0 deferred D-NNN)

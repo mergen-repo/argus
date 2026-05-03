@@ -39,6 +39,13 @@ The grace-period countdown alert is the second feature: a scheduled job notifies
 - Blocked by: STORY-094 (TBL-59 / API-330 schema), STORY-096 (enforcement is what creates mismatch states worth recording)
 - Blocks: none in Phase 11
 
+## STORY-095 Handoff Notes (added by Reviewer 2026-05-03)
+
+- **D-188 — API-335 Lookup `bound_sims` + `history` empty arrays:** STORY-095 ships the Lookup endpoint with `bound_sims=[]` and `history=[]` (deferred). STORY-097 must implement both fields: (a) `bound_sims` — populate via `SIMStore.ListByBoundIMEI(ctx, tenantID, imei)` returning `[{sim_id, iccid, binding_mode, binding_status}]`; (b) `history` — populate via `IMEIHistoryStore.ListByObservedIMEI(ctx, tenantID, imei, limit=50)` ordered DESC. The SCR-197 drawer FE already renders both sections with empty-state placeholders. See ROUTEMAP D-188.
+- **`IMEIPoolStore.LookupKind` is functional:** STORY-095 ships the full pool lookup including TAC-range matching. STORY-097 change-detection can rely on IMEI pool membership checks being accurate for all three pool kinds.
+- **SCR-197 drawer sections pre-wired:** The FE drawer for IMEI Lookup already has 3 sections: List Membership (populated by STORY-095), Bound SIMs, and History (both empty per D-188). STORY-097 connects the backend data — no FE drawer restructuring needed.
+- **SIM cross-link navigation:** SCR-197 drawers show a "View in SIM Detail" link for each bound SIM. Wire the link to the device binding tab (`/sims/{id}#device-binding`) per AC-11 in STORY-095 story spec.
+
 ## STORY-094 Handoff Notes (added by Reviewer 2026-05-01)
 
 - **D-183 (5G non-3GPP PEI raw retention) — re-targeted here:** D-183 target updated from "STORY-094 / STORY-097" to STORY-097 exclusively. STORY-094 kept SessionContext flat per AC-12 (no PEIRaw). This story must add `SessionContext.PEIRaw string`, extend `ParsePEI` for `mac-`/`eui64-` prefix forms, and propagate through `session.Session`. See ROUTEMAP D-183.

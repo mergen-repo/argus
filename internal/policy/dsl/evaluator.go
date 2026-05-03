@@ -1,10 +1,24 @@
 package dsl
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
+
+// IMEIPoolLookuper is the minimal contract the evaluator needs from the IMEI
+// pool store. Defined here so the dsl package does NOT import internal/store
+// (avoids an import cycle and keeps the evaluator's surface area narrow —
+// matches the same pattern already used for the tenant/sim narrow interfaces).
+//
+// Implementations MUST return (false, nil) for an empty/short imei rather
+// than an error, mirroring store.IMEIPoolStore.LookupKind's behaviour.
+type IMEIPoolLookuper interface {
+	LookupKind(ctx context.Context, tenantID uuid.UUID, imei string, pool string) (bool, error)
+}
 
 type SessionContext struct {
 	SIMID           string            `json:"sim_id"`
@@ -31,6 +45,30 @@ type SessionContext struct {
 	BoundIMEI         string `json:"bound_imei,omitempty"`
 	BindingStatus     string `json:"binding_status,omitempty"`
 	BindingVerifiedAt string `json:"binding_verified_at,omitempty"` // RFC3339 string for DSL string compare
+
+	// Phase 11 STORY-095 Task 6 — per-evaluation-pass cache for the
+	// device.imei_in_pool() DSL predicate. Maps `<pool>:<imei>` → bool.
+	// SessionContext is passed by value through evaluation; map values are
+	// reference types so the same backing store is shared across copies,
+	// giving us a free per-pass cache without threading a separate state
+	// struct. Reset on every entry to Evaluate(). Excluded from JSON so
+	// it never leaks into wire payloads.
+	poolCache map[string]bool `json:"-"`
+	// runtimeCtx carries the request-scoped context.Context into the
+	// evaluator so the IMEI pool lookup honors deadlines/cancellation.
+	// nil-safe: when missing we fall back to context.Background(); the
+	// store query is a single indexed EXISTS — fast enough that a missing
+	// deadline does not jeopardise the AAA hot path.
+	runtimeCtx context.Context `json:"-"`
+}
+
+// WithContext returns a copy of the SessionContext with the supplied
+// context.Context attached. The context is consulted by the IMEI pool
+// lookup so callers in request-scoped paths (handlers, dryrun, enforcer)
+// can propagate deadlines/cancellation.
+func (c SessionContext) WithContext(ctx context.Context) SessionContext {
+	c.runtimeCtx = ctx
+	return c
 }
 
 type PolicyResult struct {
@@ -57,16 +95,46 @@ type ActionResult struct {
 	Params map[string]interface{} `json:"params,omitempty"`
 }
 
-type Evaluator struct{}
+type Evaluator struct {
+	// pools, when non-nil, satisfies device.imei_in_pool() predicates
+	// against the live pool store. nil keeps the placeholder behaviour
+	// (always false) so call sites that haven't been migrated yet — and
+	// the synthetic-context tests — keep working unchanged.
+	pools IMEIPoolLookuper
+}
 
 func NewEvaluator() *Evaluator {
 	return &Evaluator{}
+}
+
+// NewEvaluatorWithPools returns an Evaluator wired to a live IMEI pool
+// lookup. Call sites in production hot paths (RADIUS/Diameter enforcer,
+// dryrun, simulator) MUST use this constructor; tests and synthetic
+// contexts can keep using NewEvaluator() to preserve the placeholder
+// behaviour.
+func NewEvaluatorWithPools(pools IMEIPoolLookuper) *Evaluator {
+	return &Evaluator{pools: pools}
+}
+
+// WithIMEIPoolLookuper installs (or replaces) the pool lookup on an
+// existing Evaluator. Provided for call sites that construct the
+// evaluator lazily and want to layer in the lookup post-hoc without
+// changing the constructor signature.
+func (e *Evaluator) WithIMEIPoolLookuper(pools IMEIPoolLookuper) *Evaluator {
+	e.pools = pools
+	return e
 }
 
 func (e *Evaluator) Evaluate(ctx SessionContext, compiled *CompiledPolicy) (*PolicyResult, error) {
 	if compiled == nil {
 		return nil, fmt.Errorf("nil compiled policy")
 	}
+
+	// Reset the per-pass IMEI pool cache. Map values are reference types,
+	// so the freshly-allocated map propagates through the value-typed
+	// SessionContext copies that the evaluator threads through eval()
+	// without us needing to convert ctx to a pointer everywhere.
+	ctx.poolCache = map[string]bool{}
 
 	if !e.matchesPolicy(ctx, compiled) {
 		return &PolicyResult{
@@ -251,9 +319,7 @@ func (e *Evaluator) getConditionFieldValue(ctx SessionContext, field string) int
 		return tac(innerStr)
 	}
 	if strings.HasPrefix(field, "device.imei_in_pool(") && strings.HasSuffix(field, ")") {
-		// Placeholder: STORY-095 wires real pool lookup. Always returns false
-		// for whitelist, greylist, blacklist, and any other pool name.
-		return false
+		return e.evalIMEIInPool(ctx, field)
 	}
 
 	switch field {
@@ -318,6 +384,71 @@ func tac(imei string) string {
 		return ""
 	}
 	return imei[:8]
+}
+
+// evalIMEIInPool resolves device.imei_in_pool(<pool>) by consulting the
+// per-pass cache first, then the wired IMEIPoolLookuper. Returns false
+// for any condition that prevents a deterministic answer:
+//   - empty/non-15-digit IMEI in the session context
+//   - empty / unparseable tenant_id
+//   - lookup not wired (pools == nil) — preserves placeholder semantics
+//   - lookup error — fail-open per STORY-095 plan §DSL (STORY-096 owns
+//     enforcement default-deny posture; the policy evaluator stays
+//     side-effect-free on infrastructure errors).
+//
+// Cache key is `<pool>:<imei>`. The cache is owned by SessionContext
+// (per-pass / per-tenant safety — one tenant's lookup never leaks to
+// another evaluation pass) and is reset at the top of Evaluate().
+func (e *Evaluator) evalIMEIInPool(ctx SessionContext, field string) bool {
+	pool := strings.TrimSpace(field[len("device.imei_in_pool(") : len(field)-1])
+	// Defensive: the parser already strips quotes, but if a future caller
+	// hands us `device.imei_in_pool("blacklist")` verbatim, normalise.
+	pool = strings.Trim(pool, `"'`)
+	if pool == "" {
+		return false
+	}
+	if len(ctx.IMEI) != 15 {
+		return false
+	}
+
+	cacheKey := pool + ":" + ctx.IMEI
+	if cached, ok := ctx.poolCache[cacheKey]; ok {
+		return cached
+	}
+
+	if e.pools == nil {
+		if ctx.poolCache != nil {
+			ctx.poolCache[cacheKey] = false
+		}
+		return false
+	}
+
+	tenantID, err := uuid.Parse(ctx.TenantID)
+	if err != nil {
+		if ctx.poolCache != nil {
+			ctx.poolCache[cacheKey] = false
+		}
+		return false
+	}
+
+	lookupCtx := ctx.runtimeCtx
+	if lookupCtx == nil {
+		lookupCtx = context.Background()
+	}
+
+	hit, err := e.pools.LookupKind(lookupCtx, tenantID, ctx.IMEI, pool)
+	if err != nil {
+		// Fail-open at the evaluator boundary; STORY-096 enforcer policy
+		// decides whether infrastructure errors translate into deny.
+		if ctx.poolCache != nil {
+			ctx.poolCache[cacheKey] = false
+		}
+		return false
+	}
+	if ctx.poolCache != nil {
+		ctx.poolCache[cacheKey] = hit
+	}
+	return hit
 }
 
 func (e *Evaluator) evaluateCharging(ctx SessionContext, ch *CompiledCharging) *ChargingResult {

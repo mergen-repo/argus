@@ -102,6 +102,17 @@ func (e *Enforcer) SetMetricsRegistry(reg *obsmetrics.Registry) {
 	e.metricsReg = reg
 }
 
+// SetIMEIPoolLookuper wires the IMEI pool lookup into the underlying
+// DSL evaluator so device.imei_in_pool() predicates resolve against
+// real pool data (STORY-095 Task 6). Safe to leave unset — the
+// evaluator falls back to the placeholder behaviour (returns false).
+func (e *Enforcer) SetIMEIPoolLookuper(pools dsl.IMEIPoolLookuper) {
+	if e.evaluator == nil {
+		e.evaluator = dsl.NewEvaluator()
+	}
+	e.evaluator.WithIMEIPoolLookuper(pools)
+}
+
 // shouldPublishViolationAlert returns true when at least rlMinInterval
 // has elapsed since the last alert publish for this (policy, sim) tuple.
 // When it returns false the caller must skip the publish and log it as
@@ -169,7 +180,10 @@ func (e *Enforcer) Evaluate(ctx context.Context, sim *store.SIM, sessionCtx dsl.
 		}
 	}
 
-	policyResult, err := e.evaluator.Evaluate(sessionCtx, compiled)
+	// STORY-095 Gate F-A8: thread the request-scoped context.Context into the
+	// SessionContext so device.imei_in_pool() lookups respect RADIUS/Diameter
+	// cancellations. The dryrun path already wires this; align enforcer here.
+	policyResult, err := e.evaluator.Evaluate(sessionCtx.WithContext(ctx), compiled)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("sim_id", sim.ID.String()).Msg("policy evaluation error")
 		return result, nil

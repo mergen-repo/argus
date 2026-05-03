@@ -1,0 +1,11 @@
+STEP_1 PLAN: EXECUTED | items=8 tasks/6 waves | evidence=docs/stories/phase-11/STORY-095-plan.md (753 lines) | result=PASS | ts=2026-05-03T14:46:57Z
+STEP_2 DEV_WAVE_1: EXECUTED | items=1 task (T1 IMEI pool migrations TBL-56/57/58) | evidence=20260508000001_imei_pools + RLS canon clean | result=PASS (1 concern: plan omitted DB-level length+digits CHECKs delegated to handler) | ts=2026-05-03T14:51:54Z
+STEP_2 DEV_WAVE_2: EXECUTED | items=1 task (T2 IMEIPoolStore — 5 methods + 3 PAT-022 structural tests + 9 graceful-skip tests; rate-limit interrupted but Ana Amil completed test file + gofmt fix) | evidence=imei_pool.go + imei_pool_consts.go + 2 test files | result=PASS | ts=2026-05-03T15:01:26Z
+STEP_2 DEV_WAVE_3: EXECUTED | items=3 tasks parallel (T3 bulk import worker + CSV-injection guard, T4 IMEI Pool handlers API-331/332/333, T6 DSL imei_in_pool wire+cache) | evidence=imei_pool_import_worker.go + handler.go + evaluator pool wire | result=PASS | ts=2026-05-03T15:15:43Z
+STEP_2 DEV_WAVE_4: EXECUTED | items=1 task (T5 BulkImport+Lookup handlers API-334+335) | evidence=imei_pool/handler.go BulkImport+Lookup methods, 8 tests | result=PASS (2 deferred: bound_sims_count tech debt + bound_sims/history empty arrays in Lookup) | ts=2026-05-03T15:25:15Z
+STEP_2 DEV_WAVE_5: EXECUTED | items=2 tasks parallel (T7 SCR-196 IMEI Pools page + T8 SCR-197 IMEI Lookup modal+drawer); +Ana Amil added IMEILookupTrigger to SCR-196 toolbar (3/3 entry points wired) | evidence=web FE files | result=PASS | ts=2026-05-03T15:38:14Z
+STEP_2 DEV: EXECUTED | items=8 tasks across 5 waves | result=PASS | ts=2026-05-03T15:38:14Z
+STEP_2.5 LINT: EXECUTED | items=3 lint scans (hardcoded/hex/disabled) | evidence=clean | result=PASS | ts=2026-05-03T15:38:14Z
+STEP_3 GATE: EXECUTED | items=13 findings (1C+4H+4M+4L); 6 fixed + 4 VAL (no code) + 2 deferred (D-188/189) + 1 N/A | evidence=docs/stories/phase-11/STORY-095-gate.md | result=PASS | ts=2026-05-03T16:05:42Z
+STEP_4 REVIEW: EXECUTED | items=14 checks; 9 doc edits + STORY-096/097 handoff notes; PAT-026 RECURRENCE confirmed | evidence=docs/stories/phase-11/STORY-095-review.md | unresolved=0 | result=PASS | ts=2026-05-03T16:18:18Z
+STEP_5 COMMIT: EXECUTED | items=1 unified commit (pending hash) | evidence=git-commit-pending | result=PASS | ts=2026-05-03T16:18:18Z
