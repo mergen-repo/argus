@@ -73,6 +73,13 @@ func (e *Engine) buildCSV(ctx context.Context, req Request) (*Artifact, error) {
 		}
 		writeTabularCSV(w, data.Columns, data.Rows, data.Summary)
 
+	case ReportUnverifiedDevices:
+		data, err := e.provider.UnverifiedDevices(ctx, req.TenantID, req.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("unverified devices data: %w", err)
+		}
+		writeTabularCSV(w, data.Columns, data.Rows, data.Summary)
+
 	default:
 		return nil, fmt.Errorf("unsupported report type for csv: %q", req.Type)
 	}

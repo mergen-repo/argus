@@ -43,8 +43,8 @@ func (m *mockScheduledReportStore) Delete(ctx context.Context, id uuid.UUID) err
 }
 
 type mockJobEnqueuer struct {
-	called  bool
-	payload store.CreateJobParams
+	called    bool
+	payload   store.CreateJobParams
 	returnJob *store.Job
 	returnErr error
 }
@@ -484,14 +484,14 @@ func TestListDefinitions_ReturnsAll8Types(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	// FIX-248 DEV-560: scope reduced from 8 to 4 (compliance trio + cost removed).
-	if len(resp.Data) != 4 {
-		t.Errorf("definitions count = %d, want 4", len(resp.Data))
+	// STORY-096 Task 6: added unverified_devices — now 5 definitions.
+	if len(resp.Data) != 5 {
+		t.Errorf("definitions count = %d, want 5", len(resp.Data))
 	}
 
 	expectedIDs := []string{
 		"sla_monthly", "usage_summary",
-		"audit_log_export", "sim_inventory",
+		"audit_log_export", "sim_inventory", "unverified_devices",
 	}
 
 	idSet := make(map[string]bool)

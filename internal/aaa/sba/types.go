@@ -5,8 +5,8 @@ import "time"
 type AuthType string
 
 const (
-	AuthType5GAKA    AuthType = "5G_AKA"
-	AuthTypeEAPAKA   AuthType = "EAP_AKA_PRIME"
+	AuthType5GAKA  AuthType = "5G_AKA"
+	AuthTypeEAPAKA AuthType = "EAP_AKA_PRIME"
 )
 
 type SNSSAI struct {
@@ -25,16 +25,16 @@ type GUAMI struct {
 }
 
 type AuthenticationRequest struct {
-	SUPIOrSUCI         string   `json:"supiOrSuci"`
-	ServingNetworkName string   `json:"servingNetworkName"`
-	RequestedNSSAI     []SNSSAI `json:"requestedNssai,omitempty"`
+	SUPIOrSUCI            string      `json:"supiOrSuci"`
+	ServingNetworkName    string      `json:"servingNetworkName"`
+	RequestedNSSAI        []SNSSAI    `json:"requestedNssai,omitempty"`
 	ResynchronizationInfo *ResyncInfo `json:"resynchronizationInfo,omitempty"`
-	PEI                string   `json:"pei,omitempty"`
+	PEI                   string      `json:"pei,omitempty"`
 }
 
 type ResyncInfo struct {
-	RAND  string `json:"rand"`
-	AUTS  string `json:"auts"`
+	RAND string `json:"rand"`
+	AUTS string `json:"auts"`
 }
 
 type AKA5GAuthData struct {
@@ -48,10 +48,10 @@ type AuthLink struct {
 }
 
 type AuthenticationResponse struct {
-	AuthType   AuthType           `json:"authType"`
-	AuthData5G *AKA5GAuthData     `json:"5gAuthData,omitempty"`
+	AuthType   AuthType            `json:"authType"`
+	AuthData5G *AKA5GAuthData      `json:"5gAuthData,omitempty"`
 	Links      map[string]AuthLink `json:"_links,omitempty"`
-	SUPI       string             `json:"supi,omitempty"`
+	SUPI       string              `json:"supi,omitempty"`
 }
 
 type ConfirmationRequest struct {
@@ -70,16 +70,16 @@ type SecurityInfoRequest struct {
 }
 
 type AuthVector5G struct {
-	AvType    AuthType `json:"avType"`
-	RAND      string   `json:"rand"`
-	AUTN      string   `json:"autn"`
-	XresStar  string   `json:"xresStar"`
-	Kausf     string   `json:"kausf"`
+	AvType   AuthType `json:"avType"`
+	RAND     string   `json:"rand"`
+	AUTN     string   `json:"autn"`
+	XresStar string   `json:"xresStar"`
+	Kausf    string   `json:"kausf"`
 }
 
 type SecurityInfoResponse struct {
 	AuthVector *AuthVector5G `json:"authenticationVector"`
-	SUPI       string       `json:"supi"`
+	SUPI       string        `json:"supi"`
 }
 
 type AuthEvent struct {
@@ -95,12 +95,12 @@ type AuthEventResponse struct {
 }
 
 type Amf3GppAccessRegistration struct {
-	AmfInstanceID      string `json:"amfInstanceId"`
-	DeregCallbackURI   string `json:"deregCallbackUri"`
-	GUAMI              GUAMI  `json:"guami"`
-	RATType            string `json:"ratType"`
-	InitialRegInd      bool   `json:"initialRegistrationInd"`
-	PEI                string `json:"pei,omitempty"`
+	AmfInstanceID    string `json:"amfInstanceId"`
+	DeregCallbackURI string `json:"deregCallbackUri"`
+	GUAMI            GUAMI  `json:"guami"`
+	RATType          string `json:"ratType"`
+	InitialRegInd    bool   `json:"initialRegistrationInd"`
+	PEI              string `json:"pei,omitempty"`
 }
 
 type ProblemDetails struct {

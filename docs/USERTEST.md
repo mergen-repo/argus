@@ -5991,3 +5991,112 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 2. `make db-seed` çalıştırın →
    `psql -c "SELECT COUNT(*) FROM imei_whitelist UNION ALL SELECT COUNT(*) FROM imei_greylist UNION ALL SELECT COUNT(*) FROM imei_blacklist"` → tüm satırlar **0** dönmeli.
 3. Settings sidebar'ı kontrol edin → IMEI Pools menü girişi diğer sekmeleri bozmamış olmalı.
+
+---
+
+## STORY-096: Bağlama Zorunluluğu & Uyumsuzluk Yönetimi
+
+> **Altyapı/Backend notu:** Bu story tamamen backend uygulamasıdır. Tüm senaryolar RADIUS/Diameter/5G SBA kimlik doğrulama akışları üzerinden test edilir. Kullanıcı arayüzü değişikliği yoktur (yalnızca mevcut rapor çerçevesine yeni "Unverified Devices" rapor türü eklendi — T6).
+
+### UT-096-01: NULL Mod — Bağlama Devre Dışı (AC-2)
+
+1. `binding_mode IS NULL` olan bir SIM ile RADIUS Access-Request gönderin.
+2. **Beklenen:** Access-Accept döner, `binding_status='disabled'`, audit log yok, bildirim yok, `imei_history` satırı yok (IMEI boş çünkü NULL modda geçmiyoruz).
+3. `SELECT binding_status FROM sims WHERE id=$1` → `disabled` dönmeli.
+
+### UT-096-02: Strict Mod — IMEI Eşleşmesi (AC-3)
+
+1. `binding_mode='strict'`, `bound_imei='359123456789012'` olan bir SIM ile aynı IMEI'yi içeren Access-Request gönderin.
+2. **Beklenen:** Access-Accept, `binding_status='verified'`, `imei_history` satırı `was_mismatch=false`.
+
+### UT-096-03: Strict Mod — IMEI Uyumsuzluğu (AC-3)
+
+1. `binding_mode='strict'`, `bound_imei='359123456789012'` olan SIM ile farklı bir IMEI (`359999999999999`) içeren Access-Request gönderin.
+2. **Beklenen:** Access-Reject, Reply-Message alanında `BINDING_MISMATCH_STRICT` metni görünmeli.
+3. Audit log: `sim.binding_mismatch` kaydı, `binding_mode`, `reason_code`, `observed_imei` alanları dolu.
+4. NATS: `notifications.binding.*` subject'inde severity=`high` bildirim.
+5. `SELECT was_mismatch, alarm_raised FROM imei_history WHERE sim_id=$1 ORDER BY observed_at DESC LIMIT 1` → `was_mismatch=true, alarm_raised=true`.
+
+### UT-096-04: Allowlist Mod — IMEI Listede Yok (AC-4)
+
+1. `binding_mode='allowlist'` olan SIM için `sim_imei_allowlist` tablosunda kaydı olmayan bir IMEI ile istek gönderin.
+2. **Beklenen:** Access-Reject, neden kodu `BINDING_MISMATCH_ALLOWLIST`. Audit + bildirim yazılmış olmalı.
+
+### UT-096-05: First-Use Mod — İlk IMEI Yakalama (AC-5)
+
+1. `binding_mode='first-use'`, `bound_imei IS NULL` olan SIM ile `359111111111111` IMEI içeren istek gönderin.
+2. **Beklenen:** Access-Accept. `SELECT bound_imei, binding_status, binding_verified_at FROM sims WHERE id=$1` → `bound_imei='359111111111111'`, `binding_status='verified'`, `binding_verified_at IS NOT NULL`.
+3. Audit: `sim.binding_first_use_locked` kaydı. Bildirim: `device.binding_locked` severity=`info`.
+4. Aynı SIM ile farklı IMEI gönderin → Strict gibi davranır, Access-Reject `BINDING_MISMATCH_STRICT`.
+
+### UT-096-06: TAC-Lock Mod — Aynı TAC Farklı IMEI (AC-6)
+
+1. `binding_mode='tac-lock'`, `bound_imei='35900000XXXXXXX'` (ilk 8 rakam = `35900000`) olan SIM ile aynı TAC önekli farklı IMEI gönderin.
+2. **Beklenen:** Access-Accept, `binding_status='verified'`.
+3. Farklı TAC önekli IMEI gönderin → Access-Reject `BINDING_MISMATCH_TAC`, severity=`medium`.
+
+### UT-096-07: Grace-Period — Pencere İçinde IMEI Değişikliği (AC-7)
+
+1. `binding_mode='grace-period'`, `bound_imei='359AAA'`, `binding_grace_expires_at = now + 48h` olan SIM ile yeni bir IMEI gönderin.
+2. **Beklenen:** Access-Accept, `binding_status='pending'`, `device.binding_grace_change` bildirimi severity=`medium`.
+3. `binding_grace_expires_at` geçmiş SIM için aynı adımı tekrarlayın → Access-Reject `BINDING_GRACE_EXPIRED`.
+
+### UT-096-08: Soft Mod — Hiçbir Zaman Reddetmez (AC-8)
+
+1. `binding_mode='soft'`, `bound_imei='359ZZZ'` olan SIM ile farklı IMEI gönderin.
+2. **Beklenen:** Access-Accept (ret yok), `binding_status='mismatch'`. Audit `sim.binding_soft_mismatch`. Bildirim `imei.mismatch_detected` severity=`info`.
+
+### UT-096-09: Blacklist Hard-Deny Override (AC-9)
+
+1. Herhangi bir `binding_mode` (NULL dahil) olan SIM ile `imei_blacklist` tablosunda kayıtlı bir IMEI gönderin.
+2. **Beklenen:** Access-Reject, neden kodu `BINDING_BLACKLIST` — binding modu ne olursa olsun. Audit `sim.binding_blacklist_hit`, bildirim severity=`high`.
+
+### UT-096-10: Üç Protokol Karşılaştırması — Aynı Uyumsuzluk (AC-3, AC-10)
+
+1. `binding_mode='strict'`, uyumsuz IMEI ile sırasıyla şu protokollerle istek gönderin:
+   - **RADIUS:** Access-Reject → Reply-Message içeriğinde `BINDING_MISMATCH_STRICT` görünmeli.
+   - **Diameter S6a:** ULA yanıtında Result-Code 5012 + Error-Message AVP 281 içeriğinde `BINDING_MISMATCH_STRICT` görünmeli.
+   - **5G SBA (AUSF/UDM):** HTTP 403 problem-details JSON: `{"cause":"BINDING_MISMATCH_STRICT"}`.
+2. Her üç protokol için `imei_history` tablosunda `was_mismatch=true` satırı yazılmış olmalı.
+
+### UT-096-11: DSL Post-Pre-Check — RADIUS'a Özgü (AC-14, VAL-055)
+
+1. RADIUS kimlik doğrulamasında `binding_mode='soft'` olan SIM ile uyumsuz IMEI gönderin.
+2. DSL politikasında `WHEN device.binding_status = "mismatch"` kuralı tetiklenmeli (soft modda binding_status='mismatch' set edilir).
+3. **Beklenen (DSL):** Kural RADIUS leg'inde ateşlenir. Diameter ve SBA için DSL post-pre-check çalışmaz (VAL-055 — Diameter Gx/Gy PCC, SBA PCF üzerinden politika uygulanır).
+
+### UT-096-12: Unverified Devices Raporu (AC-12)
+
+1. `GET /api/v1/reports?type=unverified_devices` isteği gönderin.
+2. Veritabanında `binding_status IN ('pending','mismatch')` olan SIM'ler raporda listelenmiş olmalı.
+3. Her satırda `iccid, sim_id, binding_mode, binding_status, last_imei_seen_at, bound_imei` alanları dolu olmalı.
+4. Cursor pagination çalışmalı. CSV / PDF / Excel export'lar başarılı tamamlanmalı.
+
+### UT-096-13: API-331 bound_sims_count (D-189 Doğrulaması)
+
+1. `GET /api/v1/imei-pools/whitelist?include_bound_count=1` isteği gönderin.
+2. **Beklenen:** `bound_sims_count` alanı dolu (>0 olmalı — D-189 LEFT JOIN ile STORY-096 T7'de uygulandı).
+3. `include_bound_count` parametresi olmadan istek yapıldığında `bound_sims_count=0` dönmeli (hesaplama atlanır).
+
+### UT-096-14: RBAC — Çapraz Kiracı İzolasyonu (AC-15)
+
+1. Tenant A'ya ait SIM, Tenant B'nin blacklist girişi ile istek yaptığında blacklist hard-deny tetiklenmemeli.
+2. Her kiracı yalnızca kendi SIM'lerini değerlendirir.
+
+### UT-096-15: Performans — NULL Mod Yükü ≤%5 (AC-13, VAL-057)
+
+1. `binding_mode IS NULL` olan 10.000 SIM ile yük testi çalıştırın.
+2. **Beklenen:** Auth p95 gecikme artışı ≤%5 (NULL mod enforce'a uğramadan kısa devre yapar).
+3. Mikrobench kanıtı: `go test -bench=. ./internal/policy/binding/` → en kötü karar maliyeti ~400ns (1ms temel üzerinde %0.04 — D-192 canlı 1M-SIM rig'i bekliyor).
+
+### UT-096-16: Audit Zinciri Geçerliliği — Karışık Mod Çalıştırması (AC-16, F-A1)
+
+1. 6 binding modu × farklı senaryolar içeren 50 kimlik doğrulama olayı gönderin.
+2. `GET /api/v1/audit-logs/verify` çağrısı: `{"verified":true, "first_invalid":null}` dönmeli.
+3. Her audit satırının `prev_hash` alanı önceki satırın `hash` alanıyla eşleşmeli (tamper-proof hash zinciri).
+
+### UT-096-17: Regresyon — NULL Modlu SIM'ler (AC-17)
+
+1. `make test` çalıştırın → 4082+ test PASS, 0 FAIL.
+2. STORY-015 / STORY-019 / STORY-020 için mevcut AAA E2E test paketleri PASS durumda kalmalı.
+3. `binding_mode IS NULL` olan SIM'lerde mevcut davranış değişmemiş olmalı.

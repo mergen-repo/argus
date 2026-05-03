@@ -39,6 +39,15 @@ The grace-period countdown alert is the second feature: a scheduled job notifies
 - Blocked by: STORY-094 (TBL-59 / API-330 schema), STORY-096 (enforcement is what creates mismatch states worth recording)
 - Blocks: none in Phase 11
 
+## STORY-096 Handoff Notes (added by Reviewer 2026-05-04)
+
+- **`imei_history.Append` is now fully implemented:** STORY-094 shipped a stub; STORY-096 T2 delivered the full `Append` method (`internal/policy/binding/orchestrator.go` → `BufferedHistoryWriter.Enqueue`). STORY-097 AC-1 consumes the same pattern for all auth observations (success and mismatch). Confirm `IMEIHistoryStore.Append` writes `tenant_id, sim_id, observed_imei, observed_software_version, observed_at, capture_protocol, nas_ip_address, was_mismatch, alarm_raised` — all columns required per AC-1.
+- **Severity mapping for `imei.changed` is defined in binding types:** `internal/policy/binding/types.go` defines the reject reason constants and the notification subjects. STORY-097 AC-5 severity scaling (`strict`→`high`, `tac-lock`/`grace-period`→`medium`, `soft`/`first-use`→`info`, `BLACKLIST`→`high`) MUST match these constants — do NOT redefine them independently.
+- **Buffered History Writer pattern reuse:** The `binding.NewBufferedHistoryWriter(cap, workers, flushFn, dropCounter)` pattern from T2 is the canonical approach for non-blocking auth-path inserts. STORY-097 may extend this pattern for additional non-mismatch history rows if the current writer scope (enforcer-verdict rows only) proves insufficient. See `internal/policy/binding/history_writer.go`.
+- **D-191 — Tenant-scoped grace window:** May land in STORY-097 if tenant-config infrastructure is introduced here. If so, implement `binding_grace_window` as a per-tenant config field and remove the env-only `ARGUS_BINDING_GRACE_WINDOW` fallback path per D-191.
+- **Binding pre-check populates `binding_status` on every auth:** STORY-097 change-detection semantics rely on STORY-096 having written `binding_status='mismatch'` for all mismatched SIMs. The "Unverified Devices" report (AC-12 in STORY-096) surfaces `binding_status IN ('pending','mismatch')` SIMs — STORY-097 re-pair workflow works against these same rows.
+- **PAT-026 guard for grace-period scanner job:** `binding_grace_scanner.go` (AC-6) is a new job processor. Per PAT-026, `cmd/argus/main.go` wiring MUST be co-committed (paired `TestGraceScanner_Type` + `TestJobTypeGraceScanner_RegisteredInAllJobTypes` required).
+
 ## STORY-095 Handoff Notes (added by Reviewer 2026-05-03)
 
 - **D-188 — API-335 Lookup `bound_sims` + `history` empty arrays:** STORY-095 ships the Lookup endpoint with `bound_sims=[]` and `history=[]` (deferred). STORY-097 must implement both fields: (a) `bound_sims` — populate via `SIMStore.ListByBoundIMEI(ctx, tenantID, imei)` returning `[{sim_id, iccid, binding_mode, binding_status}]`; (b) `history` — populate via `IMEIHistoryStore.ListByObservedIMEI(ctx, tenantID, imei, limit=50)` ordered DESC. The SCR-197 drawer FE already renders both sections with empty-state placeholders. See ROUTEMAP D-188.

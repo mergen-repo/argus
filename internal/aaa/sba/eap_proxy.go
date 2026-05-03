@@ -25,10 +25,10 @@ type EAPAuthRequest struct {
 }
 
 type EAPAuthResponse struct {
-	AuthType   AuthType `json:"authType"`
-	EAPPayload string   `json:"eapPayload"`
-	SUPI       string   `json:"supi,omitempty"`
-	Kseaf      string   `json:"kseaf,omitempty"`
+	AuthType   AuthType            `json:"authType"`
+	EAPPayload string              `json:"eapPayload"`
+	SUPI       string              `json:"supi,omitempty"`
+	Kseaf      string              `json:"kseaf,omitempty"`
 	Links      map[string]AuthLink `json:"_links,omitempty"`
 }
 

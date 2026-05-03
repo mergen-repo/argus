@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/aaa/session"
+	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"

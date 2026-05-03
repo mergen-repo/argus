@@ -315,6 +315,45 @@ func (p *StoreProvider) SIMInventory(ctx context.Context, tenantID uuid.UUID, fi
 	}, nil
 }
 
+// unverifiedDevicesRowCap is the maximum number of rows emitted by the
+// Unverified Devices report. Matched to alertsExportRowCap for consistency.
+const unverifiedDevicesRowCap = 10000
+
+// unverifiedDevicesColumns are the display-header columns for the report.
+var unverifiedDevicesColumns = []string{"ICCID", "SIM ID", "Binding Mode", "Binding Status", "Last IMEI Seen", "Bound IMEI"}
+
+func (p *StoreProvider) UnverifiedDevices(ctx context.Context, tenantID uuid.UUID, _ map[string]any) (*UnverifiedDevicesData, error) {
+	storeRows, err := p.sims.ListUnverifiedDevices(ctx, tenantID, unverifiedDevicesRowCap)
+	if err != nil {
+		return nil, fmt.Errorf("unverified devices query: %w", err)
+	}
+
+	rows := make([][]string, 0, len(storeRows))
+	for _, r := range storeRows {
+		lastSeen := ""
+		if r.LastIMEISeenAt != nil {
+			lastSeen = r.LastIMEISeenAt.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		rows = append(rows, []string{
+			r.ICCID,
+			r.ID,
+			stringPtr(r.BindingMode),
+			stringPtr(r.BindingStatus),
+			lastSeen,
+			stringPtr(r.BoundIMEI),
+		})
+	}
+
+	now := time.Now().UTC()
+	return &UnverifiedDevicesData{
+		Columns:    unverifiedDevicesColumns,
+		Rows:       rows,
+		Summary:    map[string]string{"rows": strconv.Itoa(len(rows))},
+		PeriodFrom: now,
+		PeriodTo:   now,
+	}, nil
+}
+
 // alertsExportRowCap matches the handler-side cap (10 000) — a single page
 // from the store is 100 rows, so we issue at most 100 round-trips.
 const alertsExportRowCap = 10000

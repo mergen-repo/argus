@@ -22,7 +22,8 @@ const (
 	// ReportAlertsExport (FIX-229 Task 7 / DEV-338) — paginated alert export
 	// driven through the unified Engine.Build path. Format: PDF (this task);
 	// CSV/JSON exports are streamed directly by the alert handler instead.
-	ReportAlertsExport ReportType = "alerts_export"
+	ReportAlertsExport      ReportType = "alerts_export"
+	ReportUnverifiedDevices ReportType = "unverified_devices"
 )
 
 type Format string
@@ -156,6 +157,16 @@ type AlertExportRow struct {
 	ResolvedAt   string
 }
 
+// UnverifiedDevicesData is the payload for the Unverified Devices report.
+// It lists tenant SIMs whose binding_status is 'pending' or 'mismatch'.
+type UnverifiedDevicesData struct {
+	Columns    []string
+	Rows       [][]string
+	Summary    map[string]string
+	PeriodFrom time.Time
+	PeriodTo   time.Time
+}
+
 // AlertsExportData is the payload fed to buildAlertsPDF. TotalRows reflects
 // the pre-truncate count; Rows is capped to the first 200 entries when
 // TruncatedToFirst > 0.
@@ -181,6 +192,7 @@ type DataProvider interface {
 	AuditExport(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*AuditExportData, error)
 	SIMInventory(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*SIMInventoryData, error)
 	AlertsExport(ctx context.Context, tenantID uuid.UUID, filters AlertsExportFilters) (*AlertsExportData, error)
+	UnverifiedDevices(ctx context.Context, tenantID uuid.UUID, filters map[string]any) (*UnverifiedDevicesData, error)
 }
 
 type Engine struct {

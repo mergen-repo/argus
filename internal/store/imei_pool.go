@@ -57,6 +57,12 @@ type PoolEntry struct {
 	CreatedBy        *uuid.UUID
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+
+	// BoundSIMsCount is populated by IMEIPoolStore.List only when
+	// ListParams.IncludeBoundCount is true (STORY-096 D-189). Zero when not
+	// requested. Counts SIMs whose bound_imei matches the entry per
+	// entry.kind: full_imei → exact match; tac_range → first-8 prefix match.
+	BoundSIMsCount int
 }
 
 // AddEntryParams holds the inputs for IMEIPoolStore.Add. Required-by-pool
@@ -82,6 +88,12 @@ type ListParams struct {
 	TAC         *string // optional: exact-match prefix filter on imei_or_tac
 	IMEI        *string // optional: exact-match filter on imei_or_tac
 	DeviceModel *string // optional: case-insensitive substring (ILIKE %x%)
+
+	// IncludeBoundCount enables the LEFT JOIN onto sims that populates
+	// PoolEntry.BoundSIMsCount per row (STORY-096 D-189). Single-query
+	// (no N+1): the per-row COUNT is computed inline via FILTER. When false,
+	// BoundSIMsCount is left at zero and the join is skipped entirely.
+	IncludeBoundCount bool
 }
 
 // LookupResult collects matches across all three pools for a single IMEI lookup.
@@ -309,37 +321,131 @@ func (s *IMEIPoolStore) List(ctx context.Context, tenantID uuid.UUID, pool PoolK
 	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
 
 	// Build per-pool projection — whitelist has no quarantine/block columns; we
-	// pad those with NULL casts so the same scan path serves all three.
+	// pad those with NULL casts so the same scan path serves all three. The
+	// projection is qualified with `e.` so the optional LEFT JOIN onto sims
+	// (IncludeBoundCount) does not disambiguate-conflict on the shared
+	// tenant_id column.
 	var projection string
 	switch pool {
 	case PoolWhitelist:
-		projection = `id, tenant_id, kind, imei_or_tac, device_model, description,
+		projection = `e.id, e.tenant_id, e.kind, e.imei_or_tac, e.device_model, e.description,
 		              NULL::text AS quarantine_reason,
 		              NULL::text AS block_reason,
 		              NULL::text AS imported_from,
-		              created_by, created_at, updated_at`
+		              e.created_by, e.created_at, e.updated_at`
 	case PoolGreylist:
-		projection = `id, tenant_id, kind, imei_or_tac, device_model, description,
-		              quarantine_reason,
+		projection = `e.id, e.tenant_id, e.kind, e.imei_or_tac, e.device_model, e.description,
+		              e.quarantine_reason,
 		              NULL::text AS block_reason,
 		              NULL::text AS imported_from,
-		              created_by, created_at, updated_at`
+		              e.created_by, e.created_at, e.updated_at`
 	case PoolBlacklist:
-		projection = `id, tenant_id, kind, imei_or_tac, device_model, description,
+		projection = `e.id, e.tenant_id, e.kind, e.imei_or_tac, e.description AS desc_alias,
 		              NULL::text AS quarantine_reason,
-		              block_reason,
-		              imported_from,
-		              created_by, created_at, updated_at`
+		              e.block_reason,
+		              e.imported_from,
+		              e.created_by, e.created_at, e.updated_at`
+	}
+
+	// Re-qualify the WHERE conditions: build a parallel slice that prefixes
+	// known column names with `e.` so the LEFT JOIN form does not raise an
+	// ambiguous-column error on tenant_id / kind / imei_or_tac.
+	whereConds := make([]string, 0, len(conditions))
+	for _, c := range conditions {
+		// The conditions are constructed locally above; tenant_id is at index
+		// 0, the cursor uses the (created_at, id) pair, and the optional
+		// filters reference imei_or_tac / device_model. All these are columns
+		// on the pool table, so a blanket `e.` prefix on bare column names is
+		// safe. Replace the leading bare-token references via simple swaps.
+		c = strings.Replace(c, "tenant_id =", "e.tenant_id =", 1)
+		c = strings.Replace(c, "(created_at, id)", "(e.created_at, e.id)", 1)
+		c = strings.Replace(c, "imei_or_tac =", "e.imei_or_tac =", 2)
+		c = strings.Replace(c, "imei_or_tac LIKE", "e.imei_or_tac LIKE", 1)
+		c = strings.Replace(c, "kind = 'tac_range'", "e.kind = 'tac_range'", 1)
+		c = strings.Replace(c, "kind = 'full_imei'", "e.kind = 'full_imei'", 1)
+		c = strings.Replace(c, "device_model ILIKE", "e.device_model ILIKE", 1)
+		whereConds = append(whereConds, c)
+	}
+
+	// Prefix the order-by cursor with the alias too.
+	orderBy := "ORDER BY e.created_at DESC, e.id DESC"
+
+	if params.IncludeBoundCount {
+		// Single-query (no N+1) bound_sims_count: LEFT JOIN sims with both
+		// match predicates and aggregate via COUNT() FILTER + GROUP BY. The
+		// projection becomes `... , COALESCE(...) AS bound_count` and the
+		// projection's `e.description` is preserved verbatim for the blacklist
+		// path (we restore the column name below).
+		boundCountExpr := `COALESCE(COUNT(s.id) FILTER (WHERE s.bound_imei IS NOT NULL), 0) AS bound_count`
+		// For Blacklist the projection above uses an alias `desc_alias` for
+		// description to keep the column ordering uniform; restore it here.
+		if pool == PoolBlacklist {
+			projection = strings.Replace(projection, "e.description AS desc_alias", "e.description", 1)
+		}
+		// #nosec G201 — table is one of three whitelisted constants from tableNameForKind.
+		query := fmt.Sprintf(`
+			SELECT %s, %s
+			FROM %s e
+			LEFT JOIN sims s
+			       ON s.tenant_id = e.tenant_id
+			      AND s.bound_imei IS NOT NULL
+			      AND ( (e.kind = 'full_imei' AND s.bound_imei = e.imei_or_tac)
+			         OR (e.kind = 'tac_range' AND LEFT(s.bound_imei, 8) = e.imei_or_tac) )
+			WHERE %s
+			GROUP BY e.id
+			%s
+			LIMIT %s
+		`, projection, boundCountExpr, table, strings.Join(whereConds, " AND "), orderBy, limitPlaceholder)
+
+		rows, err := s.db.Query(ctx, query, args...)
+		if err != nil {
+			return nil, "", fmt.Errorf("store: list imei pool entries with bound count: %w", err)
+		}
+		defer rows.Close()
+
+		var results []PoolEntry
+		for rows.Next() {
+			e := PoolEntry{Pool: pool}
+			var boundCount int64
+			if err := rows.Scan(
+				&e.ID, &e.TenantID, &e.Kind, &e.IMEIOrTAC,
+				&e.DeviceModel, &e.Description,
+				&e.QuarantineReason, &e.BlockReason, &e.ImportedFrom,
+				&e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
+				&boundCount,
+			); err != nil {
+				return nil, "", fmt.Errorf("store: scan imei pool entry with bound count: %w", err)
+			}
+			e.BoundSIMsCount = int(boundCount)
+			results = append(results, e)
+		}
+		if rows.Err() != nil {
+			return nil, "", fmt.Errorf("store: list imei pool rows with bound count: %w", rows.Err())
+		}
+
+		nextCursor := ""
+		if len(results) > params.Limit {
+			last := results[params.Limit-1]
+			nextCursor = encodeCursor(last.CreatedAt, last.ID)
+			results = results[:params.Limit]
+		}
+		return results, nextCursor, nil
+	}
+
+	// Restore the blacklist's `e.description` so the non-bound-count path
+	// scans back into Description correctly.
+	if pool == PoolBlacklist {
+		projection = strings.Replace(projection, "e.description AS desc_alias", "e.description", 1)
 	}
 
 	// #nosec G201 — table is one of three whitelisted constants from tableNameForKind.
 	query := fmt.Sprintf(`
 		SELECT %s
-		FROM %s
+		FROM %s e
 		WHERE %s
-		ORDER BY created_at DESC, id DESC
+		%s
 		LIMIT %s
-	`, projection, table, strings.Join(conditions, " AND "), limitPlaceholder)
+	`, projection, table, strings.Join(whereConds, " AND "), orderBy, limitPlaceholder)
 
 	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {

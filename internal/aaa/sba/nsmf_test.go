@@ -19,9 +19,9 @@ import (
 // and ReleaseIP round-trip without a DB.
 type fakeIPPoolStore struct {
 	mu          sync.Mutex
-	pools       []store.IPPool                  // returned by List
-	allocateErr error                           // when non-nil, AllocateIP returns this
-	allocated   map[uuid.UUID]*store.IPAddress  // keyed by ip_address.ID
+	pools       []store.IPPool                 // returned by List
+	allocateErr error                          // when non-nil, AllocateIP returns this
+	allocated   map[uuid.UUID]*store.IPAddress // keyed by ip_address.ID
 	released    map[uuid.UUID]bool
 	listErr     error
 }

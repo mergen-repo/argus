@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -1701,6 +1702,60 @@ func (s *SIMStore) SetDeviceBinding(
 	return binding, nil
 }
 
+// LockBoundIMEI is the STORY-096 binding orchestrator hot-path UPDATE used
+// when the enforcer signals LockBoundIMEI and/or RefreshGraceWindow. It is
+// a tighter-scoped sibling to SetDeviceBinding: only the bound_imei + grace
+// + verified_at columns are written, binding_mode is left intact, and the
+// binding_status is unconditionally set to "verified". Pass a nil
+// graceExpiresAt to leave binding_grace_expires_at untouched (LockBoundIMEI
+// without RefreshGraceWindow); pass a non-nil value to refresh the window
+// alongside the IMEI lock.
+//
+// Cross-tenant or unknown ids return ErrSIMNotFound. Validation errors are
+// returned as plain errors (not sentinels).
+func (s *SIMStore) LockBoundIMEI(
+	ctx context.Context,
+	tenantID, simID uuid.UUID,
+	imei string,
+	graceExpiresAt *time.Time,
+) error {
+	if strings.TrimSpace(imei) == "" {
+		return errors.New("store: LockBoundIMEI requires a non-empty imei")
+	}
+
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if graceExpiresAt != nil {
+		tag, err = s.db.Exec(ctx, `
+			UPDATE sims
+			   SET bound_imei                = $3,
+			       binding_grace_expires_at  = $4,
+			       binding_status            = 'verified',
+			       binding_verified_at       = NOW(),
+			       updated_at                = NOW()
+			 WHERE id = $1 AND tenant_id = $2
+		`, simID, tenantID, imei, *graceExpiresAt)
+	} else {
+		tag, err = s.db.Exec(ctx, `
+			UPDATE sims
+			   SET bound_imei          = $3,
+			       binding_status      = 'verified',
+			       binding_verified_at = NOW(),
+			       updated_at          = NOW()
+			 WHERE id = $1 AND tenant_id = $2
+		`, simID, tenantID, imei)
+	}
+	if err != nil {
+		return fmt.Errorf("store: lock bound imei: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSIMNotFound
+	}
+	return nil
+}
+
 // ClearBoundIMEI clears bound_imei + binding_status (resets both to NULL).
 // Other binding columns (mode, verified_at, last_seen_at, grace_expires_at)
 // are left intact. Cross-tenant or unknown ids return ErrSIMNotFound.
@@ -2039,4 +2094,47 @@ func (s *SIMStore) CountWithPredicate(
 		return 0, fmt.Errorf("store: count sims with predicate: %w", err)
 	}
 	return count, nil
+}
+
+// UnverifiedDeviceRow is a lightweight projection returned by
+// ListUnverifiedDevices — only the columns needed for the report.
+type UnverifiedDeviceRow struct {
+	ICCID          string
+	ID             string
+	BindingMode    *string
+	BindingStatus  *string
+	LastIMEISeenAt *time.Time
+	BoundIMEI      *string
+}
+
+// ListUnverifiedDevices returns all SIMs in the tenant whose binding_status is
+// 'pending' or 'mismatch', ordered by last_imei_seen_at DESC NULLS LAST and
+// capped at rowCap rows. Used exclusively by the Unverified Devices report.
+func (s *SIMStore) ListUnverifiedDevices(ctx context.Context, tenantID uuid.UUID, rowCap int) ([]UnverifiedDeviceRow, error) {
+	const q = `
+SELECT iccid, id::text, binding_mode, binding_status, last_imei_seen_at, bound_imei
+FROM sims
+WHERE tenant_id = $1
+  AND binding_status IN ('pending','mismatch')
+ORDER BY last_imei_seen_at DESC NULLS LAST
+LIMIT $2`
+
+	pgRows, err := s.db.Query(ctx, q, tenantID, rowCap)
+	if err != nil {
+		return nil, fmt.Errorf("store: list unverified devices: %w", err)
+	}
+	defer pgRows.Close()
+
+	out := make([]UnverifiedDeviceRow, 0)
+	for pgRows.Next() {
+		var r UnverifiedDeviceRow
+		if err := pgRows.Scan(&r.ICCID, &r.ID, &r.BindingMode, &r.BindingStatus, &r.LastIMEISeenAt, &r.BoundIMEI); err != nil {
+			return nil, fmt.Errorf("store: scan unverified device row: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := pgRows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate unverified devices: %w", err)
+	}
+	return out, nil
 }

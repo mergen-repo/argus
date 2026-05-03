@@ -100,6 +100,13 @@ func (e *Engine) buildPDF(ctx context.Context, req Request) (*Artifact, error) {
 		}
 		renderTabularPDF(pdf, data.Columns, data.Rows, data.Summary)
 
+	case ReportUnverifiedDevices:
+		data, err := e.provider.UnverifiedDevices(ctx, req.TenantID, req.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("unverified devices data: %w", err)
+		}
+		renderTabularPDF(pdf, data.Columns, data.Rows, data.Summary)
+
 	default:
 		return nil, fmt.Errorf("unsupported report type for pdf: %q", req.Type)
 	}
@@ -248,14 +255,15 @@ func colWidthsForRow(n int) []float64 {
 
 func reportTitle(rt ReportType, locale string) string {
 	titles := map[ReportType][2]string{
-		ReportKVKK:         {"KVKK Uyum Raporu", "KVKK Compliance Report"},
-		ReportGDPR:         {"GDPR Uyum Raporu", "GDPR Compliance Report"},
-		ReportBTK:          {"BTK Aylik SIM Raporu", "BTK Monthly SIM Report"},
-		ReportSLAMonthly:   {"Aylik SLA Raporu", "Monthly SLA Report"},
-		ReportUsageSummary: {"Kullanim Ozeti Raporu", "Usage Summary Report"},
-		ReportCostAnalysis: {"Maliyet Analizi Raporu", "Cost Analysis Report"},
-		ReportAuditExport:  {"Denetim Kaydi Ihracati", "Audit Log Export"},
-		ReportSIMInventory: {"SIM Envanter Raporu", "SIM Inventory Report"},
+		ReportKVKK:              {"KVKK Uyum Raporu", "KVKK Compliance Report"},
+		ReportGDPR:              {"GDPR Uyum Raporu", "GDPR Compliance Report"},
+		ReportBTK:               {"BTK Aylik SIM Raporu", "BTK Monthly SIM Report"},
+		ReportSLAMonthly:        {"Aylik SLA Raporu", "Monthly SLA Report"},
+		ReportUsageSummary:      {"Kullanim Ozeti Raporu", "Usage Summary Report"},
+		ReportCostAnalysis:      {"Maliyet Analizi Raporu", "Cost Analysis Report"},
+		ReportAuditExport:       {"Denetim Kaydi Ihracati", "Audit Log Export"},
+		ReportSIMInventory:      {"SIM Envanter Raporu", "SIM Inventory Report"},
+		ReportUnverifiedDevices: {"Dogrulanmamis Cihazlar Raporu", "Unverified Devices Report"},
 	}
 	if pair, ok := titles[rt]; ok {
 		if locale == "tr" {

@@ -2,10 +2,11 @@
 // management endpoints (API-331 List, API-332 Add, API-333 Delete) and the
 // bulk import and cross-pool lookup endpoints (API-334, API-335).
 //
-// bound_sims_count (API-331 include_bound_count): currently returns 0 for
-// every entry. A per-entry COUNT of sims.bound_imei matching the entry's
-// imei_or_tac requires either a join or N extra queries; performance
-// optimisation is deferred. Reviewer: route as tech debt (D-NNN).
+// bound_sims_count (API-331 include_bound_count): STORY-096 Task 7 wires the
+// real COUNT via IMEIPoolStore.List(IncludeBoundCount=true). The store does
+// a single LEFT JOIN sims with COUNT() FILTER aggregation so the cost is
+// bounded by the page size (max 200 rows). When the query parameter is
+// absent or "0", the join is skipped entirely and bound_sims_count is 0.
 //
 // API-335 Lookup — tech debt:
 //   - bound_sims: simStore.ListByBoundIMEI is not implemented; returns empty [].
@@ -140,7 +141,7 @@ func toPoolEntryResponse(e store.PoolEntry) poolEntryResponse {
 		ImportedFrom:     e.ImportedFrom,
 		CreatedAt:        e.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:        e.UpdatedAt.Format(time.RFC3339Nano),
-		BoundSIMsCount:   0, // deferred — see package doc
+		BoundSIMsCount:   e.BoundSIMsCount, // STORY-096 D-189 — populated when ?include_bound_count=1
 	}
 }
 
@@ -199,6 +200,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	if dm := q.Get("device_model"); dm != "" {
 		params.DeviceModel = &dm
+	}
+
+	// STORY-096 D-189: opt-in COUNT(sims.bound_imei matching entry) via
+	// LEFT JOIN. Accept "1" or "true" (case-insensitive) as truthy; anything
+	// else falls back to the cheap projection.
+	if v := strings.ToLower(q.Get("include_bound_count")); v == "1" || v == "true" {
+		params.IncludeBoundCount = true
 	}
 
 	entries, nextCursor, err := h.poolStore.List(r.Context(), tenantID, pool, params)

@@ -29,10 +29,11 @@ var cronFieldRe = regexp.MustCompile(`^[0-9/*,\-]+$`)
 // added under D-165 — one git commit per builder add/remove rather than
 // two passes through the codebase.
 var validReportTypes = map[string]bool{
-	string(report.ReportSLAMonthly):   true,
-	string(report.ReportUsageSummary): true,
-	string(report.ReportAuditExport):  true,
-	string(report.ReportSIMInventory): true,
+	string(report.ReportSLAMonthly):        true,
+	string(report.ReportUsageSummary):      true,
+	string(report.ReportAuditExport):       true,
+	string(report.ReportSIMInventory):      true,
+	string(report.ReportUnverifiedDevices): true,
 }
 
 var validFormats = map[string]bool{
@@ -122,7 +123,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 
 	if !validReportTypes[req.ReportType] {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
-			"report_type must be one of: compliance_kvkk, compliance_gdpr, compliance_btk, sla_monthly, usage_summary, cost_analysis, audit_log_export, sim_inventory")
+			"report_type must be one of: compliance_kvkk, compliance_gdpr, compliance_btk, sla_monthly, usage_summary, cost_analysis, audit_log_export, sim_inventory, unverified_devices")
 		return
 	}
 	if !validFormats[req.Format] {
@@ -228,7 +229,7 @@ func (h *Handler) CreateScheduled(w http.ResponseWriter, r *http.Request) {
 
 	if !validReportTypes[req.ReportType] {
 		apierr.WriteError(w, http.StatusUnprocessableEntity, apierr.CodeValidationError,
-			"report_type must be one of: compliance_kvkk, compliance_gdpr, compliance_btk, sla_monthly, usage_summary, cost_analysis, audit_log_export, sim_inventory")
+			"report_type must be one of: compliance_kvkk, compliance_gdpr, compliance_btk, sla_monthly, usage_summary, cost_analysis, audit_log_export, sim_inventory, unverified_devices")
 		return
 	}
 	if !validFormats[req.Format] {
@@ -500,6 +501,13 @@ var reportDefinitions = []reportDefinition{
 		Name:          "SIM Inventory Report",
 		Description:   "Complete SIM card inventory with state, operator assignment, APN, and metadata.",
 		FormatOptions: []string{"csv", "xlsx"},
+	},
+	{
+		ID:            string(report.ReportUnverifiedDevices),
+		Category:      "security",
+		Name:          "Unverified Devices Report",
+		Description:   "SIMs with binding_status 'pending' or 'mismatch' — devices that have not yet been verified or have a conflicting IMEI.",
+		FormatOptions: []string{"csv", "xlsx", "pdf"},
 	},
 }
 

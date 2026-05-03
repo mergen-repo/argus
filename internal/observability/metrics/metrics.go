@@ -101,6 +101,13 @@ type Registry struct {
 	// Labels: protocol ("radius" | "diameter_s6a" | "5g_sba"). Bounded cardinality.
 	IMEICaptureParseErrorsTotal *prometheus.CounterVec
 
+	// STORY-096 — counters for the binding orchestrator's two best-effort
+	// side effects (history queue overflow + notification publish failure).
+	// Both are incremented from the orchestrator + buffered history writer
+	// in internal/policy/binding. Bounded cardinality (no labels).
+	IMEIHistoryDroppedTotal        prometheus.Counter
+	BindingNotificationFailedTotal prometheus.Counter
+
 	DataIntegrityViolationsTotal *prometheus.CounterVec
 
 	AggregatesCacheHits    *prometheus.CounterVec
@@ -328,6 +335,20 @@ func NewRegistry() *Registry {
 		Help: "IMEI/SV parser errors during AAA capture. Labels: protocol (radius|diameter_s6a|5g_sba). STORY-093.",
 	}, []string{"protocol"})
 	reg.MustRegister(r.IMEICaptureParseErrorsTotal)
+
+	// STORY-096 — binding orchestrator queue overflow + notification publish
+	// failure counters. Incremented from internal/policy/binding adapters.
+	r.IMEIHistoryDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_imei_history_dropped_total",
+		Help: "imei_history rows dropped by the buffered history writer (queue full or flush error). STORY-096.",
+	})
+	reg.MustRegister(r.IMEIHistoryDroppedTotal)
+
+	r.BindingNotificationFailedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_binding_notification_failed_total",
+		Help: "binding orchestrator async notification publishes that errored. STORY-096.",
+	})
+	reg.MustRegister(r.BindingNotificationFailedTotal)
 
 	r.DataIntegrityViolationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_data_integrity_violations_total",

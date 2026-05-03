@@ -41,6 +41,12 @@ type ServerDeps struct {
 	// Nil-safe: when absent the counter is not incremented (dev/test builds).
 	MetricsReg *obsmetrics.Registry
 	Logger     zerolog.Logger
+
+	// BindingGate is the STORY-096 IMEI/SIM binding pre-check gate forwarded
+	// to the S6a handler via WithBindingGate. Nil (the default) preserves
+	// pre-STORY-096 behaviour on ULR/NTR (AC-17). The handler also requires
+	// SIMResolver (already on this struct) to look up the SIM view by IMSI.
+	BindingGate BindingGate
 }
 
 type PeerState int
@@ -149,7 +155,17 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	s.gxHandler = NewGxHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, deps.IPPoolStore, deps.SIMStore, stateMap, logger)
 	s.gyHandler = NewGyHandler(deps.SessionMgr, deps.EventBus, deps.SIMResolver, stateMap, logger)
-	s.s6aHandler = NewS6aHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
+	// STORY-096 Task 7: forward the binding gate + SIM resolver into the S6a
+	// handler. Both are options on the handler — nil values are no-ops, so
+	// pre-STORY-096 behaviour is unchanged when either is absent (AC-17).
+	s6aOpts := []S6aOption{}
+	if deps.BindingGate != nil {
+		s6aOpts = append(s6aOpts, WithBindingGate(deps.BindingGate))
+	}
+	if deps.SIMResolver != nil {
+		s6aOpts = append(s6aOpts, WithS6aSIMResolver(deps.SIMResolver))
+	}
+	s.s6aHandler = NewS6aHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger, s6aOpts...)
 
 	s.hopID.Store(uint32(time.Now().UnixNano() & 0xFFFFFFFF))
 	s.endID.Store(uint32(time.Now().UnixNano()>>32) & 0xFFFFFFFF)

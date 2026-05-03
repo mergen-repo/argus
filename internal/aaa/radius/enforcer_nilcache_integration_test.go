@@ -396,4 +396,3 @@ func buildMinimalSessionContext(sim *store.SIM) dsl.SessionContext {
 	}
 	return sessCtx
 }
-

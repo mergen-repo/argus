@@ -296,6 +296,8 @@ POLICY "iot-fleet-standard" {
 ## Device Binding Examples (Phase 11)
 
 > See ADR-004. The `device.*` and `sim.*` namespaces run AFTER the AAA capture pipeline has populated SessionContext but the **binding pre-check** itself is enforced in the AAA engine BEFORE policy DSL evaluation when `sim.binding_mode IS NOT NULL`. DSL rules below operate on the post-pre-check `binding_status` and are intended for **post-policy** enrichment (notify on soft mismatch, log + tag on TAC change, etc.) — they cannot weaken a hard reject already issued by the pre-check in `strict`/`allowlist`/`first-use`/`tac-lock` modes.
+>
+> **Protocol scope (VAL-055 — STORY-096):** `device.binding_status` is populated for ALL three protocols (RADIUS, Diameter S6a, 5G SBA) by the binding enforcer. However, the DSL policy evaluator is invoked on the **RADIUS leg only** — Diameter S6a applies policy via Gx/Gy PCC rules and 5G SBA applies policy via PCF. DSL rules matching on `device.binding_status` therefore only fire on RADIUS authentications; Diameter and SBA paths receive the enforcer verdict directly without DSL post-processing.
 
 ```
 # Soft-mode tenant: never reject, but flag every device change as a high-severity audit event.

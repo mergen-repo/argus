@@ -70,8 +70,8 @@ type Config struct {
 	SBAPort              int    `envconfig:"SBA_PORT" default:"8443"`
 	// FIX-304: default true so dev/UAT stacks bring the 5G SBA listener up
 	// at boot. 4G-only deployments must set SBA_ENABLED=false explicitly.
-	SBAEnabled           bool   `envconfig:"SBA_ENABLED" default:"true"`
-	SBAEnableMTLS        bool   `envconfig:"SBA_ENABLE_MTLS" default:"false"`
+	SBAEnabled    bool `envconfig:"SBA_ENABLED" default:"true"`
+	SBAEnableMTLS bool `envconfig:"SBA_ENABLE_MTLS" default:"false"`
 
 	RateLimitPerMinute          int    `envconfig:"RATE_LIMIT_DEFAULT_PER_MINUTE" default:"1000"`
 	RateLimitPerHour            int    `envconfig:"RATE_LIMIT_DEFAULT_PER_HOUR" default:"30000"`
@@ -105,11 +105,11 @@ type Config struct {
 	// so dev environments without S3/IMDS still produce downloadable reports.
 	// Set REPORT_STORAGE=s3 to opt back into the cloud path; the existing S3
 	// settings above are then used.
-	ReportStorage         string `envconfig:"REPORT_STORAGE" default:"local"` // local|s3
-	ReportStoragePath     string `envconfig:"REPORT_STORAGE_PATH" default:"/var/lib/argus/reports"`
-	ReportSigningKeyHex   string `envconfig:"REPORT_SIGNING_KEY"` // 32-byte hex (>=16 raw bytes); auto-generated on boot if empty (warning logged)
-	ReportRetentionDays   int    `envconfig:"REPORT_RETENTION_DAYS" default:"90"`
-	ReportPublicBaseURL   string `envconfig:"REPORT_PUBLIC_BASE_URL" default:"http://localhost:8084"`
+	ReportStorage       string `envconfig:"REPORT_STORAGE" default:"local"` // local|s3
+	ReportStoragePath   string `envconfig:"REPORT_STORAGE_PATH" default:"/var/lib/argus/reports"`
+	ReportSigningKeyHex string `envconfig:"REPORT_SIGNING_KEY"` // 32-byte hex (>=16 raw bytes); auto-generated on boot if empty (warning logged)
+	ReportRetentionDays int    `envconfig:"REPORT_RETENTION_DAYS" default:"90"`
+	ReportPublicBaseURL string `envconfig:"REPORT_PUBLIC_BASE_URL" default:"http://localhost:8084"`
 
 	EncryptionKey string `envconfig:"ENCRYPTION_KEY"`
 
@@ -141,7 +141,7 @@ type Config struct {
 	CronQuotaBreachCheck      string        `envconfig:"CRON_QUOTA_BREACH_CHECK" default:"@hourly"`
 	CronFleetDigest           string        `envconfig:"CRON_FLEET_DIGEST" default:"*/15 * * * *"`
 	CronEnabled               bool          `envconfig:"CRON_ENABLED" default:"true"`
-	GeoIPDBPath string `envconfig:"GEOIP_DB_PATH" default:""`
+	GeoIPDBPath               string        `envconfig:"GEOIP_DB_PATH" default:""`
 
 	StorageAlertPct float64 `envconfig:"STORAGE_ALERT_PCT" default:"80"`
 
@@ -162,6 +162,15 @@ type Config struct {
 	// waits before force-completing a rollout that appears stuck.
 	// PAT-017 wiring: env ARGUS_STUCK_ROLLOUT_GRACE_MINUTES → cfg.StuckRolloutGraceMinutes → NewStuckRolloutReaperProcessor → ListStuckRollouts SQL.
 	StuckRolloutGraceMinutes int `envconfig:"ARGUS_STUCK_ROLLOUT_GRACE_MINUTES" default:"10"`
+
+	// BindingGraceWindow is the duration applied to a SIM's
+	// binding_grace_expires_at column when the STORY-096 enforcer accepts a
+	// grace-period change or first-use lock under grace mode (ADR-004).
+	// 72h matches the migration recommendation. Non-positive values fall back
+	// to the binding package's defaultGraceWindow.
+	// PAT-017 wiring: env ARGUS_BINDING_GRACE_WINDOW → cfg.BindingGraceWindow
+	// → binding.WithGraceWindow + Orchestrator.graceWindow.
+	BindingGraceWindow time.Duration `envconfig:"ARGUS_BINDING_GRACE_WINDOW" default:"72h"`
 
 	PprofEnabled bool   `envconfig:"PPROF_ENABLED" default:"false"`
 	PprofAddr    string `envconfig:"PPROF_ADDR" default:":6060"`
@@ -200,17 +209,17 @@ type Config struct {
 
 	// FIX-235 T15: SMSR callback HMAC secret + OTA cron schedules.
 	// SMSRCallbackSecret is required in production (enforced at startup).
-	SMSRCallbackSecret        string  `envconfig:"SMSR_CALLBACK_SECRET"`
-	MockSMSRFailRate          float64 `envconfig:"MOCK_SMSR_FAIL_RATE"           default:"0.0"`
+	SMSRCallbackSecret string  `envconfig:"SMSR_CALLBACK_SECRET"`
+	MockSMSRFailRate   float64 `envconfig:"MOCK_SMSR_FAIL_RATE"           default:"0.0"`
 	// FIX-235 Gate (PAT-017): defaults reconciled with worker constructor defaults.
 	// M2M scale defaults — 100 RPS / 200 batch / 5 retries / 10 min timeout.
-	ESimOTARateLimitPerSec    int     `envconfig:"ESIM_OTA_RATE_LIMIT_PER_SEC"  default:"100"`
-	ESimOTABatchSize          int     `envconfig:"ESIM_OTA_BATCH_SIZE"          default:"200"`
-	ESimOTAMaxRetries         int     `envconfig:"ESIM_OTA_MAX_RETRIES"         default:"5"`
-	ESimOTATimeoutMinutes     int     `envconfig:"ESIM_OTA_TIMEOUT_MINUTES"     default:"10"`
-	CronESimOTADispatcher     string  `envconfig:"CRON_ESIM_OTA_DISPATCHER"    default:"* * * * *"`
-	CronESimOTATimeoutReaper  string  `envconfig:"CRON_ESIM_OTA_TIMEOUT_REAPER" default:"*/2 * * * *"`
-	CronESimStockAlert        string  `envconfig:"CRON_ESIM_STOCK_ALERT"       default:"*/15 * * * *"`
+	ESimOTARateLimitPerSec   int    `envconfig:"ESIM_OTA_RATE_LIMIT_PER_SEC"  default:"100"`
+	ESimOTABatchSize         int    `envconfig:"ESIM_OTA_BATCH_SIZE"          default:"200"`
+	ESimOTAMaxRetries        int    `envconfig:"ESIM_OTA_MAX_RETRIES"         default:"5"`
+	ESimOTATimeoutMinutes    int    `envconfig:"ESIM_OTA_TIMEOUT_MINUTES"     default:"10"`
+	CronESimOTADispatcher    string `envconfig:"CRON_ESIM_OTA_DISPATCHER"    default:"* * * * *"`
+	CronESimOTATimeoutReaper string `envconfig:"CRON_ESIM_OTA_TIMEOUT_REAPER" default:"*/2 * * * *"`
+	CronESimStockAlert       string `envconfig:"CRON_ESIM_STOCK_ALERT"       default:"*/15 * * * *"`
 
 	SMSProvider          string `envconfig:"SMS_PROVIDER"              default:""`
 	SMSAccountID         string `envconfig:"SMS_ACCOUNT_ID"`

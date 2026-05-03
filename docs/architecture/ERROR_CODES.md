@@ -158,6 +158,25 @@ Detail `code` values: `required`, `format`, `min_length`, `max_length`, `min_val
 
 ---
 
+## AAA Binding Reject Reasons (Wire-Level)
+
+> **These are NOT standard HTTP API error codes.** They are string reason codes returned in protocol-specific AAA reject fields when the Binding Enforcer (`internal/policy/binding`) issues a `Reject` verdict. They do not appear in the standard Argus error envelope. Protocol-specific locations:
+> - **RADIUS:** `Reply-Message` attribute in Access-Reject.
+> - **Diameter S6a:** `Error-Message` AVP (code 281) in the ULA/NTR failure response.
+> - **5G SBA:** `cause` field in the `application/problem+json` response body (RFC 7807).
+>
+> All five constants are defined in `internal/policy/binding/types.go`. Added STORY-096.
+
+| Reason Code | Binding Mode(s) | Description | Wire Example |
+|---|---|---|---|
+| `BINDING_MISMATCH_STRICT` | `strict`, `first-use` (after first bind) | Observed IMEI does not match `sims.bound_imei`. Auth rejected. Empty observed IMEI (capture failed) is also treated as mismatch. Audit `sim.binding_mismatch`, severity `high`. | RADIUS Reply-Message: `BINDING_MISMATCH_STRICT` |
+| `BINDING_MISMATCH_ALLOWLIST` | `allowlist` | Observed IMEI is not present in `sim_imei_allowlist` for this SIM (TBL-60). Auth rejected. Audit `sim.binding_mismatch`, severity `high`. | Diameter Error-Message AVP 281: `BINDING_MISMATCH_ALLOWLIST` |
+| `BINDING_MISMATCH_TAC` | `tac-lock` | First 8 digits of observed IMEI (TAC) do not match the TAC of `sims.bound_imei`. Auth rejected. Audit `sim.binding_mismatch`, severity `medium`. | 5G SBA problem-details: `{"cause":"BINDING_MISMATCH_TAC"}` |
+| `BINDING_BLACKLIST` | Any (including NULL) | Observed IMEI is in the tenant's `imei_blacklist` (TBL-58). This overrides ALL binding mode verdicts — even `Allow` from any mode becomes `Reject`. Audit `sim.binding_blacklist_hit`, severity `high`. | RADIUS Reply-Message: `BINDING_BLACKLIST` |
+| `BINDING_GRACE_EXPIRED` | `grace-period` | SIM's `binding_grace_expires_at` has passed and a new IMEI was observed. Auth rejected. Audit `sim.binding_mismatch`, severity `high`. When within the grace window, auth proceeds as `AllowWithAlarm` instead (no reject reason issued). | Diameter Error-Message AVP 281: `BINDING_GRACE_EXPIRED` |
+
+---
+
 ## APN Errors
 
 | Code | HTTP Status | Description | Example Response |

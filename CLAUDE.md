@@ -116,10 +116,10 @@ docs/            → All documentation
 ## Active Session
 
 - Mode: AUTOPILOT (Phase 11: Enterprise Readiness Pack — started 2026-05-01)
-- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (2/6 stories DONE)
-- Story: STORY-095 — IMEI Pool Management (white/grey/black + bulk + lookup)
+- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (3/6 stories DONE)
+- Story: STORY-096 — Binding Enforcement & Mismatch Handling (AAA hot-path 6-mode enforcer)
 - Step: Plan
-- Last closed: STORY-094 [x] DONE 2026-05-03 (Phase 11 W2 M — SIM-Device Binding Model + Policy DSL Extension; 7 tasks/4 waves; commit 8b20650; 53 files +4964/-214; 35+ new tests; Gate 8 findings (3M+4L scout + 1M Lead-discovered F-LEAD-1 tri-state JSON pointer collapse); 7 fixed + 1 deferred (VAL-043); D-182 ✓ RESOLVED [Task 7], D-183→097, D-184→096, D-187→095 routed; PAT-006 RECURRENCE [F-A2 bulk field-clear] + PAT-031 NEW [F-LEAD-1 *json.RawMessage tri-state]; AC-9 hard-confirmed via empty git diff on internal/audit/; 3889 tests PASS; 4 migrations applied; AC-10 perf bench re-targeted to STORY-096)
+- Last closed: STORY-095 [x] DONE 2026-05-03 (Phase 11 W3 M — IMEI Pool Management white/grey/black + bulk + lookup; 8 tasks/5 waves; commit c46fc34; 57 files +7897/-24; 30+ new backend tests + 4 FE tsc-throw smoke tests; Gate 13 findings (1 CRITICAL + 4 HIGH + 4 MEDIUM + 4 LOW); F-A1 CRITICAL (BulkIMEIPoolImportProcessor not registered) + 5 HIGH/MEDIUM/LOW all FIXED; F-A4/A10/U1 + lesson VAL-048..051; F-A6→D-188 (STORY-097 lookup data) + F-A7→D-189 (STORY-096 bound_count) deferred; D-187 re-targeted to STORY-096; PAT-026 RECURRENCE filed (inverse-orphan consumer-missing); 3935 tests PASS; tsc + vite build PASS; quality-scan hook caught 3 raw HTML elements pre-commit — fixed via FileInput + Button(variant=ghost/link) before second commit attempt)
 - Last closed: STORY-093 [x] DONE 2026-05-01 (Phase 11 W1 L — IMEI Capture across RADIUS+Diameter S6a+5G SBA; commit 42b70c5; 42 files +2299/-31; 21 new tests + 3 microbenches; Gate F-A1+F-A2+F-A4+F-A6 all FIXED; D-182/183/184 deferred — D-182 since closed in 094)
 - Last closed: FIX-247 [x] DONE 2026-04-30 (Wave 10 P2 S — Remove Admin Global Sessions UI; F-320 closed; 9/9 ACs PASS; UI-only removal pattern — page/hook/route/sidebar deleted, BE handler+routes+store retained per AC-5; DEV-580; PAT-026 RECURRENCE [FIX-247] — limited sweep documented exception; D-180 routed for dormant handler cleanup; tsc PASS, vite build 2.65s, go build/vet/test PASS; combined Gate+Review S-story dispatch)
 - Wave 10 P2 6/6 COMPLETE (FIX-240 + FIX-246 + FIX-235 + FIX-245 + FIX-238 + FIX-247)

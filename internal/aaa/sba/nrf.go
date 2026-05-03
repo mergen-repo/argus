@@ -39,14 +39,14 @@ type NRFConfig struct {
 }
 
 type NRFRegistration struct {
-	config     NRFConfig
-	profile    NFProfile
-	logger     zerolog.Logger
-	http       *http.Client
-	nrfURL     string
-	instanceID string
-	nfType     string
-	subID      string
+	config       NRFConfig
+	profile      NFProfile
+	logger       zerolog.Logger
+	http         *http.Client
+	nrfURL       string
+	instanceID   string
+	nfType       string
+	subID        string
 	disabledOnce sync.Once
 }
 

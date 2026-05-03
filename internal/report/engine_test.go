@@ -18,8 +18,8 @@ func (f *fakeProvider) KVKK(_ context.Context, tenantID uuid.UUID, _ map[string]
 		GeneratedAt: time.Now().UTC(),
 		Sections: []Section{
 			{
-				Title: "Data Inventory",
-				Rows:  [][]string{{"MSISDN", "stored", "encrypted"}, {"IMSI", "stored", "hashed"}},
+				Title:   "Data Inventory",
+				Rows:    [][]string{{"MSISDN", "stored", "encrypted"}, {"IMSI", "stored", "hashed"}},
 				Summary: []string{"Total data categories: 2"},
 			},
 		},
@@ -32,8 +32,8 @@ func (f *fakeProvider) GDPR(_ context.Context, tenantID uuid.UUID, _ map[string]
 		GeneratedAt: time.Now().UTC(),
 		Sections: []Section{
 			{
-				Title: "Lawful Basis",
-				Rows:  [][]string{{"Processing", "Consent", "Active"}, {"Storage", "Contract", "Active"}},
+				Title:   "Lawful Basis",
+				Rows:    [][]string{{"Processing", "Consent", "Active"}, {"Storage", "Contract", "Active"}},
 				Summary: []string{"All processing activities have lawful basis"},
 			},
 		},
@@ -46,8 +46,8 @@ func (f *fakeProvider) BTK(_ context.Context, tenantID uuid.UUID, _ map[string]a
 		GeneratedAt: time.Now().UTC(),
 		Sections: []Section{
 			{
-				Title: "Operator Stats",
-				Rows:  [][]string{{"Turkcell", "TUR01", "500", "10", "2", "512"}},
+				Title:   "Operator Stats",
+				Rows:    [][]string{{"Turkcell", "TUR01", "500", "10", "2", "512"}},
 				Summary: []string{"Total SIMs: 512"},
 			},
 		},
@@ -104,6 +104,16 @@ func (f *fakeProvider) SIMInventory(_ context.Context, _ uuid.UUID, _ map[string
 	}, nil
 }
 
+func (f *fakeProvider) UnverifiedDevices(_ context.Context, _ uuid.UUID, _ map[string]any) (*UnverifiedDevicesData, error) {
+	return &UnverifiedDevicesData{
+		Columns:    []string{"ICCID", "SIM ID", "Binding Mode", "Binding Status", "Last IMEI Seen", "Bound IMEI"},
+		Rows:       [][]string{{"8949012345678901234", "uuid-1", "strict", "mismatch", "2026-05-01T10:00:00Z", "123456789012345"}, {"8949012345678901235", "uuid-2", "soft", "pending", "", ""}},
+		Summary:    map[string]string{"rows": "2"},
+		PeriodFrom: time.Now().AddDate(0, -1, 0),
+		PeriodTo:   time.Now(),
+	}, nil
+}
+
 func (f *fakeProvider) AlertsExport(_ context.Context, tenantID uuid.UUID, _ AlertsExportFilters) (*AlertsExportData, error) {
 	return &AlertsExportData{
 		GeneratedAt:       time.Now().UTC(),
@@ -134,6 +144,7 @@ func TestEngine(t *testing.T) {
 		ReportCostAnalysis,
 		ReportAuditExport,
 		ReportSIMInventory,
+		ReportUnverifiedDevices,
 	}
 
 	for _, rt := range reportTypes {

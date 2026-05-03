@@ -41,6 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { SlidePanel, SlidePanelFooter } from '@/components/ui/slide-panel'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
 interface ReportDefinition {
@@ -68,6 +69,7 @@ function toLocalDef(d: ApiReportDefinition): ReportDefinition {
     cost_analysis: 'TrendingDown',
     sim_inventory: 'Cpu',
     audit_log_export: 'FileText',
+    unverified_devices: 'AlertCircle',
   }
   return {
     id: d.id,
@@ -417,6 +419,7 @@ function GenerateReportPanel({
 export default function ReportsPage() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportDefinition | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const scheduledQuery = useScheduledReports()
   const definitionsQuery = useReportDefinitions()
   const updateMutation = useUpdateScheduledReport()
@@ -437,11 +440,16 @@ export default function ReportsPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this scheduled report?')) return
+  const handleDelete = (id: string) => {
+    setConfirmDeleteId(id)
+  }
+
+  const handleDeleteConfirmed = async () => {
+    if (!confirmDeleteId) return
     try {
-      await deleteMutation.mutateAsync(id)
+      await deleteMutation.mutateAsync(confirmDeleteId)
       toast.success('Scheduled report deleted')
+      setConfirmDeleteId(null)
     } catch {
       toast.error('Failed to delete report')
     }
@@ -562,6 +570,25 @@ export default function ReportsPage() {
         preselectedReport={selectedReport}
         definitions={reportDefinitions}
       />
+
+      <Dialog open={confirmDeleteId !== null} onOpenChange={(o) => !o && setConfirmDeleteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete scheduled report?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove the scheduled report. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirmed} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

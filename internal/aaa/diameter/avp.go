@@ -15,25 +15,25 @@ const (
 )
 
 const (
-	AVPCodeSessionID          uint32 = 263
-	AVPCodeOriginHost         uint32 = 264
-	AVPCodeOriginRealm        uint32 = 296
-	AVPCodeHostIPAddress      uint32 = 257
+	AVPCodeSessionID     uint32 = 263
+	AVPCodeOriginHost    uint32 = 264
+	AVPCodeOriginRealm   uint32 = 296
+	AVPCodeHostIPAddress uint32 = 257
 	// AVPCodeFramedIPAddress: RFC 7155 NASREQ §4.4.10.5.1 (inherited into
 	// 3GPP TS 29.212 Gx §5.3.1). Type = Address, 4-byte IPv4 payload,
 	// flags M=1, V=0, P=0 (vendor 0 — base RFC, not 3GPP).
-	AVPCodeFramedIPAddress    uint32 = 8
-	AVPCodeVendorID           uint32 = 266
-	AVPCodeProductName        uint32 = 269
-	AVPCodeResultCode         uint32 = 268
-	AVPCodeAuthApplicationID  uint32 = 258
-	AVPCodeAcctApplicationID  uint32 = 259
-	AVPCodeFirmwareRevision   uint32 = 267
-	AVPCodeDestinationHost    uint32 = 293
-	AVPCodeDestinationRealm   uint32 = 283
-	AVPCodeDisconnectCause    uint32 = 273
-	AVPCodeOriginStateID      uint32 = 278
-	AVPCodeSupportedVendorID  uint32 = 265
+	AVPCodeFramedIPAddress   uint32 = 8
+	AVPCodeVendorID          uint32 = 266
+	AVPCodeProductName       uint32 = 269
+	AVPCodeResultCode        uint32 = 268
+	AVPCodeAuthApplicationID uint32 = 258
+	AVPCodeAcctApplicationID uint32 = 259
+	AVPCodeFirmwareRevision  uint32 = 267
+	AVPCodeDestinationHost   uint32 = 293
+	AVPCodeDestinationRealm  uint32 = 283
+	AVPCodeDisconnectCause   uint32 = 273
+	AVPCodeOriginStateID     uint32 = 278
+	AVPCodeSupportedVendorID uint32 = 265
 
 	AVPCodeCCRequestType      uint32 = 416
 	AVPCodeCCRequestNumber    uint32 = 415
@@ -41,19 +41,19 @@ const (
 	AVPCodeSubscriptionIDType uint32 = 450
 	AVPCodeSubscriptionIDData uint32 = 444
 
-	AVPCodeUsedServiceUnit    uint32 = 446
-	AVPCodeGrantedServiceUnit uint32 = 431
+	AVPCodeUsedServiceUnit      uint32 = 446
+	AVPCodeGrantedServiceUnit   uint32 = 431
 	AVPCodeRequestedServiceUnit uint32 = 437
-	AVPCodeCCTotalOctets      uint32 = 421
-	AVPCodeCCInputOctets      uint32 = 412
-	AVPCodeCCOutputOctets     uint32 = 414
-	AVPCodeCCTime             uint32 = 420
-	AVPCodeValidityTime       uint32 = 448
-	AVPCodeFinalUnitIndication uint32 = 430
-	AVPCodeFinalUnitAction    uint32 = 449
-	AVPCodeRatingGroup        uint32 = 432
-	AVPCodeServiceIdentifier  uint32 = 439
-	AVPCodeSessionTimeout     uint32 = 27
+	AVPCodeCCTotalOctets        uint32 = 421
+	AVPCodeCCInputOctets        uint32 = 412
+	AVPCodeCCOutputOctets       uint32 = 414
+	AVPCodeCCTime               uint32 = 420
+	AVPCodeValidityTime         uint32 = 448
+	AVPCodeFinalUnitIndication  uint32 = 430
+	AVPCodeFinalUnitAction      uint32 = 449
+	AVPCodeRatingGroup          uint32 = 432
+	AVPCodeServiceIdentifier    uint32 = 439
+	AVPCodeSessionTimeout       uint32 = 27
 
 	AVPCodeChargingRuleInstall    uint32 = 1001
 	AVPCodeChargingRuleRemove     uint32 = 1002
@@ -75,18 +75,23 @@ const (
 	AVPCodeMaxRequestedBandwidthDL uint32 = 515
 
 	AVPCode3GPPUserLocationInfo uint32 = 22
+
+	// AVPCodeErrorMessage is RFC 6733 §7.3. UTF8String carrying a human-readable
+	// description of a Result-Code error. Used by S6a ULA reject to carry the
+	// binding mismatch reason code (STORY-096 AC-10).
+	AVPCodeErrorMessage uint32 = 281
 )
 
 const (
-	ResultCodeSuccess                    uint32 = 2001
-	ResultCodeUnableToDeliver            uint32 = 3002
-	ResultCodeAuthenticationRejected     uint32 = 4001
-	ResultCodeAVPUnsupported             uint32 = 5001
-	ResultCodeUnknownSessionID           uint32 = 5002
-	ResultCodeUnableToComply             uint32 = 5012
-	ResultCodeApplicationUnsupported     uint32 = 3007
-	ResultCodeInvalidAVPValue            uint32 = 5004
-	ResultCodeMissingAVP                 uint32 = 5005
+	ResultCodeSuccess                uint32 = 2001
+	ResultCodeUnableToDeliver        uint32 = 3002
+	ResultCodeAuthenticationRejected uint32 = 4001
+	ResultCodeAVPUnsupported         uint32 = 5001
+	ResultCodeUnknownSessionID       uint32 = 5002
+	ResultCodeUnableToComply         uint32 = 5012
+	ResultCodeApplicationUnsupported uint32 = 3007
+	ResultCodeInvalidAVPValue        uint32 = 5004
+	ResultCodeMissingAVP             uint32 = 5005
 )
 
 const (
@@ -102,15 +107,15 @@ const (
 )
 
 const (
-	DisconnectCauseRebooting     uint32 = 0
-	DisconnectCauseBusy          uint32 = 1
-	DisconnectCauseDoNotWant     uint32 = 2
+	DisconnectCauseRebooting uint32 = 0
+	DisconnectCauseBusy      uint32 = 1
+	DisconnectCauseDoNotWant uint32 = 2
 )
 
 const (
-	ApplicationIDGx            uint32 = 16777238
-	ApplicationIDGy            uint32 = 4
-	ApplicationIDDiameterBase  uint32 = 0
+	ApplicationIDGx           uint32 = 16777238
+	ApplicationIDGy           uint32 = 4
+	ApplicationIDDiameterBase uint32 = 0
 )
 
 type AVP struct {
@@ -274,6 +279,13 @@ func NewAVPString(code uint32, flags uint8, vendorID uint32, value string) *AVP 
 	return &AVP{Code: code, Flags: f, VendorID: vendorID, Data: []byte(value)}
 }
 
+// NewAVPErrorMessage constructs Error-Message AVP (281) with a UTF8String
+// payload (RFC 6733 §7.3). Flags: Mandatory=0, Vendor=0 — Error-Message
+// is a base-protocol AVP; the M-bit SHOULD NOT be set (RFC 6733 §7.3).
+func NewAVPErrorMessage(msg string) *AVP {
+	return &AVP{Code: AVPCodeErrorMessage, Flags: 0, VendorID: 0, Data: []byte(msg)}
+}
+
 func NewAVPBytes(code uint32, flags uint8, vendorID uint32, value []byte) *AVP {
 	f := flags
 	if vendorID != 0 {
@@ -435,8 +447,8 @@ func BuildFinalUnitIndication(action uint32) *AVP {
 }
 
 const (
-	FinalUnitActionTerminate     uint32 = 0
-	FinalUnitActionRedirect      uint32 = 1
+	FinalUnitActionTerminate      uint32 = 0
+	FinalUnitActionRedirect       uint32 = 1
 	FinalUnitActionRestrictAccess uint32 = 2
 
 	DefaultGrantedOctets  uint64 = 100 * 1024 * 1024

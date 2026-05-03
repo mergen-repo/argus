@@ -131,13 +131,13 @@ func NewNsmfHandler(simResolver SIMResolver, simStore SIMUpdater, ipPoolStore IP
 // mock consumes. Additional fields in the real spec (anchorSmfUri, etc.) are
 // ignored by json.Decoder.
 type CreateSMContextRequest struct {
-	SUPI            string `json:"supi"`
-	DNN             string `json:"dnn"`
-	SNSSAI          SNSSAI `json:"sNssai"`
-	PDUSessionID    int    `json:"pduSessionId"`
-	ServingNetwork  string `json:"servingNetwork"`
-	ANType          string `json:"anType"`
-	RATType         string `json:"ratType"`
+	SUPI           string `json:"supi"`
+	DNN            string `json:"dnn"`
+	SNSSAI         SNSSAI `json:"sNssai"`
+	PDUSessionID   int    `json:"pduSessionId"`
+	ServingNetwork string `json:"servingNetwork"`
+	ANType         string `json:"anType"`
+	RATType        string `json:"ratType"`
 }
 
 // CreateSMContextResponse is the minimal 201-Created body. Real SMF responses

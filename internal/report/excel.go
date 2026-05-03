@@ -96,6 +96,15 @@ func (e *Engine) buildExcel(ctx context.Context, req Request) (*Artifact, error)
 			return nil, err
 		}
 
+	case ReportUnverifiedDevices:
+		data, err := e.provider.UnverifiedDevices(ctx, req.TenantID, req.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("unverified devices data: %w", err)
+		}
+		if err := writeTabularSheet(f, "Data", data.Columns, data.Rows, data.Summary); err != nil {
+			return nil, err
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported report type for xlsx: %q", req.Type)
 	}

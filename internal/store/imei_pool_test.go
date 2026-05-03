@@ -292,3 +292,125 @@ func TestIMEIPoolStore_CrossTenantReturnsNotFound(t *testing.T) {
 		t.Fatalf("Delete (rightful tenant): %v", err)
 	}
 }
+
+// setupPoolTenantSchemaCompat is a schema-tolerant tenant helper for the
+// STORY-096 D-189 test. The repo's older setupPoolTenant inserts into a
+// hypothetical "slug" column that does not exist in the production schema;
+// this helper uses the actual columns (name + contact_email + plan).
+func setupPoolTenantSchemaCompat(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO tenants (id, name, contact_email, plan) VALUES ($1, $2, $3, 'standard')`,
+		id, "pool-d189-"+id.String()[:8], "d189-"+id.String()[:8]+"@argus.local",
+	)
+	if err != nil {
+		t.Fatalf("setupPoolTenantSchemaCompat: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM imei_whitelist WHERE tenant_id = $1`, id)
+		pool.Exec(context.Background(), `DELETE FROM sims WHERE tenant_id = $1`, id)
+		pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, id)
+	})
+	return id
+}
+
+// TestIMEIPoolStore_List_IncludeBoundCount covers STORY-096 D-189: when
+// ListParams.IncludeBoundCount is true, the store performs a single
+// LEFT JOIN sims that populates PoolEntry.BoundSIMsCount per row. Two
+// SIMs are seeded — one whose bound_imei matches a full_imei whitelist
+// entry exactly, one whose bound_imei TAC-prefix-matches a tac_range entry —
+// to exercise both predicate branches.
+func TestIMEIPoolStore_List_IncludeBoundCount(t *testing.T) {
+	pool := testPoolPool(t)
+	ctx := context.Background()
+	ps := NewIMEIPoolStore(pool)
+	tenantID := setupPoolTenantSchemaCompat(t, pool)
+
+	// Seed two whitelist entries: one full_imei (15-digit) and one tac_range
+	// (8-digit prefix).
+	fullIMEI := "359211089765432"
+	tac := "35921108"
+
+	full, err := ps.Add(ctx, tenantID, PoolWhitelist, AddEntryParams{
+		Kind: EntryKindFullIMEI, IMEIOrTAC: fullIMEI,
+	})
+	if err != nil {
+		t.Fatalf("Add full_imei: %v", err)
+	}
+	tacEntry, err := ps.Add(ctx, tenantID, PoolWhitelist, AddEntryParams{
+		Kind: EntryKindTACRange, IMEIOrTAC: tac,
+	})
+	if err != nil {
+		t.Fatalf("Add tac_range: %v", err)
+	}
+
+	// Seed two SIMs:
+	//   simA — bound_imei = fullIMEI (matches both full_imei AND tac_range)
+	//   simB — bound_imei starts with the same TAC but isn't the exact 15-digit
+	operatorID := uuid.MustParse("20000000-0000-0000-0000-000000000001")
+	simA := uuid.New()
+	simB := uuid.New()
+	otherTACBound := tac + "9999999" // 15-digit, same TAC, different full IMEI
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO sims (id, tenant_id, operator_id, iccid, imsi, sim_type, state, bound_imei)
+		 VALUES ($1, $2, $3, $4, $5, 'physical', 'active', $6)`,
+		simA, tenantID, operatorID, "8990D189A"+simA.String()[:13], simA.String()[:15], fullIMEI,
+	)
+	if err != nil {
+		t.Fatalf("seed simA: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO sims (id, tenant_id, operator_id, iccid, imsi, sim_type, state, bound_imei)
+		 VALUES ($1, $2, $3, $4, $5, 'physical', 'active', $6)`,
+		simB, tenantID, operatorID, "8990D189B"+simB.String()[:13], simB.String()[:15], otherTACBound,
+	)
+	if err != nil {
+		t.Fatalf("seed simB: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM sims WHERE id = ANY($1)`, []uuid.UUID{simA, simB})
+	})
+
+	// Without IncludeBoundCount, BoundSIMsCount is zero on every row.
+	rows, _, err := ps.List(ctx, tenantID, PoolWhitelist, ListParams{Limit: 50})
+	if err != nil {
+		t.Fatalf("List (no bound count): %v", err)
+	}
+	for _, r := range rows {
+		if r.BoundSIMsCount != 0 {
+			t.Errorf("BoundSIMsCount = %d on %s/%s without flag, want 0",
+				r.BoundSIMsCount, r.Kind, r.IMEIOrTAC)
+		}
+	}
+
+	// With IncludeBoundCount, the COUNT is populated per entry.
+	got, _, err := ps.List(ctx, tenantID, PoolWhitelist, ListParams{
+		Limit:             50,
+		IncludeBoundCount: true,
+	})
+	if err != nil {
+		t.Fatalf("List (with bound count): %v", err)
+	}
+
+	var fullCount, tacCount int
+	for _, r := range got {
+		switch r.ID {
+		case full.ID:
+			fullCount = r.BoundSIMsCount
+		case tacEntry.ID:
+			tacCount = r.BoundSIMsCount
+		}
+	}
+
+	// full_imei entry should match exactly simA (bound_imei == fullIMEI).
+	if fullCount != 1 {
+		t.Errorf("full_imei BoundSIMsCount = %d, want 1", fullCount)
+	}
+	// tac_range entry should match BOTH simA (full IMEI shares TAC prefix)
+	// and simB (different full IMEI but same TAC prefix). Both qualify.
+	if tacCount != 2 {
+		t.Errorf("tac_range BoundSIMsCount = %d, want 2", tacCount)
+	}
+}

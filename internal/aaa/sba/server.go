@@ -46,6 +46,11 @@ type ServerDeps struct {
 	SIMStore    *store.SIMStore
 	IPPoolStore *store.IPPoolStore
 	SIMCache    SIMCache
+
+	// BindingGate is the STORY-096 IMEI/SIM binding pre-check gate forwarded
+	// to AUSFHandler and UDMHandler. Nil (the default) preserves
+	// pre-STORY-096 behaviour on both handlers (AC-17).
+	BindingGate BindingGate
 }
 
 type Server struct {
@@ -86,7 +91,19 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	}
 
 	s.ausfHandler = NewAUSFHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
+	if deps.BindingGate != nil {
+		s.ausfHandler.SetBindingGate(deps.BindingGate)
+	}
+	if deps.SIMResolver != nil {
+		s.ausfHandler.SetSIMResolver(deps.SIMResolver)
+	}
 	s.udmHandler = NewUDMHandler(deps.SessionMgr, deps.EventBus, deps.MetricsReg, logger)
+	if deps.BindingGate != nil {
+		s.udmHandler.SetBindingGate(deps.BindingGate)
+	}
+	if deps.SIMResolver != nil {
+		s.udmHandler.SetSIMResolver(deps.SIMResolver)
+	}
 	s.eapProxyHandler = NewEAPProxyHandler(deps.EAPStateMachine, logger)
 	s.nrfRegistration = NewNRFRegistration(nrfCfg, logger)
 	s.nsmfHandler = NewNsmfHandler(deps.SIMResolver, deps.SIMStore, deps.IPPoolStore, deps.SIMCache, logger)

@@ -204,6 +204,14 @@ Self-service password reset flow: user submits email → receives tokenized link
 
 ---
 
+## IMEI Binding Enforcement (STORY-096)
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `ARGUS_BINDING_GRACE_WINDOW` | duration | `72h` | No | Default grace-period window for `binding_mode='grace-period'` SIMs. When a SIM with an established bound IMEI changes device within this window, the auth proceeds with `binding_status='pending'` and a `device.binding_grace_change` notification. After expiry, behaviour reverts to `strict` and returns `BINDING_GRACE_EXPIRED`. Accepted formats: `72h`, `48h30m`, etc. Implemented in `internal/config/config.go:173` via `envconfig` tag. **v1 scope:** all tenants share this single env-level default. Per-tenant override is deferred to D-191 (no tenant-config infrastructure in v1). |
+
+---
+
 ## Rate Limiting
 
 | Variable | Type | Default | Required | Description |

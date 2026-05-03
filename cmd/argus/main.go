@@ -92,6 +92,7 @@ import (
 	"github.com/btopcu/argus/internal/operator/adapter"
 	"github.com/btopcu/argus/internal/ota"
 	"github.com/btopcu/argus/internal/policy"
+	"github.com/btopcu/argus/internal/policy/binding"
 	"github.com/btopcu/argus/internal/policy/dryrun"
 	"github.com/btopcu/argus/internal/policy/dsl"
 	policyenforcer "github.com/btopcu/argus/internal/policy/enforcer"
@@ -630,7 +631,6 @@ func runServe(cfg *config.Config) {
 	adapterRegistry := adapter.NewRegistry()
 	simStore := store.NewSIMStore(pg.Pool)
 	simAllowlistStore := store.NewSIMIMEIAllowlistStore(pg.Pool, simStore)
-	_ = simAllowlistStore // simAllowlistStore: production consumer ships in STORY-095 (D-187)
 	imeiHistoryStore := store.NewIMEIHistoryStore(pg.Pool, simStore)
 	operatorMetricsSessionStore := store.NewRadiusSessionStore(pg.Pool)
 	operatorMetricsCDRStore := store.NewCDRStore(pg.Pool)
@@ -1218,6 +1218,44 @@ func runServe(cfg *config.Config) {
 		}, cfg.BcryptCost),
 	)
 
+	// ── STORY-096 IMEI/SIM binding gate ──────────────────────────────────────
+	// Built once at boot and injected into all three AAA protocol handlers
+	// (radius, diameter S6a, 5G SBA) via SetBindingGate / ServerDeps.BindingGate.
+	// Adapters wrap simAllowlistStore (D-187 production wire), imeiPoolStore
+	// (blacklist hard-deny), auditSvc, eventBus, simStore, and metricsReg.
+	// PAT-017 — single point of dependency wiring.
+	bindingAllowlistAdapter := &simAllowlistAdapter{store: simAllowlistStore}
+	bindingBlacklistAdapter := &imeiPoolBlacklistAdapter{store: imeiPoolStore}
+	bindingAuditAdapter := &bindingAuditAdapter{auditor: auditSvc}
+	bindingNotifAdapter := &bindingNotificationAdapter{publisher: eventBus}
+	bindingSIMUpdaterAdapter := &simBoundIMEIUpdater{store: simStore}
+	bindingDropMetric := &bindingDropAdapter{reg: metricsReg}
+
+	bindingHistoryWriter := binding.NewBufferedHistoryWriter(
+		binding.DefaultHistoryQueueCap,
+		binding.DefaultHistoryWorkers,
+		bindingHistoryFlush(imeiHistoryStore),
+		bindingDropMetric,
+		log.Logger,
+	)
+	bindingHistoryWriter.Start(appCtx)
+
+	bindingEnforcer := binding.New(
+		binding.WithAllowlistChecker(bindingAllowlistAdapter),
+		binding.WithBlacklistChecker(bindingBlacklistAdapter),
+		binding.WithGraceWindow(cfg.BindingGraceWindow),
+	)
+	bindingOrchestrator := binding.NewOrchestrator(
+		bindingAuditAdapter,
+		bindingNotifAdapter,
+		bindingHistoryWriter,
+		bindingSIMUpdaterAdapter,
+		cfg.BindingGraceWindow,
+		binding.WithDropCounter(bindingDropMetric),
+		binding.WithLogger(log.Logger),
+	)
+	bindingGate := binding.NewGate(bindingEnforcer, bindingOrchestrator)
+
 	var radiusServer *aaaradius.Server
 	var sessionHandler *sessionapi.Handler
 	var sessionSweeper *aaasession.TimeoutSweeper
@@ -1327,6 +1365,10 @@ func runServe(cfg *config.Config) {
 			SIMStore:    simStore,
 			MetricsReg:  metricsReg,
 			Logger:      log.Logger,
+			// STORY-096 Task 7: forward the binding pre-check gate into the
+			// S6a handler (ULR + NTR enforcement). Nil-safe — the handler
+			// behaves as STORY-094 T7 when either gate or resolver is absent.
+			BindingGate: bindingGate,
 		})
 
 		if cfg.DiameterTLSEnabled && cfg.DiameterTLSCert != "" {
@@ -1380,6 +1422,9 @@ func runServe(cfg *config.Config) {
 			SIMStore:    simStore,
 			IPPoolStore: ippoolStore,
 			SIMCache:    sbaSIMCache,
+			// STORY-096 Task 7: forward the binding pre-check gate into the
+			// AUSF + UDM handlers.
+			BindingGate: bindingGate,
 		})
 
 		if err := sbaServer.Start(); err != nil {
@@ -1430,6 +1475,8 @@ func runServe(cfg *config.Config) {
 		// the dynamically allocated ip_address_id back to the sims row.
 		radiusServer.SetSIMStore(simStore)
 		radiusServer.SetIMSIStrictValidation(cfg.IMSIStrictValidation)
+		// STORY-096 Task 7: thread the binding pre-check gate.
+		radiusServer.SetBindingGate(bindingGate)
 	}
 	// Diameter and SBA servers do not currently expose SetMetricsRecorder —
 	// protocol-labelled Prom metrics for those will be wired when those
@@ -1887,6 +1934,7 @@ func runServe(cfg *config.Config) {
 		lagPoller,
 		cdrConsumer,
 		auditSvc,
+		bindingHistoryWriter,
 		otelShutdown,
 		ns,
 		rdb,
@@ -1922,6 +1970,7 @@ func gracefulShutdown(
 	lagPoller *bus.LagPoller,
 	cdrConsumer *cdrsvc.Consumer,
 	auditSvc *audit.FullService,
+	bindingHistoryWriter *binding.BufferedHistoryWriter,
 	otelShutdown func(context.Context) error,
 	ns *bus.NATS,
 	rdb *cache.Redis,
@@ -2039,6 +2088,20 @@ func gracefulShutdown(
 	logger.Info().Str("subsystem", "cdr_consumer").Msg("shutdown step starting")
 	cdrConsumer.Stop()
 	logger.Info().Str("subsystem", "cdr_consumer").Dur("duration", time.Since(t)).Msg("shutdown step done")
+
+	// STORY-096 — drain the binding history buffered writer before audit so
+	// any in-flight imei_history rows make it to disk before NATS/Redis/PG
+	// close. 5s budget mirrors the writer's internal drain timeout.
+	if bindingHistoryWriter != nil {
+		t = time.Now()
+		logger.Info().Str("subsystem", "binding_history").Msg("shutdown step starting")
+		bhCtx, bhCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := bindingHistoryWriter.Shutdown(bhCtx); err != nil {
+			logger.Error().Err(err).Str("subsystem", "binding_history").Msg("shutdown error")
+		}
+		bhCancel()
+		logger.Info().Str("subsystem", "binding_history").Dur("duration", time.Since(t)).Msg("shutdown step done")
+	}
 
 	t = time.Now()
 	logger.Info().Str("subsystem", "audit").Msg("shutdown step starting")

@@ -17,6 +17,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/validator"
 	"github.com/btopcu/argus/internal/bus"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/policy/binding"
 	"github.com/btopcu/argus/internal/policy/dsl"
 	"github.com/btopcu/argus/internal/policy/enforcer"
 	"github.com/btopcu/argus/internal/store"
@@ -65,6 +66,7 @@ type Server struct {
 	eapAuthResults  sync.Map
 	metricsRecorder MetricsRecorder
 	policyEnforcer  *enforcer.Enforcer
+	bindingGate     BindingGate
 	killSwitch      killSwitchChecker
 	reg             *obsmetrics.Registry
 	imsiStrict      bool
@@ -239,6 +241,14 @@ func (s *Server) SetRegistry(reg *obsmetrics.Registry) {
 
 func (s *Server) SetPolicyEnforcer(pe *enforcer.Enforcer) {
 	s.policyEnforcer = pe
+}
+
+// SetBindingGate attaches the STORY-096 IMEI/SIM binding pre-check gate.
+// When non-nil, the gate is called at both the EAP and Direct auth call
+// sites immediately after IMEI capture and before policy DSL evaluation.
+// Nil (the default) preserves the exact pre-STORY-096 behaviour (AC-17).
+func (s *Server) SetBindingGate(g BindingGate) {
+	s.bindingGate = g
 }
 
 // SetSIMStore attaches the SIM store required by the STORY-092 dynamic IP
@@ -475,23 +485,66 @@ func (s *Server) sendEAPAccept(ctx context.Context, w radius.ResponseWriter, r *
 			// original ordering here was policy-after-IP-attach — advisor
 			// flagged this as a leak vector (allocated IP never used on
 			// policy Reject).
+
+			// STORY-096: capture IMEI here (before policyEnforcer block) so
+			// both the binding pre-check and the DSL evaluator see it.
+			eapIMEI, eapSV, _ := Extract3GPPIMEISV(r.Packet, logger, s.reg)
+
+			// STORY-096: binding pre-check — runs between IMEI capture and
+			// policy DSL evaluation (AC-1). Uses sendReject (not sendEAPReject)
+			// so the RFC 2865 Reply-Message carries the reason code (AC-10).
+			// Fail-open: evaluate / apply errors are logged and auth continues.
+			var eapBindingStatus string
+			if s.bindingGate != nil {
+				bSession := binding.SessionContext{
+					TenantID:        sim.TenantID,
+					SIMID:           sim.ID,
+					IMEI:            eapIMEI,
+					SoftwareVersion: eapSV,
+				}
+				bSIM := binding.SIMView{
+					ID:                    sim.ID,
+					TenantID:              sim.TenantID,
+					BindingMode:           sim.BindingMode,
+					BoundIMEI:             sim.BoundIMEI,
+					BindingGraceExpiresAt: sim.BindingGraceExpiresAt,
+				}
+				verdict, err := s.bindingGate.Evaluate(ctx, bSession, bSIM)
+				if err != nil {
+					logger.Warn().Err(err).Msg("binding precheck evaluate failed (EAP path, fail-open)")
+				} else {
+					eapBindingStatus = verdict.BindingStatus
+					if applyErr := s.bindingGate.Apply(ctx, verdict, bSession, bSIM, "radius"); applyErr != nil {
+						logger.Warn().Err(applyErr).Msg("binding precheck apply failed (EAP path, fail-open)")
+					}
+					if verdict.Kind == binding.VerdictReject {
+						logger.Info().
+							Str("sim_id", sim.ID.String()).
+							Str("reason", verdict.Reason).
+							Msg("binding precheck rejected (EAP path)")
+						s.sendReject(w, r.Packet, verdict.Reason)
+						return
+					}
+				}
+			}
+
 			if s.policyEnforcer != nil && sim.PolicyVersionID != nil {
 				ratTypeStr := extract3GPPRATType(r.Packet)
 				now := time.Now()
 				sessCtx := dsl.SessionContext{
-					SIMID:     sim.ID.String(),
-					TenantID:  sim.TenantID.String(),
-					RATType:   ratTypeStr,
-					SimType:   sim.SimType,
-					TimeOfDay: now.Format("15:04"),
-					DayOfWeek: now.Weekday().String(),
+					SIMID:         sim.ID.String(),
+					TenantID:      sim.TenantID.String(),
+					RATType:       ratTypeStr,
+					SimType:       sim.SimType,
+					TimeOfDay:     now.Format("15:04"),
+					DayOfWeek:     now.Weekday().String(),
+					BindingStatus: eapBindingStatus,
 				}
 				if sim.APNID != nil {
 					sessCtx.APN = sim.APNID.String()
 				}
-				imei, sv, _ := Extract3GPPIMEISV(r.Packet, logger, s.reg)
-				sessCtx.IMEI = imei
-				sessCtx.SoftwareVersion = sv
+				sessCtx.IMEI = eapIMEI
+				sessCtx.SoftwareVersion = eapSV
 
 				policyResult, pErr := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
 				if pErr == nil && policyResult != nil {
@@ -609,6 +662,47 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		return
 	}
 
+	// STORY-096: extract IMEI + run binding pre-check BEFORE the operator
+	// lookup (fail fast — avoids an unnecessary DB round-trip on Reject
+	// verdicts while still satisfying "after IMEI capture, before DSL
+	// evaluation"). Fail-open: evaluate / apply errors are logged and auth
+	// continues to the operator lookup as normal.
+	directIMEI, directSV, _ := Extract3GPPIMEISV(r.Packet, s.logger, s.reg)
+	var directBindingStatus string
+	if s.bindingGate != nil {
+		bSession := binding.SessionContext{
+			TenantID:        sim.TenantID,
+			SIMID:           sim.ID,
+			IMEI:            directIMEI,
+			SoftwareVersion: directSV,
+		}
+		bSIM := binding.SIMView{
+			ID:                    sim.ID,
+			TenantID:              sim.TenantID,
+			BindingMode:           sim.BindingMode,
+			BoundIMEI:             sim.BoundIMEI,
+			BindingGraceExpiresAt: sim.BindingGraceExpiresAt,
+		}
+		verdict, err := s.bindingGate.Evaluate(ctx, bSession, bSIM)
+		if err != nil {
+			logger.Warn().Err(err).Msg("binding precheck evaluate failed (direct path, fail-open)")
+		} else {
+			directBindingStatus = verdict.BindingStatus
+			if applyErr := s.bindingGate.Apply(ctx, verdict, bSession, bSIM, "radius"); applyErr != nil {
+				logger.Warn().Err(applyErr).Msg("binding precheck apply failed (direct path, fail-open)")
+			}
+			if verdict.Kind == binding.VerdictReject {
+				logger.Info().
+					Str("sim_id", sim.ID.String()).
+					Str("reason", verdict.Reason).
+					Msg("binding precheck rejected (direct path)")
+				s.sendReject(w, r.Packet, verdict.Reason)
+				s.recordAuthMetric(ctx, sim.OperatorID, false, startTime)
+				return
+			}
+		}
+	}
+
 	op, err := s.operatorStore.GetByID(ctx, sim.OperatorID)
 	if err != nil {
 		logger.Error().Err(err).Msg("operator lookup failed")
@@ -639,20 +733,20 @@ func (s *Server) handleDirectAuth(ctx context.Context, w radius.ResponseWriter, 
 		ratTypeStr := extract3GPPRATType(r.Packet)
 		now := time.Now()
 		sessCtx := dsl.SessionContext{
-			SIMID:     sim.ID.String(),
-			TenantID:  sim.TenantID.String(),
-			Operator:  op.Code,
-			RATType:   ratTypeStr,
-			SimType:   sim.SimType,
-			TimeOfDay: now.Format("15:04"),
-			DayOfWeek: now.Weekday().String(),
+			SIMID:         sim.ID.String(),
+			TenantID:      sim.TenantID.String(),
+			Operator:      op.Code,
+			RATType:       ratTypeStr,
+			SimType:       sim.SimType,
+			TimeOfDay:     now.Format("15:04"),
+			DayOfWeek:     now.Weekday().String(),
+			BindingStatus: directBindingStatus,
 		}
 		if sim.APNID != nil {
 			sessCtx.APN = sim.APNID.String()
 		}
-		imei, sv, _ := Extract3GPPIMEISV(r.Packet, s.logger, s.reg)
-		sessCtx.IMEI = imei
-		sessCtx.SoftwareVersion = sv
+		sessCtx.IMEI = directIMEI
+		sessCtx.SoftwareVersion = directSV
 
 		policyResult, err := s.policyEnforcer.Evaluate(ctx, sim, sessCtx)
 		if err != nil {

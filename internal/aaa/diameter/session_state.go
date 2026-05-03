@@ -8,7 +8,7 @@ import (
 type SessionState int
 
 const (
-	SessionStateIdle    SessionState = iota
+	SessionStateIdle SessionState = iota
 	SessionStateOpen
 	SessionStatePending
 	SessionStateClosed

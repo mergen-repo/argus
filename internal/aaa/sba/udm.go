@@ -11,6 +11,7 @@ import (
 	"github.com/btopcu/argus/internal/aaa/session"
 	"github.com/btopcu/argus/internal/bus"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
+	"github.com/btopcu/argus/internal/policy/binding"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -23,6 +24,13 @@ type UDMHandler struct {
 	// argus_imei_capture_parse_errors_total{protocol="5g_sba"} counter
 	// fires on malformed PEI input (STORY-093 AC-6, gate F-A1). Nil-safe.
 	reg *obsmetrics.Registry
+
+	// bindingGate is the STORY-096 IMEI/SIM binding pre-check gate.
+	// Nil (the default) preserves exact pre-STORY-096 behaviour (AC-17).
+	bindingGate BindingGate
+	// simResolver resolves IMSI → *store.SIM for the binding pre-check.
+	// Nil → binding gate is skipped (AC-17 nil-safe).
+	simResolver SIMResolver
 }
 
 func NewUDMHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, reg *obsmetrics.Registry, logger zerolog.Logger) *UDMHandler {
@@ -32,6 +40,21 @@ func NewUDMHandler(sessionMgr *session.Manager, eventBus *bus.EventBus, reg *obs
 		reg:        reg,
 		logger:     logger.With().Str("component", "sba_udm").Logger(),
 	}
+}
+
+// SetBindingGate attaches the STORY-096 IMEI/SIM binding pre-check gate.
+// When non-nil, the gate is called after PEI capture and before the
+// registration response is written. Nil (the default) preserves
+// pre-STORY-096 behaviour (AC-17).
+func (h *UDMHandler) SetBindingGate(g BindingGate) {
+	h.bindingGate = g
+}
+
+// SetSIMResolver attaches the SIM resolver used by the binding pre-check
+// to look up the SIM record for the requesting IMSI. Nil → binding gate
+// is skipped (nil-safe, AC-17).
+func (h *UDMHandler) SetSIMResolver(r SIMResolver) {
+	h.simResolver = r
 }
 
 func (h *UDMHandler) HandleSecurityInfo(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +183,45 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 		Str("imei", imei).
 		Str("imei_sv", imeiSV).
 		Msg("UDM AMF registration")
+
+	// STORY-096 AC-1/AC-10: binding pre-check after IMEI capture, before
+	// registration response. Fail-open: evaluate/apply errors are logged
+	// and registration continues. Nil gate or nil SIM resolver → skip
+	// (AC-17).
+	if h.bindingGate != nil && h.simResolver != nil {
+		imsi := extractIMSI(supi)
+		if sim, simErr := h.simResolver.GetByIMSI(r.Context(), imsi); simErr == nil && sim != nil {
+			bSession := binding.SessionContext{
+				TenantID:        sim.TenantID,
+				SIMID:           sim.ID,
+				IMEI:            imei,
+				SoftwareVersion: imeiSV,
+			}
+			bSIM := binding.SIMView{
+				ID:                    sim.ID,
+				TenantID:              sim.TenantID,
+				BindingMode:           sim.BindingMode,
+				BoundIMEI:             sim.BoundIMEI,
+				BindingGraceExpiresAt: sim.BindingGraceExpiresAt,
+			}
+			verdict, evalErr := h.bindingGate.Evaluate(r.Context(), bSession, bSIM)
+			if evalErr != nil {
+				h.logger.Warn().Err(evalErr).Msg("binding precheck evaluate failed (5g_sba/udm, fail-open)")
+			} else {
+				if applyErr := h.bindingGate.Apply(r.Context(), verdict, bSession, bSIM, "5g_sba"); applyErr != nil {
+					h.logger.Warn().Err(applyErr).Msg("binding precheck apply failed (5g_sba/udm, fail-open)")
+				}
+				if verdict.Kind == binding.VerdictReject {
+					h.logger.Info().
+						Str("supi", supi).
+						Str("reason", verdict.Reason).
+						Msg("binding precheck rejected (5g_sba/udm)")
+					writeProblem(w, http.StatusForbidden, verdict.Reason, "Binding mismatch")
+					return
+				}
+			}
+		}
+	}
 
 	if h.sessionMgr != nil && reg.InitialRegInd {
 		sess := &session.Session{
