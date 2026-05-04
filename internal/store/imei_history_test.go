@@ -263,3 +263,154 @@ func TestIMEIHistory_List_CrossTenantReturns_ErrSIMNotFound(t *testing.T) {
 		t.Errorf("List cross-tenant: expected ErrSIMNotFound, got %v", err)
 	}
 }
+
+// TestIMEIHistoryStore_ListByObservedIMEI_RecentRows inserts 3 rows for an IMEI
+// and verifies all 3 are returned in observed_at DESC order.
+func TestIMEIHistoryStore_ListByObservedIMEI_RecentRows(t *testing.T) {
+	pool := testHistoryPool(t)
+	ctx := context.Background()
+	simStore := NewSIMStore(pool)
+	hs := NewIMEIHistoryStore(pool, simStore)
+
+	tenantID := setupHistoryTenant(t, pool)
+	simID := setupHistorySIM(t, pool, tenantID)
+
+	imei := "500000000000001"
+	appendHistory(t, hs, tenantID, simID, imei, "radius")
+	appendHistory(t, hs, tenantID, simID, imei, "diameter_s6a")
+	appendHistory(t, hs, tenantID, simID, imei, "5g_sba")
+
+	since := time.Now().Add(-time.Hour)
+	rows, err := hs.ListByObservedIMEI(ctx, tenantID, imei, since, 50)
+	if err != nil {
+		t.Fatalf("ListByObservedIMEI: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Errorf("got %d rows, want 3", len(rows))
+	}
+	for i := 1; i < len(rows); i++ {
+		if rows[i].ObservedAt.After(rows[i-1].ObservedAt) {
+			t.Errorf("rows not in DESC order at index %d", i)
+		}
+	}
+}
+
+// TestIMEIHistoryStore_ListByObservedIMEI_SinceFilter verifies that rows older
+// than the since timestamp are excluded.
+func TestIMEIHistoryStore_ListByObservedIMEI_SinceFilter(t *testing.T) {
+	pool := testHistoryPool(t)
+	ctx := context.Background()
+	simStore := NewSIMStore(pool)
+	hs := NewIMEIHistoryStore(pool, simStore)
+
+	tenantID := setupHistoryTenant(t, pool)
+	simID := setupHistorySIM(t, pool, tenantID)
+
+	imei := "500000000000002"
+	appendHistory(t, hs, tenantID, simID, imei, "radius")
+
+	// since is set to the future — all rows should be excluded.
+	since := time.Now().Add(time.Hour)
+	rows, err := hs.ListByObservedIMEI(ctx, tenantID, imei, since, 50)
+	if err != nil {
+		t.Fatalf("ListByObservedIMEI: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("future since: got %d rows, want 0", len(rows))
+	}
+}
+
+// TestIMEIHistoryStore_ListByObservedIMEI_LimitCap inserts 60 rows and verifies
+// that a limit of 200 is capped at 50.
+func TestIMEIHistoryStore_ListByObservedIMEI_LimitCap(t *testing.T) {
+	pool := testHistoryPool(t)
+	ctx := context.Background()
+	simStore := NewSIMStore(pool)
+	hs := NewIMEIHistoryStore(pool, simStore)
+
+	tenantID := setupHistoryTenant(t, pool)
+	simID := setupHistorySIM(t, pool, tenantID)
+
+	imei := "500000000000003"
+	for i := 0; i < 60; i++ {
+		appendHistory(t, hs, tenantID, simID, imei, "radius")
+	}
+
+	since := time.Now().Add(-time.Hour)
+	rows, err := hs.ListByObservedIMEI(ctx, tenantID, imei, since, 200)
+	if err != nil {
+		t.Fatalf("ListByObservedIMEI: %v", err)
+	}
+	if len(rows) > 50 {
+		t.Errorf("limit cap: got %d rows, want at most 50", len(rows))
+	}
+}
+
+// TestIMEIHistoryStore_ListByObservedIMEI_CrossTenant_Excluded verifies that
+// rows belonging to a different tenant are not returned.
+func TestIMEIHistoryStore_ListByObservedIMEI_CrossTenant_Excluded(t *testing.T) {
+	pool := testHistoryPool(t)
+	ctx := context.Background()
+	simStore := NewSIMStore(pool)
+	hs := NewIMEIHistoryStore(pool, simStore)
+
+	tenantA := setupHistoryTenant(t, pool)
+	tenantB := setupHistoryTenant(t, pool)
+	simA := setupHistorySIM(t, pool, tenantA)
+	simB := setupHistorySIM(t, pool, tenantB)
+
+	imei := "500000000000004"
+	appendHistory(t, hs, tenantA, simA, imei, "radius")
+	appendHistory(t, hs, tenantA, simA, imei, "radius")
+	appendHistory(t, hs, tenantB, simB, imei, "radius")
+
+	since := time.Now().Add(-time.Hour)
+	rowsA, err := hs.ListByObservedIMEI(ctx, tenantA, imei, since, 50)
+	if err != nil {
+		t.Fatalf("tenantA ListByObservedIMEI: %v", err)
+	}
+	if len(rowsA) != 2 {
+		t.Errorf("tenantA: got %d rows, want 2", len(rowsA))
+	}
+
+	rowsB, err := hs.ListByObservedIMEI(ctx, tenantB, imei, since, 50)
+	if err != nil {
+		t.Fatalf("tenantB ListByObservedIMEI: %v", err)
+	}
+	if len(rowsB) != 1 {
+		t.Errorf("tenantB: got %d rows, want 1", len(rowsB))
+	}
+}
+
+// TestIMEIHistoryStore_ListByObservedIMEI_JoinICCIDFromSIM verifies that the
+// ICCID is correctly joined from the sims table.
+func TestIMEIHistoryStore_ListByObservedIMEI_JoinICCIDFromSIM(t *testing.T) {
+	pool := testHistoryPool(t)
+	ctx := context.Background()
+	simStore := NewSIMStore(pool)
+	hs := NewIMEIHistoryStore(pool, simStore)
+
+	tenantID := setupHistoryTenant(t, pool)
+	simID := setupHistorySIM(t, pool, tenantID)
+
+	var iccid string
+	err := pool.QueryRow(context.Background(), `SELECT iccid FROM sims WHERE id = $1`, simID).Scan(&iccid)
+	if err != nil {
+		t.Fatalf("fetch iccid: %v", err)
+	}
+
+	imei := "500000000000005"
+	appendHistory(t, hs, tenantID, simID, imei, "radius")
+
+	since := time.Now().Add(-time.Hour)
+	rows, err := hs.ListByObservedIMEI(ctx, tenantID, imei, since, 50)
+	if err != nil {
+		t.Fatalf("ListByObservedIMEI: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if rows[0].ICCID != iccid {
+		t.Errorf("ICCID = %q, want %q", rows[0].ICCID, iccid)
+	}
+}

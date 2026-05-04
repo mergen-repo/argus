@@ -107,7 +107,7 @@ func (f *fakePoolAuditor) CreateEntry(_ context.Context, p audit.CreateEntryPara
 func TestIMEIPoolHandler_List_ValidKind_200(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := makePoolRequest(http.MethodGet, "/api/v1/imei-pools/whitelist", nil, fix.tenantID, map[string]string{"kind": "whitelist"})
 	w := httptest.NewRecorder()
@@ -150,7 +150,7 @@ func TestIMEIPoolHandler_List_InvalidKind_400(t *testing.T) {
 func TestIMEIPoolHandler_Add_FullIMEI_201(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"kind":        "full_imei",
@@ -176,7 +176,7 @@ func TestIMEIPoolHandler_Add_FullIMEI_201(t *testing.T) {
 func TestIMEIPoolHandler_Add_TACRange_201(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"kind":        "tac_range",
@@ -271,7 +271,7 @@ func TestIMEIPoolHandler_Add_BlacklistWithoutImportedFrom_422(t *testing.T) {
 func TestIMEIPoolHandler_Add_Duplicate_409(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"kind":        "full_imei",
@@ -305,7 +305,7 @@ func TestIMEIPoolHandler_Delete_Success_204(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
 	poolStore := store.NewIMEIPoolStore(pg)
-	h := NewHandler(poolStore, nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(poolStore, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	entry, err := poolStore.Add(context.Background(), fix.tenantID, store.PoolWhitelist, store.AddEntryParams{
 		Kind:      store.EntryKindFullIMEI,
@@ -331,7 +331,7 @@ func TestIMEIPoolHandler_Delete_Success_204(t *testing.T) {
 func TestIMEIPoolHandler_Delete_NotFound_404(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	missingID := uuid.New()
 	req := makePoolRequest(http.MethodDelete, "/api/v1/imei-pools/whitelist/"+missingID.String(), nil, fix.tenantID, map[string]string{
@@ -553,7 +553,7 @@ func makeLookupRequest(imei string, tenantID uuid.UUID) *http.Request {
 func TestIMEIPoolHandler_Lookup_ValidIMEI_200(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, nil, zerolog.Nop())
 
 	req := makeLookupRequest("123456789012345", fix.tenantID)
 	w := httptest.NewRecorder()
@@ -661,7 +661,9 @@ func TestIMEIPoolHandler_Add_BenignValues_NoCSVRejection(t *testing.T) {
 func TestIMEIPoolHandler_Lookup_NoMatches_200_EmptyArrays(t *testing.T) {
 	pg := poolTestPool(t)
 	fix := seedPoolFixture(t, pg)
-	h := NewHandler(store.NewIMEIPoolStore(pg), nil, nil, nil, nil, zerolog.Nop())
+	simStore := store.NewSIMStore(pg)
+	historyStore := store.NewIMEIHistoryStore(pg, simStore)
+	h := NewHandler(store.NewIMEIPoolStore(pg), simStore, historyStore, nil, nil, nil, zerolog.Nop())
 
 	req := makeLookupRequest("999111222333444", fix.tenantID)
 	w := httptest.NewRecorder()
@@ -692,5 +694,184 @@ func TestIMEIPoolHandler_Lookup_NoMatches_200_EmptyArrays(t *testing.T) {
 	}
 	if resp.Data.History == nil {
 		t.Errorf("history should be empty array, not null")
+	}
+}
+
+// TestIMEIPoolHandler_Lookup_PopulatesBoundSIMs verifies that a SIM with a
+// matching bound_imei appears in the bound_sims array of the Lookup response.
+func TestIMEIPoolHandler_Lookup_PopulatesBoundSIMs(t *testing.T) {
+	pg := poolTestPool(t)
+	fix := seedPoolFixture(t, pg)
+
+	const testIMEI = "445566778899001"
+
+	var simID string
+	err := pg.QueryRow(context.Background(), `
+		INSERT INTO sims (tenant_id, iccid, msisdn, imsi, status, bound_imei, binding_mode, binding_status)
+		VALUES ($1, $2, $3, $4, 'active', $5, 'strict', 'verified')
+		RETURNING id::text
+	`, fix.tenantID, "8988211234567890123", "905551234567", "286011234567890", testIMEI).Scan(&simID)
+	if err != nil {
+		t.Fatalf("seed sim: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pg.Exec(context.Background(), `DELETE FROM sims WHERE id = $1::uuid`, simID)
+	})
+
+	simStore := store.NewSIMStore(pg)
+	historyStore := store.NewIMEIHistoryStore(pg, simStore)
+	h := NewHandler(store.NewIMEIPoolStore(pg), simStore, historyStore, nil, nil, nil, zerolog.Nop())
+
+	req := makeLookupRequest(testIMEI, fix.tenantID)
+	w := httptest.NewRecorder()
+	h.Lookup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Lookup status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status string `json:"status"`
+		Data   struct {
+			BoundSIMs []struct {
+				SIMID         string  `json:"sim_id"`
+				ICCID         string  `json:"iccid"`
+				BindingMode   *string `json:"binding_mode"`
+				BindingStatus *string `json:"binding_status"`
+			} `json:"bound_sims"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data.BoundSIMs) == 0 {
+		t.Fatalf("bound_sims is empty, want at least 1 row")
+	}
+	found := resp.Data.BoundSIMs[0]
+	if found.SIMID != simID {
+		t.Errorf("bound_sims[0].sim_id = %q, want %q", found.SIMID, simID)
+	}
+	if found.ICCID != "8988211234567890123" {
+		t.Errorf("bound_sims[0].iccid = %q, want 8988211234567890123", found.ICCID)
+	}
+	if found.BindingMode == nil || *found.BindingMode != "strict" {
+		t.Errorf("bound_sims[0].binding_mode = %v, want strict", found.BindingMode)
+	}
+	if found.BindingStatus == nil || *found.BindingStatus != "verified" {
+		t.Errorf("bound_sims[0].binding_status = %v, want verified", found.BindingStatus)
+	}
+}
+
+// TestIMEIPoolHandler_Lookup_PopulatesHistory verifies that imei_history rows
+// for the observed IMEI appear in the history array of the Lookup response.
+func TestIMEIPoolHandler_Lookup_PopulatesHistory(t *testing.T) {
+	pg := poolTestPool(t)
+	fix := seedPoolFixture(t, pg)
+
+	const testIMEI = "556677889900112"
+
+	var simID string
+	err := pg.QueryRow(context.Background(), `
+		INSERT INTO sims (tenant_id, iccid, msisdn, imsi, status)
+		VALUES ($1, $2, $3, $4, 'active')
+		RETURNING id::text
+	`, fix.tenantID, "8988219876543210987", "905559876543", "286019876543210").Scan(&simID)
+	if err != nil {
+		t.Fatalf("seed sim: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pg.Exec(context.Background(), `DELETE FROM imei_history WHERE sim_id = $1::uuid`, simID)
+		_, _ = pg.Exec(context.Background(), `DELETE FROM sims WHERE id = $1::uuid`, simID)
+	})
+
+	_, err = pg.Exec(context.Background(), `
+		INSERT INTO imei_history (tenant_id, sim_id, observed_imei, capture_protocol, was_mismatch, alarm_raised)
+		VALUES ($1, $2::uuid, $3, 'radius', true, true)
+	`, fix.tenantID, simID, testIMEI)
+	if err != nil {
+		t.Fatalf("seed imei_history: %v", err)
+	}
+
+	simStore := store.NewSIMStore(pg)
+	historyStore := store.NewIMEIHistoryStore(pg, simStore)
+	h := NewHandler(store.NewIMEIPoolStore(pg), simStore, historyStore, nil, nil, nil, zerolog.Nop())
+
+	req := makeLookupRequest(testIMEI, fix.tenantID)
+	w := httptest.NewRecorder()
+	h.Lookup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Lookup status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status string `json:"status"`
+		Data   struct {
+			History []struct {
+				SIMID           string `json:"sim_id"`
+				ICCID           string `json:"iccid"`
+				CaptureProtocol string `json:"capture_protocol"`
+				WasMismatch     bool   `json:"was_mismatch"`
+				AlarmRaised     bool   `json:"alarm_raised"`
+			} `json:"history"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data.History) == 0 {
+		t.Fatalf("history is empty, want at least 1 row")
+	}
+	h0 := resp.Data.History[0]
+	if h0.CaptureProtocol != "radius" {
+		t.Errorf("history[0].capture_protocol = %q, want radius", h0.CaptureProtocol)
+	}
+	if !h0.WasMismatch {
+		t.Errorf("history[0].was_mismatch = false, want true")
+	}
+	if !h0.AlarmRaised {
+		t.Errorf("history[0].alarm_raised = false, want true")
+	}
+}
+
+// TestIMEIPoolHandler_Lookup_BothEmpty_StillReturns200 is the AC-6 regression:
+// when no SIMs are bound to the queried IMEI and no history rows exist,
+// the response must still be 200 with empty arrays (not null) for both fields.
+func TestIMEIPoolHandler_Lookup_BothEmpty_StillReturns200(t *testing.T) {
+	pg := poolTestPool(t)
+	fix := seedPoolFixture(t, pg)
+	simStore := store.NewSIMStore(pg)
+	historyStore := store.NewIMEIHistoryStore(pg, simStore)
+	h := NewHandler(store.NewIMEIPoolStore(pg), simStore, historyStore, nil, nil, nil, zerolog.Nop())
+
+	req := makeLookupRequest("111222333444556", fix.tenantID)
+	w := httptest.NewRecorder()
+	h.Lookup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Lookup(both empty) status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status string `json:"status"`
+		Data   struct {
+			BoundSIMs []interface{} `json:"bound_sims"`
+			History   []interface{} `json:"history"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status != "success" {
+		t.Errorf("status = %q, want success", resp.Status)
+	}
+	if resp.Data.BoundSIMs == nil {
+		t.Errorf("bound_sims must be empty array [], not null")
+	}
+	if len(resp.Data.BoundSIMs) != 0 {
+		t.Errorf("bound_sims len = %d, want 0", len(resp.Data.BoundSIMs))
+	}
+	if resp.Data.History == nil {
+		t.Errorf("history must be empty array [], not null")
+	}
+	if len(resp.Data.History) != 0 {
+		t.Errorf("history len = %d, want 0", len(resp.Data.History))
 	}
 }

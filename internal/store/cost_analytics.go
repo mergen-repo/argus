@@ -69,11 +69,11 @@ type CostTrendPoint struct {
 }
 
 type OperatorCostComparison struct {
-	OperatorID  uuid.UUID `json:"operator_id"`
-	CostPerMB   *float64  `json:"cost_per_mb"`
-	AvgCostMB   float64   `json:"avg_cost_per_mb"`
-	TotalCost   float64   `json:"total_cost"`
-	SimCount    int64     `json:"sim_count"`
+	OperatorID uuid.UUID `json:"operator_id"`
+	CostPerMB  *float64  `json:"cost_per_mb"`
+	AvgCostMB  float64   `json:"avg_cost_per_mb"`
+	TotalCost  float64   `json:"total_cost"`
+	SimCount   int64     `json:"sim_count"`
 }
 
 type InactiveSIMCost struct {
@@ -83,10 +83,10 @@ type InactiveSIMCost struct {
 }
 
 type LowUsageSIM struct {
-	SimCount    int64   `json:"sim_count"`
-	TotalCost   float64 `json:"total_cost"`
-	TotalBytes  int64   `json:"total_bytes"`
-	AvgCostMB   float64 `json:"avg_cost_per_mb"`
+	SimCount   int64   `json:"sim_count"`
+	TotalCost  float64 `json:"total_cost"`
+	TotalBytes int64   `json:"total_bytes"`
+	AvgCostMB  float64 `json:"avg_cost_per_mb"`
 }
 
 func (s *CostAnalyticsStore) buildConditions(p CostQueryParams) ([]string, []interface{}, int) {

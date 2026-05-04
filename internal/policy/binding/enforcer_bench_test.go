@@ -203,7 +203,7 @@ func BenchmarkOrchestrator_Apply_Reject(b *testing.B) {
 		EmitAudit:          true,
 		AuditAction:        AuditActionMismatch,
 		EmitNotification:   true,
-		NotifSubject:       NotifSubjectBindingFailed,
+		NotifSubject:       NotifSubjectIMEIChanged,
 		HistoryWasMismatch: true,
 		HistoryAlarmRaised: true,
 	}

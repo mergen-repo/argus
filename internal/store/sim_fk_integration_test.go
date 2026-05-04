@@ -200,9 +200,9 @@ func TestFIX206_SIMCreate_FKViolations(t *testing.T) {
 	bogus := uuid.MustParse("99999999-9999-9999-9999-999999999999")
 
 	cases := []struct {
-		name        string
-		params      CreateSIMParams
-		wantColumn  string
+		name       string
+		params     CreateSIMParams
+		wantColumn string
 	}{
 		{
 			name: "bogus operator_id",

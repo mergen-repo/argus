@@ -37,10 +37,10 @@ type UsageTotals struct {
 }
 
 type UsageBreakdownItem struct {
-	Key        string `json:"key"`
-	TotalBytes int64  `json:"total_bytes"`
-	Sessions   int64  `json:"sessions"`
-	Auths      int64  `json:"auths"`
+	Key        string  `json:"key"`
+	TotalBytes int64   `json:"total_bytes"`
+	Sessions   int64   `json:"sessions"`
+	Auths      int64   `json:"auths"`
 	Percentage float64 `json:"percentage"`
 }
 

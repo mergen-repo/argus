@@ -174,6 +174,7 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 	}
 
 	imei, imeiSV, _ := ParsePEI(reg.PEI, h.logger, h.reg)
+	peiRaw := ExtractPEIRaw(reg.PEI)
 
 	h.logger.Info().
 		Str("supi", supi).
@@ -196,6 +197,7 @@ func (h *UDMHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) 
 				SIMID:           sim.ID,
 				IMEI:            imei,
 				SoftwareVersion: imeiSV,
+				PEIRaw:          peiRaw,
 			}
 			bSIM := binding.SIMView{
 				ID:                    sim.ID,

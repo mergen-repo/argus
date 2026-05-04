@@ -62,7 +62,7 @@ func crossProtocolScenarios() []crossProtoScenario {
 			observed:    imeiB,
 			wantKind:    VerdictReject,
 			wantReason:  RejectReasonMismatchStrict,
-			wantSubject: NotifSubjectBindingFailed,
+			wantSubject: NotifSubjectIMEIChanged,
 			wantAction:  AuditActionMismatch,
 		},
 		{

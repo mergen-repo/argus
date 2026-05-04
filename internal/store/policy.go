@@ -60,13 +60,13 @@ type PolicyVersion struct {
 }
 
 type CreatePolicyParams struct {
-	Name        string
-	Description *string
-	Scope       string
-	ScopeRefID  *uuid.UUID
-	DSLContent  string
+	Name          string
+	Description   *string
+	Scope         string
+	ScopeRefID    *uuid.UUID
+	DSLContent    string
 	CompiledRules json.RawMessage
-	CreatedBy   *uuid.UUID
+	CreatedBy     *uuid.UUID
 }
 
 type UpdatePolicyParams struct {
@@ -771,8 +771,9 @@ func (s *PolicyStore) GetActiveRolloutForPolicy(ctx context.Context, policyID uu
 // Returns an empty slice (not an error) when nothing is stuck.
 //
 // $1 = graceMinutes — minutes without progress before a rollout is considered
-//      stuck. COALESCE(completed_at, created_at) handles rollouts that finished
-//      assigning but never had their state flipped.
+//
+//	stuck. COALESCE(completed_at, created_at) handles rollouts that finished
+//	assigning but never had their state flipped.
 func (s *PolicyStore) ListStuckRollouts(ctx context.Context, graceMinutes int) ([]uuid.UUID, error) {
 	// FIX-231 F-A7 (Gate): ORDER BY created_at gives the reaper deterministic
 	// page semantics — without it Postgres can return any 100 of N stuck

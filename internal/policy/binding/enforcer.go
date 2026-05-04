@@ -328,6 +328,12 @@ func (e *Enforcer) evalSoft(session SessionContext, sim SIMView) Verdict {
 // on the decision table). This is a deliberate separation — the
 // enforcer signals "this was a mismatch", the sink applies the storage
 // constraint.
+//
+// Notification subject is NotifSubjectIMEIChanged ("imei.changed") for
+// all non-blacklist mismatch verdicts per STORY-097 AC-5. Blacklist
+// verdicts use NotifSubjectBindingBlacklistHit and grace-period accepted
+// changes use NotifSubjectBindingGraceChange — neither flow through this
+// helper.
 func rejectMismatch(reason string, sev Severity) Verdict {
 	return Verdict{
 		Kind:               VerdictReject,
@@ -337,7 +343,7 @@ func rejectMismatch(reason string, sev Severity) Verdict {
 		EmitAudit:          true,
 		AuditAction:        AuditActionMismatch,
 		EmitNotification:   true,
-		NotifSubject:       NotifSubjectBindingFailed,
+		NotifSubject:       NotifSubjectIMEIChanged,
 		HistoryWasMismatch: true,
 		HistoryAlarmRaised: true,
 	}
@@ -351,7 +357,7 @@ func softAlarm() Verdict {
 		EmitAudit:          true,
 		AuditAction:        AuditActionSoftMismatch,
 		EmitNotification:   true,
-		NotifSubject:       NotifSubjectIMEIMismatch,
+		NotifSubject:       NotifSubjectIMEIChanged,
 		HistoryWasMismatch: true,
 		HistoryAlarmRaised: true,
 	}

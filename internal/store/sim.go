@@ -2097,6 +2097,47 @@ func (s *SIMStore) CountWithPredicate(
 }
 
 // UnverifiedDeviceRow is a lightweight projection returned by
+// SimByBoundIMEIRow is the projection returned by SIMStore.ListByBoundIMEI.
+// Used by the IMEI Lookup endpoint (API-335) to populate the bound_sims array.
+type SimByBoundIMEIRow struct {
+	ID            uuid.UUID
+	ICCID         string
+	BindingMode   *string
+	BindingStatus *string
+}
+
+// ListByBoundIMEI returns all SIMs in the tenant whose bound_imei equals the
+// given 15-digit IMEI. Used by API-335 IMEI Lookup. Exact match only (no
+// TAC-prefix match here — TAC-prefix membership is handled by the pool tables,
+// not the SIM bound_imei column).
+//
+// Returns at most 100 rows ordered by ICCID. RLS enforced via tenant_id WHERE.
+func (s *SIMStore) ListByBoundIMEI(ctx context.Context, tenantID uuid.UUID, imei string) ([]SimByBoundIMEIRow, error) {
+	if imei == "" || len(imei) != 15 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, iccid, binding_mode, binding_status
+		FROM sims
+		WHERE tenant_id = $1 AND bound_imei = $2
+		ORDER BY iccid ASC
+		LIMIT 100
+	`, tenantID, imei)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sims by bound_imei: %w", err)
+	}
+	defer rows.Close()
+	var out []SimByBoundIMEIRow
+	for rows.Next() {
+		var r SimByBoundIMEIRow
+		if err := rows.Scan(&r.ID, &r.ICCID, &r.BindingMode, &r.BindingStatus); err != nil {
+			return nil, fmt.Errorf("store: scan sim by bound_imei: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ListUnverifiedDevices — only the columns needed for the report.
 type UnverifiedDeviceRow struct {
 	ICCID          string
@@ -2135,6 +2176,57 @@ LIMIT $2`
 	}
 	if err := pgRows.Err(); err != nil {
 		return nil, fmt.Errorf("store: iterate unverified devices: %w", err)
+	}
+	return out, nil
+}
+
+// SIMApproachingGraceExpiry is the lightweight projection returned by
+// ListSIMsApproachingGraceExpiry. Used by the binding_grace_scanner JobProcessor
+// (STORY-097 AC-6) to publish device.binding_grace_expiring notifications for
+// SIMs whose grace window is within 24h of expiring.
+type SIMApproachingGraceExpiry struct {
+	ID                    uuid.UUID
+	TenantID              uuid.UUID
+	ICCID                 string
+	BindingGraceExpiresAt time.Time
+}
+
+// ListSIMsApproachingGraceExpiry returns all SIMs (cross-tenant) with
+// binding_mode='grace-period' whose binding_grace_expires_at falls within
+// (lower, upper]. Used by the binding_grace_scanner cron — STORY-097 AC-6.
+//
+// The query is index-friendly: idx_sims_binding_mode (partial WHERE
+// binding_mode IS NOT NULL) prunes to grace-period rows; the upper-bound
+// timestamp filter then narrows to the next 24h window. Capped at 10000 rows
+// so a fleet-wide expiry burst stays bounded; subsequent runs sweep the rest
+// (the dedup key prevents re-notification within 24h).
+func (s *SIMStore) ListSIMsApproachingGraceExpiry(ctx context.Context, lower, upper time.Time) ([]SIMApproachingGraceExpiry, error) {
+	const q = `
+SELECT id, tenant_id, iccid, binding_grace_expires_at
+FROM sims
+WHERE binding_mode = 'grace-period'
+  AND binding_grace_expires_at IS NOT NULL
+  AND binding_grace_expires_at > $1
+  AND binding_grace_expires_at <= $2
+ORDER BY binding_grace_expires_at ASC
+LIMIT 10000`
+
+	rows, err := s.db.Query(ctx, q, lower, upper)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sims approaching grace expiry: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]SIMApproachingGraceExpiry, 0)
+	for rows.Next() {
+		var r SIMApproachingGraceExpiry
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.ICCID, &r.BindingGraceExpiresAt); err != nil {
+			return nil, fmt.Errorf("store: scan sim approaching grace expiry: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate sims approaching grace expiry: %w", err)
 	}
 	return out, nil
 }

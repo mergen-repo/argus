@@ -42,13 +42,14 @@ func (e *InvalidReferenceError) Unwrap() error { return ErrInvalidReference }
 // other partitioned or non-partitioned tables (see ROUTEMAP tech debt
 // D-062 sessions, D-063 cdrs, D-064 operator_health_logs, D-065 prod
 // 10M-row cutover runbook), you MUST also:
-//   1. Add a sibling <table>FKConstraintColumn map here (or extend this
-//      one if the columns are disambiguable by constraint name alone).
-//   2. Route store-layer Create/Update INSERT errors through
-//      asInvalidReference() with that map, so handlers can surface a
-//      field-level 400 INVALID_REFERENCE via *InvalidReferenceError.
-//   3. Update docs/architecture/ERROR_CODES.md INVALID_REFERENCE row if
-//      new field values are emitted in details.
+//  1. Add a sibling <table>FKConstraintColumn map here (or extend this
+//     one if the columns are disambiguable by constraint name alone).
+//  2. Route store-layer Create/Update INSERT errors through
+//     asInvalidReference() with that map, so handlers can surface a
+//     field-level 400 INVALID_REFERENCE via *InvalidReferenceError.
+//  3. Update docs/architecture/ERROR_CODES.md INVALID_REFERENCE row if
+//     new field values are emitted in details.
+//
 // Otherwise the raw pgx error propagates as 500 INTERNAL_ERROR and the
 // caller loses the hint about which field was invalid. There is no lint
 // check enforcing this; the pattern is opt-in per store.

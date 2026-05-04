@@ -37,6 +37,11 @@ type SessionContext struct {
 	// Phase 11 STORY-093 — IMEI capture (flat fields, zero-value safe)
 	IMEI            string `json:"imei,omitempty"`
 	SoftwareVersion string `json:"software_version,omitempty"`
+	// Phase 11 STORY-097 — PEIRaw retains the original PEI URI for non-3GPP
+	// forms (mac-, eui64-). Empty for 3GPP forms (imei-, imeisv-) whose
+	// structured values are already captured in IMEI/SoftwareVersion.
+	// In-memory only: not persisted to DB or audit. 5G SBA path only.
+	PEIRaw string `json:"pei_raw,omitempty"`
 	// Phase 11 STORY-094 — IMEI/SIM binding fields (flat, zero-value safe).
 	// Hot-path AAA WILL NOT populate BindingStatus / BindingVerifiedAt in
 	// this story (no enforcement); they remain zero-valued so dry-run

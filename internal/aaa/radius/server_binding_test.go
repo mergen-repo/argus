@@ -295,7 +295,7 @@ func TestRADIUS_BindingPrecheck_AllowWithAlarm_ContinuesToPolicy(t *testing.T) {
 				Kind:             binding.VerdictAllowWithAlarm,
 				BindingStatus:    binding.BindingStatusMismatch,
 				EmitNotification: true,
-				NotifSubject:     binding.NotifSubjectIMEIMismatch,
+				NotifSubject:     binding.NotifSubjectIMEIChanged,
 			},
 		},
 	}

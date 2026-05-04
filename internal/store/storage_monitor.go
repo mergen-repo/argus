@@ -17,14 +17,14 @@ func NewStorageMonitorStore(db *pgxpool.Pool) *StorageMonitorStore {
 }
 
 type TableSizeInfo struct {
-	TableName       string `json:"table_name"`
-	TotalSize       int64  `json:"total_size"`
-	TotalSizeHuman  string `json:"total_size_human"`
-	TableSize       int64  `json:"table_size"`
-	TableSizeHuman  string `json:"table_size_human"`
-	IndexSize       int64  `json:"index_size"`
-	IndexSizeHuman  string `json:"index_size_human"`
-	RowEstimate     int64  `json:"row_estimate"`
+	TableName      string `json:"table_name"`
+	TotalSize      int64  `json:"total_size"`
+	TotalSizeHuman string `json:"total_size_human"`
+	TableSize      int64  `json:"table_size"`
+	TableSizeHuman string `json:"table_size_human"`
+	IndexSize      int64  `json:"index_size"`
+	IndexSizeHuman string `json:"index_size_human"`
+	RowEstimate    int64  `json:"row_estimate"`
 }
 
 type ChunkInfo struct {
@@ -37,12 +37,12 @@ type ChunkInfo struct {
 }
 
 type CompressionStats struct {
-	HypertableName       string  `json:"hypertable_name"`
-	UncompressedBytes    int64   `json:"uncompressed_bytes"`
-	CompressedBytes      int64   `json:"compressed_bytes"`
-	CompressionRatio     float64 `json:"compression_ratio"`
-	CompressedChunks     int64   `json:"compressed_chunks"`
-	UncompressedChunks   int64   `json:"uncompressed_chunks"`
+	HypertableName     string  `json:"hypertable_name"`
+	UncompressedBytes  int64   `json:"uncompressed_bytes"`
+	CompressedBytes    int64   `json:"compressed_bytes"`
+	CompressionRatio   float64 `json:"compression_ratio"`
+	CompressedChunks   int64   `json:"compressed_chunks"`
+	UncompressedChunks int64   `json:"uncompressed_chunks"`
 }
 
 type DiskUsageInfo struct {
@@ -53,11 +53,11 @@ type DiskUsageInfo struct {
 }
 
 type DatabaseStats struct {
-	DatabaseName  string `json:"database_name"`
-	DatabaseSize  int64  `json:"database_size"`
-	DatabaseHuman string `json:"database_size_human"`
-	ActiveConns   int64  `json:"active_connections"`
-	MaxConns      int64  `json:"max_connections"`
+	DatabaseName  string  `json:"database_name"`
+	DatabaseSize  int64   `json:"database_size"`
+	DatabaseHuman string  `json:"database_size_human"`
+	ActiveConns   int64   `json:"active_connections"`
+	MaxConns      int64   `json:"max_connections"`
 	ConnUsagePct  float64 `json:"connection_usage_pct"`
 }
 

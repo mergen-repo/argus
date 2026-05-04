@@ -649,4 +649,3 @@ func TestSIMStore_NullablePolicyAssignment(t *testing.T) {
 		t.Errorf("CoaStatus = %v, want nil (no policy_assignment row)", found.CoaStatus)
 	}
 }
-

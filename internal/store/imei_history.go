@@ -186,6 +186,64 @@ func (s *IMEIHistoryStore) Count(ctx context.Context, tenantID, simID uuid.UUID)
 	return n, nil
 }
 
+// IMEIHistoryByObservedRow is the projection returned by ListByObservedIMEI.
+// Used by API-335 IMEI Lookup to populate the history array. Joined back with
+// SIM ICCID for display via the LEFT JOIN.
+type IMEIHistoryByObservedRow struct {
+	ID              uuid.UUID
+	SIMID           uuid.UUID
+	ICCID           string
+	ObservedAt      time.Time
+	CaptureProtocol string
+	WasMismatch     bool
+	AlarmRaised     bool
+}
+
+// ListByObservedIMEI returns up to `limit` (max 50) imei_history rows in the
+// tenant for the given observed_imei, within the last `since` window.
+// Ordered by observed_at DESC. JOINs sims for ICCID display.
+//
+// Used by API-335 IMEI Lookup. The since window is typically last 30 days
+// (caller computes the cutoff timestamp).
+func (s *IMEIHistoryStore) ListByObservedIMEI(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	imei string,
+	since time.Time,
+	limit int,
+) ([]IMEIHistoryByObservedRow, error) {
+	if imei == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT h.id, h.sim_id, COALESCE(s.iccid, ''), h.observed_at,
+		       h.capture_protocol, h.was_mismatch, h.alarm_raised
+		FROM imei_history h
+		LEFT JOIN sims s ON s.id = h.sim_id AND s.tenant_id = h.tenant_id
+		WHERE h.tenant_id = $1
+		  AND h.observed_imei = $2
+		  AND h.observed_at >= $3
+		ORDER BY h.observed_at DESC
+		LIMIT $4
+	`, tenantID, imei, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list imei_history by observed_imei: %w", err)
+	}
+	defer rows.Close()
+	var out []IMEIHistoryByObservedRow
+	for rows.Next() {
+		var r IMEIHistoryByObservedRow
+		if err := rows.Scan(&r.ID, &r.SIMID, &r.ICCID, &r.ObservedAt, &r.CaptureProtocol, &r.WasMismatch, &r.AlarmRaised); err != nil {
+			return nil, fmt.Errorf("store: scan imei_history by observed_imei: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Append inserts a new imei_history row and returns its generated ID.
 // STORY-094 stub — STORY-096 (binding enforcement) is the real consumer.
 func (s *IMEIHistoryStore) Append(ctx context.Context, tenantID uuid.UUID, params AppendIMEIHistoryParams) (uuid.UUID, error) {

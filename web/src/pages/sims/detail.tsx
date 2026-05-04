@@ -83,6 +83,7 @@ import { RelatedDataTab } from './_tabs/related-data-tab'
 import { PolicyAssignmentHistoryTab } from './_tabs/policy-assignment-history-tab'
 import { IPHistoryTab } from './_tabs/ip-history-tab'
 import { CostAttributionTab } from './_tabs/cost-attribution-tab'
+import { DeviceBindingTab } from '@/components/sims/device-binding-tab'
 
 function allowedActions(state: SIMState): Array<{ action: string; label: string; icon: React.ElementType; variant: 'default' | 'destructive' | 'outline' }> {
   switch (state) {
@@ -938,6 +939,10 @@ export default function SimDetailPage() {
             <Network className="h-3.5 w-3.5" />
             IP History
           </TabsTrigger>
+          <TabsTrigger value="device-binding" className="gap-1.5">
+            <Smartphone className="h-3.5 w-3.5" />
+            Device Binding
+          </TabsTrigger>
           <TabsTrigger value="cost" className="gap-1.5">
             <DollarSign className="h-3.5 w-3.5" />
             Cost
@@ -995,6 +1000,12 @@ export default function SimDetailPage() {
         <TabsContent value="ip-history">
           <ErrorBoundary>
             <IPHistoryTab simId={sim.id} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="device-binding">
+          <ErrorBoundary>
+            <DeviceBindingTab simId={sim.id} />
           </ErrorBoundary>
         </TabsContent>
 

@@ -91,6 +91,7 @@ func (h *AUSFHandler) HandleAuthentication(w http.ResponseWriter, r *http.Reques
 	}
 
 	imei, imeiSV, _ := ParsePEI(req.PEI, h.logger, h.reg)
+	peiRaw := ExtractPEIRaw(req.PEI)
 
 	if req.ServingNetworkName == "" {
 		writeProblem(w, http.StatusBadRequest, "MANDATORY_IE_INCORRECT", "servingNetworkName is required")
@@ -152,6 +153,7 @@ func (h *AUSFHandler) HandleAuthentication(w http.ResponseWriter, r *http.Reques
 				SIMID:           sim.ID,
 				IMEI:            imei,
 				SoftwareVersion: imeiSV,
+				PEIRaw:          peiRaw,
 			}
 			bSIM := binding.SIMView{
 				ID:                    sim.ID,

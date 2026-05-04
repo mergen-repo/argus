@@ -280,7 +280,7 @@ func TestOrchestrator_RejectStrictFullSinks(t *testing.T) {
 		EmitAudit:          true,
 		AuditAction:        AuditActionMismatch,
 		EmitNotification:   true,
-		NotifSubject:       NotifSubjectBindingFailed,
+		NotifSubject:       NotifSubjectIMEIChanged,
 		HistoryWasMismatch: true,
 		HistoryAlarmRaised: true,
 	}
@@ -311,8 +311,8 @@ func TestOrchestrator_RejectStrictFullSinks(t *testing.T) {
 
 	waitForNotif(t, notif, 1, time.Second)
 	last, _ := notif.lastCall()
-	if last.subject != NotifSubjectBindingFailed {
-		t.Errorf("notif subject = %q, want %q", last.subject, NotifSubjectBindingFailed)
+	if last.subject != NotifSubjectIMEIChanged {
+		t.Errorf("notif subject = %q, want %q", last.subject, NotifSubjectIMEIChanged)
 	}
 	if last.payload.Severity != SeverityHigh {
 		t.Errorf("notif severity = %q, want %q", last.payload.Severity, SeverityHigh)
@@ -561,7 +561,7 @@ func TestOrchestrator_NotificationErrorDoesNotBubble(t *testing.T) {
 		EmitAudit:        true,
 		AuditAction:      AuditActionMismatch,
 		EmitNotification: true,
-		NotifSubject:     NotifSubjectBindingFailed,
+		NotifSubject:     NotifSubjectIMEIChanged,
 		Severity:         SeverityHigh,
 	}
 	session := makeOrchestratorSession("123456789012345")
@@ -635,7 +635,7 @@ func TestOrchestrator_SoftModeAlarmHistory(t *testing.T) {
 		EmitAudit:          true,
 		AuditAction:        AuditActionSoftMismatch,
 		EmitNotification:   true,
-		NotifSubject:       NotifSubjectIMEIMismatch,
+		NotifSubject:       NotifSubjectIMEIChanged,
 		HistoryWasMismatch: true,
 		HistoryAlarmRaised: true,
 	}
@@ -706,7 +706,7 @@ func TestOrchestrator_NilSinksDegradeGracefully(t *testing.T) {
 		EmitAudit:        true,
 		AuditAction:      AuditActionMismatch,
 		EmitNotification: true,
-		NotifSubject:     NotifSubjectBindingFailed,
+		NotifSubject:     NotifSubjectIMEIChanged,
 		LockBoundIMEI:    true,
 		NewBoundIMEI:     "123456789012345",
 	}

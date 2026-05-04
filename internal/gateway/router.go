@@ -468,6 +468,7 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 					r.Use(RequireRole("sim_manager"))
 					r.Get("/api/v1/sims/{id}/device-binding", deps.SIMDeviceBindingHandler.Get)
 					r.Patch("/api/v1/sims/{id}/device-binding", deps.SIMDeviceBindingHandler.Patch)
+					r.Post("/api/v1/sims/{id}/device-binding/re-pair", deps.SIMDeviceBindingHandler.RePair)
 					r.Get("/api/v1/sims/{id}/imei-history", deps.SIMDeviceBindingHandler.GetIMEIHistory)
 				})
 			}

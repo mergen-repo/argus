@@ -117,6 +117,44 @@ func TestAmf3GppAccessRegistration_PEIOmitEmpty(t *testing.T) {
 	}
 }
 
+func TestExtractPEIRaw_IMEI3GPP_ReturnsEmpty(t *testing.T) {
+	if got := ExtractPEIRaw("imei-359211089765432"); got != "" {
+		t.Errorf("got %q, want empty for 3GPP imei- prefix", got)
+	}
+}
+
+func TestExtractPEIRaw_IMEISV3GPP_ReturnsEmpty(t *testing.T) {
+	if got := ExtractPEIRaw("imeisv-3592110897654321"); got != "" {
+		t.Errorf("got %q, want empty for 3GPP imeisv- prefix", got)
+	}
+}
+
+func TestExtractPEIRaw_MAC_ReturnsRaw(t *testing.T) {
+	const input = "mac-aabbccddeeff"
+	if got := ExtractPEIRaw(input); got != input {
+		t.Errorf("got %q, want %q", got, input)
+	}
+}
+
+func TestExtractPEIRaw_EUI64_ReturnsRaw(t *testing.T) {
+	const input = "eui64-0011223344556677"
+	if got := ExtractPEIRaw(input); got != input {
+		t.Errorf("got %q, want %q", got, input)
+	}
+}
+
+func TestExtractPEIRaw_Unknown_ReturnsEmpty(t *testing.T) {
+	if got := ExtractPEIRaw("xyz-something"); got != "" {
+		t.Errorf("got %q, want empty for unknown prefix", got)
+	}
+}
+
+func TestExtractPEIRaw_Empty_ReturnsEmpty(t *testing.T) {
+	if got := ExtractPEIRaw(""); got != "" {
+		t.Errorf("got %q, want empty for empty input", got)
+	}
+}
+
 func BenchmarkParsePEI_5G(b *testing.B) {
 	nop := zerolog.Nop()
 

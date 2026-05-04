@@ -38,6 +38,7 @@ const (
 	JobTypeESimStockAlerter       = "esim_stock_alerter"
 	JobTypeBulkDeviceBindings     = "bulk_device_bindings"
 	JobTypeBulkIMEIPoolImport     = "bulk_imei_pool_import"
+	JobTypeBindingGraceScanner    = "binding_grace_scanner"
 )
 
 var AllJobTypes = []string{
@@ -78,4 +79,5 @@ var AllJobTypes = []string{
 	JobTypeESimStockAlerter,
 	JobTypeBulkDeviceBindings,
 	JobTypeBulkIMEIPoolImport,
+	JobTypeBindingGraceScanner,
 }

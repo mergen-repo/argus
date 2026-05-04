@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// PAT-006 SessionContext construction-site audit (snapshot 2026-05-01).
+// PAT-006 SessionContext construction-site audit (snapshot 2026-05-04, STORY-097).
 //
 // STORY-093 Phase 11 added IMEI / SoftwareVersion fields to SessionContext.
-// The fields are `omitempty`, so a zero-value at any construction site is
+// STORY-097 Phase 11 added PEIRaw (non-3GPP forensic URI — 5G SBA only).
+// All three fields are `omitempty`, so a zero-value at any construction site is
 // wire-shape safe — but a hot-path site that *forgets* to populate them
 // silently produces a stale-zero-value bug (PAT-006).
 //
@@ -19,25 +20,27 @@ import (
 // + `grep -rn 'SessionContext{' internal/policy/dsl/`):
 //
 //   PRODUCTION (must populate IMEI/SV when transport carries them):
-//     internal/aaa/radius/server.go:481  — EAP path                  [IMEI POPULATED via Extract3GPPIMEISV — T5]
-//     internal/aaa/radius/server.go:641  — Direct-Auth path          [IMEI POPULATED via Extract3GPPIMEISV — T5]
+//     internal/aaa/radius/server.go:534  — EAP path                  [IMEI POPULATED via Extract3GPPIMEISV — T5]
+//     internal/aaa/radius/server.go:735  — Direct-Auth path          [IMEI POPULATED via Extract3GPPIMEISV — T5]
 //
-//   PRODUCTION (intentionally IMEI-skipped — out of IMEI-bearing path):
-//     internal/policy/enforcer/enforcer.go:356 — RecordUsageCheck    [no transport context — usage-check only,
+//   PRODUCTION (intentionally IMEI/PEIRaw-skipped — out of IMEI-bearing path):
+//     internal/policy/enforcer/enforcer.go:370 — RecordUsageCheck    [no transport context — usage-check only,
 //                                                                     IMEI captured at auth-time, not re-evaluated here]
-//     internal/policy/dryrun/service.go:412   — DryRun simulation    [synthetic context built from sim.Metadata,
+//     internal/policy/dryrun/service.go:434   — DryRun simulation    [synthetic context built from sim.Metadata,
 //                                                                     IMEI not part of dry-run inputs]
 //
-//   TESTS / FIXTURES (IMEI irrelevant to scenarios under test):
+//   TESTS / FIXTURES (IMEI/PEIRaw irrelevant to scenarios under test):
 //     internal/aaa/radius/enforcer_nilcache_integration_test.go:386  — buildMinimalSessionContext fixture
 //     internal/aaa/bench/bench_test.go:205, :298, :348               — DSL eval microbench (no transport)
 //     internal/policy/dsl/evaluator_test.go:* (28 sites)             — DSL evaluator unit tests
 //
 //   SBA (5G) NOTE: AUSF/UDM do NOT construct dsl.SessionContext directly —
-//   IMEI is stored on AuthContext (internal/aaa/sba/ausf.go:105-106) and
-//   propagated to the DSL context downstream. Tasks T6 wired this path.
+//   IMEI + PEIRaw are stored on AuthContext/binding.SessionContext and
+//   propagated to the DSL context downstream.
+//   PEIRaw only populated at SBA sites (mac-/eui64- only flow over 5G SBA);
+//   RADIUS + Diameter wires leave PEIRaw at zero-value (correct per protocol).
 //
-// If a new construction site is added in production code without IMEI/SV
+// If a new construction site is added in production code without IMEI/SV/PEIRaw
 // population on the IMEI-bearing transport path, the audit comment above
 // MUST be updated AND TestSessionContext_IMEIFields_ConstructionSiteAudit
 // will surface the new site in CI logs for review.
@@ -140,6 +143,55 @@ func TestSessionContext_IMEIFields_ConstructionSiteAudit(t *testing.T) {
 	if len(lines) < 2 {
 		t.Errorf("expected >= 2 total dsl.SessionContext{ sites repository-wide, got %d", len(lines))
 	}
+}
+
+func TestSessionContext_PEIRaw_ZeroValueSafe(t *testing.T) {
+	sessCtx := SessionContext{}
+	if sessCtx.PEIRaw != "" {
+		t.Errorf("zero-value PEIRaw: got %q, want empty string", sessCtx.PEIRaw)
+	}
+}
+
+func TestSessionContext_PEIRaw_OmitEmpty(t *testing.T) {
+	t.Run("empty_PEIRaw_elided", func(t *testing.T) {
+		sessCtx := SessionContext{
+			SIMID:  "11111111-2222-3333-4444-555555555555",
+			PEIRaw: "",
+		}
+		raw, err := json.Marshal(sessCtx)
+		if err != nil {
+			t.Fatalf("json.Marshal failed: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("json.Unmarshal failed: %v", err)
+		}
+		if _, present := got["pei_raw"]; present {
+			t.Errorf("pei_raw key MUST be elided by omitempty when empty, raw=%s", raw)
+		}
+	})
+
+	t.Run("populated_PEIRaw_present", func(t *testing.T) {
+		sessCtx := SessionContext{
+			SIMID:  "11111111-2222-3333-4444-555555555555",
+			PEIRaw: "mac-aabbccddeeff",
+		}
+		raw, err := json.Marshal(sessCtx)
+		if err != nil {
+			t.Fatalf("json.Marshal failed: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("json.Unmarshal failed: %v", err)
+		}
+		val, present := got["pei_raw"]
+		if !present {
+			t.Fatalf("expected key 'pei_raw' in marshaled JSON, keys=%v raw=%s", keysOf(got), raw)
+		}
+		if val != "mac-aabbccddeeff" {
+			t.Errorf("pei_raw value: got %v, want %q", val, "mac-aabbccddeeff")
+		}
+	})
 }
 
 func keysOf(m map[string]any) []string {

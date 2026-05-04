@@ -190,4 +190,3 @@ func TestIPPoolStore_AllocateReleaseCycle(t *testing.T) {
 		t.Errorf("ip_addresses still 'allocated' after full cycle = %d, want 0", allocatedCount)
 	}
 }
-

@@ -701,8 +701,8 @@ func runServe(cfg *config.Config) {
 	imeiPoolStore := store.NewIMEIPoolStore(pg.Pool)
 	imeiPoolDSLLookup := &imeiPoolLookupAdapter{store: imeiPoolStore}
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation), simapi.WithEventBus(eventBus))
-	deviceBindingHandler := simapi.NewDeviceBindingHandler(simStore, imeiHistoryStore, auditSvc, log.Logger)
-	imeiPoolHandler := imeipoolapi.NewHandler(imeiPoolStore, simStore, jobStore, eventBus, auditSvc, log.Logger)
+	deviceBindingHandler := simapi.NewDeviceBindingHandler(simStore, imeiHistoryStore, auditSvc, eventBus, log.Logger)
+	imeiPoolHandler := imeipoolapi.NewHandler(imeiPoolStore, simStore, imeiHistoryStore, jobStore, eventBus, auditSvc, log.Logger)
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	dryRunSvc.SetIMEIPoolLookuper(imeiPoolDSLLookup)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
@@ -923,6 +923,16 @@ func runServe(cfg *config.Config) {
 	// sims, sessions, api_rps, and storage_bytes. Auto-resolves when below threshold.
 	quotaBreachProc := job.NewQuotaBreachCheckerProcessor(jobStore, tenantStore, alertStore, log.Logger)
 	jobRunner.Register(quotaBreachProc)
+
+	// STORY-097 AC-6 — binding grace scanner: hourly cron that publishes a
+	// device.binding_grace_expiring notification (severity=medium) for every
+	// SIM whose binding_grace_expires_at falls within the next 24 hours.
+	// Dedup is Redis-backed (key binding:grace_notified:{sim_id}, TTL=24h)
+	// and fails open on Redis outage. Cross-tenant: each envelope carries
+	// its SIM's tenant_id for downstream per-tenant filtering.
+	bindingGraceDedup := job.NewBindingGraceRedisDedup(rdb.Client)
+	bindingGraceScannerProc := job.NewBindingGraceScanner(jobStore, simStore, bindingGraceDedup, eventBus, log.Logger)
+	jobRunner.Register(bindingGraceScannerProc)
 
 	dataRetentionProc := job.NewDataRetentionProcessor(jobStore, dataLifecycleStore, storageMonitorStore, eventBus, cfg.DefaultCDRRetentionDays, log.Logger)
 	jobRunner.Register(dataRetentionProc)
@@ -1618,6 +1628,7 @@ func runServe(cfg *config.Config) {
 		cronScheduler.AddEntry(job.CronEntry{Name: "ip_grace_release", Schedule: "@hourly", JobType: job.JobTypeIPGraceRelease})
 		cronScheduler.AddEntry(job.CronEntry{Name: "webhook_retry_sweep", Schedule: "*/1 * * * *", JobType: job.JobTypeWebhookRetry})
 		cronScheduler.AddEntry(job.CronEntry{Name: "scheduled_report_sweeper", Schedule: "*/1 * * * *", JobType: job.JobTypeScheduledReportSweeper})
+		cronScheduler.AddEntry(job.CronEntry{Name: "binding_grace_scanner", Schedule: "@hourly", JobType: job.JobTypeBindingGraceScanner})
 	}
 
 	// FIX-237 — Fleet digest worker (Tier 2 aggregator). Runs every 15 min.

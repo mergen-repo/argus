@@ -10,6 +10,7 @@ import (
 
 	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	"github.com/btopcu/argus/internal/policy/binding"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,11 +25,12 @@ var validProtocols = map[string]bool{
 	"5g_sba":       true,
 }
 
-// DeviceBindingHandler handles API-327, API-328, API-330.
+// DeviceBindingHandler handles API-327, API-328, API-329, API-330.
 type DeviceBindingHandler struct {
 	simStore         *store.SIMStore
 	imeiHistoryStore *store.IMEIHistoryStore
 	auditSvc         audit.Auditor
+	notifier         EventPublisher
 	logger           zerolog.Logger
 }
 
@@ -36,12 +38,14 @@ func NewDeviceBindingHandler(
 	simStore *store.SIMStore,
 	imeiHistoryStore *store.IMEIHistoryStore,
 	auditSvc audit.Auditor,
+	notifier EventPublisher,
 	logger zerolog.Logger,
 ) *DeviceBindingHandler {
 	return &DeviceBindingHandler{
 		simStore:         simStore,
 		imeiHistoryStore: imeiHistoryStore,
 		auditSvc:         auditSvc,
+		notifier:         notifier,
 		logger:           logger.With().Str("component", "device_binding_handler").Logger(),
 	}
 }
@@ -302,12 +306,105 @@ func (h *DeviceBindingHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	// emitted on every state-changing operation.
 	if !bindingPayloadsEqual(beforePayload, afterPayload) {
 		userID := userIDFromCtx(r)
-		h.createDeviceBindingAuditEntry(r, simID.String(), beforePayload, afterPayload, userID)
+		h.createDeviceBindingAuditEntry(r, simID.String(), "sim.binding_mode_changed", beforePayload, afterPayload, userID)
 	}
 
 	historyCount, err := h.imeiHistoryStore.Count(r.Context(), tenantID, simID)
 	if err != nil {
 		h.logger.Warn().Err(err).Str("sim_id", simID.String()).Msg("count imei history after patch failed (non-fatal)")
+		historyCount = 0
+	}
+
+	apierr.WriteSuccess(w, http.StatusOK, toDeviceBindingResponse(updated, historyCount))
+}
+
+// RePair handles POST /api/v1/sims/{id}/device-binding/re-pair (API-329).
+// Idempotent per AC-3: if bound_imei IS NULL AND binding_status='pending' BEFORE
+// the UPDATE, returns 200 with current DTO and no audit/notification re-emission.
+func (h *DeviceBindingHandler) RePair(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := r.Context().Value(apierr.TenantIDKey).(uuid.UUID)
+	if !ok || tenantID == uuid.Nil {
+		apierr.WriteError(w, http.StatusForbidden, apierr.CodeForbidden, "Tenant context missing")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	simID, err := uuid.Parse(idStr)
+	if err != nil {
+		apierr.WriteError(w, http.StatusBadRequest, apierr.CodeInvalidFormat, "Invalid SIM ID format")
+		return
+	}
+
+	current, err := h.simStore.GetDeviceBinding(r.Context(), tenantID, simID)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", simID.String()).Msg("get device binding (pre-repaint) failed")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Internal server error")
+		return
+	}
+
+	isAlreadyCleared := current.BoundIMEI == nil
+	isPending := current.BindingStatus != nil && *current.BindingStatus == "pending"
+	if isAlreadyCleared && isPending {
+		historyCount, _ := h.imeiHistoryStore.Count(r.Context(), tenantID, simID)
+		apierr.WriteSuccess(w, http.StatusOK, toDeviceBindingResponse(current, historyCount))
+		return
+	}
+
+	var previousBoundIMEI *string
+	if current.BoundIMEI != nil {
+		v := *current.BoundIMEI
+		previousBoundIMEI = &v
+	}
+
+	pendingStatus := "pending"
+	updated, err := h.simStore.SetDeviceBinding(r.Context(), tenantID, simID, current.BindingMode, nil, &pendingStatus)
+	if err != nil {
+		if errors.Is(err, store.ErrSIMNotFound) {
+			apierr.WriteError(w, http.StatusNotFound, apierr.CodeNotFound, "SIM not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("sim_id", simID.String()).Msg("set device binding (re-pair) failed")
+		apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Internal server error")
+		return
+	}
+
+	userID := userIDFromCtx(r)
+	beforePayload := bindingAuditPayload{
+		BoundIMEI:     previousBoundIMEI,
+		BindingStatus: current.BindingStatus,
+	}
+	afterPayload := bindingAuditPayload{
+		BoundIMEI:     nil,
+		BindingStatus: &pendingStatus,
+	}
+	h.createDeviceBindingAuditEntry(r, simID.String(), "sim.imei_repaired", beforePayload, afterPayload, userID)
+
+	if h.notifier != nil {
+		prevIMEIStr := ""
+		if previousBoundIMEI != nil {
+			prevIMEIStr = *previousBoundIMEI
+		}
+		// API-329 notification payload per STORY-097 plan §T6:
+		// {sim_id, iccid, previous_bound_imei, actor_user_id}.
+		// iccid lookup is best-effort: failure does not block the re-pair
+		// response (the persistence already committed). Severity is
+		// encoded by the bus.Envelope (FIX-212), not the payload.
+		iccid, _ := h.simStore.GetICCIDByID(r.Context(), simID)
+		_ = h.notifier.Publish(r.Context(), binding.NotifSubjectBindingRePaired, map[string]interface{}{
+			"sim_id":              simID,
+			"iccid":               iccid,
+			"previous_bound_imei": prevIMEIStr,
+			"actor_user_id":       userID,
+		})
+	}
+
+	historyCount, err := h.imeiHistoryStore.Count(r.Context(), tenantID, simID)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("sim_id", simID.String()).Msg("count imei history after re-pair failed (non-fatal)")
 		historyCount = 0
 	}
 
@@ -405,7 +502,7 @@ func (h *DeviceBindingHandler) GetIMEIHistory(w http.ResponseWriter, r *http.Req
 	})
 }
 
-func (h *DeviceBindingHandler) createDeviceBindingAuditEntry(r *http.Request, entityID string, before, after bindingAuditPayload, userID *uuid.UUID) {
+func (h *DeviceBindingHandler) createDeviceBindingAuditEntry(r *http.Request, entityID string, action string, before, after bindingAuditPayload, userID *uuid.UUID) {
 	if h.auditSvc == nil {
 		return
 	}
@@ -427,7 +524,7 @@ func (h *DeviceBindingHandler) createDeviceBindingAuditEntry(r *http.Request, en
 	_, auditErr := h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
 		TenantID:      tenantID,
 		UserID:        userID,
-		Action:        "sim.binding_mode_changed",
+		Action:        action,
 		EntityType:    "sim",
 		EntityID:      entityID,
 		BeforeData:    beforeData,

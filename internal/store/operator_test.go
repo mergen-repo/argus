@@ -13,18 +13,18 @@ import (
 
 func TestOperatorStruct(t *testing.T) {
 	o := Operator{
-		Name:                     "Test Operator",
-		Code:                     "test_op",
-		MCC:                      "286",
-		MNC:                      "01",
-		AdapterConfig:            json.RawMessage(`{"mock":{"enabled":true}}`),
-		HealthStatus:             "unknown",
-		HealthCheckIntervalSec:   30,
-		FailoverPolicy:           "reject",
-		FailoverTimeoutMs:        5000,
-		CircuitBreakerThreshold:  5,
+		Name:                      "Test Operator",
+		Code:                      "test_op",
+		MCC:                       "286",
+		MNC:                       "01",
+		AdapterConfig:             json.RawMessage(`{"mock":{"enabled":true}}`),
+		HealthStatus:              "unknown",
+		HealthCheckIntervalSec:    30,
+		FailoverPolicy:            "reject",
+		FailoverTimeoutMs:         5000,
+		CircuitBreakerThreshold:   5,
 		CircuitBreakerRecoverySec: 60,
-		State:                    "active",
+		State:                     "active",
 	}
 
 	if o.Name != "Test Operator" {

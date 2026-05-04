@@ -10,7 +10,7 @@ import (
 
 func TestResolvePeriod_Presets(t *testing.T) {
 	tests := []struct {
-		period   string
+		period     string
 		wantBucket string
 		wantView   string
 	}{

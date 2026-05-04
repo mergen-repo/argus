@@ -1,10 +1,13 @@
-// Package sba — PEI (Permanent Equipment Identifier) parser for 5G SBA.
+// Package sba — PEI (Permanent Equipment Identifier) parsers for 5G SBA.
 //
-// STORY-093 Task 4: ParsePEI decodes the pei JSON field carried in
-// AuthenticationRequest (Nausf) and Amf3GppAccessRegistration (Nudm/Namf)
-// request bodies per TS 23.003 §6.2A.
+// Two sibling helpers are exported:
 //
-// Accepted tagged URI prefixes:
+//   - ParsePEI (STORY-093 Task 4): decodes the pei JSON field and returns
+//     structured IMEI + SoftwareVersion for 3GPP forms.
+//   - ExtractPEIRaw (STORY-097 Task 1): returns the verbatim PEI URI for
+//     non-3GPP forms (mac-, eui64-) for forensic retention in SessionContext.
+//
+// ParsePEI accepts:
 //
 //   - "imei-"   + 15 ASCII digits (total length 20)  → IMEI, no SV.
 //   - "imeisv-" + 16 ASCII digits (total length 23)  → IMEI (first 15) + SV (last digit, zero-padded to 2).
@@ -77,6 +80,24 @@ func ParsePEI(pei string, logger zerolog.Logger, reg *obsmetrics.Registry) (imei
 		warnMalformed(pei, logger, reg)
 		return "", "", false
 	}
+}
+
+// ExtractPEIRaw returns the raw PEI URI for non-3GPP forms (mac-, eui64-).
+// Returns empty string for 3GPP forms (imei-, imeisv-) — those values are
+// captured in the structured IMEI/SV fields and the raw URI is not retained.
+// Returns empty string for unknown prefixes or empty input.
+//
+// Per PROTOCOLS.md §PEI: forensic retention contract for non-3GPP forms
+// requires the original URI to flow into SessionContext.PEIRaw.
+// In-memory only: not persisted to DB (no TBL-59 column for PEIRaw in v1).
+func ExtractPEIRaw(pei string) string {
+	if pei == "" {
+		return ""
+	}
+	if strings.HasPrefix(pei, "mac-") || strings.HasPrefix(pei, "eui64-") {
+		return pei
+	}
+	return ""
 }
 
 // warnMalformed emits a single WARN log and increments the parse-error counter.

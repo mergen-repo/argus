@@ -721,9 +721,9 @@ func (s *Service) handleHealthChanged(data []byte) {
 // policy / system). storage.* prefix handled before the map lookup.
 var publisherSourceMap = map[string]string{
 	// operator-scoped
-	"operator_down":                 "operator",
-	"operator_recovered":            "operator",
-	"sla_violation":                 "operator",
+	"operator_down":      "operator",
+	"operator_recovered": "operator",
+	"sla_violation":      "operator",
 	// SIM anomaly prefixes (emitted by anomaly engine + batch detector)
 	"anomaly_sim_cloning": "sim",
 	"anomaly_data_spike":  "sim",
@@ -736,6 +736,10 @@ var publisherSourceMap = map[string]string{
 	"anomaly_batch_crash": "infra",
 	// policy
 	"policy_violation": "policy",
+	// STORY-097 device binding subjects (PAT-026 RECURRENCE FIX-238)
+	"imei.changed":                  "sim",
+	"device.binding_re_paired":      "sim",
+	"device.binding_grace_expiring": "sim",
 	// storage.* handled via prefix match, fallback "system" for unknown types
 }
 

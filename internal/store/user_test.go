@@ -48,7 +48,7 @@ func TestUserStructPasswordChangeRequiredDefault(t *testing.T) {
 
 func TestUserStructLockedUntilNilable(t *testing.T) {
 	u := User{
-		ID:           uuid.New(),
+		ID:               uuid.New(),
 		FailedLoginCount: 3,
 	}
 	if u.LockedUntil != nil {

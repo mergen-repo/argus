@@ -8,11 +8,9 @@
 // bounded by the page size (max 200 rows). When the query parameter is
 // absent or "0", the join is skipped entirely and bound_sims_count is 0.
 //
-// API-335 Lookup — tech debt:
-//   - bound_sims: simStore.ListByBoundIMEI is not implemented; returns empty [].
-//     Route as D-NNN for SIMStore extension.
-//   - history: imeiHistoryStore.ListByObservedIMEI is not implemented; returns empty [].
-//     Route as D-NNN for IMEIHistoryStore extension.
+// API-335 Lookup: bound_sims is populated via SIMStore.ListByBoundIMEI and
+// history via IMEIHistoryStore.ListByObservedIMEI (last 30 days, max 50 rows).
+// D-188 RESOLVED [STORY-097 Task 3].
 package imeipool
 
 import (
@@ -75,30 +73,34 @@ func hasCSVInjectionPrefix(s string) bool {
 
 // Handler serves API-331, API-332, API-333, API-334, and API-335.
 type Handler struct {
-	poolStore *store.IMEIPoolStore
-	simStore  interface{} // reserved for future bound_sims_count implementation
-	jobStore  jobCreator
-	eventBus  eventPublisher
-	auditSvc  audit.Auditor
-	logger    zerolog.Logger
+	poolStore    *store.IMEIPoolStore
+	simStore     *store.SIMStore
+	historyStore *store.IMEIHistoryStore
+	jobStore     jobCreator
+	eventBus     eventPublisher
+	auditSvc     audit.Auditor
+	logger       zerolog.Logger
 }
 
 // NewHandler constructs a Handler.
-// simStore is accepted for future bound_sims_count wiring; it is not used today.
-// jobStore and eventBus are required for API-334 (BulkImport).
+// simStore and historyStore are used by API-335 Lookup to populate bound_sims
+// and history arrays (D-188 RESOLVED). jobStore and eventBus are required for
+// API-334 (BulkImport).
 func NewHandler(
 	poolStore *store.IMEIPoolStore,
-	simStore interface{},
+	simStore *store.SIMStore,
+	historyStore *store.IMEIHistoryStore,
 	jobStore *store.JobStore,
 	eventBus *bus.EventBus,
 	auditSvc audit.Auditor,
 	logger zerolog.Logger,
 ) *Handler {
 	h := &Handler{
-		poolStore: poolStore,
-		simStore:  simStore,
-		auditSvc:  auditSvc,
-		logger:    logger.With().Str("component", "imei_pool_handler").Logger(),
+		poolStore:    poolStore,
+		simStore:     simStore,
+		historyStore: historyStore,
+		auditSvc:     auditSvc,
+		logger:       logger.With().Str("component", "imei_pool_handler").Logger(),
 	}
 	if jobStore != nil {
 		h.jobStore = jobStore
@@ -604,11 +606,29 @@ type lookupListEntry struct {
 	MatchedVia string `json:"matched_via"`
 }
 
+// boundSIMResponse is one entry in the bound_sims array of the Lookup response.
+type boundSIMResponse struct {
+	SIMID         string  `json:"sim_id"`
+	ICCID         string  `json:"iccid"`
+	BindingMode   *string `json:"binding_mode"`
+	BindingStatus *string `json:"binding_status"`
+}
+
+// historyEntryResponse is one entry in the history array of the Lookup response.
+type historyEntryResponse struct {
+	SIMID           string `json:"sim_id"`
+	ICCID           string `json:"iccid"`
+	ObservedAt      string `json:"observed_at"`
+	CaptureProtocol string `json:"capture_protocol"`
+	WasMismatch     bool   `json:"was_mismatch"`
+	AlarmRaised     bool   `json:"alarm_raised"`
+}
+
 // lookupResponse is the response body for API-335.
 type lookupResponse struct {
-	Lists     []lookupListEntry        `json:"lists"`
-	BoundSIMs []map[string]interface{} `json:"bound_sims"`
-	History   []map[string]interface{} `json:"history"`
+	Lists     []lookupListEntry      `json:"lists"`
+	BoundSIMs []boundSIMResponse     `json:"bound_sims"`
+	History   []historyEntryResponse `json:"history"`
 }
 
 // Lookup handles API-335.
@@ -645,10 +665,49 @@ func (h *Handler) Lookup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	boundSIMs := make([]boundSIMResponse, 0)
+	if h.simStore != nil {
+		simRows, simErr := h.simStore.ListByBoundIMEI(r.Context(), tenantID, imei)
+		if simErr != nil {
+			h.logger.Error().Err(simErr).Str("imei", imei).Msg("list sims by bound_imei failed")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Internal server error")
+			return
+		}
+		for _, row := range simRows {
+			boundSIMs = append(boundSIMs, boundSIMResponse{
+				SIMID:         row.ID.String(),
+				ICCID:         row.ICCID,
+				BindingMode:   row.BindingMode,
+				BindingStatus: row.BindingStatus,
+			})
+		}
+	}
+
+	history := make([]historyEntryResponse, 0)
+	if h.historyStore != nil {
+		since := time.Now().Add(-30 * 24 * time.Hour)
+		histRows, histErr := h.historyStore.ListByObservedIMEI(r.Context(), tenantID, imei, since, 50)
+		if histErr != nil {
+			h.logger.Error().Err(histErr).Str("imei", imei).Msg("list imei_history by observed_imei failed")
+			apierr.WriteError(w, http.StatusInternalServerError, apierr.CodeInternalError, "Internal server error")
+			return
+		}
+		for _, row := range histRows {
+			history = append(history, historyEntryResponse{
+				SIMID:           row.SIMID.String(),
+				ICCID:           row.ICCID,
+				ObservedAt:      row.ObservedAt.Format(time.RFC3339Nano),
+				CaptureProtocol: row.CaptureProtocol,
+				WasMismatch:     row.WasMismatch,
+				AlarmRaised:     row.AlarmRaised,
+			})
+		}
+	}
+
 	apierr.WriteSuccess(w, http.StatusOK, lookupResponse{
 		Lists:     lists,
-		BoundSIMs: []map[string]interface{}{},
-		History:   []map[string]interface{}{},
+		BoundSIMs: boundSIMs,
+		History:   history,
 	})
 }
 

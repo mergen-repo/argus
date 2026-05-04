@@ -18,24 +18,24 @@ var (
 )
 
 type NotificationRow struct {
-	ID           uuid.UUID  `json:"id"`
-	TenantID     uuid.UUID  `json:"tenant_id"`
-	UserID       *uuid.UUID `json:"user_id,omitempty"`
-	EventType    string     `json:"event_type"`
-	ScopeType    string     `json:"scope_type"`
-	ScopeRefID   *uuid.UUID `json:"scope_ref_id,omitempty"`
-	Title        string     `json:"title"`
-	Body         string     `json:"body"`
-	Severity     string     `json:"severity"`
-	ChannelsSent []string   `json:"channels_sent"`
-	State        string     `json:"state"`
-	ReadAt       *time.Time `json:"read_at,omitempty"`
-	SentAt       *time.Time `json:"sent_at,omitempty"`
-	DeliveredAt  *time.Time `json:"delivered_at,omitempty"`
-	FailedAt     *time.Time `json:"failed_at,omitempty"`
-	RetryCount   int        `json:"retry_count"`
+	ID           uuid.UUID       `json:"id"`
+	TenantID     uuid.UUID       `json:"tenant_id"`
+	UserID       *uuid.UUID      `json:"user_id,omitempty"`
+	EventType    string          `json:"event_type"`
+	ScopeType    string          `json:"scope_type"`
+	ScopeRefID   *uuid.UUID      `json:"scope_ref_id,omitempty"`
+	Title        string          `json:"title"`
+	Body         string          `json:"body"`
+	Severity     string          `json:"severity"`
+	ChannelsSent []string        `json:"channels_sent"`
+	State        string          `json:"state"`
+	ReadAt       *time.Time      `json:"read_at,omitempty"`
+	SentAt       *time.Time      `json:"sent_at,omitempty"`
+	DeliveredAt  *time.Time      `json:"delivered_at,omitempty"`
+	FailedAt     *time.Time      `json:"failed_at,omitempty"`
+	RetryCount   int             `json:"retry_count"`
 	DeliveryMeta json.RawMessage `json:"delivery_meta"`
-	CreatedAt    time.Time  `json:"created_at"`
+	CreatedAt    time.Time       `json:"created_at"`
 }
 
 type CreateNotificationParams struct {
@@ -51,8 +51,8 @@ type CreateNotificationParams struct {
 }
 
 type ListNotificationParams struct {
-	Cursor    string
-	Limit     int
+	Cursor     string
+	Limit      int
 	UnreadOnly bool
 }
 

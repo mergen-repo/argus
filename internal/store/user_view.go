@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrUserViewNotFound   = errors.New("store: user view not found")
+	ErrUserViewNotFound     = errors.New("store: user view not found")
 	ErrUserViewLimitReached = errors.New("store: user view limit reached (max 20 per page)")
 )
 

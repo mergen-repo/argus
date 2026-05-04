@@ -18,10 +18,10 @@ func TestSlowQueryTracer_ExtractOpAndTable(t *testing.T) {
 	tr := newSlowQueryTracer(nil)
 
 	cases := []struct {
-		name     string
-		sql      string
-		wantOp   string
-		wantTbl  string
+		name    string
+		sql     string
+		wantOp  string
+		wantTbl string
 	}{
 		{"select simple", `SELECT id FROM sims WHERE tenant_id = $1`, "select", "sims"},
 		{"select quoted", `SELECT * FROM "tenants" LIMIT 10`, "select", "tenants"},

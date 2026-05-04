@@ -428,4 +428,48 @@ var Catalog = []CatalogEntry{
 		},
 		Tier: "operational",
 	},
+
+	// ---- STORY-097 device binding subjects (PAT-026 RECURRENCE FIX-238 8-layer sweep) ----
+	{
+		Type:            "imei.changed",
+		Source:          "sim",
+		DefaultSeverity: severity.High,
+		EntityType:      "sim",
+		Description:     "An auth observed an IMEI different from the SIM's bound device. Severity scales by binding mode (strict/allowlist=high, tac-lock/grace-period=medium, soft/first-use=info) per STORY-097 AC-5.",
+		MetaSchema: map[string]string{
+			"sim_id":              "uuid",
+			"previous_bound_imei": "string",
+			"observed_imei":       "string",
+			"binding_mode":        "string",
+			"capture_protocol":    "string",
+		},
+		Tier: "operational",
+	},
+	{
+		Type:            "device.binding_re_paired",
+		Source:          "sim",
+		DefaultSeverity: severity.Info,
+		EntityType:      "sim",
+		Description:     "An admin re-paired a SIM via API-329 — bound_imei cleared, binding_status set to pending. Audit-grade event (STORY-097 AC-3).",
+		MetaSchema: map[string]string{
+			"sim_id":              "uuid",
+			"iccid":               "string",
+			"previous_bound_imei": "string",
+			"actor_user_id":       "uuid",
+		},
+		Tier: "operational",
+	},
+	{
+		Type:            "device.binding_grace_expiring",
+		Source:          "sim",
+		DefaultSeverity: severity.Medium,
+		EntityType:      "sim",
+		Description:     "A grace-period SIM is within 24h of binding_grace_expires_at. Emitted by the binding_grace_scanner job (STORY-097 AC-6). Idempotent — same SIM is not re-notified within the same 24h window.",
+		MetaSchema: map[string]string{
+			"sim_id":                   "uuid",
+			"iccid":                    "string",
+			"binding_grace_expires_at": "string",
+		},
+		Tier: "operational",
+	},
 }

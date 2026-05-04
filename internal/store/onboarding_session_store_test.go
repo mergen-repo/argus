@@ -26,4 +26,3 @@ func TestOnboardingSessionStore_UpdateStep_InvalidStepN(t *testing.T) {
 		}
 	}
 }
-

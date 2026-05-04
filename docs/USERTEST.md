@@ -6100,3 +6100,131 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 1. `make test` çalıştırın → 4082+ test PASS, 0 FAIL.
 2. STORY-015 / STORY-019 / STORY-020 için mevcut AAA E2E test paketleri PASS durumda kalmalı.
 3. `binding_mode IS NULL` olan SIM'lerde mevcut davranış değişmemiş olmalı.
+
+---
+
+## STORY-097: IMEI Değişim Tespiti & Yeniden Eşleştirme İş Akışı
+
+> **Not:** STORY-097 backend + frontend karışık uygulamadır. Backend senaryoları AAA kimlik doğrulama akışları üzerinden, UI senaryoları tarayıcı üzerinden test edilir.
+
+### UT-097-01: Yeniden Eşleştirme (Re-pair) — UI Mutlu Yol (AC-9)
+
+1. SIM Detay sayfasına gidin → **Device Binding** sekmesini açın.
+2. `binding_mode='strict'`, `bound_imei` dolu olan bir SIM'i görüntüleyin.
+3. **Re-pair** butonuna tıklayın → onay iletişim kutusu açılmalı.
+4. "Yeniden Eşleştir" butonuna tıklayın.
+5. **Beklenen:** Başarı toastı görünmeli: "Re-pair başarılı — bir sonraki kimlik doğrulamayı bekliyor". Panel yenilenmeli: `bound_imei=null`, `binding_status=pending`.
+6. `SELECT bound_imei, binding_status FROM sims WHERE id=$1` → `bound_imei IS NULL`, `binding_status='pending'`.
+
+### UT-097-02: Yeniden Eşleştirme İdempotansı (AC-3)
+
+1. Zaten `bound_imei IS NULL` ve `binding_status='pending'` olan bir SIM için `POST /api/v1/sims/{id}/device-binding/re-pair` isteği gönderin.
+2. **Beklenen:** HTTP 200, mevcut DTO döner, yeni audit kaydı oluşturulmaz.
+3. `SELECT COUNT(*) FROM audit_logs WHERE entity_id=$1 AND action='sim.imei_repaired' ORDER BY created_at DESC` → önceki çağrıdan beri sayı artmamış olmalı.
+
+### UT-097-03: Yeniden Eşleştirme RBAC — Yetersiz Rol (AC-4)
+
+1. `viewer` veya `policy_author` rolüyle oturum açın.
+2. SIM Detay → Device Binding sekmesinde **Re-pair** butonunun gizlendiğini doğrulayın.
+3. API doğrudan: `POST /api/v1/sims/{id}/device-binding/re-pair` → HTTP 403, hata kodu `INSUFFICIENT_ROLE`.
+
+### UT-097-04: Grace Countdown Rozeti (AC-9, AC-6)
+
+1. `binding_mode='grace-period'`, `binding_grace_expires_at=now+10h` olan bir SIM'i görüntüleyin.
+2. **Beklenen:** Device Binding sekmesinde sarı uyarı rozeti görünmeli: "Grace expires in 10h".
+3. 30 dakika bekleyin (veya sistemi ilerletin) → sayaç güncellenmeli: yaklaşık "9h 30m kaldı".
+
+### UT-097-05: Grace Tarayıcı Bildirimi — Dedup (AC-6)
+
+1. `binding_mode='grace-period'`, `binding_grace_expires_at=now+12h` olan en az bir SIM bulunduğundan emin olun.
+2. Cron tetikleyicisini çalıştırın veya `binding_grace_scanner` işini manuel olarak kuyruklanın.
+3. **Beklenen:** `device.binding_grace_expiring` bildirimi yayımlanmış olmalı — severity=`medium`.
+4. Cron aynı saat içinde tekrar çalıştırıldığında: aynı SIM için ikinci bildirim yayımlanmamalı (Redis SETNX dedup anahtarı mevcut).
+5. `SELECT COUNT(*) FROM notifications WHERE subject='device.binding_grace_expiring' AND sim_id=$1 AND created_at > now()-'1h'::interval` → 1 satır dönmeli.
+
+### UT-097-06: IMEI Geçmişi Paneli — Sayfalama (AC-9)
+
+1. 50'den fazla `imei_history` kaydına sahip bir SIM'in Device Binding sekmesini açın.
+2. IMEI Geçmişi bölümünde ilk 25 satır gösterilmeli; `was_mismatch=true` satırlar kırmızı, `alarm_raised=true` satırlar turuncu renk koduyla belirtilmeli.
+3. "Daha fazla yükle" butonuna tıklayın → sonraki 25 satır yüklenmeli.
+
+### UT-097-07: IMEI Geçmişi — Protokol Filtresi
+
+1. `GET /api/v1/sims/{id}/imei-history?protocol=radius` isteği gönderin.
+2. **Beklenen:** Yalnızca `capture_protocol='radius'` olan satırlar dönmeli.
+3. Geçersiz protokol (`?protocol=unknown`) → HTTP 422, hata kodu `INVALID_PARAM`.
+
+### UT-097-08: IMEI Geçmişi — Tarih Filtresi
+
+1. UI'da tarih seçici ile dün tarihi seçin (veya `?since=<dünün ISO tarihi>` parametresi gönderin).
+2. **Beklenen:** Yalnızca dünden bu yana olan `imei_history` satırları listelenmeli.
+3. Uzak geçmişteki satırlar filtrelenmiş olmalı.
+
+### UT-097-09: AC-1 NULL Mod Geçmişi
+
+1. `binding_mode IS NULL` olan bir SIM ile gözlemlenen IMEI içeren RADIUS Access-Request gönderin.
+2. **Beklenen:** `SELECT was_mismatch, alarm_raised, observed_imei FROM imei_history WHERE sim_id=$1 ORDER BY observed_at DESC LIMIT 1` → `was_mismatch=false`, `alarm_raised=false`, `observed_imei` dolu.
+3. Audit kaydı oluşturulmamalı; bildirim gönderilmemeli (NULL mod = uyumsuzluk yok).
+
+### UT-097-10: Şiddet Ölçeklendirme — Protokole Göre Doğru Şiddet (AC-5)
+
+1. `binding_mode='strict'`, uyumsuz IMEI ile kimlik doğrulaması yapın → `device.binding_failed` bildirimi `severity=high`.
+2. `binding_mode='tac-lock'`, farklı TAC ile kimlik doğrulaması yapın → `device.binding_failed` bildirimi `severity=medium`.
+3. `binding_mode='soft'`, uyumsuz IMEI ile kimlik doğrulaması yapın → `imei.mismatch_detected` bildirimi `severity=info`.
+4. Her durum için `SELECT severity FROM notifications WHERE sim_id=$1 ORDER BY created_at DESC LIMIT 1` ile doğrulayın.
+
+### UT-097-11: D-188 IMEI Arama — Bağlı SIM'ler ve Geçmiş (AC-12)
+
+1. `GET /api/v1/imei-pools/lookup?imei=<IMEI_X>` isteği gönderin; `bound_imei=IMEI_X` olan en az 2 SIM mevcut.
+2. **Beklenen:**
+   - `data.bound_sims`: uzunluk ≥ 2, her girdi `sim_id`, `iccid`, `bound_imei` içermeli.
+   - `data.history`: son 30 günde bu IMEI'yi gören tüm gözlemler, `observed_at` azalan sırada, maksimum 50 satır.
+3. IMEI arama sonuçları yalnızca geçerli kiracının verilerini içermeli (çapraz kiracı izolasyonu).
+
+### UT-097-12: D-183 PEIRaw — 5G SBA Forensik Saklama
+
+1. 5G SBA AUSF kimlik doğrulama isteğini `pei: "mac-aabbccddeeff"` değeriyle gönderin.
+2. **Beklenen:** `SessionContext.PEIRaw = "mac-aabbccddeeff"` doldurulmuş (bellek içi, DB'ye yazılmaz).
+3. Standart 3GPP biçimi `pei: "imei-359211089765432"` ile istek → `PEIRaw = ""` (3GPP biçimi için raw değer saklanmaz).
+4. EUI-64 biçimi `pei: "eui64-aabbccddeeff0011"` → `PEIRaw = "eui64-aabbccddeeff0011"` (non-3GPP biçim korunur).
+
+### UT-097-13: Gate F-A1 — `imei.changed` Bildirimi Konusu Doğrulama (AC-5)
+
+> **Kapsam:** Gate F-A1 düzeltmesini doğrular — `imei.changed` bildirim konusu `binding_failed` veya `imei_mismatch` yerine tüm uyumsuzluk olayları için kullanılmalı.
+
+1. `binding_mode='strict'`, dolu `bound_imei` olan bir SIM ile uyumsuz IMEI içeren RADIUS Access-Request gönderin.
+2. **Beklenen:** `SELECT subject FROM notifications WHERE sim_id=$1 ORDER BY created_at DESC LIMIT 1` → `subject='imei.changed'` dönmeli.
+3. `binding_mode='soft'` ile aynı testi tekrarlayın → `subject='imei.changed'`, `severity='info'` dönmeli.
+4. Kara listedeki (blacklist) bir IMEI ile istek → `subject='device.binding_failed'` dönmeli (kara liste yolu `imei.changed` kullanmaz).
+
+### UT-097-14: Gate F-A2 — Olay Kataloğu API'si 3 Yeni Konuyu Döndürüyor
+
+> **Kapsam:** Gate F-A2 düzeltmesini doğrular — `imei.changed`, `device.binding_re_paired`, `device.binding_grace_expiring` catalog.go + tiers.go + publisherSourceMap'e kayıtlı.
+
+1. `GET /api/v1/events/catalog` isteği gönderin.
+2. **Beklenen:** Yanıt `data` dizisi şu konuları içermeli:
+   - `imei.changed` (severity=`high`, source=`sim`)
+   - `device.binding_re_paired` (severity=`info`, source=`sim`)
+   - `device.binding_grace_expiring` (severity=`medium`, source=`sim`)
+3. Katalog yanıtında bu üç girdi eksikse F-A2 düzeltmesi eksik demektir.
+
+### UT-097-15: Gate F-A3 — Bağlama Modu Etiketi FE'de Doğru Gösteriliyor
+
+> **Kapsam:** Gate F-A3 düzeltmesini doğrular — `BindingMode` union 7 kanonik ADR-004 değeriyle güncellendi.
+
+1. `binding_mode='strict'` olan SIM'in Device Binding sekmesini açın.
+2. **Beklenen:** Bağlama modu badge/etiketi "Strict" (veya `BINDING_MODE_LABEL.strict` karşılığı) göstermeli; ham `strict` dizesi gösterilmemeli.
+3. Şu modların her biri için tekrarlayın: `allowlist`, `first-use`, `tac-lock`, `grace-period`, `soft`, `(NULL/disabled)` — her biri için uygun Türkçe/İngilizce etiketi doğrulayın.
+4. Bilinmeyen mod değeri → etiket ham dize yerine fallback "Unknown" göstermeli.
+
+### UT-097-16: Gate F-A4 — Yeniden Eşleştirme Bildirimi `iccid` ve `actor_user_id` İçeriyor
+
+> **Kapsam:** Gate F-A4 düzeltmesini doğrular — API-329 yükü `{sim_id, iccid, previous_bound_imei, actor_user_id}` içermeli.
+
+1. `sim_manager` rolüyle oturum açın ve bilinen ICCID'li bir SIM için `POST /api/v1/sims/{id}/device-binding/re-pair` isteği gönderin.
+2. **Beklenen:** `SELECT payload FROM notifications WHERE sim_id=$1 AND subject='device.binding_re_paired' ORDER BY created_at DESC LIMIT 1` → payload şunları içermeli:
+   - `sim_id`: doğru SIM UUID
+   - `iccid`: SIM'in gerçek ICCID'si (boş olmamalı)
+   - `previous_bound_imei`: yeniden eşleştirmeden önceki `bound_imei`
+   - `actor_user_id`: oturum açmış kullanıcının UUID'si
+3. `severity` alanı payload'da bulunmamalı (bus.Envelope tarafından ayrıca taşınır).

@@ -231,12 +231,12 @@ func (s *ComplianceStore) CountOverduePurges(ctx context.Context, tenantID uuid.
 }
 
 type BTKOperatorStats struct {
-	OperatorName string `json:"operator_name"`
-	OperatorCode string `json:"operator_code"`
-	ActiveCount  int    `json:"active_count"`
-	SuspendedCount int  `json:"suspended_count"`
-	TerminatedCount int `json:"terminated_count"`
-	TotalCount   int    `json:"total_count"`
+	OperatorName    string `json:"operator_name"`
+	OperatorCode    string `json:"operator_code"`
+	ActiveCount     int    `json:"active_count"`
+	SuspendedCount  int    `json:"suspended_count"`
+	TerminatedCount int    `json:"terminated_count"`
+	TotalCount      int    `json:"total_count"`
 }
 
 func (s *ComplianceStore) BTKMonthlyStats(ctx context.Context, tenantID uuid.UUID) ([]BTKOperatorStats, error) {

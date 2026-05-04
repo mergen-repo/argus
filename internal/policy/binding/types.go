@@ -63,11 +63,14 @@ const (
 
 // Notification subject keys (consumed by Task 2 sinks).
 const (
-	NotifSubjectBindingFailed       = "device.binding_failed"
-	NotifSubjectBindingLocked       = "device.binding_locked"
-	NotifSubjectBindingGraceChange  = "device.binding_grace_change"
-	NotifSubjectIMEIMismatch        = "imei.mismatch_detected"
-	NotifSubjectBindingBlacklistHit = "device.binding_blacklist_hit"
+	NotifSubjectBindingFailed        = "device.binding_failed"
+	NotifSubjectBindingLocked        = "device.binding_locked"
+	NotifSubjectBindingGraceChange   = "device.binding_grace_change"
+	NotifSubjectIMEIMismatch         = "imei.mismatch_detected"
+	NotifSubjectBindingBlacklistHit  = "device.binding_blacklist_hit"
+	NotifSubjectIMEIChanged          = "imei.changed"
+	NotifSubjectBindingRePaired      = "device.binding_re_paired"
+	NotifSubjectBindingGraceExpiring = "device.binding_grace_expiring"
 )
 
 // Binding status values written to sims.binding_status. These are the
@@ -143,6 +146,10 @@ type SessionContext struct {
 	SIMID           uuid.UUID
 	IMEI            string
 	SoftwareVersion string
+	// PEIRaw retains the original PEI URI for non-3GPP forms (mac-, eui64-).
+	// Empty for 3GPP forms and all non-SBA transports (RADIUS, Diameter).
+	// In-memory only — not persisted (STORY-097 Task 1).
+	PEIRaw string
 }
 
 // AllowlistChecker is the narrow interface the enforcer needs from

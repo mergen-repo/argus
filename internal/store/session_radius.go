@@ -18,31 +18,31 @@ var (
 )
 
 type RadiusSession struct {
-	ID               uuid.UUID  `json:"id"`
-	SimID            uuid.UUID  `json:"sim_id"`
-	TenantID         uuid.UUID  `json:"tenant_id"`
-	OperatorID       uuid.UUID  `json:"operator_id"`
-	APNID            *uuid.UUID `json:"apn_id"`
-	NASIP            *string    `json:"nas_ip"`
-	FramedIP         *string    `json:"framed_ip"`
-	CallingStationID *string    `json:"calling_station_id"`
-	CalledStationID  *string    `json:"called_station_id"`
-	RATType          *string    `json:"rat_type"`
-	SessionState     string     `json:"session_state"`
-	AuthMethod       *string    `json:"auth_method"`
-	PolicyVersionID  *uuid.UUID `json:"policy_version_id"`
-	AcctSessionID    *string    `json:"acct_session_id"`
-	StartedAt        time.Time  `json:"started_at"`
-	EndedAt          *time.Time `json:"ended_at"`
-	TerminateCause   *string    `json:"terminate_cause"`
-	BytesIn          int64      `json:"bytes_in"`
-	BytesOut         int64      `json:"bytes_out"`
-	PacketsIn        int64            `json:"packets_in"`
-	PacketsOut       int64            `json:"packets_out"`
-	LastInterimAt    *time.Time       `json:"last_interim_at"`
-	ProtocolType     string           `json:"protocol_type"`
-	SliceInfo        json.RawMessage  `json:"slice_info,omitempty"`
-	SoRDecision      json.RawMessage  `json:"sor_decision,omitempty"`
+	ID               uuid.UUID       `json:"id"`
+	SimID            uuid.UUID       `json:"sim_id"`
+	TenantID         uuid.UUID       `json:"tenant_id"`
+	OperatorID       uuid.UUID       `json:"operator_id"`
+	APNID            *uuid.UUID      `json:"apn_id"`
+	NASIP            *string         `json:"nas_ip"`
+	FramedIP         *string         `json:"framed_ip"`
+	CallingStationID *string         `json:"calling_station_id"`
+	CalledStationID  *string         `json:"called_station_id"`
+	RATType          *string         `json:"rat_type"`
+	SessionState     string          `json:"session_state"`
+	AuthMethod       *string         `json:"auth_method"`
+	PolicyVersionID  *uuid.UUID      `json:"policy_version_id"`
+	AcctSessionID    *string         `json:"acct_session_id"`
+	StartedAt        time.Time       `json:"started_at"`
+	EndedAt          *time.Time      `json:"ended_at"`
+	TerminateCause   *string         `json:"terminate_cause"`
+	BytesIn          int64           `json:"bytes_in"`
+	BytesOut         int64           `json:"bytes_out"`
+	PacketsIn        int64           `json:"packets_in"`
+	PacketsOut       int64           `json:"packets_out"`
+	LastInterimAt    *time.Time      `json:"last_interim_at"`
+	ProtocolType     string          `json:"protocol_type"`
+	SliceInfo        json.RawMessage `json:"slice_info,omitempty"`
+	SoRDecision      json.RawMessage `json:"sor_decision,omitempty"`
 }
 
 type CreateRadiusSessionParams struct {

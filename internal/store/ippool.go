@@ -24,19 +24,19 @@ var (
 )
 
 type IPPool struct {
-	ID                      uuid.UUID  `json:"id"`
-	TenantID                uuid.UUID  `json:"tenant_id"`
-	APNID                   uuid.UUID  `json:"apn_id"`
-	Name                    string     `json:"name"`
-	CIDRv4                  *string    `json:"cidr_v4"`
-	CIDRv6                  *string    `json:"cidr_v6"`
-	TotalAddresses          int        `json:"total_addresses"`
-	UsedAddresses           int        `json:"used_addresses"`
-	AlertThresholdWarning   int        `json:"alert_threshold_warning"`
-	AlertThresholdCritical  int        `json:"alert_threshold_critical"`
-	ReclaimGracePeriodDays  int        `json:"reclaim_grace_period_days"`
-	State                   string     `json:"state"`
-	CreatedAt               time.Time  `json:"created_at"`
+	ID                     uuid.UUID `json:"id"`
+	TenantID               uuid.UUID `json:"tenant_id"`
+	APNID                  uuid.UUID `json:"apn_id"`
+	Name                   string    `json:"name"`
+	CIDRv4                 *string   `json:"cidr_v4"`
+	CIDRv6                 *string   `json:"cidr_v6"`
+	TotalAddresses         int       `json:"total_addresses"`
+	UsedAddresses          int       `json:"used_addresses"`
+	AlertThresholdWarning  int       `json:"alert_threshold_warning"`
+	AlertThresholdCritical int       `json:"alert_threshold_critical"`
+	ReclaimGracePeriodDays int       `json:"reclaim_grace_period_days"`
+	State                  string    `json:"state"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // RecountUsedAddresses deterministically rewrites ip_pools.used_addresses
@@ -165,29 +165,29 @@ type ExpiredIPAddress struct {
 }
 
 type GraceExpiredIPAddress struct {
-	ID       uuid.UUID `json:"id"`
-	PoolID   uuid.UUID `json:"pool_id"`
-	TenantID uuid.UUID `json:"tenant_id"`
-	AddressV4 *string  `json:"address_v4"`
-	AddressV6 *string  `json:"address_v6"`
+	ID        uuid.UUID `json:"id"`
+	PoolID    uuid.UUID `json:"pool_id"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+	AddressV4 *string   `json:"address_v4"`
+	AddressV6 *string   `json:"address_v6"`
 }
 
 type CreateIPPoolParams struct {
-	APNID                   uuid.UUID
-	Name                    string
-	CIDRv4                  *string
-	CIDRv6                  *string
-	AlertThresholdWarning   *int
-	AlertThresholdCritical  *int
-	ReclaimGracePeriodDays  *int
+	APNID                  uuid.UUID
+	Name                   string
+	CIDRv4                 *string
+	CIDRv6                 *string
+	AlertThresholdWarning  *int
+	AlertThresholdCritical *int
+	ReclaimGracePeriodDays *int
 }
 
 type UpdateIPPoolParams struct {
-	Name                    *string
-	AlertThresholdWarning   *int
-	AlertThresholdCritical  *int
-	ReclaimGracePeriodDays  *int
-	State                   *string
+	Name                   *string
+	AlertThresholdWarning  *int
+	AlertThresholdCritical *int
+	ReclaimGracePeriodDays *int
+	State                  *string
 }
 
 type IPPoolStore struct {
@@ -1082,16 +1082,16 @@ func (s *IPPoolStore) SumByAPN(ctx context.Context, tenantID uuid.UUID) ([]PoolA
 }
 
 type PoolCapacityRow struct {
-	ID                uuid.UUID `json:"id"`
-	Name              string    `json:"name"`
-	CIDR              string    `json:"cidr"`
-	Total             int       `json:"total"`
-	Used              int       `json:"used"`
-	Available         int       `json:"available"`
-	UtilizationPct    float64   `json:"utilization_pct"`
-	AllocationRate    float64   `json:"allocation_rate"`
-	ExhaustionHours   *float64  `json:"exhaustion_hours"`
-	UsedYesterday     int       `json:"-"`
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	CIDR            string    `json:"cidr"`
+	Total           int       `json:"total"`
+	Used            int       `json:"used"`
+	Available       int       `json:"available"`
+	UtilizationPct  float64   `json:"utilization_pct"`
+	AllocationRate  float64   `json:"allocation_rate"`
+	ExhaustionHours *float64  `json:"exhaustion_hours"`
+	UsedYesterday   int       `json:"-"`
 }
 
 func (s *IPPoolStore) GetCapacitySummary(ctx context.Context, tenantID uuid.UUID) ([]PoolCapacityRow, error) {

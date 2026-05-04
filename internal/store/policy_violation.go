@@ -58,11 +58,11 @@ type CreateViolationParams struct {
 // translates this to a WHERE clause in List/ListEnriched. Source of truth is
 // `acknowledged_at` plus `details->>'remediation'` (written by Remediate).
 //
-//   open         → acknowledged_at IS NULL  AND details.remediation IS NULL
-//   acknowledged → acknowledged_at IS NOT NULL AND details.remediation IS NULL
-//   remediated   → details.remediation = 'suspend_sim'
-//   dismissed    → details.remediation = 'dismiss'
-//   escalated    → details.remediation = 'escalate'  (still treated as Open in UX)
+//	open         → acknowledged_at IS NULL  AND details.remediation IS NULL
+//	acknowledged → acknowledged_at IS NOT NULL AND details.remediation IS NULL
+//	remediated   → details.remediation = 'suspend_sim'
+//	dismissed    → details.remediation = 'dismiss'
+//	escalated    → details.remediation = 'escalate'  (still treated as Open in UX)
 type ViolationStatus string
 
 const (

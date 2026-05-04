@@ -523,4 +523,3 @@ func (s *AuditStore) Pseudonymize(ctx context.Context, tenantID uuid.UUID, entit
 
 	return nil
 }
-
