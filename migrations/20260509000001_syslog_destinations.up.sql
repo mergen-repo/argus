@@ -29,5 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_syslog_destinations_tenant_enabled
 ALTER TABLE syslog_destinations ENABLE ROW LEVEL SECURITY;
 -- RLS session variable is `app.current_tenant` (set by gateway middleware per-request,
 -- per existing convention in 20260412000006_rls_policies.up.sql + 8 other policies).
+-- Idempotent: drop-then-create keeps boot-time auto-migrate retry-safe (Phase 11 Gate FIX).
+DROP POLICY IF EXISTS syslog_destinations_tenant_isolation ON syslog_destinations;
 CREATE POLICY syslog_destinations_tenant_isolation ON syslog_destinations
   USING (tenant_id = current_setting('app.current_tenant', true)::uuid);

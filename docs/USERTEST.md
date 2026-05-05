@@ -6286,13 +6286,13 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
 ### UT-098-09: RBAC — Viewer Rolü 403 Alır
 
 1. `viewer` rolüyle oturum açın.
-2. `POST /api/v1/syslog-destinations` isteği gönderin.
+2. `POST /api/v1/settings/log-forwarding` isteği gönderin.
 3. **Beklenen:** HTTP 403, hata kodu `INSUFFICIENT_ROLE` dönmeli. Viewer rolü yalnızca GET erişimine sahiptir.
 
 ### UT-098-10: Çapraz Kiracı Erişimi — 404 Döner
 
 1. Kiracı A'nın credentials'ı ile kimlik doğrulayın.
-2. Kiracı B'ye ait bir `syslog_destination` UUID'si ile `GET /api/v1/syslog-destinations/{id}` isteği gönderin.
+2. Kiracı B'ye ait bir `syslog_destination` UUID'si ile `GET /api/v1/settings/log-forwarding/{id}` isteği gönderin.
 3. **Beklenen:** HTTP 404 dönmeli. Çapraz kiracı izolasyonu korunmalı.
 
 ### UT-098-11: RFC 3164 Wire Format — `sim.binding_mismatch` Olayı
