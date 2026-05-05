@@ -1,0 +1,143 @@
+=== FUNCTIONAL VERIFICATION ===
+Time:  5 May 2026 Sal CEST 10:16:45
+
+[A1] GET /sims/{id}/device-binding (STORY-094 AC-1)
+{"status":"success","data":{"bound_imei":null,"binding_mode":null,"binding_status":null,"binding_verified_at":null,"last_imei_seen_at":null,"binding_grace_expires_at":null,"history_count":0}}
+
+HTTP:200
+
+[A2] PATCH /sims/{id}/device-binding strict + IMEI (STORY-094 AC-2)
+{"status":"success","data":{"bound_imei":"359211089765432","binding_mode":"strict","binding_status":null,"binding_verified_at":null,"last_imei_seen_at":null,"binding_grace_expires_at":null,"history...
+
+HTTP:200
+
+[A3] PATCH invalid binding_mode (UT-094-03 negative)
+{"status":"error","error":{"code":"INVALID_BINDING_MODE","message":"Invalid binding_mode value"}}
+
+HTTP:422
+
+[A4] PATCH invalid bound_imei -> 422 (UT-094-04)
+{"status":"error","error":{"code":"INVALID_IMEI","message":"bound_imei must be exactly 15 digits"}}
+
+HTTP:422
+
+[A5] POST /imei-pools/whitelist (STORY-095 AC-3)
+{"status":"success","data":{"id":"e17e16a8-78c3-4131-b1d2-dd0c520aeb25","tenant_id":"00000000-0000-0000-0000-000000000001","pool":"whitelist","kind":"full_imei","imei_or_tac":"359000111222333","dev...
+
+HTTP:201
+
+[A6] GET /imei-pools/whitelist?limit=5
+{"status":"success","data":[{"id":"e17e16a8-78c3-4131-b1d2-dd0c520aeb25","tenant_id":"00000000-0000-0000-0000-000000000001","pool":"whitelist","kind":"full_imei","imei_or_tac":"359000111222333","de...
+
+HTTP:200
+
+[A7] GET /imei-pools/lookup?imei=359000111222333 (STORY-095 AC-6)
+{"status":"success","data":{"lists":[{"kind":"whitelist","entry_id":"e17e16a8-78c3-4131-b1d2-dd0c520aeb25","matched_via":"exact"}],"bound_sims":[],"history":[]}}
+
+HTTP:200
+
+[A8] GET /imei-pools/lookup?imei=14digit (UT-095-08 negative)
+{"status":"error","error":{"code":"INVALID_IMEI","message":"imei query param must be exactly 15 digits"}}
+
+HTTP:422
+
+[A9] POST /syslog-destinations (STORY-098 AC-1)
+404 page not found
+
+HTTP:404
+
+[A10] GET /syslog-destinations
+404 page not found
+
+HTTP:404
+
+[A11] GET /events/catalog (UT-097-14 — 3 new topics)
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+    found = {t: any(e.get('topic') == t or e.get('event') == t or e.get('type') == t or e.get('name') == t for e in events) for t in target}
+                ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 6, in <genexpr>
+    found = {t: any(e.get('topic') == t or e.get('event') == t or e.get('type') == t or e.get('name') == t for e in events) for t in target}
+                    ^^^^^
+AttributeError: 'str' object has no attribute 'get'
+
+=== STORY-098 RETRY (correct path) ===
+[A9'] POST /settings/log-forwarding
+{"status":"success","data":{"id":"e3e22408-42b4-49d7-b5c1-3ec86995b97b","tenant_id":"00000000-0000-0000-0000-000000000001","name":"phase11-gate-test","host":"127.0.0.1","port":5514,"transport":"udp...
+
+HTTP:201
+
+[A10'] GET /settings/log-forwarding
+{"status":"success","data":[{"id":"e3e22408-42b4-49d7-b5c1-3ec86995b97b","tenant_id":"00000000-0000-0000-0000-000000000001","name":"phase11-gate-test","host":"127.0.0.1","port":5514,"transport":"ud...
+
+HTTP:200
+
+[A11'] GET /events/catalog (raw first 1500)
+{"status":"success","data":{"events":[{"type":"session.started","source":"aaa","default_severity":"info","entity_type":"sim","description":"A new AAA session was established for a SIM.","meta_schema":{"apn_id":"uuid","framed_ip":"string","nas_ip":"string","operator_id":"uuid","rat_type":"string","session_id":"uuid"},"tier":"internal"},{"type":"session.updated","source":"aaa","default_severity":"info","entity_type":"sim","description":"An existing AAA session was updated (interim accounting, CCR-Update, re-auth).","meta_schema":{"bytes_in":"int","bytes_out":"int","session_id":"uuid"},"tier":"internal"},{"type":"session.ended","source":"aaa","default_severity":"info","entity_type":"sim","description":"An AAA session ended (STOP, CCR-Term, operator disconnect).","meta_schema":{"bytes_in":"int","bytes_out":"int","session_id":"uuid","termination_cause":"string"},"tier":"internal"},{"type":"sim.state_changed","source":"sim","default_severity":"info","entity_type":"sim","description":"A SIM moved between lifecycle states (activate/suspend/resume/terminate/lost).","meta_schema":{"apn_id":"uuid","new_state":"string","old_state":"string","operator_id":"uuid","policy_version_id":"uuid"},"tier":"internal"},{"type":"operator_down","source":"operator","default_severity":"critical","entity_type":"operator","description":"An operator went DOWN (circuit breaker opened).","meta_schema":{"circuit_state":"string","current_status":"string","latency_ms":"int","previous_status":"string"},"tier":"op
+=== 3.5b — DB VERIFICATION ===
+
+[D1] sims.bound_imei after PATCH (UT-094-02 verification)
+                  id                  |   bound_imei    | binding_mode 
+--------------------------------------+-----------------+--------------
+ b458607a-4ce1-433d-9885-04c9d1345a36 | 359211089765432 | strict
+(1 row)
+
+
+[D2] audit_logs for sim.binding_mode_changed
+ count 
+-------
+     1
+(1 row)
+
+
+[D3] imei_whitelist row created
+                  id                  |   kind    |   imei_or_tac   
+--------------------------------------+-----------+-----------------
+ e17e16a8-78c3-4131-b1d2-dd0c520aeb25 | full_imei | 359000111222333
+(1 row)
+
+
+[D4] syslog_destinations row created
+       name        |   host    | port | transport | format  
+-------------------+-----------+------+-----------+---------
+ phase11-gate-test | 127.0.0.1 | 5514 | udp       | rfc3164
+(1 row)
+
+
+[D5] schema_migrations clean dirty=false
+    version     | dirty 
+----------------+-------
+ 20260509000001 | f
+(1 row)
+
+
+=== 3.5c — BUSINESS RULE NEGATIVE TESTS (already validated above: A3, A4, A8) ===
+  A3: PATCH bogus binding_mode -> HTTP 422 INVALID_BINDING_MODE PASS
+  A4: PATCH bound_imei='123' -> HTTP 422 INVALID_IMEI PASS
+  A8: GET lookup?imei=14digit -> HTTP 422 INVALID_IMEI PASS
+
+[N1] Cross-tenant 404 — invalid SIM UUID
+{"status":"error","error":{"code":"NOT_FOUND","message":"SIM not found"}}
+
+HTTP:404
+
+[N2] Unauthorized — no token
+{"status":"error","error":{"code":"INVALID_CREDENTIALS","message":"Missing or invalid authorization header"}}
+
+HTTP:401
+
+[A12] POST /settings/log-forwarding/test (UT-098-02 — Test Connection)
+{"status":"error","error":{"code":"INVALID_FORMAT","message":"name must be 1..255 characters"}}
+
+HTTP:422
+
+[A13] DELETE /settings/log-forwarding/{id} cleanup
+DEST_ID=e3e22408-42b4-49d7-b5c1-3ec86995b97b
+
+HTTP:204
+
+
+[A12'] POST /settings/log-forwarding/test (with name field)
+{"status":"success","data":{"ok":true}}
+
+HTTP:200

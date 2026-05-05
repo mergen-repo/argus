@@ -1,0 +1,30 @@
+PHASE 11 TURKISH TEXT AUDIT
+============================
+Date: 2026-05-05
+
+Method:
+1. grep ASCII-only Turkish word patterns in Phase 11 source files
+2. browser_snapshot text extraction from Phase 11 surface screens
+3. checked patterns: kalici/goruntulenme/giris/cikis/olustur/guncelle/duzenle/
+   kullanici/islem/basari/hatali/gecmis/secim/kaydet/onay/ekle/tikla/gecerli/
+   gecersiz/baglanti
+
+Sources scanned:
+- web/src/components/sims/re-pair-dialog.tsx
+- web/src/components/sims/bound-imei-panel.tsx
+- web/src/components/sims/device-binding-tab.tsx
+- web/src/components/sims/imei-history-panel.tsx
+- web/src/pages/settings/log-forwarding/index.tsx
+- web/src/pages/settings/log-forwarding/destination-form-panel.tsx
+- web/src/pages/settings/imei-pools/* (all sub-files)
+
+Browser screens scanned:
+- /settings/imei-pools (all 4 tabs)
+- /settings/log-forwarding
+- /sims/{id} (Device Binding tab)
+
+Result: 0 issues — all Phase 11 UI strings are clean.
+  - No ASCII-only Turkish words detected
+  - No Lorem ipsum / TODO / placeholder text detected
+  - Mixed-language: Phase 11 surface UI is consistently English (Argus UI is bilingual but Phase 11 surfaces use English labels)
+  - Sidebar shows "Log Forwarding" and "IMEI Pools" entries — both English, consistent with rest of app

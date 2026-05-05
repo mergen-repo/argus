@@ -1,0 +1,17 @@
+=== GO TEST SUITE ===
+Go test: 4222 passed in 114 packages
+
+
+Total: 4222 tests passed in 114 packages
+Exit: 0
+
+=== TYPESCRIPT (web/) ===
+> tsc --noEmit
+
+Exit: 0 (no errors)
+
+=== VITEST ===
+NOT INSTALLED — package.json has no test/vitest script.
+FE test files exist (logs/log-forwarding.test.tsx etc.) but no runner registered.
+Per-story gates passed component tests via temporary runner; no permanent installation.
+Known finding: F-FE-TEST-RUNNER — install vitest for repeatable FE tests (defer to Phase 12 polish).

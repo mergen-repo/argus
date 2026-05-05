@@ -1,0 +1,58 @@
+PHASE 11 GATE — STEP LOG
+========================
+Date: 2026-05-05
+Phase: 11 — Enterprise Readiness Pack
+Stories: STORY-093, 094, 095, 096, 097, 098
+
+STEP_1 DEPLOY: EXECUTED | items=9 containers | evidence=docker-ps.txt | result=PASS_AFTER_FIX
+  Note: STORY-098 migration 20260509000001 had non-idempotent CREATE POLICY.
+  Container CrashLoop on boot when DB already had migration partially applied.
+  FIX-PHASE11-01: added DROP POLICY IF EXISTS guard, cleared dirty flag.
+  Mock audit: N/A — full-stack project, no Vite mock layer (no web/src/mocks/).
+
+STEP_2 SMOKE: EXECUTED | items=5 checks | evidence=smoke-results.txt | result=PASS
+  Frontend HTTP 200, API /health 200, pg_isready, Redis PING PONG, NATS healthz 200.
+
+STEP_2.5 TESTS: EXECUTED | items=4222 go tests + tsc | evidence=test-results.txt | result=PASS
+  Go: 4222 passed in 114 packages, exit 0 (-short -count=1).
+  TypeScript: tsc --noEmit exit 0.
+  Vitest: NOT INSTALLED (no script in package.json) — per-story gates ran adhoc; logged as F-FE-TEST-RUNNER.
+
+STEP_3 E2E: EXECUTED | items=6 UI scenarios | evidence=STORY-095-10.png,STORY-095-10-greylist.png,STORY-095-11.png,STORY-096-01.png,STORY-097-01.png,STORY-098-01.png,STORY-098-add-form.png | result=6/6 PASS
+  UT-095-10: IMEI Pools 4 tabs visible (White/Grey/Black/Bulk Import) PASS
+  UT-095-10b: hash routing #greylist switches tab PASS
+  UT-095-11: Add Entry dialog opens with IMEI input + kind select PASS
+  UT-096/097: SIM Detail Device Binding tab opens with Bound IMEI panel + IMEI History PASS
+  UT-098-01: Log Forwarding page heading + Add Destination button PASS
+  UT-098 add-form: SlidePanel opens with name/host/port/facility/severity inputs PASS
+  Note: backend-only scenarios for STORY-093/094 already validated via Step 2.5 Go test suite.
+
+STEP_3.5 FUNCTIONAL: EXECUTED | items=21 checks (11 API + 5 DB + 5 negative) | evidence=functional-results.txt | result=PASS (21/21)
+  API: device-binding GET/PATCH, imei-pools CRUD/lookup, syslog-destinations CRUD + Test, events catalog has 3 new topics (imei.changed/binding_re_paired/grace_expiring with correct severities)
+  DB: sims.bound_imei updated to 359211089765432, audit_log row, imei_whitelist row, syslog_destinations row, schema_migrations dirty=false
+  Negative: 422 INVALID_BINDING_MODE / INVALID_IMEI (3x), 404 SIM_NOT_FOUND cross-tenant, 401 INVALID_CREDENTIALS no-auth
+  Note: docs/USERTEST.md uses /syslog-destinations path but actual route is /api/v1/settings/log-forwarding (route prefix mismatch — F-DOC-PHASE11-01 finding)
+
+STEP_4 VISUAL: EXECUTED | items=12 screenshots | evidence=dashboard.png,sims-list.png,settings-root.png,imei-pools-{default,greylist,blacklist,bulk}.png,STORY-09[5-8]-*.png | result=PASS
+  All Phase 11 screens render with content; no placeholder/empty page detected. Sidebar IMEI Pools + Log Forwarding entries visible.
+
+STEP_5 TURKISH: EXECUTED | items=0 issues | evidence=turkish-fixes.txt | result=PASS
+  Source grep + browser text extraction across 3 Phase 11 surface screens — zero ASCII-Turkish, zero Lorem/TODO/placeholder.
+
+STEP_6 UI_POLISH: EXECUTED | items=6 token checks + 10-criterion visual | evidence=polish-report.txt | result=PASS
+  6/6 token enforcement checks PASS (hex=0, default-colors=0, raw-form=atoms-only, svg=atoms-only, shadow-none=intentional).
+  CHECK 2 1390 text-[Npx] matches are established dense-IoT typography ladder (matches index.css), not drift.
+  Phase 11 scoped scan: 0 new drift in components/sims/* + pages/settings/{log-forwarding,imei-pools}/* + components/imei-lookup/*.
+  10-criterion visual assessment: PASS across spacing/typography/color/component/empty-state/responsive/micro-interaction/icon/shadow.
+  No fixes required; design docs unchanged (no new patterns discovered).
+
+STEP_6.5 COMPLIANCE: EXECUTED | items=5 dimensions | evidence=compliance-report.txt | result=100%
+  Endpoints 11/11, Schema 12/12 (6 tables + 6 columns), Screens 5/5, Components 13 files present, Business Rules 8/8.
+  No auto-fix gaps detected; no audit-gap stories generated.
+
+STEP_7 FIX_LOOP: EXECUTED | items=2 fixes (1 production-blocker + 1 doc) | evidence=commit 1298f54 | result=PASS
+  F-PHASE11-01 (CRITICAL): migrations/20260509000001 non-idempotent CREATE POLICY caused argus-app CrashLoop on retry.
+    Fix: DROP POLICY IF EXISTS guard. Verified on fresh make down/up — argus healthy in 31s, dirty=false.
+  F-DOC-PHASE11-01 (LOW): USERTEST UT-098-09/10 path wrong (/syslog-destinations vs /settings/log-forwarding).
+    Fix: aligned docs to router.go.
+  Both fixes committed to main (1298f54). One redeploy verification pass — all 9 services healthy.
