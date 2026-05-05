@@ -60,6 +60,12 @@ var tier3Events = map[string]struct{}{
 	"imei.changed":                  {},
 	"device.binding_re_paired":      {},
 	"device.binding_grace_expiring": {},
+	// STORY-098 log forwarding audit subjects (PAT-026 RECURRENCE)
+	"log_forwarding.destination_added":    {},
+	"log_forwarding.destination_updated":  {},
+	"log_forwarding.destination_disabled": {},
+	"log_forwarding.destination_deleted":  {},
+	"log_forwarding.delivery_failed":      {},
 }
 
 // TierFor returns the classification tier for an event_type string.

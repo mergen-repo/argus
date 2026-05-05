@@ -6228,3 +6228,92 @@ Bu story icin manuel kullanici arayuzu senaryosu yoktur (simulator/altyapi). Asa
    - `previous_bound_imei`: yeniden eşleştirmeden önceki `bound_imei`
    - `actor_user_id`: oturum açmış kullanıcının UUID'si
 3. `severity` alanı payload'da bulunmamalı (bus.Envelope tarafından ayrıca taşınır).
+
+---
+
+## STORY-098: Native Syslog Forwarder (RFC 3164/5424)
+
+### UT-098-01: UDP/RFC 3164 Hedefi Oluşturma ve Listeleme
+
+1. Settings → Log Forwarding sayfasına gidin.
+2. "Add Destination" butonuna tıklayın.
+3. Formu doldurun: Name="test-udp", Host="10.0.0.1", Port=514, Transport=UDP, Format=RFC 3164, Facility=Local0.
+4. "Save" butonuna tıklayın.
+5. **Beklenen:** Yeni satır listede görünmeli; Transport sütununda "UDP", Format sütununda "RFC 3164" yazmalı. `SELECT * FROM syslog_destinations WHERE name='test-udp'` satırı dönmeli.
+
+### UT-098-02: Test Connection — Başarılı Bağlantı
+
+1. Log Forwarding listesindeki bir UDP hedefinin "Test" butonuna tıklayın.
+2. **Beklenen:** Toast bildirimi "Bağlantı başarılı" veya "Connection OK" mesajı göstermeli. `syslog_destinations` tablosunda `last_error` NULL olmalı.
+
+### UT-098-03: Test Connection — Bağlantı Hatası
+
+1. Kapalı bir porta yönlendirilen bir TCP hedefinin "Test" butonuna tıklayın.
+2. **Beklenen:** Toast bildirimi "Bağlantı başarısız: connection refused" veya benzeri bir hata mesajı göstermeli. Veritabanında herhangi bir kayıt değişmemeli (test endpoint DB'ye yazmaz).
+
+### UT-098-04: TLS Hedefi — PEM Yükleme ve Test
+
+1. "Add Destination" panelinde Transport=TLS seçin.
+2. CA sertifikası PEM dosyasını "CA Certificate" alanına yapıştırın.
+3. Geçerli bir TLS sunucusuna yönlendirin ve "Test Connection" tıklayın.
+4. **Beklenen:** Toast "Bağlantı başarılı" göstermeli. `tls_ca_pem` sütununda PEM kaydedilmeli.
+
+### UT-098-05: Mutual TLS Validasyonu — Eksik Anahtar Hatası
+
+1. "Add Destination" panelinde Transport=TLS seçin.
+2. `TLS Client Certificate` alanını doldurun ama `TLS Client Key` alanını boş bırakın.
+3. **Beklenen:** Form-seviyesi hata mesajı göstermeli: "Client certificate requires client key" veya benzeri. Kaydet butonu devre dışı olmalı veya 422 hatası dönmeli.
+
+### UT-098-06: Hedef Devre Dışı Bırakma — Badge Güncellenir, Olay Akışı Durur
+
+1. Etkin bir hedef satırında "Disable" seçeneğine tıklayın; onay dialogunu onaylayın.
+2. **Beklenen:** Satırda "Disabled" badge görünmeli. `SELECT enabled FROM syslog_destinations WHERE id=$1` → `false` dönmeli. Sonraki NATS olayları bu hedefe iletilmemeli.
+
+### UT-098-07: Hedef Silme — Onay Dialogu ve Listeden Kaldırma
+
+1. Bir hedef satırında "Delete" seçeneğine tıklayın.
+2. Açılan onay dialogunu onaylayın.
+3. **Beklened:** Satır listeden kaldırılmalı. `SELECT COUNT(*) FROM syslog_destinations WHERE id=$1` → 0 dönmeli. Audit log'da `log_forwarding.destination_deleted` kaydı bulunmalı.
+
+### UT-098-08: Kategori Filtresi — Eşleşmeyen Kategori İletilmez
+
+1. FilterCategories=["audit","alert"] olarak yapılandırılmış bir UDP hedefi oluşturun.
+2. Mock UDP alıcısını başlatın.
+3. NATS'a `argus.events.session.started` konusunda bir olay yayınlayın.
+4. **Beklenen:** Mock UDP alıcısı mesaj almamamalı (kategori filtresi devrede).
+5. `argus.events.audit.create` konusunda bir olay yayınlayın → mock alıcı mesaj almalı.
+
+### UT-098-09: RBAC — Viewer Rolü 403 Alır
+
+1. `viewer` rolüyle oturum açın.
+2. `POST /api/v1/syslog-destinations` isteği gönderin.
+3. **Beklenen:** HTTP 403, hata kodu `INSUFFICIENT_ROLE` dönmeli. Viewer rolü yalnızca GET erişimine sahiptir.
+
+### UT-098-10: Çapraz Kiracı Erişimi — 404 Döner
+
+1. Kiracı A'nın credentials'ı ile kimlik doğrulayın.
+2. Kiracı B'ye ait bir `syslog_destination` UUID'si ile `GET /api/v1/syslog-destinations/{id}` isteği gönderin.
+3. **Beklenen:** HTTP 404 dönmeli. Çapraz kiracı izolasyonu korunmalı.
+
+### UT-098-11: RFC 3164 Wire Format — `sim.binding_mismatch` Olayı
+
+1. Mock UDP alıcısı başlatın (port 5514).
+2. NATS'a `argus.events.device.binding_mismatch` konusunda `{type:"device.binding_mismatch", severity:"high", title:"IMEI binding mismatch detected"}` içeren bir `bus.Envelope` yayınlayın.
+3. **Beklenen:** Mock UDP alıcısı bir datagram almalı. Datagram şu yapıyı içermeli:
+   - `<PRI>` öneki (örn. `<131>`) — facility + severity birleşimi.
+   - "Mmm dd hh:mm:ss" biçiminde RFC 3164 zaman damgası.
+   - `argus[PID]:` TAG alanı.
+   - `device.binding_mismatch` event type.
+   - `tenant=<uuid>` alanı.
+   - `severity=high` alanı.
+
+### UT-098-12: RFC 5424 Wire Format — Yapılandırılmış Veri ve BOM Doğrulama
+
+1. Mock TCP alıcısı başlatın (RFC 6587 octet-counting destekli).
+2. RFC 5424 formatında bir TCP hedefi yapılandırın.
+3. NATS'a `argus.events.alert.triggered` konusunda bir olay yayınlayın.
+4. **Beklenen:** Mock TCP alıcısı RFC 6587 çerçeveli bir mesaj almalı. Mesaj gövdesi şunları içermeli:
+   - `<PRI>1 ` — VERSION token "1".
+   - RFC 3339 milisaniye hassasiyetli UTC zaman damgası.
+   - `[argus@32473 tenant_id="..." severity="..."]` yapılandırılmış veri bloğu.
+   - `0xEF 0xBB 0xBF` UTF-8 BOM, MSG alanından önce.

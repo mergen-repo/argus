@@ -577,11 +577,11 @@ New EventTypes published by SVC-04 capture pipeline + binding pre-check:
 New audit actions:
 - SIM binding state: `sim.imei_captured`, `sim.binding_mode_changed`, `sim.binding_verified`, `sim.binding_mismatch`, `sim.binding_first_use_locked`, `sim.binding_soft_mismatch`, `sim.binding_blacklist_hit`, `sim.imei_repaired`, `sim.imei_unbound`
 - IMEI pool: `imei_pool.entry_added`, `imei_pool.entry_removed`, `imei_pool.bulk_imported`
-- Log forwarding: `log_forwarding.destination_added`, `log_forwarding.destination_updated`, `log_forwarding.destination_disabled`, `log_forwarding.destination_removed`
+- Log forwarding: `log_forwarding.destination_added`, `log_forwarding.destination_updated`, `log_forwarding.destination_disabled`, `log_forwarding.destination_deleted`, `log_forwarding.delivery_failed`
 
 ### Log Forwarding (Syslog) — SVC-08 sub-component
 
-Native RFC 3164 / RFC 5424 emitter (`internal/notification/syslog/`) subscribes to canonical `bus.Envelope` events and forwards them to per-tenant configured SIEM destinations. Transports: UDP (RFC 3164 default), TCP, TLS (mutual auth optional via `tls_client_cert_pem` + `tls_client_key_pem`). Each destination carries a filter rule: event categories whitelist (`audit | alert | session | policy | system | aaa | binding`) + optional `min_severity` floor. Per-destination state (last delivery success / failure timestamp + last error string) is persisted and surfaced via API-337. Endpoints API-337/338. STORY-098.
+Native RFC 3164 / RFC 5424 emitter (`internal/notification/syslog/`) subscribes to canonical `bus.Envelope` events and forwards them to per-tenant configured SIEM destinations. Transports: UDP (RFC 3164 default), TCP, TLS (mutual auth optional via `tls_client_cert_pem` + `tls_client_key_pem`). Each destination carries a filter rule: event categories whitelist (`audit | alert | session | policy | system | aaa | binding`) + optional `min_severity` floor. Per-destination state (last delivery success / failure timestamp + last error string) is persisted and surfaced via API-337. Endpoints API-337..341 (List, Upsert, Test, SetEnabled, Delete). STORY-098.
 
 ### Out of Scope (v1)
 
@@ -601,8 +601,8 @@ EIR integration via Diameter S13 (4G/EPC) or 5G N17 is **out of scope** for v1 p
 | Prefix | Count | Range |
 |--------|-------|-------|
 | SVC-NN | 10 | SVC-01 to SVC-10 |
-| API-NNN | 269 | API-001 to API-338 (gaps absorbed by FIX/STORY backfill) |
-| TBL-NN | 60 | TBL-01 to TBL-60 |
+| API-NNN | 279 | API-001 to API-348 (gaps absorbed by FIX/STORY backfill) |
+| TBL-NN | 61 | TBL-01 to TBL-61 |
 | CTN-NN | 5 | CTN-01 to CTN-05 |
 | ADR-NNN | 4 | ADR-001 to ADR-004 |
 

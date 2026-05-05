@@ -33,6 +33,7 @@ import (
 	searchapi "github.com/btopcu/argus/internal/api/search"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
+	settingsapi "github.com/btopcu/argus/internal/api/settings"
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
 	smsapi "github.com/btopcu/argus/internal/api/sms"
@@ -102,6 +103,7 @@ type RouterDeps struct {
 	SearchHandler           *searchapi.Handler
 	AnnouncementHandler     *announcementapi.Handler
 	UndoHandler             *undoapi.Handler
+	LogForwardingHandler    *settingsapi.LogForwardingHandler
 	KillSwitchSvc           killSwitchChecker
 	APIKeyStore             *store.APIKeyStore
 	TenantLimits            *TenantLimitsMiddleware
@@ -495,6 +497,20 @@ func NewRouterWithDeps(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/imei-pools/{kind}", deps.IMEIPoolHandler.Add)
 				r.Post("/api/v1/imei-pools/{kind}/import", deps.IMEIPoolHandler.BulkImport)
 				r.Delete("/api/v1/imei-pools/{kind}/{id}", deps.IMEIPoolHandler.Delete)
+			})
+		}
+
+		if deps.LogForwardingHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(JWTAuth(deps.JWTSecret, deps.JWTSecretPrevious))
+				r.Use(RequireRole("tenant_admin"))
+				// Static route /test must be registered before /{id} routes so chi
+				// static-segment precedence applies correctly (PAT-router-static-first).
+				r.Post("/api/v1/settings/log-forwarding/test", deps.LogForwardingHandler.Test)
+				r.Get("/api/v1/settings/log-forwarding", deps.LogForwardingHandler.List)
+				r.Post("/api/v1/settings/log-forwarding", deps.LogForwardingHandler.Upsert)
+				r.Post("/api/v1/settings/log-forwarding/{id}/enabled", deps.LogForwardingHandler.SetEnabled)
+				r.Delete("/api/v1/settings/log-forwarding/{id}", deps.LogForwardingHandler.Delete)
 			})
 		}
 

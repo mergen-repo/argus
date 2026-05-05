@@ -63,6 +63,7 @@ import (
 	searchapi "github.com/btopcu/argus/internal/api/search"
 	segmentapi "github.com/btopcu/argus/internal/api/segment"
 	sessionapi "github.com/btopcu/argus/internal/api/session"
+	settingsapi "github.com/btopcu/argus/internal/api/settings"
 	simapi "github.com/btopcu/argus/internal/api/sim"
 	slaapi "github.com/btopcu/argus/internal/api/sla"
 	smsapi "github.com/btopcu/argus/internal/api/sms"
@@ -86,6 +87,7 @@ import (
 	"github.com/btopcu/argus/internal/job"
 	"github.com/btopcu/argus/internal/killswitch"
 	"github.com/btopcu/argus/internal/notification"
+	"github.com/btopcu/argus/internal/notification/syslog"
 	"github.com/btopcu/argus/internal/observability"
 	obsmetrics "github.com/btopcu/argus/internal/observability/metrics"
 	"github.com/btopcu/argus/internal/operator"
@@ -703,6 +705,8 @@ func runServe(cfg *config.Config) {
 	simHandler := simapi.NewHandler(simStore, apnStore, operatorStore, ippoolStore, tenantStore, auditSvc, log.Logger, simapi.WithPolicyStore(policyStore), simapi.WithNameCache(nameCache), simapi.WithSessionStore(simSessionStore), simapi.WithCDRStore(cdrStore), simapi.WithIMSIStrictValidation(cfg.IMSIStrictValidation), simapi.WithEventBus(eventBus))
 	deviceBindingHandler := simapi.NewDeviceBindingHandler(simStore, imeiHistoryStore, auditSvc, eventBus, log.Logger)
 	imeiPoolHandler := imeipoolapi.NewHandler(imeiPoolStore, simStore, imeiHistoryStore, jobStore, eventBus, auditSvc, log.Logger)
+	syslogDestStore := store.NewSyslogDestinationStore(pg.Pool)
+	logForwardingHandler := settingsapi.NewLogForwardingHandler(syslogDestStore, auditSvc, log.Logger)
 	dryRunSvc := dryrun.NewService(policyStore, simStore, pg.Pool, rdb.Client, log.Logger)
 	dryRunSvc.SetIMEIPoolLookuper(imeiPoolDSLLookup)
 	rolloutSvc := rollout.NewService(policyStore, simStore, nil, nil, eventBus, jobStore, log.Logger)
@@ -1249,6 +1253,21 @@ func runServe(cfg *config.Config) {
 		log.Logger,
 	)
 	bindingHistoryWriter.Start(appCtx)
+
+	// ── STORY-098 Task 5 — syslog forwarder ──────────────────────────────────
+	// Subscribes to argus.events.> via QueueSubscribe (queue group
+	// "syslog-forwarder") and fans out every envelope to per-tenant syslog
+	// destinations registered via API-338. Workers buffer up to 1000 messages
+	// each and apply RFC 3164 / RFC 5424 framing per destination. Default-on
+	// per VAL-098 — there is no kill-switch flag; disabled destinations live
+	// at the row level (enabled=false).
+	syslogForwarder := syslog.NewForwarder(&syslogStoreAdapter{store: syslogDestStore}, auditSvc, &syslogForwarderMetricsAdapter{reg: metricsReg}, log.Logger)
+	syslogForwarderStartCtx, syslogForwarderStartCancel := context.WithTimeout(appCtx, 10*time.Second)
+	if err := syslogForwarder.Start(syslogForwarderStartCtx, &eventBusSyslogSubscriber{eventBus}); err != nil {
+		log.Fatal().Err(err).Msg("syslog forwarder start failed")
+	}
+	syslogForwarderStartCancel()
+	log.Info().Str("default", "on").Msg("syslog forwarder enabled (per VAL-098 default-on gate)")
 
 	bindingEnforcer := binding.New(
 		binding.WithAllowlistChecker(bindingAllowlistAdapter),
@@ -1880,6 +1899,7 @@ func runServe(cfg *config.Config) {
 		SearchHandler:           searchHandler,
 		AnnouncementHandler:     announcementHandler,
 		UndoHandler:             undoHandler,
+		LogForwardingHandler:    logForwardingHandler,
 		KillSwitchSvc:           killSwitchSvc,
 		APIKeyStore:             apiKeyStore,
 		TenantLimits:            tenantLimits,
@@ -1946,6 +1966,7 @@ func runServe(cfg *config.Config) {
 		cdrConsumer,
 		auditSvc,
 		bindingHistoryWriter,
+		syslogForwarder,
 		otelShutdown,
 		ns,
 		rdb,
@@ -1982,6 +2003,7 @@ func gracefulShutdown(
 	cdrConsumer *cdrsvc.Consumer,
 	auditSvc *audit.FullService,
 	bindingHistoryWriter *binding.BufferedHistoryWriter,
+	syslogForwarder *syslog.Forwarder,
 	otelShutdown func(context.Context) error,
 	ns *bus.NATS,
 	rdb *cache.Redis,
@@ -2112,6 +2134,20 @@ func gracefulShutdown(
 		}
 		bhCancel()
 		logger.Info().Str("subsystem", "binding_history").Dur("duration", time.Since(t)).Msg("shutdown step done")
+	}
+
+	// STORY-098 — drain the syslog forwarder workers (per-destination buffered
+	// queues) before audit so any final log_forwarding.delivery_failed audit
+	// rows land while the audit subsystem and NATS/PG are still alive.
+	if syslogForwarder != nil {
+		t = time.Now()
+		logger.Info().Str("subsystem", "syslog_forwarder").Msg("shutdown step starting")
+		sfCtx, sfCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := syslogForwarder.Stop(sfCtx); err != nil {
+			logger.Error().Err(err).Str("subsystem", "syslog_forwarder").Msg("shutdown error")
+		}
+		sfCancel()
+		logger.Info().Str("subsystem", "syslog_forwarder").Dur("duration", time.Since(t)).Msg("shutdown step done")
 	}
 
 	t = time.Now()
@@ -2348,6 +2384,79 @@ func (a *eventBusCDRSubscriber) QueueSubscribe(subject, queue string, handler fu
 		return nil, err
 	}
 	return &natsSubWrapper{sub: sub}, nil
+}
+
+// eventBusSyslogSubscriber adapts *bus.EventBus.QueueSubscribe to the
+// syslog.BusSubscriber interface (STORY-098 Task 5).
+type eventBusSyslogSubscriber struct {
+	eb *bus.EventBus
+}
+
+func (a *eventBusSyslogSubscriber) QueueSubscribe(subject, queue string, handler func(string, []byte)) (syslog.BusSubscription, error) {
+	sub, err := a.eb.QueueSubscribe(subject, queue, handler)
+	if err != nil {
+		return nil, err
+	}
+	return &natsSubWrapper{sub: sub}, nil
+}
+
+// syslogStoreAdapter wraps store.SyslogDestinationStore so it satisfies the
+// syslog.DestStore interface (translating store.SyslogDestination → the
+// forwarder's local syslog.Destination type). The translation lives at this
+// boundary to keep the syslog package free of an `internal/store` import,
+// which would otherwise create a cycle with store/syslog_destination_test.go.
+type syslogStoreAdapter struct {
+	store *store.SyslogDestinationStore
+}
+
+func (a *syslogStoreAdapter) ListAllEnabled(ctx context.Context) ([]syslog.Destination, error) {
+	rows, err := a.store.ListAllEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]syslog.Destination, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, syslog.Destination{
+			ID:                r.ID,
+			TenantID:          r.TenantID,
+			Name:              r.Name,
+			Host:              r.Host,
+			Port:              r.Port,
+			Transport:         r.Transport,
+			Format:            r.Format,
+			Facility:          r.Facility,
+			SeverityFloor:     r.SeverityFloor,
+			FilterCategories:  r.FilterCategories,
+			FilterMinSeverity: r.FilterMinSeverity,
+			TLSCAPEM:          r.TLSCAPEM,
+			TLSClientCertPEM:  r.TLSClientCertPEM,
+			TLSClientKeyPEM:   r.TLSClientKeyPEM,
+		})
+	}
+	return out, nil
+}
+
+func (a *syslogStoreAdapter) UpdateDelivery(ctx context.Context, tenantID uuid.UUID, id uuid.UUID, success bool, errMsg string) error {
+	return a.store.UpdateDelivery(ctx, tenantID, id, success, errMsg)
+}
+
+// syslogForwarderMetricsAdapter adapts the obsmetrics.Registry to the
+// narrow syslog.ForwarderMetrics interface so we can swap implementations in
+// tests without depending on Prometheus types.
+type syslogForwarderMetricsAdapter struct {
+	reg *obsmetrics.Registry
+}
+
+func (a *syslogForwarderMetricsAdapter) IncDelivered(transport, format string) {
+	a.reg.IncSyslogDelivered(transport, format)
+}
+
+func (a *syslogForwarderMetricsAdapter) IncDropped(transport, format string) {
+	a.reg.IncSyslogDropped(transport, format)
+}
+
+func (a *syslogForwarderMetricsAdapter) IncFailures(transport, format string) {
+	a.reg.IncSyslogFailures(transport, format)
 }
 
 type rolloutSessionAdapter struct {

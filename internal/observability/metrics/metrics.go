@@ -140,6 +140,12 @@ type Registry struct {
 	// Low-cardinality by design (bounded event_type set; 2 reason values).
 	EventsTierFilteredTotal *prometheus.CounterVec
 
+	// STORY-098 Task 5 — syslog forwarder outcome counters.
+	// Labels: transport (udp|tcp|tls), format (rfc3164|rfc5424). 3×2=6 series.
+	SyslogDeliveredTotal *prometheus.CounterVec
+	SyslogDroppedTotal   *prometheus.CounterVec
+	SyslogFailuresTotal  *prometheus.CounterVec
+
 	// FIX-234 AC-8 — CoA status distribution gauge.
 	// One series per coa_status value (6 canonical labels: pending, queued,
 	// acked, failed, no_session, skipped). Refreshed every 60 s by the
@@ -349,6 +355,27 @@ func NewRegistry() *Registry {
 		Help: "binding orchestrator async notification publishes that errored. STORY-096.",
 	})
 	reg.MustRegister(r.BindingNotificationFailedTotal)
+
+	// STORY-098 Task 5 — syslog forwarder per-(transport, format) outcome counters.
+	// Bounded label cardinality by design: transport ∈ {udp,tcp,tls} (3), format ∈
+	// {rfc3164,rfc5424} (2). Tenant_id deliberately omitted (PAT-003 high-cardinality).
+	r.SyslogDeliveredTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_syslog_delivered_total",
+		Help: "Total syslog messages successfully delivered by transport+format. STORY-098.",
+	}, []string{"transport", "format"})
+	reg.MustRegister(r.SyslogDeliveredTotal)
+
+	r.SyslogDroppedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_syslog_dropped_total",
+		Help: "Total syslog messages dropped on per-destination queue overflow (AC-15). STORY-098.",
+	}, []string{"transport", "format"})
+	reg.MustRegister(r.SyslogDroppedTotal)
+
+	r.SyslogFailuresTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_syslog_failures_total",
+		Help: "Total syslog send failures (network/TLS/timeout) by transport+format. STORY-098.",
+	}, []string{"transport", "format"})
+	reg.MustRegister(r.SyslogFailuresTotal)
 
 	r.DataIntegrityViolationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_data_integrity_violations_total",
@@ -689,6 +716,34 @@ func (r *Registry) IncAlertsRateLimitedPublishes(publisher string) {
 		return
 	}
 	r.AlertsRateLimitedPublishesTotal.WithLabelValues(publisher).Inc()
+}
+
+// IncSyslogDelivered increments the syslog-delivered counter for the given
+// transport (udp|tcp|tls) and format (rfc3164|rfc5424). STORY-098 Task 5.
+// Safe to call on a nil Registry (no-op).
+func (r *Registry) IncSyslogDelivered(transport, format string) {
+	if r == nil || r.SyslogDeliveredTotal == nil {
+		return
+	}
+	r.SyslogDeliveredTotal.WithLabelValues(transport, format).Inc()
+}
+
+// IncSyslogDropped increments the syslog-dropped counter (queue overflow).
+// STORY-098 Task 5 AC-15. Safe to call on a nil Registry (no-op).
+func (r *Registry) IncSyslogDropped(transport, format string) {
+	if r == nil || r.SyslogDroppedTotal == nil {
+		return
+	}
+	r.SyslogDroppedTotal.WithLabelValues(transport, format).Inc()
+}
+
+// IncSyslogFailures increments the syslog-failure counter (network/TLS error).
+// STORY-098 Task 5 AC-12. Safe to call on a nil Registry (no-op).
+func (r *Registry) IncSyslogFailures(transport, format string) {
+	if r == nil || r.SyslogFailuresTotal == nil {
+		return
+	}
+	r.SyslogFailuresTotal.WithLabelValues(transport, format).Inc()
 }
 
 // RecordHTTPStatus records a 5xx HTTP response for the recent_error_5m

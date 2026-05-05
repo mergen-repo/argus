@@ -102,6 +102,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Settings', icon: Settings, path: '/settings' },
       { label: 'Users & Roles', icon: Users, path: '/settings/users' },
+      { label: 'Log Forwarding', icon: Radio, path: '/settings/log-forwarding' },
       { label: 'Knowledge Base', icon: BookOpen, path: '/settings/knowledgebase' },
     ],
   },

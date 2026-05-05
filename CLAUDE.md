@@ -116,10 +116,10 @@ docs/            → All documentation
 ## Active Session
 
 - Mode: AUTOPILOT (Phase 11: Enterprise Readiness Pack — started 2026-05-01)
-- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (4/6 stories DONE)
-- Story: STORY-097 — IMEI Change Detection & Re-pair Workflow
-- Step: Plan
-- Last closed: STORY-096 [x] DONE 2026-05-04 (Phase 11 W4 L — Binding Enforcement & Mismatch Handling AAA hot-path 6-mode enforcer; 8 tasks/5 waves; commit 3390059; 66 files +7582/-201; 124 binding-pkg tests + 5 microbenches + race clean; Gate 4 findings (1M+3L); F-A1 fixed (audit chain integration test) + F-A2/A3/A4 VAL-055..057 + lesson VAL-058; D-184 ✓ RESOLVED-WITH-SUBSTITUTION + D-187 ✓ RESOLVED + D-189 ✓ RESOLVED + D-191 NEW (tenant-scoped grace) + D-192 NEW (live 1M-SIM rig); DEV-592/593/594 lessons; PAT-026 RECURRENCE NOT applicable (HistoryWriter is in-process queue, not JobProcessor); AC-13 perf budget 50µs → 125× margin via microbench; 4082 tests PASS; tsc + vite build PASS; quality-scan hook caught pre-existing window.confirm — replaced with Dialog pattern in scope)
+- Phase: Phase 11: Enterprise Readiness Pack [IN PROGRESS] — 2026-05-01 (5/6 stories DONE; STORY-098 in close-out)
+- Story: STORY-098 — Native Syslog Forwarder RFC 3164/5424 (final dev story)
+- Step: Review
+- Last closed: STORY-097 [x] DONE 2026-05-04 (Phase 11 W5 M — IMEI Change Detection & Re-pair Workflow; 8 tasks/5 waves; commit 70ff149; 76 files +4990/-302; 14 binding regression+severity tests + 4 cross-task integration + 10 grace scanner + 7 RePair + 12 store + 6 FE smoke; Gate 13 findings (1C+4H+4M+4L); F-A1 CRITICAL imei.changed wire-contract FIXED + F-A2 HIGH 8-layer event catalog sweep PAT-026 RECURRENCE pre-merge mitigation + F-A3 HIGH FE BindingMode union 7 canonical modes + F-A4/A5/A6/U1/U5/U6/U7 fixed; F-U2/U3 → D-194 NEW deferred (allowlist sub-table + Force Re-verify); F-U4 → VAL-067 deferred (re-pair reason radio); D-183 ✓ RESOLVED + D-188 ✓ RESOLVED + D-193+D-194 NEW; VAL-059..067; PAT-026 RECURRENCE filed; 4129 tests PASS; tsc + vite build PASS)
 - Last closed: STORY-095 [x] DONE 2026-05-03 (Phase 11 W3 M — IMEI Pool Management; commit c46fc34; 57 files +7897/-24; 13 Gate findings (1C+4H+4M+4L); D-187/D-189 routed; PAT-026 RECURRENCE filed)
 - Last closed: STORY-093 [x] DONE 2026-05-01 (Phase 11 W1 L — IMEI Capture across RADIUS+Diameter S6a+5G SBA; commit 42b70c5; 42 files +2299/-31; 21 new tests + 3 microbenches; Gate F-A1+F-A2+F-A4+F-A6 all FIXED; D-182/183/184 deferred — D-182 since closed in 094)
 - Last closed: FIX-247 [x] DONE 2026-04-30 (Wave 10 P2 S — Remove Admin Global Sessions UI; F-320 closed; 9/9 ACs PASS; UI-only removal pattern — page/hook/route/sidebar deleted, BE handler+routes+store retained per AC-5; DEV-580; PAT-026 RECURRENCE [FIX-247] — limited sweep documented exception; D-180 routed for dormant handler cleanup; tsc PASS, vite build 2.65s, go build/vet/test PASS; combined Gate+Review S-story dispatch)

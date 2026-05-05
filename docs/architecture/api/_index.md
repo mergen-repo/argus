@@ -607,18 +607,21 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 |----|--------|------|-------------|------|--------|
 | API-336 | POST | /api/v1/sims/bulk/device-bindings | Bulk assign `iccid → bound_imei → binding_mode` mappings. Multipart CSV (`iccid, bound_imei, binding_mode`). Returns 202 `{job_id}`; reuses SVC-09 bulk job infrastructure. Per-row failures (unknown ICCID, invalid IMEI, mode conflict) surfaced in job result. Audit per row: `sim.binding_mode_changed`. | JWT (sim_manager+) | Phase 11 STORY-094 |
 
-## Log Forwarding — Syslog (2 endpoints) — Phase 11 / STORY-098
+## Log Forwarding — Syslog (5 endpoints) — Phase 11 / STORY-098
 
 > Native Syslog Forwarder is a sub-component of SVC-08 (Notification Service); subscribes to canonical event bus envelopes (`bus.Envelope`) and emits RFC 3164 / RFC 5424 frames over UDP / TCP / TLS to configured destinations.
 
 | ID | Method | Path | Description | Auth | Detail |
 |----|--------|------|-------------|------|--------|
 | API-337 | GET | /api/v1/settings/log-forwarding | List configured syslog destinations for the tenant. Response includes per-destination state (last delivery success/failure, last error). Tenant-scoped. | JWT (tenant_admin+) | Phase 11 STORY-098 |
-| API-338 | POST | /api/v1/settings/log-forwarding | Add or update a syslog destination. Body: `{host, port, transport: "udp"\|"tcp"\|"tls", format: "rfc3164"\|"rfc5424", facility: 0..23, severity_floor?, filter: {event_categories: [audit,alert,session,policy,system,...], min_severity?}, tls_ca_pem?, tls_client_cert_pem?, tls_client_key_pem?}`. 422 `INVALID_TRANSPORT` / `INVALID_FORMAT` on bad enums; 422 `TLS_CONFIG_INVALID` when transport=tls but PEMs malformed. Audit: `log_forwarding.destination_added`. DELETE variant added when needed (out of v1 scope to keep endpoint count tight; managed via PATCH-to-disabled). | JWT (tenant_admin+) | Phase 11 STORY-098 |
+| API-338 | POST | /api/v1/settings/log-forwarding | Add or update a syslog destination. Body: `{host, port, transport: "udp"\|"tcp"\|"tls", format: "rfc3164"\|"rfc5424", facility: 0..23, severity_floor?, filter: {event_categories: [audit,alert,session,policy,system,...], min_severity?}, tls_ca_pem?, tls_client_cert_pem?, tls_client_key_pem?}`. 422 `INVALID_TRANSPORT` / `INVALID_FORMAT` on bad enums; 422 `TLS_CONFIG_INVALID` when transport=tls but PEMs malformed. 422 `INVALID_PORT` (port outside 1..65535), `INVALID_FORMAT` (name/host empty or >255 chars). Audit: `log_forwarding.destination_added`. | JWT (tenant_admin+) | Phase 11 STORY-098 |
+| API-346 | POST | /api/v1/settings/log-forwarding/test | Test-connection endpoint: opens a live socket to host:port using the given transport/TLS config, sends a test syslog frame, and returns OK or an error message. No DB write; no audit. 422 `INVALID_HOST` when host is a cloud-metadata IP (169.254.169.254, etc.). | JWT (tenant_admin+) | Phase 11 STORY-098 |
+| API-347 | POST | /api/v1/settings/log-forwarding/{id}/enabled | Enable or disable a syslog destination. Body: `{enabled: bool}`. Audit: `log_forwarding.destination_disabled` (when disabling). Forwarder picks up the change within the 30s polling interval (D-197: future NATS-driven refresh). | JWT (tenant_admin+) | Phase 11 STORY-098 |
+| API-348 | DELETE | /api/v1/settings/log-forwarding/{id} | Delete a syslog destination permanently. 404 on missing or cross-tenant access. Audit: `log_forwarding.destination_deleted`. | JWT (tenant_admin+) | Phase 11 STORY-098 |
 
 ---
 
-**Total: 276 REST endpoints + 11 WebSocket event types**
+**Total: 279 REST endpoints + 11 WebSocket event types**
 
 > Index updated 2026-04-17 by compliance audit — 37 row additions (API-267..303 + Onboarding/Sessions/Traffic/SIM-IP fillers) cover STORY-077 (saved views, preferences, undo, announcements, chart annotations, impersonation, CSV exports), STORY-068 (backup-codes/remaining, session delete), STORY-069 (onboarding/status), STORY-070 (operator traffic), STORY-075 (operator sessions, sim ip-current), STORY-077 (APN referencing-policies). See `docs/reports/compliance-audit-report.md`.
 > Index updated 2026-04-18 by STORY-089 D-039 re-sweep — 5 row additions (API-308..312) index pre-existing AUSF/UDM/NRF endpoints shipped by STORY-020; pending note removed.
@@ -631,3 +634,4 @@ Pre-existing 5G SBA endpoints shipped by STORY-020 implementing AUSF authenticat
 > Index updated 2026-04-27 by FIX-236 review — 4 row additions (API-341..344) for filter-based SIM bulk endpoints (preview-count + state-change-by-filter + policy-assign-by-filter + operator-switch-by-filter). SIM Segments & Bulk count 10→14. Total updated 271→275. Existing per-id bulk endpoints (API-064..066) unchanged.
 > Index updated 2026-04-27 by FIX-248 review — 1 row addition (API-345) for the public HMAC-signed `/reports/download/{key_b64}` endpoint; API-206 amended with the FIX-248 scope reduction (KVKK/GDPR/BTK/cost_analysis removed). Reports count 5→6. Total updated 275→276.
 > Index updated 2026-05-03 by STORY-095 review — Total bold line corrected to 276 (was stale at 269; Phase 11 architect dispatch and subsequent FIX reviews had already appended API-327..345 with running changelog but never updated the bold count). No new endpoint rows — IMEI Pool Management (API-331..335) were registered by the Phase 11 architect dispatch on 2026-04-27.
+> Index updated 2026-05-05 by STORY-098 review — 3 row additions (API-346..348) for Test-connection, SetEnabled, and Delete endpoints shipped by STORY-098 but missing from the Phase 11 architect dispatch which only pre-registered 2 (API-337..338). Section header corrected to "5 endpoints". API-338 description updated (DELETE-variant note removed — Delete is now API-348). Total updated 276→279.

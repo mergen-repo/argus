@@ -51,6 +51,7 @@ const IMEIPoolsPage = lazy(() => import('@/pages/settings/imei-pools/index'))
 const KnowledgeBasePage = lazy(() => import('@/pages/settings/knowledgebase'))
 const SettingsPage = lazy(() => import('@/pages/settings/index'))
 const AlertRulesPage = lazy(() => import('@/pages/settings/alert-rules'))
+const LogForwardingPage = lazy(() => import('@/pages/settings/log-forwarding/index'))
 
 const SystemHealthPage = lazy(() => import('@/pages/system/health'))
 const TenantManagementPage = lazy(() => import('@/pages/system/tenants'))
@@ -164,6 +165,7 @@ export const router = createBrowserRouter([
           { path: '/settings/notifications', element: <Navigate to="/settings#notifications" replace /> },
           { path: '/settings/knowledgebase', element: lazySuspense(KnowledgeBasePage) },
           { path: '/settings/alert-rules', element: lazySuspense(AlertRulesPage) },
+          { path: '/settings/log-forwarding', element: lazySuspense(LogForwardingPage) },
           { path: '/alerts', element: lazySuspense(AlertsPage) },
           { path: '/alerts/:id', element: lazySuspense(AlertDetailPage) },
           { path: '/sla', element: lazySuspense(SLADashboardPage) },
