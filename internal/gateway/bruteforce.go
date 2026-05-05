@@ -14,10 +14,10 @@ import (
 )
 
 type BruteForceConfig struct {
-	MaxAttempts    int
-	WindowSeconds  int
-	BaseDelaySec   int
-	MaxDelaySec    int
+	MaxAttempts   int
+	WindowSeconds int
+	BaseDelaySec  int
+	MaxDelaySec   int
 }
 
 func DefaultBruteForceConfig() BruteForceConfig {

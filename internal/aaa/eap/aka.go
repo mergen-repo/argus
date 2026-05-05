@@ -14,11 +14,11 @@ const (
 	AKASubtypeSyncFail   uint8 = 4
 	AKASubtypeIdentity   uint8 = 5
 
-	AKAATRand     uint8 = 1
-	AKAATAutn     uint8 = 2
-	AKAATRes      uint8 = 3
-	AKAATAuts     uint8 = 4
-	AKAATMAC      uint8 = 11
+	AKAATRand      uint8 = 1
+	AKAATAutn      uint8 = 2
+	AKAATRes       uint8 = 3
+	AKAATAuts      uint8 = 4
+	AKAATMAC       uint8 = 11
 	AKAATCheckcode uint8 = 134
 
 	AKAPrimeATKDF      uint8 = 23

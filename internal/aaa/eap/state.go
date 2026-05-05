@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	StateIdentity    SessionState = "identity"
-	StateMethodNeg   SessionState = "method_negotiation"
-	StateSIMStart    SessionState = "sim_start"
-	StateChallenge   SessionState = "challenge"
-	StateSuccess     SessionState = "success"
-	StateFailure     SessionState = "failure"
+	StateIdentity  SessionState = "identity"
+	StateMethodNeg SessionState = "method_negotiation"
+	StateSIMStart  SessionState = "sim_start"
+	StateChallenge SessionState = "challenge"
+	StateSuccess   SessionState = "success"
+	StateFailure   SessionState = "failure"
 
 	DefaultStateTTL = 30 * time.Second
 
@@ -38,11 +38,11 @@ type SIMTriplets struct {
 }
 
 type AKAQuintets struct {
-	RAND  [16]byte
-	AUTN  [16]byte
-	XRES  []byte
-	CK    [16]byte
-	IK    [16]byte
+	RAND [16]byte
+	AUTN [16]byte
+	XRES []byte
+	CK   [16]byte
+	IK   [16]byte
 }
 
 type SIMTypeLookupFunc func(ctx context.Context, imsi string) (string, error)
@@ -56,9 +56,9 @@ type EAPSession struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	ExpiresAt  time.Time    `json:"expires_at"`
 
-	SIMStartData *SIMStartData      `json:"sim_start_data,omitempty"`
-	SIMData      *SIMChallengeData  `json:"sim_data,omitempty"`
-	AKAData      *AKAChallengeData  `json:"aka_data,omitempty"`
+	SIMStartData *SIMStartData     `json:"sim_start_data,omitempty"`
+	SIMData      *SIMChallengeData `json:"sim_data,omitempty"`
+	AKAData      *AKAChallengeData `json:"aka_data,omitempty"`
 }
 
 type SIMStartData struct {
@@ -74,12 +74,12 @@ type SIMChallengeData struct {
 }
 
 type AKAChallengeData struct {
-	RAND  [16]byte `json:"rand"`
-	AUTN  [16]byte `json:"autn"`
-	XRES  []byte   `json:"xres"`
-	CK    [16]byte `json:"ck"`
-	IK    [16]byte `json:"ik"`
-	MSK   []byte   `json:"msk,omitempty"`
+	RAND [16]byte `json:"rand"`
+	AUTN [16]byte `json:"autn"`
+	XRES []byte   `json:"xres"`
+	CK   [16]byte `json:"ck"`
+	IK   [16]byte `json:"ik"`
+	MSK  []byte   `json:"msk,omitempty"`
 }
 
 type StateStore interface {
@@ -108,9 +108,9 @@ type StateMachine struct {
 	logger        zerolog.Logger
 	mu            sync.RWMutex
 
-	msks       sync.Map
-	sweepStop  chan struct{}
-	sweepOnce  sync.Once
+	msks      sync.Map
+	sweepStop chan struct{}
+	sweepOnce sync.Once
 }
 
 func NewStateMachine(store StateStore, provider AuthVectorProvider, logger zerolog.Logger) *StateMachine {

@@ -37,13 +37,13 @@ type DiagnosticResult struct {
 }
 
 type Service struct {
-	simStore     *store.SIMStore
-	sessionStore *store.RadiusSessionStore
+	simStore      *store.SIMStore
+	sessionStore  *store.RadiusSessionStore
 	operatorStore *store.OperatorStore
-	apnStore     *store.APNStore
-	policyStore  *store.PolicyStore
-	ippoolStore  *store.IPPoolStore
-	logger       zerolog.Logger
+	apnStore      *store.APNStore
+	policyStore   *store.PolicyStore
+	ippoolStore   *store.IPPoolStore
+	logger        zerolog.Logger
 }
 
 func NewService(

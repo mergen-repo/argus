@@ -285,10 +285,10 @@ func testWaitForJob(t *testing.T) {
 		parseResponse(t, resp, &apiResp)
 
 		var job struct {
-			State          string `json:"state"`
-			TotalItems     int    `json:"total_items"`
-			ProcessedItems int    `json:"processed_items"`
-			FailedItems    int    `json:"failed_items"`
+			State          string  `json:"state"`
+			TotalItems     int     `json:"total_items"`
+			ProcessedItems int     `json:"processed_items"`
+			FailedItems    int     `json:"failed_items"`
 			ProgressPct    float64 `json:"progress_pct"`
 		}
 		require.NoError(t, json.Unmarshal(apiResp.Data, &job))

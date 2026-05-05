@@ -48,14 +48,14 @@ func NewStatusHandler(
 }
 
 type statusData struct {
-	Service        string `json:"service"`
-	Overall        string `json:"overall"`
-	Version        string `json:"version"`
-	GitSHA         string `json:"git_sha"`
-	BuildTime      string `json:"build_time"`
-	Uptime         string `json:"uptime"`
-	ActiveTenants  int64  `json:"active_tenants"`
-	RecentError5m  int64  `json:"recent_error_5m"`
+	Service       string `json:"service"`
+	Overall       string `json:"overall"`
+	Version       string `json:"version"`
+	GitSHA        string `json:"git_sha"`
+	BuildTime     string `json:"build_time"`
+	Uptime        string `json:"uptime"`
+	ActiveTenants int64  `json:"active_tenants"`
+	RecentError5m int64  `json:"recent_error_5m"`
 }
 
 type statusResponseWithMeta struct {
@@ -159,4 +159,3 @@ func (h *StatusHandler) ServeDetails(w http.ResponseWriter, r *http.Request) {
 		Meta:   meta,
 	})
 }
-

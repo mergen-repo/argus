@@ -14,16 +14,16 @@ import (
 )
 
 var (
-	ErrInvalidCredentials      = errors.New("auth: invalid credentials")
-	ErrAccountLocked           = errors.New("auth: account locked")
-	ErrAccountDisabled         = errors.New("auth: account disabled")
-	ErrInvalid2FACode          = errors.New("auth: invalid 2fa code")
-	ErrInvalidRefreshTkn       = errors.New("auth: invalid refresh token")
-	ErrPasswordReused          = errors.New("auth: password was recently used")
-	ErrInvalidBackupCode       = errors.New("auth: invalid backup code")
-	ErrPasswordChangeRequired  = errors.New("auth: password change required")
-	ErrTOTPNotEnabled          = errors.New("auth: totp not enabled")
-	ErrSessionNotFound         = errors.New("auth: session not found")
+	ErrInvalidCredentials     = errors.New("auth: invalid credentials")
+	ErrAccountLocked          = errors.New("auth: account locked")
+	ErrAccountDisabled        = errors.New("auth: account disabled")
+	ErrInvalid2FACode         = errors.New("auth: invalid 2fa code")
+	ErrInvalidRefreshTkn      = errors.New("auth: invalid refresh token")
+	ErrPasswordReused         = errors.New("auth: password was recently used")
+	ErrInvalidBackupCode      = errors.New("auth: invalid backup code")
+	ErrPasswordChangeRequired = errors.New("auth: password change required")
+	ErrTOTPNotEnabled         = errors.New("auth: totp not enabled")
+	ErrSessionNotFound        = errors.New("auth: session not found")
 )
 
 const (
@@ -134,11 +134,11 @@ type Setup2FAResult struct {
 }
 
 type Verify2FAResult struct {
-	Token                 string
-	RefreshToken          string
-	SessionID             uuid.UUID
-	BackupCodesRemaining  int
-	UsedBackupCode        bool
+	Token                string
+	RefreshToken         string
+	SessionID            uuid.UUID
+	BackupCodesRemaining int
+	UsedBackupCode       bool
 }
 
 type Verify2FAInput struct {
@@ -179,13 +179,13 @@ type OnboardingSessionLookup interface {
 }
 
 type Service struct {
-	users               UserRepository
-	sessions            SessionRepository
-	audit               AuditLogger
-	passwordHistory     PasswordHistoryRepository
-	backupCodes         BackupCodeRepository
-	onboardingSessions  OnboardingSessionLookup
-	cfg                 Config
+	users              UserRepository
+	sessions           SessionRepository
+	audit              AuditLogger
+	passwordHistory    PasswordHistoryRepository
+	backupCodes        BackupCodeRepository
+	onboardingSessions OnboardingSessionLookup
+	cfg                Config
 }
 
 func NewService(users UserRepository, sessions SessionRepository, audit AuditLogger, cfg Config) *Service {

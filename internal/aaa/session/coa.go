@@ -16,20 +16,20 @@ import (
 )
 
 const (
-	radiusCodeCoA         = radius.Code(43)
-	defaultCoAPort        = 3799
-	coaTimeout            = 3 * time.Second
-	CoAResultACK          = "ack"
-	CoAResultNAK          = "nak"
-	CoAResultTimeout      = "timeout"
-	CoAResultError        = "error"
+	radiusCodeCoA    = radius.Code(43)
+	defaultCoAPort   = 3799
+	coaTimeout       = 3 * time.Second
+	CoAResultACK     = "ack"
+	CoAResultNAK     = "nak"
+	CoAResultTimeout = "timeout"
+	CoAResultError   = "error"
 )
 
 type CoASender struct {
-	secret   []byte
-	port     int
-	logger   zerolog.Logger
-	auditor  audit.Auditor
+	secret  []byte
+	port    int
+	logger  zerolog.Logger
+	auditor audit.Auditor
 }
 
 func NewCoASender(secret string, port int, logger zerolog.Logger, opts ...func(*CoASender)) *CoASender {

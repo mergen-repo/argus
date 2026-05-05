@@ -196,9 +196,9 @@ type simResponse struct {
 	PolicyName            string          `json:"policy_name,omitempty"`
 	PolicyVersionNumber   int             `json:"policy_version_number,omitempty"`
 	PolicyID              *string         `json:"policy_id,omitempty"`         // FIX-233: OQ-1 drill-down to /policies/<id>
-	RolloutID             *string         `json:"rollout_id,omitempty"`         // FIX-233: policy_assignments.rollout_id
-	RolloutStagePct       *int            `json:"rollout_stage_pct,omitempty"`  // FIX-233: policy_assignments.stage_pct
-	CoaStatus             string          `json:"coa_status,omitempty"`         // FIX-233: policy_assignments.coa_status
+	RolloutID             *string         `json:"rollout_id,omitempty"`        // FIX-233: policy_assignments.rollout_id
+	RolloutStagePct       *int            `json:"rollout_stage_pct,omitempty"` // FIX-233: policy_assignments.stage_pct
+	CoaStatus             string          `json:"coa_status,omitempty"`        // FIX-233: policy_assignments.coa_status
 	ESimProfileID         *string         `json:"esim_profile_id,omitempty"`
 	SimType               string          `json:"sim_type"`
 	State                 string          `json:"state"`

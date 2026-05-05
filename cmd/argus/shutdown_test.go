@@ -11,20 +11,20 @@
 // The test does NOT call gracefulShutdown directly (it would require real
 // infrastructure). Instead it mirrors the documented shutdown sequence:
 //
-//	1. HTTP server drain
-//	2. RADIUS stop
-//	3. Diameter stop
-//	4. SBA stop (NRF deregister)
-//	5. WebSocket server drain
-//	6. Control-plane: session sweeper, cron, timeout detector
-//	7. Job runner
-//	8. Data-plane: metrics pusher, notification, health checker, anomaly,
-//	   lag poller, CDR consumer, audit
-//	9. OTel flush
-//	10. appCancel (background goroutines exit)
-//	11. NATS flush + close
-//	12. Redis close
-//	13. PostgreSQL close
+//  1. HTTP server drain
+//  2. RADIUS stop
+//  3. Diameter stop
+//  4. SBA stop (NRF deregister)
+//  5. WebSocket server drain
+//  6. Control-plane: session sweeper, cron, timeout detector
+//  7. Job runner
+//  8. Data-plane: metrics pusher, notification, health checker, anomaly,
+//     lag poller, CDR consumer, audit
+//  9. OTel flush
+//  10. appCancel (background goroutines exit)
+//  11. NATS flush + close
+//  12. Redis close
+//  13. PostgreSQL close
 //
 // Gate: testing.Short() — skipped by `make test` (unit-only).
 package main

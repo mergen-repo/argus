@@ -325,4 +325,3 @@ func (eb *EventBus) QueueSubscribe(subject, queue string, handler MessageHandler
 		handler(subj, data)
 	})
 }
-

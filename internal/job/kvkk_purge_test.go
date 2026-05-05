@@ -34,10 +34,10 @@ func TestKVKKPurgeDailyRegisteredInAllJobTypes(t *testing.T) {
 
 func TestKVKKPurgeJobPayload_Parse(t *testing.T) {
 	cases := []struct {
-		name     string
-		raw      string
-		wantDry  bool
-		wantTID  bool
+		name    string
+		raw     string
+		wantDry bool
+		wantTID bool
 	}{
 		{
 			name:    "empty payload defaults dryRun=false, tenantID=nil",

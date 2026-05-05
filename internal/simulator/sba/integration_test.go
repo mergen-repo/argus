@@ -30,11 +30,13 @@ func init() {
 // but without TLS, NRF registration, or session manager overhead.
 //
 // AUSF paths:
-//   /nausf-auth/v1/ue-authentications       (POST  → HandleAuthentication)
-//   /nausf-auth/v1/ue-authentications/<id>/5g-aka-confirmation  (PUT → HandleConfirmation)
+//
+//	/nausf-auth/v1/ue-authentications       (POST  → HandleAuthentication)
+//	/nausf-auth/v1/ue-authentications/<id>/5g-aka-confirmation  (PUT → HandleConfirmation)
 //
 // UDM paths:
-//   /nudm-uecm/v1/<supi>/registrations/amf-3gpp-access  (PUT → HandleRegistration; DELETE → 405)
+//
+//	/nudm-uecm/v1/<supi>/registrations/amf-3gpp-access  (PUT → HandleRegistration; DELETE → 405)
 func newArgusHandlers() http.Handler {
 	ausf := argussba.NewAUSFHandler(nil, nil, nil, zerolog.Nop())
 	udm := argussba.NewUDMHandler(nil, nil, nil, zerolog.Nop())

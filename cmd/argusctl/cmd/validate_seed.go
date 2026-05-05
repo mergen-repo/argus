@@ -98,7 +98,7 @@ type extractedDSL struct {
 // extractDSLStrings finds every dsl_content literal embedded in
 // `INSERT INTO policy_versions ...` blocks of a SQL seed file. It supports both
 // Postgres dollar-quoted ($tag$...$tag$) literals and standard single-quoted
-// literals ('...' with '' as escape). The MVP filter retains only candidate
+// literals ('...' with ” as escape). The MVP filter retains only candidate
 // strings whose trimmed prefix is POLICY or IF (the two DSL forms in use);
 // JSON `compiled_rules`, UUIDs, descriptions, hashes, etc. are skipped.
 func extractDSLStrings(body string) []extractedDSL {
@@ -176,7 +176,7 @@ func extractDSLStrings(body string) []extractedDSL {
 
 // findStatementEnd returns the offset of the SQL statement-terminating `;`
 // (or end-of-body) starting from `start`, treating single-quoted strings
-// (with '' escape), dollar-quoted strings, and -- line comments as opaque.
+// (with ” escape), dollar-quoted strings, and -- line comments as opaque.
 func findStatementEnd(body string, start int) int {
 	i := start
 	for i < len(body) {

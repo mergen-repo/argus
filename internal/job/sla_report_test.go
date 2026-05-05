@@ -23,9 +23,9 @@ func (f *fakeTenantLister) List(_ context.Context, _ string, _ int, _ string) ([
 }
 
 type fakeOperatorQuerier struct {
-	mu      sync.Mutex
-	grants  map[uuid.UUID][]store.GrantWithOperator
-	agg     *store.SLAAggregate
+	mu       sync.Mutex
+	grants   map[uuid.UUID][]store.GrantWithOperator
+	agg      *store.SLAAggregate
 	aggCalls []struct {
 		opID uuid.UUID
 	}

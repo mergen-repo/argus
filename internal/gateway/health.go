@@ -47,10 +47,10 @@ type HealthHandler struct {
 	sba      SBAHealthChecker
 	startAt  time.Time
 
-	diskMounts      []string
-	diskDegradedPct int
+	diskMounts       []string
+	diskDegradedPct  int
 	diskUnhealthyPct int
-	metricsReg      *metrics.Registry
+	metricsReg       *metrics.Registry
 
 	startupOnce      sync.Once
 	startupLatched   atomic.Bool
@@ -109,14 +109,14 @@ type aaaHealthData struct {
 }
 
 type readyData struct {
-	State           string          `json:"state"`
-	DB              probeResult     `json:"db"`
-	Redis           probeResult     `json:"redis"`
-	NATS            probeResult     `json:"nats"`
-	AAA             *aaaHealthData  `json:"aaa,omitempty"`
+	State           string            `json:"state"`
+	DB              probeResult       `json:"db"`
+	Redis           probeResult       `json:"redis"`
+	NATS            probeResult       `json:"nats"`
+	AAA             *aaaHealthData    `json:"aaa,omitempty"`
 	Disks           []DiskProbeResult `json:"disks,omitempty"`
-	DegradedReasons []string        `json:"degraded_reasons,omitempty"`
-	Uptime          string          `json:"uptime"`
+	DegradedReasons []string          `json:"degraded_reasons,omitempty"`
+	Uptime          string            `json:"uptime"`
 }
 
 type liveData struct {

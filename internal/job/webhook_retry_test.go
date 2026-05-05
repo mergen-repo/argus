@@ -52,10 +52,10 @@ func (f *fakeWebhookDeliveryStore) MarkFinal(_ context.Context, id uuid.UUID, st
 }
 
 type fakeWebhookConfigStore struct {
-	mu       sync.Mutex
-	cfg      *store.WebhookConfig
-	getErr   error
-	bumps    []string
+	mu     sync.Mutex
+	cfg    *store.WebhookConfig
+	getErr error
+	bumps  []string
 }
 
 func (f *fakeWebhookConfigStore) Get(_ context.Context, _ uuid.UUID) (*store.WebhookConfig, error) {

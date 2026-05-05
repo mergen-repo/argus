@@ -41,10 +41,10 @@ func (f *fakePolicyAssignAuditor) snapshot() []audit.CreateEntryParams {
 }
 
 type fakeBulkSessionProvider struct {
-	mu       sync.Mutex
-	byID     map[string][]BulkSessionInfo
-	errOnID  map[string]error
-	callLog  []string
+	mu      sync.Mutex
+	byID    map[string][]BulkSessionInfo
+	errOnID map[string]error
+	callLog []string
 }
 
 func newFakeBulkSessionProvider() *fakeBulkSessionProvider {
@@ -65,10 +65,10 @@ func (f *fakeBulkSessionProvider) GetSessionsForSIM(_ context.Context, simID str
 }
 
 type fakeBulkCoADispatcher struct {
-	mu       sync.Mutex
-	status   string // "ack", "nak", "timeout"
+	mu        sync.Mutex
+	status    string // "ack", "nak", "timeout"
 	returnErr error
-	sent     []BulkCoARequest
+	sent      []BulkCoARequest
 }
 
 func (f *fakeBulkCoADispatcher) SendCoA(_ context.Context, req BulkCoARequest) (*BulkCoAResult, error) {

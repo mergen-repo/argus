@@ -16,9 +16,9 @@ var (
 )
 
 const (
-	AcctStart  = "start"
+	AcctStart   = "start"
 	AcctInterim = "interim"
-	AcctStop   = "stop"
+	AcctStop    = "stop"
 )
 
 type AdapterError struct {
@@ -77,13 +77,13 @@ type AuthResponse struct {
 }
 
 type AcctRequest struct {
-	IMSI          string
-	SessionID     string
-	StatusType    string
-	InputOctets   uint64
-	OutputOctets  uint64
-	SessionTime   int
-	NASIP         string
+	IMSI         string
+	SessionID    string
+	StatusType   string
+	InputOctets  uint64
+	OutputOctets uint64
+	SessionTime  int
+	NASIP        string
 }
 
 type CoARequest struct {

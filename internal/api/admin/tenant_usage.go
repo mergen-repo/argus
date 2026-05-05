@@ -86,11 +86,11 @@ func calcUsagePct64(current int64, max int64) float64 {
 //
 // Returns unified per-tenant quota + resource usage in a single array.
 // Query budget per request:
-//   1. tenantStore.List           — fetch all tenants (1 query)
-//   2. tenantStore.GetStats       — per-tenant stats (N queries, bounded to <100 tenants)
-//   3. breach count batch query   — single GROUP BY across all tenants (1 query)
-//   4. cdrBytes30d helper         — per-tenant CDR sum (N queries, reused from ListTenantResources)
-//   5. estimateTenantAPIRPS       — per-tenant audit_logs count (N queries, reused from ListTenantResources)
+//  1. tenantStore.List           — fetch all tenants (1 query)
+//  2. tenantStore.GetStats       — per-tenant stats (N queries, bounded to <100 tenants)
+//  3. breach count batch query   — single GROUP BY across all tenants (1 query)
+//  4. cdrBytes30d helper         — per-tenant CDR sum (N queries, reused from ListTenantResources)
+//  5. estimateTenantAPIRPS       — per-tenant audit_logs count (N queries, reused from ListTenantResources)
 //
 // The per-tenant N pattern is pre-existing in ListTenantResources / ListTenantQuotas
 // and is acceptable for the bounded tenant population (<100). The breach count

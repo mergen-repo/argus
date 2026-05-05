@@ -471,4 +471,3 @@ func TestHashAPIKeyConsistency(t *testing.T) {
 		t.Error("Different keys should produce different hashes")
 	}
 }
-

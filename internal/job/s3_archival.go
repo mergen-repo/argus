@@ -148,9 +148,9 @@ func (p *S3ArchivalProcessor) Process(ctx context.Context, job *store.Job) error
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
 			"job_id":         job.ID.String(),
-			"tenant_id":     job.TenantID.String(),
-			"type":          JobTypeS3Archival,
-			"state":         "completed",
+			"tenant_id":      job.TenantID.String(),
+			"type":           JobTypeS3Archival,
+			"state":          "completed",
 			"total_archived": totalArchived,
 			"total_failed":   totalFailed,
 		})

@@ -74,7 +74,7 @@ func TestRunnerConfig_Defaults(t *testing.T) {
 func TestRunnerConfig_Custom(t *testing.T) {
 	r := NewRunner(nil, nil, nil, RunnerConfig{
 		MaxConcurrentPerTenant: 10,
-		LockRenewInterval:     15 * time.Second,
+		LockRenewInterval:      15 * time.Second,
 	}, zerolog.Nop())
 
 	if r.config.MaxConcurrentPerTenant != 10 {

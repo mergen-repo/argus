@@ -80,18 +80,18 @@ type Peer struct {
 	cfg    PeerConfig
 	logger zerolog.Logger
 
-	state   atomic.Int32
-	hopID   atomic.Uint32
-	endID   atomic.Uint32
+	state atomic.Int32
+	hopID atomic.Uint32
+	endID atomic.Uint32
 
-	mu       sync.Mutex
-	conn     net.Conn
-	pending  map[uint32]*pendingReq
+	mu      sync.Mutex
+	conn    net.Conn
+	pending map[uint32]*pendingReq
 
-	dwrMu        sync.Mutex
-	dwrInFlight  bool
+	dwrMu       sync.Mutex
+	dwrInFlight bool
 
-	closeCh  chan struct{}
+	closeCh   chan struct{}
 	closeOnce sync.Once
 }
 

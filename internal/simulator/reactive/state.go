@@ -44,9 +44,9 @@ func (s SessionState) String() string {
 type DisconnectCause uint32
 
 const (
-	CauseNone     DisconnectCause = iota
-	CauseDM                       // Disconnect-Message from Argus
-	CauseCoADeadline              // CoA updated deadline expired
+	CauseNone        DisconnectCause = iota
+	CauseDM                          // Disconnect-Message from Argus
+	CauseCoADeadline                 // CoA updated deadline expired
 )
 
 type Session struct {

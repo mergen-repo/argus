@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/btopcu/argus/internal/simulator/config"
+	simradius "github.com/btopcu/argus/internal/simulator/radius"
 	"github.com/btopcu/argus/internal/simulator/reactive"
 	"github.com/btopcu/argus/internal/simulator/sba"
-	simradius "github.com/btopcu/argus/internal/simulator/radius"
 	"github.com/btopcu/argus/internal/simulator/scenario"
 	"github.com/rs/zerolog"
 )
@@ -94,11 +94,11 @@ func TestNew_ReactiveSubsystemWired(t *testing.T) {
 		Rate: config.RateConfig{MaxRadiusRequestsPerSecond: 5},
 	}
 	reactCfg := config.ReactiveDefaults{
-		Enabled:                true,
-		SessionTimeoutRespect:  true,
-		EarlyTerminationMargin: 5 * time.Second,
-		RejectBackoffBase:      30 * time.Second,
-		RejectBackoffMax:       600 * time.Second,
+		Enabled:                 true,
+		SessionTimeoutRespect:   true,
+		EarlyTerminationMargin:  5 * time.Second,
+		RejectBackoffBase:       30 * time.Second,
+		RejectBackoffMax:        600 * time.Second,
 		RejectMaxRetriesPerHour: 5,
 	}
 	sub := &reactive.Subsystem{
@@ -144,10 +144,10 @@ func TestClassifyTermination_AllCauses(t *testing.T) {
 	cancel() // already cancelled
 
 	tests := []struct {
-		name     string
-		sess     *reactive.Session
-		ctx      context.Context
-		want     string
+		name string
+		sess *reactive.Session
+		ctx  context.Context
+		want string
 	}{
 		{
 			name: "DM cause → disconnect",

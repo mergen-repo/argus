@@ -62,10 +62,10 @@ type Assignment struct {
 	Column   int
 }
 
-func (a *Assignment) nodeType() string    { return "Assignment" }
-func (a *Assignment) statementNode()      {}
-func (a *Assignment) whenBodyNode()       {}
-func (a *Assignment) chargingStmtNode()   {}
+func (a *Assignment) nodeType() string  { return "Assignment" }
+func (a *Assignment) statementNode()    {}
+func (a *Assignment) whenBodyNode()     {}
+func (a *Assignment) chargingStmtNode() {}
 
 type WhenBlock struct {
 	Cond Condition
@@ -100,8 +100,8 @@ type SimpleCondition struct {
 	Column   int
 }
 
-func (s *SimpleCondition) nodeType() string  { return "SimpleCondition" }
-func (s *SimpleCondition) conditionNode()    {}
+func (s *SimpleCondition) nodeType() string { return "SimpleCondition" }
+func (s *SimpleCondition) conditionNode()   {}
 
 type CompoundCondition struct {
 	Left  Condition
@@ -109,22 +109,22 @@ type CompoundCondition struct {
 	Right Condition
 }
 
-func (c *CompoundCondition) nodeType() string  { return "CompoundCondition" }
-func (c *CompoundCondition) conditionNode()    {}
+func (c *CompoundCondition) nodeType() string { return "CompoundCondition" }
+func (c *CompoundCondition) conditionNode()   {}
 
 type NotCondition struct {
 	Inner Condition
 }
 
-func (n *NotCondition) nodeType() string  { return "NotCondition" }
-func (n *NotCondition) conditionNode()    {}
+func (n *NotCondition) nodeType() string { return "NotCondition" }
+func (n *NotCondition) conditionNode()   {}
 
 type GroupCondition struct {
 	Inner Condition
 }
 
-func (g *GroupCondition) nodeType() string  { return "GroupCondition" }
-func (g *GroupCondition) conditionNode()    {}
+func (g *GroupCondition) nodeType() string { return "GroupCondition" }
+func (g *GroupCondition) conditionNode()   {}
 
 type ChargingBlock struct {
 	Assignments   []*Assignment

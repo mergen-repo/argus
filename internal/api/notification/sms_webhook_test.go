@@ -12,10 +12,10 @@ import (
 )
 
 type fakeSMSStatusStore struct {
-	calledSID    string
-	calledStatus string
+	calledSID     string
+	calledStatus  string
 	calledErrCode string
-	returnErr    error
+	returnErr     error
 }
 
 func (f *fakeSMSStatusStore) UpdateDeliveryBySID(_ context.Context, sid, status, errorCode string) error {

@@ -15,11 +15,11 @@ import (
 )
 
 type fakeProcessor struct {
-	mu          sync.Mutex
-	callCount   int
-	panicUntil  int
-	panicValue  interface{}
-	returnErr   error
+	mu         sync.Mutex
+	callCount  int
+	panicUntil int
+	panicValue interface{}
+	returnErr  error
 }
 
 func (f *fakeProcessor) Type() string { return "fake_processor" }

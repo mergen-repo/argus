@@ -100,16 +100,16 @@ func TestToSIMResponse(t *testing.T) {
 func TestToSIMResponseNilFields(t *testing.T) {
 	now := time.Now()
 	s := &store.SIM{
-		ID:        uuid.New(),
-		TenantID:  uuid.New(),
+		ID:         uuid.New(),
+		TenantID:   uuid.New(),
 		OperatorID: uuid.New(),
-		ICCID:     "8990123456789012345",
-		IMSI:      "286010123456789",
-		SimType:   "esim",
-		State:     "ordered",
-		Metadata:  json.RawMessage(`{}`),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ICCID:      "8990123456789012345",
+		IMSI:       "286010123456789",
+		SimType:    "esim",
+		State:      "ordered",
+		Metadata:   json.RawMessage(`{}`),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	resp := toSIMResponseBase(s)

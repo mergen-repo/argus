@@ -12,21 +12,21 @@ import (
 
 // Sample represents the per-session runtime instance of a chosen scenario.
 type Sample struct {
-	Name                  string
-	SessionDuration       time.Duration
-	InterimInterval       time.Duration
-	BytesPerInterimIn     int
-	BytesPerInterimOut    int
+	Name               string
+	SessionDuration    time.Duration
+	InterimInterval    time.Duration
+	BytesPerInterimIn  int
+	BytesPerInterimOut int
 }
 
 // Picker wraps a *rand.Rand guarded by a mutex (thread-safe for the engine
 // calling Pick() from multiple session goroutines). Weights are
 // accumulated into a cumulative distribution at construction.
 type Picker struct {
-	mu       sync.Mutex
-	rng      *rand.Rand
-	scenarios []config.ScenarioConfig
-	cumulative []float64
+	mu          sync.Mutex
+	rng         *rand.Rand
+	scenarios   []config.ScenarioConfig
+	cumulative  []float64
 	totalWeight float64
 }
 

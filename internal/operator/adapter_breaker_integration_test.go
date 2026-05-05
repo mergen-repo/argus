@@ -75,8 +75,8 @@ func TestCircuitBreaker_Integration_OpensAfter5Failures(t *testing.T) {
 	t.Parallel()
 
 	const (
-		threshold  = 5
-		delayMs    = 20 // kept small for test speed; enough to detect short-circuit
+		threshold   = 5
+		delayMs     = 20 // kept small for test speed; enough to detect short-circuit
 		recoverySec = 300
 	)
 

@@ -380,25 +380,25 @@ func (r *RADIUSAdapter) Type() string {
 }
 
 const (
-	radiusCodeAccessRequest  byte = 1
-	radiusCodeAccessAccept   byte = 2
-	radiusCodeAccessReject   byte = 3
-	radiusCodeAcctRequest    byte = 4
-	radiusCodeStatusServer   byte = 12
-	radiusCodeCoARequest     byte = 43
-	radiusCodeDMRequest      byte = 40
+	radiusCodeAccessRequest byte = 1
+	radiusCodeAccessAccept  byte = 2
+	radiusCodeAccessReject  byte = 3
+	radiusCodeAcctRequest   byte = 4
+	radiusCodeStatusServer  byte = 12
+	radiusCodeCoARequest    byte = 43
+	radiusCodeDMRequest     byte = 40
 )
 
 const (
-	radiusAttrUserName      byte = 1
-	radiusAttrNASIPAddress  byte = 4
-	radiusAttrAcctSessionID byte = 44
+	radiusAttrUserName       byte = 1
+	radiusAttrNASIPAddress   byte = 4
+	radiusAttrAcctSessionID  byte = 44
 	radiusAttrAcctStatusType byte = 40
-	radiusAttrNASIdentifier byte = 32
+	radiusAttrNASIdentifier  byte = 32
 	radiusAttrSessionTimeout byte = 27
-	radiusAttrIdleTimeout   byte = 28
-	radiusAttrFilterID      byte = 11
-	radiusAttrFramedIP      byte = 8
+	radiusAttrIdleTimeout    byte = 28
+	radiusAttrFilterID       byte = 11
+	radiusAttrFramedIP       byte = 8
 )
 
 func buildRADIUSStatusServer(secret string) []byte {

@@ -15,8 +15,8 @@ const (
 )
 
 type RateLimiter struct {
-	client       *redis.Client
-	maxPerHour   int
+	client     *redis.Client
+	maxPerHour int
 }
 
 func NewRateLimiter(client *redis.Client, maxPerHour int) *RateLimiter {

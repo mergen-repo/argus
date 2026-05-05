@@ -17,9 +17,9 @@ import (
 // --- fakes for T10 batch OTA tests ---
 
 type fakeBulkOTACommandStore struct {
-	mu           sync.Mutex
-	insertCalls  [][]store.InsertEsimOTACommandParams
-	insertErr    error
+	mu          sync.Mutex
+	insertCalls [][]store.InsertEsimOTACommandParams
+	insertErr   error
 }
 
 func (f *fakeBulkOTACommandStore) BatchInsert(_ context.Context, params []store.InsertEsimOTACommandParams) (int, error) {
@@ -43,8 +43,8 @@ func (f *fakeBulkOTACommandStore) totalInserted() int {
 }
 
 type fakeBulkStockStore struct {
-	mu          sync.Mutex
-	allocateFn  func(tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error)
+	mu         sync.Mutex
+	allocateFn func(tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error)
 }
 
 func (f *fakeBulkStockStore) Allocate(_ context.Context, tenantID, operatorID uuid.UUID) (*store.EsimProfileStock, error) {

@@ -188,4 +188,3 @@ type stubSessionStore struct {
 func (s *stubSessionStore) ListActiveTenantCounts(_ context.Context) (map[string]int64, error) {
 	return s.counts, nil
 }
-

@@ -62,8 +62,8 @@ func (s *SoRSubscriber) SubscribeHealthEvents(eventBus *bus.EventBus) (*nats.Sub
 func (s *SoRSubscriber) SubscribeCacheInvalidation(eventBus *bus.EventBus) (*nats.Subscription, error) {
 	return eventBus.QueueSubscribe(bus.SubjectCacheInvalidate, "sor_cache_invalidation", func(subject string, data []byte) {
 		var msg struct {
-			Type      string    `json:"type"`
-			TenantID  uuid.UUID `json:"tenant_id"`
+			Type       string    `json:"type"`
+			TenantID   uuid.UUID `json:"tenant_id"`
 			OperatorID uuid.UUID `json:"operator_id,omitempty"`
 		}
 		if err := json.Unmarshal(data, &msg); err != nil {

@@ -8,10 +8,10 @@ import (
 )
 
 type CompiledPolicy struct {
-	Name     string           `json:"name"`
-	Version  string           `json:"version"`
-	Match    CompiledMatch    `json:"match"`
-	Rules    CompiledRules    `json:"rules"`
+	Name     string            `json:"name"`
+	Version  string            `json:"version"`
+	Match    CompiledMatch     `json:"match"`
+	Rules    CompiledRules     `json:"rules"`
 	Charging *CompiledCharging `json:"charging,omitempty"`
 }
 
@@ -53,14 +53,14 @@ type CompiledAction struct {
 }
 
 type CompiledCharging struct {
-	Model           string             `json:"model"`
-	RatePerMB       float64            `json:"rate_per_mb,omitempty"`
-	RatePerSession  float64            `json:"rate_per_session,omitempty"`
-	BillingCycle    string             `json:"billing_cycle,omitempty"`
-	Quota           int64              `json:"quota,omitempty"`
-	OverageAction   string             `json:"overage_action,omitempty"`
-	OverageRatePerMB float64           `json:"overage_rate_per_mb,omitempty"`
-	RATMultiplier   map[string]float64 `json:"rat_type_multiplier,omitempty"`
+	Model            string             `json:"model"`
+	RatePerMB        float64            `json:"rate_per_mb,omitempty"`
+	RatePerSession   float64            `json:"rate_per_session,omitempty"`
+	BillingCycle     string             `json:"billing_cycle,omitempty"`
+	Quota            int64              `json:"quota,omitempty"`
+	OverageAction    string             `json:"overage_action,omitempty"`
+	OverageRatePerMB float64            `json:"overage_rate_per_mb,omitempty"`
+	RATMultiplier    map[string]float64 `json:"rat_type_multiplier,omitempty"`
 }
 
 type Compiler struct{}

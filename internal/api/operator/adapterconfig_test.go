@@ -339,12 +339,13 @@ func TestRestoreMaskedSecrets_LeavesNonSentinelAlone(t *testing.T) {
 
 // TestOperatorResponse_AdapterConfigSerialization is an end-to-end
 // JSON round-trip proof that:
-//   1. The `adapter_config` field name survives tag-encoding.
-//   2. maskAdapterConfig output embeds cleanly in json.RawMessage.
-//   3. A secret's masked sentinel `"****"` is visible on the wire
-//      (i.e. the real secret is NOT reachable by a response consumer).
-//   4. Non-secret sub-fields (listen_addr, base_url, latency_ms) are
-//      preserved.
+//  1. The `adapter_config` field name survives tag-encoding.
+//  2. maskAdapterConfig output embeds cleanly in json.RawMessage.
+//  3. A secret's masked sentinel `"****"` is visible on the wire
+//     (i.e. the real secret is NOT reachable by a response consumer).
+//  4. Non-secret sub-fields (listen_addr, base_url, latency_ms) are
+//     preserved.
+//
 // Plugs the advisor-flagged gap: no HTTP-level proof that AC-4 / AC-5
 // actually deliver adapter_config to the wire with secrets masked.
 func TestOperatorResponse_AdapterConfigSerialization(t *testing.T) {
@@ -360,17 +361,17 @@ func TestOperatorResponse_AdapterConfigSerialization(t *testing.T) {
 
 	now := time.Now()
 	resp := toOperatorResponse(&store.Operator{
-		ID:                        uuid.New(),
-		Name:                      "TC",
-		Code:                      "tc",
-		MCC:                       "286",
-		MNC:                       "01",
-		SupportedRATTypes:         []string{"lte"},
-		HealthStatus:              "healthy",
-		HealthCheckIntervalSec:    30,
-		FailoverPolicy:            "reject",
-		CreatedAt:                 now,
-		UpdatedAt:                 now,
+		ID:                     uuid.New(),
+		Name:                   "TC",
+		Code:                   "tc",
+		MCC:                    "286",
+		MNC:                    "01",
+		SupportedRATTypes:      []string{"lte"},
+		HealthStatus:           "healthy",
+		HealthCheckIntervalSec: 30,
+		FailoverPolicy:         "reject",
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}, []string{"radius", "http"})
 	resp.AdapterConfig = masked
 

@@ -353,10 +353,10 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 // Step handlers
 
 type step1Request struct {
-	CompanyName   string  `json:"company_name"`
-	ContactEmail  string  `json:"contact_email"`
-	ContactPhone  *string `json:"contact_phone"`
-	Locale        string  `json:"locale"`
+	CompanyName  string  `json:"company_name"`
+	ContactEmail string  `json:"contact_email"`
+	ContactPhone *string `json:"contact_phone"`
+	Locale       string  `json:"locale"`
 }
 
 func (h *Handler) handleStep1(r *http.Request, tenantID, _ uuid.UUID) (interface{}, []byte, error) {
@@ -468,9 +468,9 @@ func (h *Handler) handleStep2OperatorGrants(r *http.Request, tenantID uuid.UUID,
 }
 
 type step3APNRequest struct {
-	APNName  string `json:"apn_name"`
-	APNType  string `json:"apn_type"`
-	IPCidr   string `json:"ip_cidr"`
+	APNName string `json:"apn_name"`
+	APNType string `json:"apn_type"`
+	IPCidr  string `json:"ip_cidr"`
 }
 
 func (h *Handler) handleStep3APN(r *http.Request, tenantID uuid.UUID, userID uuid.UUID) (interface{}, []byte, error) {

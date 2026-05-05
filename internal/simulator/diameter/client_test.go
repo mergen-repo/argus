@@ -475,4 +475,3 @@ func collectN(t *testing.T, ch <-chan *argusdiameter.Message, n int, timeout tim
 	}
 	return out
 }
-

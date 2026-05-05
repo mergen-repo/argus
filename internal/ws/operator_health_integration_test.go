@@ -25,13 +25,13 @@ func TestOperatorHealthBroadcast_StatusFlipRelayed(t *testing.T) {
 
 	operatorID := uuid.New()
 	payload := map[string]interface{}{
-		"operator_id":          operatorID.String(),
-		"operator_name":        "TestNet",
-		"previous_status":      "healthy",
-		"current_status":       "degraded",
+		"operator_id":           operatorID.String(),
+		"operator_name":         "TestNet",
+		"previous_status":       "healthy",
+		"current_status":        "degraded",
 		"circuit_breaker_state": "open",
-		"latency_ms":           850,
-		"timestamp":            time.Now().UTC().Format(time.RFC3339),
+		"latency_ms":            850,
+		"timestamp":             time.Now().UTC().Format(time.RFC3339),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -87,12 +87,12 @@ func TestOperatorHealthBroadcast_LatencyOnlyRelayed(t *testing.T) {
 
 	operatorID := uuid.New()
 	payload := map[string]interface{}{
-		"operator_id":          operatorID.String(),
-		"previous_status":      "healthy",
-		"current_status":       "healthy",
+		"operator_id":           operatorID.String(),
+		"previous_status":       "healthy",
+		"current_status":        "healthy",
 		"circuit_breaker_state": "closed",
-		"latency_ms":           1200,
-		"timestamp":            time.Now().UTC().Format(time.RFC3339),
+		"latency_ms":            1200,
+		"timestamp":             time.Now().UTC().Format(time.RFC3339),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

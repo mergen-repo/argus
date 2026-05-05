@@ -23,10 +23,10 @@ type RedactedProtocols struct {
 }
 
 type RedactedLimits struct {
-	RateLimitPerMinute         int `json:"rate_limit_per_minute"`
-	RequestBodyMaxMB           int `json:"request_body_max_mb"`
-	DefaultMaxSIMs             int `json:"default_max_sims"`
-	JobMaxConcurrentPerTenant  int `json:"job_max_concurrent_per_tenant"`
+	RateLimitPerMinute        int `json:"rate_limit_per_minute"`
+	RequestBodyMaxMB          int `json:"request_body_max_mb"`
+	DefaultMaxSIMs            int `json:"default_max_sims"`
+	JobMaxConcurrentPerTenant int `json:"job_max_concurrent_per_tenant"`
 }
 
 type RedactedRetention struct {

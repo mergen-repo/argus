@@ -16,10 +16,10 @@ const (
 	SimSubtypeChallenge uint8 = 11
 	SimSubtypeNotify    uint8 = 12
 
-	SimATRand      uint8 = 1
-	SimATNonceMT   uint8 = 7
-	SimATMAC       uint8 = 11
-	SimATVersionList uint8 = 15
+	SimATRand            uint8 = 1
+	SimATNonceMT         uint8 = 7
+	SimATMAC             uint8 = 11
+	SimATVersionList     uint8 = 15
 	SimATSelectedVersion uint8 = 16
 
 	SimVersion1 uint16 = 1

@@ -104,7 +104,6 @@ func TestRecordAuth_ErrorRate(t *testing.T) {
 	}
 }
 
-
 func TestLatencyPercentiles(t *testing.T) {
 	rdb := newTestRedis(t)
 	ctx := context.Background()

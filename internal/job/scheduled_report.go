@@ -70,14 +70,14 @@ type scheduledReportMetrics interface {
 
 // ScheduledReportProcessor builds a single scheduled or on-demand report.
 type ScheduledReportProcessor struct {
-	jobs      jobProgressTracker
-	rows      scheduledReportRowStore
-	engine    scheduledReportEngine
-	storage   scheduledReportStorage
-	eventBus  busPublisher
-	metrics   scheduledReportMetrics
-	now       func() time.Time
-	logger    zerolog.Logger
+	jobs     jobProgressTracker
+	rows     scheduledReportRowStore
+	engine   scheduledReportEngine
+	storage  scheduledReportStorage
+	eventBus busPublisher
+	metrics  scheduledReportMetrics
+	now      func() time.Time
+	logger   zerolog.Logger
 }
 
 func NewScheduledReportProcessor(
@@ -115,9 +115,9 @@ func (p *ScheduledReportProcessor) Process(ctx context.Context, j *store.Job) er
 	}
 
 	var (
-		row     *store.ScheduledReport
-		req     report.Request
-		recips  []string
+		row    *store.ScheduledReport
+		req    report.Request
+		recips []string
 	)
 
 	tenantID := j.TenantID
@@ -252,12 +252,12 @@ type scheduledReportEnqueuer interface {
 
 // ScheduledReportSweeper enqueues a JobTypeScheduledReportRun job for each due row.
 type ScheduledReportSweeper struct {
-	jobs       jobProgressTracker
-	rows       scheduledReportLister
-	enqueue    scheduledReportEnqueuer
-	eventBus   busPublisher
-	now        func() time.Time
-	logger     zerolog.Logger
+	jobs     jobProgressTracker
+	rows     scheduledReportLister
+	enqueue  scheduledReportEnqueuer
+	eventBus busPublisher
+	now      func() time.Time
+	logger   zerolog.Logger
 }
 
 func NewScheduledReportSweeper(

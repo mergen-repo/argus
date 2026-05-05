@@ -26,44 +26,51 @@
 // # Coverage map — Acceptance Criteria → test location
 //
 // Scenario 1 (handler → job row → 100-SIM payload):
-//   TestIntegration_BulkStateChange_100SIMs_HandlerPayloadContract (this file)
-//   → AC-1 (sim_ids array accepted), AC-5 (100 within 1–10000), AC-7 (job row).
+//
+//	TestIntegration_BulkStateChange_100SIMs_HandlerPayloadContract (this file)
+//	→ AC-1 (sim_ids array accepted), AC-5 (100 within 1–10000), AC-7 (job row).
 //
 // Scenario 2 (policy-assign + CoA):
-//   TestBulkPolicyAssign_DispatchCoA_MixedSessions, TestBulkPolicyAssign_CoADispatchedForMultipleSIMs
-//   in internal/job/bulk_policy_assign_test.go (package job, same helper surface).
-//   → AC-9 (CoA per SIM with active session, acked/failed counters).
-//   Handler half: TestIntegration_BulkPolicyAssign_5SIMs_HandlerPayloadContract (this file).
-//   → AC-1..3 (sim_ids + policy_version_id → 202 + job row).
+//
+//	TestBulkPolicyAssign_DispatchCoA_MixedSessions, TestBulkPolicyAssign_CoADispatchedForMultipleSIMs
+//	in internal/job/bulk_policy_assign_test.go (package job, same helper surface).
+//	→ AC-9 (CoA per SIM with active session, acked/failed counters).
+//	Handler half: TestIntegration_BulkPolicyAssign_5SIMs_HandlerPayloadContract (this file).
+//	→ AC-1..3 (sim_ids + policy_version_id → 202 + job row).
 //
 // Scenario 3 (cross-tenant 403):
-//   TestBulkStateChange_CrossTenantSimId_403_WithViolationsList,
-//   TestBulkPolicyAssign_CrossTenantSimId_403,
-//   TestBulkOperatorSwitch_CrossTenantSimId_403 in bulk_handler_test.go.
-//   → AC-6 (FORBIDDEN_CROSS_TENANT, violations list, no job created).
+//
+//	TestBulkStateChange_CrossTenantSimId_403_WithViolationsList,
+//	TestBulkPolicyAssign_CrossTenantSimId_403,
+//	TestBulkOperatorSwitch_CrossTenantSimId_403 in bulk_handler_test.go.
+//	→ AC-6 (FORBIDDEN_CROSS_TENANT, violations list, no job created).
 //
 // Scenario 4 (rate limit 429 + Retry-After + tenant independence):
-//   TestBulkRateLimit_SecondImmediate_429, TestBulkRateLimit_429Response_IncludesRetryAfter,
-//   TestBulkRateLimit_DifferentTenants_Independent in internal/gateway/bulk_ratelimit_test.go.
-//   → AC-14 (rate limiting). No duplication here — Task 8 tests use real middleware via httptest.
+//
+//	TestBulkRateLimit_SecondImmediate_429, TestBulkRateLimit_429Response_IncludesRetryAfter,
+//	TestBulkRateLimit_DifferentTenants_Independent in internal/gateway/bulk_ratelimit_test.go.
+//	→ AC-14 (rate limiting). No duplication here — Task 8 tests use real middleware via httptest.
 //
 // Scenario 5 (legacy segment_id path):
-//   TestBulkStateChange_SegmentId_Accepted_202, TestBulkPolicyAssign_SegmentId_Accepted_202,
-//   TestBulkOperatorSwitch_SegmentId_Accepted_202 in bulk_handler_test.go.
-//   → AC-1..3 legacy backward-compat: segment_id accepted, payload uses segment path.
+//
+//	TestBulkStateChange_SegmentId_Accepted_202, TestBulkPolicyAssign_SegmentId_Accepted_202,
+//	TestBulkOperatorSwitch_SegmentId_Accepted_202 in bulk_handler_test.go.
+//	→ AC-1..3 legacy backward-compat: segment_id accepted, payload uses segment path.
 //
 // Scenario 6 (validation edge cases):
-//   TestBulkStateChange_EmptyArray_400, TestBulkStateChange_ArrayOverLimit_400,
-//   TestBulkStateChange_InvalidUUIDInArray_400_OffendingIndices,
-//   TestBulkStateChange_BothProvided_400_MutualExclusion, TestBulkStateChange_NeitherProvided_400
-//   (and parallel tests for PolicyAssign + OperatorSwitch) in bulk_handler_test.go.
-//   → AC-4 (offending_indices), AC-5 (array bounds), AC-mutual-exclusion, AC-neither.
-//   Boundary at 10000 exactly: TestIntegration_BulkStateChange_LargeBatch_10000_Accepted (this file).
+//
+//	TestBulkStateChange_EmptyArray_400, TestBulkStateChange_ArrayOverLimit_400,
+//	TestBulkStateChange_InvalidUUIDInArray_400_OffendingIndices,
+//	TestBulkStateChange_BothProvided_400_MutualExclusion, TestBulkStateChange_NeitherProvided_400
+//	(and parallel tests for PolicyAssign + OperatorSwitch) in bulk_handler_test.go.
+//	→ AC-4 (offending_indices), AC-5 (array bounds), AC-mutual-exclusion, AC-neither.
+//	Boundary at 10000 exactly: TestIntegration_BulkStateChange_LargeBatch_10000_Accepted (this file).
 //
 // Scenario 7 (audit field correctness):
-//   TestEmitStateChangeAudit_FieldsAndCorrelationID, TestEmitPolicyAssignAudit_FieldsAndCorrelationID,
-//   TestEmitSwitchAudit_FieldsAndCorrelationID in internal/job/bulk_*_test.go.
-//   → AC-8 (Action, EntityType, CorrelationID=&jobID, BeforeData/AfterData non-nil).
+//
+//	TestEmitStateChangeAudit_FieldsAndCorrelationID, TestEmitPolicyAssignAudit_FieldsAndCorrelationID,
+//	TestEmitSwitchAudit_FieldsAndCorrelationID in internal/job/bulk_*_test.go.
+//	→ AC-8 (Action, EntityType, CorrelationID=&jobID, BeforeData/AfterData non-nil).
 //
 // # MANUAL VERIFICATION REQUIRED
 //

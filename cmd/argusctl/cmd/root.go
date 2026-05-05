@@ -16,13 +16,13 @@ var (
 )
 
 var (
-	cfgFile    string
-	apiURL     string
-	token      string
-	certFile   string
-	keyFile    string
-	caFile     string
-	outputFmt  string
+	cfgFile   string
+	apiURL    string
+	token     string
+	certFile  string
+	keyFile   string
+	caFile    string
+	outputFmt string
 )
 
 var rootCmd = &cobra.Command{

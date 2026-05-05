@@ -173,4 +173,3 @@ func TestAuth_RejectReplyMessage(t *testing.T) {
 		t.Errorf("ServerSessionTimeout should be zero on Reject, got %v", sc.ServerSessionTimeout)
 	}
 }
-

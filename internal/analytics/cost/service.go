@@ -13,22 +13,22 @@ import (
 )
 
 type Suggestion struct {
-	Type            string  `json:"type"`
-	Description     string  `json:"description"`
-	AffectedSIMCount int64  `json:"affected_sim_count"`
+	Type             string  `json:"type"`
+	Description      string  `json:"description"`
+	AffectedSIMCount int64   `json:"affected_sim_count"`
 	PotentialSavings float64 `json:"potential_savings"`
-	Action          string  `json:"action"`
+	Action           string  `json:"action"`
 }
 
 type CostAnalytics struct {
-	TotalCost       float64                   `json:"total_cost"`
-	Currency        string                    `json:"currency"`
-	ByOperator      []OperatorCostDTO         `json:"by_operator"`
-	CostPerMB       []CostPerMBDTO            `json:"cost_per_mb"`
-	TopExpensiveSIMs []TopExpensiveSIMDTO      `json:"top_expensive_sims"`
-	Trend           []CostTrendDTO            `json:"trend"`
-	Comparison      *CostComparisonDTO        `json:"comparison,omitempty"`
-	Suggestions     []Suggestion              `json:"suggestions"`
+	TotalCost        float64              `json:"total_cost"`
+	Currency         string               `json:"currency"`
+	ByOperator       []OperatorCostDTO    `json:"by_operator"`
+	CostPerMB        []CostPerMBDTO       `json:"cost_per_mb"`
+	TopExpensiveSIMs []TopExpensiveSIMDTO `json:"top_expensive_sims"`
+	Trend            []CostTrendDTO       `json:"trend"`
+	Comparison       *CostComparisonDTO   `json:"comparison,omitempty"`
+	Suggestions      []Suggestion         `json:"suggestions"`
 }
 
 type OperatorCostDTO struct {

@@ -16,19 +16,19 @@ import (
 // activeSessionItem matches FE ActiveSession (web/src/types/admin.ts): flat
 // browser/os strings (rather than nested ua_parsed), last_seen_at, ip_address.
 type activeSessionItem struct {
-	SessionID   uuid.UUID            `json:"session_id"`
-	UserID      uuid.UUID            `json:"user_id"`
-	UserEmail   string               `json:"user_email"`
-	TenantID    uuid.UUID            `json:"tenant_id"`
-	TenantName  string               `json:"tenant_name"`
-	IPAddress   string               `json:"ip_address"`
-	Browser     string               `json:"browser"`
-	OS          string               `json:"os"`
-	Device      string               `json:"device"`
-	IdleSeconds int64                `json:"idle_seconds"`
-	CreatedAt   time.Time            `json:"created_at"`
-	LastSeenAt  time.Time            `json:"last_seen_at"`
-	Location    *geoip.LocationInfo  `json:"location,omitempty"`
+	SessionID   uuid.UUID           `json:"session_id"`
+	UserID      uuid.UUID           `json:"user_id"`
+	UserEmail   string              `json:"user_email"`
+	TenantID    uuid.UUID           `json:"tenant_id"`
+	TenantName  string              `json:"tenant_name"`
+	IPAddress   string              `json:"ip_address"`
+	Browser     string              `json:"browser"`
+	OS          string              `json:"os"`
+	Device      string              `json:"device"`
+	IdleSeconds int64               `json:"idle_seconds"`
+	CreatedAt   time.Time           `json:"created_at"`
+	LastSeenAt  time.Time           `json:"last_seen_at"`
+	Location    *geoip.LocationInfo `json:"location,omitempty"`
 }
 
 type uaParsed struct {

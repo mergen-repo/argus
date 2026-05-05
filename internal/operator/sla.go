@@ -14,14 +14,14 @@ import (
 )
 
 type SLAMetrics struct {
-	Uptime24h       float64 `json:"uptime_24h"`
-	TotalChecks     int64   `json:"total_checks"`
-	FailedChecks    int64   `json:"failed_checks"`
-	LatencyP50Ms    int     `json:"latency_p50_ms"`
-	LatencyP95Ms    int     `json:"latency_p95_ms"`
-	LatencyP99Ms    int     `json:"latency_p99_ms"`
-	SLATarget       float64 `json:"sla_target"`
-	SLAViolation    bool    `json:"sla_violation"`
+	Uptime24h    float64 `json:"uptime_24h"`
+	TotalChecks  int64   `json:"total_checks"`
+	FailedChecks int64   `json:"failed_checks"`
+	LatencyP50Ms int     `json:"latency_p50_ms"`
+	LatencyP95Ms int     `json:"latency_p95_ms"`
+	LatencyP99Ms int     `json:"latency_p99_ms"`
+	SLATarget    float64 `json:"sla_target"`
+	SLAViolation bool    `json:"sla_violation"`
 }
 
 type SLATracker struct {

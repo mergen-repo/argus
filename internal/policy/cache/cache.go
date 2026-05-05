@@ -40,7 +40,7 @@ type entry struct {
 
 type Cache struct {
 	mu      sync.RWMutex
-	entries map[uuid.UUID]*entry // versionID -> entry
+	entries map[uuid.UUID]*entry      // versionID -> entry
 	byTen   map[uuid.UUID][]uuid.UUID // tenantID -> []versionID
 
 	loader PolicyLoader

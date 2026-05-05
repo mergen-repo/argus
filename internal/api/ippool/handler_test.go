@@ -22,18 +22,18 @@ func withTenantCtx(ctx context.Context) context.Context {
 func TestToPoolResponse(t *testing.T) {
 	cidrV4 := "10.0.0.0/24"
 	p := &store.IPPool{
-		ID:                      uuid.New(),
-		TenantID:                uuid.New(),
-		APNID:                   uuid.New(),
-		Name:                    "pool-1",
-		CIDRv4:                  &cidrV4,
-		TotalAddresses:          254,
-		UsedAddresses:           50,
-		AlertThresholdWarning:   80,
-		AlertThresholdCritical:  90,
-		ReclaimGracePeriodDays:  7,
-		State:                   "active",
-		CreatedAt:               time.Now(),
+		ID:                     uuid.New(),
+		TenantID:               uuid.New(),
+		APNID:                  uuid.New(),
+		Name:                   "pool-1",
+		CIDRv4:                 &cidrV4,
+		TotalAddresses:         254,
+		UsedAddresses:          50,
+		AlertThresholdWarning:  80,
+		AlertThresholdCritical: 90,
+		ReclaimGracePeriodDays: 7,
+		State:                  "active",
+		CreatedAt:              time.Now(),
 	}
 
 	resp := toPoolResponse(p)
@@ -332,10 +332,10 @@ func TestReserveIPValidation(t *testing.T) {
 
 func TestIPv4Generation(t *testing.T) {
 	tests := []struct {
-		name     string
-		cidr     string
-		wantLen  int
-		wantErr  bool
+		name    string
+		cidr    string
+		wantLen int
+		wantErr bool
 	}{
 		{
 			name:    "/24 network",
@@ -390,10 +390,10 @@ func TestIPv4Generation(t *testing.T) {
 
 func TestIPv6Generation(t *testing.T) {
 	tests := []struct {
-		name     string
-		cidr     string
-		wantLen  int
-		wantErr  bool
+		name    string
+		cidr    string
+		wantLen int
+		wantErr bool
 	}{
 		{
 			name:    "/120 network",

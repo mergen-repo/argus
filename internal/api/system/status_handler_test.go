@@ -29,16 +29,16 @@ func (m *mockTenantCounter) CountActive(_ context.Context) (int64, error) {
 
 func TestStatusHandler_Serve(t *testing.T) {
 	tests := []struct {
-		name           string
-		healthState    string
-		healthHTTP     int
-		details        interface{}
-		tenantCount    int64
-		wantHTTP       int
-		wantOverall    string
-		wantTenants    int64
-		wantVersion    string
-		wantUptimeGt0  bool
+		name          string
+		healthState   string
+		healthHTTP    int
+		details       interface{}
+		tenantCount   int64
+		wantHTTP      int
+		wantOverall   string
+		wantTenants   int64
+		wantVersion   string
+		wantUptimeGt0 bool
 	}{
 		{
 			name:        "all ok returns healthy 200",

@@ -22,11 +22,11 @@ var (
 )
 
 type Entry struct {
-	Action    string          `json:"action"`
-	Payload   json.RawMessage `json:"payload"`
-	TenantID  uuid.UUID       `json:"tenant_id"`
-	UserID    uuid.UUID       `json:"user_id"`
-	IssuedAt  time.Time       `json:"issued_at"`
+	Action   string          `json:"action"`
+	Payload  json.RawMessage `json:"payload"`
+	TenantID uuid.UUID       `json:"tenant_id"`
+	UserID   uuid.UUID       `json:"user_id"`
+	IssuedAt time.Time       `json:"issued_at"`
 }
 
 type Registry struct {

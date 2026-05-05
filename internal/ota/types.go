@@ -52,33 +52,33 @@ const (
 type SecurityMode string
 
 const (
-	SecurityNone    SecurityMode = "none"
-	SecurityKIC     SecurityMode = "kic"
-	SecurityKID     SecurityMode = "kid"
-	SecurityKICKID  SecurityMode = "kic_kid"
+	SecurityNone   SecurityMode = "none"
+	SecurityKIC    SecurityMode = "kic"
+	SecurityKID    SecurityMode = "kid"
+	SecurityKICKID SecurityMode = "kic_kid"
 )
 
 type OTACommand struct {
-	ID              uuid.UUID       `json:"id"`
-	TenantID        uuid.UUID       `json:"tenant_id"`
-	SimID           uuid.UUID       `json:"sim_id"`
-	CommandType     CommandType     `json:"command_type"`
-	Channel         DeliveryChannel `json:"channel"`
-	Status          CommandStatus   `json:"status"`
-	APDUData        []byte          `json:"apdu_data"`
-	SecurityMode    SecurityMode    `json:"security_mode"`
-	Payload         json.RawMessage `json:"payload"`
-	ResponseData    json.RawMessage `json:"response_data,omitempty"`
-	ErrorMessage    *string         `json:"error_message,omitempty"`
-	JobID           *uuid.UUID      `json:"job_id,omitempty"`
-	RetryCount      int             `json:"retry_count"`
-	MaxRetries      int             `json:"max_retries"`
-	CreatedBy       *uuid.UUID      `json:"created_by,omitempty"`
-	SentAt          *time.Time      `json:"sent_at,omitempty"`
-	DeliveredAt     *time.Time      `json:"delivered_at,omitempty"`
-	ExecutedAt      *time.Time      `json:"executed_at,omitempty"`
-	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
+	ID           uuid.UUID       `json:"id"`
+	TenantID     uuid.UUID       `json:"tenant_id"`
+	SimID        uuid.UUID       `json:"sim_id"`
+	CommandType  CommandType     `json:"command_type"`
+	Channel      DeliveryChannel `json:"channel"`
+	Status       CommandStatus   `json:"status"`
+	APDUData     []byte          `json:"apdu_data"`
+	SecurityMode SecurityMode    `json:"security_mode"`
+	Payload      json.RawMessage `json:"payload"`
+	ResponseData json.RawMessage `json:"response_data,omitempty"`
+	ErrorMessage *string         `json:"error_message,omitempty"`
+	JobID        *uuid.UUID      `json:"job_id,omitempty"`
+	RetryCount   int             `json:"retry_count"`
+	MaxRetries   int             `json:"max_retries"`
+	CreatedBy    *uuid.UUID      `json:"created_by,omitempty"`
+	SentAt       *time.Time      `json:"sent_at,omitempty"`
+	DeliveredAt  *time.Time      `json:"delivered_at,omitempty"`
+	ExecutedAt   *time.Time      `json:"executed_at,omitempty"`
+	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
 }
 
 type CreateCommandParams struct {
@@ -103,9 +103,9 @@ type BulkOTAPayload struct {
 }
 
 type BulkOTAResult struct {
-	TotalSIMs    int `json:"total_sims"`
-	QueuedCount  int `json:"queued_count"`
-	FailedCount  int `json:"failed_count"`
+	TotalSIMs   int `json:"total_sims"`
+	QueuedCount int `json:"queued_count"`
+	FailedCount int `json:"failed_count"`
 }
 
 func (ct CommandType) Validate() error {

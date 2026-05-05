@@ -47,14 +47,14 @@ type eventBus interface {
 }
 
 type Handler struct {
-	simStore   simStore
-	smsStore   smsOutboundStore
-	jobStore   jobStore
-	eventBus   eventBus
-	redis      *redis.Client
-	auditSvc   audit.Auditor
-	rateLimit  int
-	logger     zerolog.Logger
+	simStore  simStore
+	smsStore  smsOutboundStore
+	jobStore  jobStore
+	eventBus  eventBus
+	redis     *redis.Client
+	auditSvc  audit.Auditor
+	rateLimit int
+	logger    zerolog.Logger
 }
 
 func NewHandler(

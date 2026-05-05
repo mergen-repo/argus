@@ -23,11 +23,11 @@ import (
 // Mocks
 
 type mockSessionStore struct {
-	CreateFn             func(ctx context.Context, tenantID, startedBy uuid.UUID) (*store.OnboardingSession, error)
-	GetByIDFn            func(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error)
-	GetLatestByTenantFn  func(ctx context.Context, tenantID uuid.UUID) (*store.OnboardingSession, error)
-	UpdateStepFn         func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error
-	MarkCompletedFn      func(ctx context.Context, id uuid.UUID) error
+	CreateFn            func(ctx context.Context, tenantID, startedBy uuid.UUID) (*store.OnboardingSession, error)
+	GetByIDFn           func(ctx context.Context, id uuid.UUID) (*store.OnboardingSession, error)
+	GetLatestByTenantFn func(ctx context.Context, tenantID uuid.UUID) (*store.OnboardingSession, error)
+	UpdateStepFn        func(ctx context.Context, id uuid.UUID, stepN int, stepData []byte, newCurrentStep int) error
+	MarkCompletedFn     func(ctx context.Context, id uuid.UUID) error
 
 	UpdateStepCalled bool
 }
@@ -137,8 +137,8 @@ func (m *mockPolicyService) AssignDefault(ctx context.Context, tenantID uuid.UUI
 // Test helpers
 
 var (
-	testTenantID = uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	testUserID   = uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	testTenantID  = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	testUserID    = uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	testSessionID = uuid.MustParse("33333333-3333-3333-3333-333333333333")
 )
 

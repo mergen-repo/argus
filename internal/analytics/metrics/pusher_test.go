@@ -7,9 +7,9 @@ import (
 )
 
 type mockHub struct {
-	mu        sync.Mutex
-	events    []string
-	payloads  []interface{}
+	mu       sync.Mutex
+	events   []string
+	payloads []interface{}
 }
 
 func (h *mockHub) BroadcastAll(eventType string, data interface{}) {

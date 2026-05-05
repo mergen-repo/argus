@@ -28,8 +28,8 @@ func ValidateTOTPCode(secret, code string) bool {
 func ValidateTOTPCodeWithWindow(secret, code string) bool {
 	valid, _ := totp.ValidateCustom(code, secret, time.Now(), totp.ValidateOpts{
 		Period:    30,
-		Skew:     1,
-		Digits:   otp.DigitsSix,
+		Skew:      1,
+		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	})
 	return valid

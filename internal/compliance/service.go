@@ -39,10 +39,10 @@ func NewService(
 }
 
 type PurgeResult struct {
-	TotalPurged   int      `json:"total_purged"`
-	FailedCount   int      `json:"failed_count"`
-	FailedSIMs    []string `json:"failed_sims,omitempty"`
-	PseudonymizedLogs int  `json:"pseudonymized_logs"`
+	TotalPurged       int      `json:"total_purged"`
+	FailedCount       int      `json:"failed_count"`
+	FailedSIMs        []string `json:"failed_sims,omitempty"`
+	PseudonymizedLogs int      `json:"pseudonymized_logs"`
 }
 
 func (s *Service) RunPurgeSweep(ctx context.Context, batchSize int) (*PurgeResult, error) {
@@ -132,12 +132,12 @@ func (s *Service) RightToErasure(ctx context.Context, tenantID, simID uuid.UUID)
 }
 
 type ComplianceDashboard struct {
-	StateCounts    []store.StateCount `json:"state_counts"`
-	PendingPurges  int                `json:"pending_purges"`
-	OverduePurges  int                `json:"overdue_purges"`
-	RetentionDays  int                `json:"retention_days"`
-	CompliancePct  float64            `json:"compliance_pct"`
-	ChainVerified  bool               `json:"chain_verified"`
+	StateCounts   []store.StateCount `json:"state_counts"`
+	PendingPurges int                `json:"pending_purges"`
+	OverduePurges int                `json:"overdue_purges"`
+	RetentionDays int                `json:"retention_days"`
+	CompliancePct float64            `json:"compliance_pct"`
+	ChainVerified bool               `json:"chain_verified"`
 }
 
 func (s *Service) Dashboard(ctx context.Context, tenantID uuid.UUID, retentionDays int) (*ComplianceDashboard, error) {

@@ -29,9 +29,9 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	header := []string{"iccid", "imsi", "msisdn", "state", "operator_id", "apn_id", "sim_type", "rat_type", "created_at"}
 
 	params := store.ListSIMsParams{
-		Limit:  500,
-		State:  q.Get("state"),
-		Q:      q.Get("q"),
+		Limit: 500,
+		State: q.Get("state"),
+		Q:     q.Get("q"),
 	}
 
 	export.StreamCSV(w, filename, header, func(yield func([]string) bool) {

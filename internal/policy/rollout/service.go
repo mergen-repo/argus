@@ -74,14 +74,14 @@ type RolloutProgressEvent struct {
 }
 
 type Service struct {
-	policyStore       *store.PolicyStore
-	simStore          *store.SIMStore
-	sessionProvider   SessionProvider
-	coaDispatcher     CoADispatcher
-	coaStatusUpdater  coaStatusUpdater
-	eventBus          *bus.EventBus
-	jobStore          *store.JobStore
-	logger            zerolog.Logger
+	policyStore      *store.PolicyStore
+	simStore         *store.SIMStore
+	sessionProvider  SessionProvider
+	coaDispatcher    CoADispatcher
+	coaStatusUpdater coaStatusUpdater
+	eventBus         *bus.EventBus
+	jobStore         *store.JobStore
+	logger           zerolog.Logger
 }
 
 func NewService(

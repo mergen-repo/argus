@@ -96,11 +96,11 @@ func New(cfg Config) (*Client, error) {
 // APIError is returned when the server responds with a non-2xx status in the
 // standard error envelope.
 type APIError struct {
-	Status     int
-	Code       string
-	Message    string
-	Details    json.RawMessage
-	RawBody    []byte
+	Status  int
+	Code    string
+	Message string
+	Details json.RawMessage
+	RawBody []byte
 }
 
 func (e *APIError) Error() string {

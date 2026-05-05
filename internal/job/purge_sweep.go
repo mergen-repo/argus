@@ -12,10 +12,10 @@ import (
 )
 
 type PurgeSweepProcessor struct {
-	jobs           *store.JobStore
-	complianceSvc  *compliance.Service
-	eventBus       *bus.EventBus
-	logger         zerolog.Logger
+	jobs          *store.JobStore
+	complianceSvc *compliance.Service
+	eventBus      *bus.EventBus
+	logger        zerolog.Logger
 }
 
 func NewPurgeSweepProcessor(
@@ -72,9 +72,9 @@ func (p *PurgeSweepProcessor) Process(ctx context.Context, job *store.Job) error
 	}
 
 	resultJSON, _ := json.Marshal(map[string]interface{}{
-		"total_purged":        totalPurged,
-		"total_failed":        totalFailed,
-		"pseudonymized_logs":  totalPseudonymized,
+		"total_purged":       totalPurged,
+		"total_failed":       totalFailed,
+		"pseudonymized_logs": totalPseudonymized,
 	})
 
 	if err := p.jobs.Complete(ctx, job.ID, nil, resultJSON); err != nil {
@@ -83,12 +83,12 @@ func (p *PurgeSweepProcessor) Process(ctx context.Context, job *store.Job) error
 
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
-			"job_id":        job.ID.String(),
-			"tenant_id":     job.TenantID.String(),
-			"type":          JobTypePurgeSweep,
-			"state":         "completed",
-			"total_purged":  totalPurged,
-			"total_failed":  totalFailed,
+			"job_id":       job.ID.String(),
+			"tenant_id":    job.TenantID.String(),
+			"type":         JobTypePurgeSweep,
+			"state":        "completed",
+			"total_purged": totalPurged,
+			"total_failed": totalFailed,
 		})
 	}
 

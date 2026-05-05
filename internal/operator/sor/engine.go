@@ -22,11 +22,11 @@ type GrantProvider interface {
 }
 
 type Engine struct {
-	grantProvider     GrantProvider
-	cache             *SoRCache
-	cbCheck           CircuitBreakerChecker
-	logger            zerolog.Logger
-	config            SoRConfig
+	grantProvider GrantProvider
+	cache         *SoRCache
+	cbCheck       CircuitBreakerChecker
+	logger        zerolog.Logger
+	config        SoRConfig
 }
 
 func NewEngine(
@@ -58,11 +58,11 @@ func (e *Engine) Evaluate(ctx context.Context, req SoRRequest) (*SoRDecision, er
 			Str("locked_operator", lockedOp.String()).
 			Msg("SoR bypassed: manual operator lock")
 		return &SoRDecision{
-			PrimaryOperatorID:  lockedOp,
+			PrimaryOperatorID:   lockedOp,
 			FallbackOperatorIDs: nil,
-			Reason:             ReasonManualLock,
-			EvaluatedAt:        time.Now(),
-			Cached:             false,
+			Reason:              ReasonManualLock,
+			EvaluatedAt:         time.Now(),
+			Cached:              false,
 		}, nil
 	}
 

@@ -19,15 +19,15 @@ type SoRDecision struct {
 }
 
 type SoRRequest struct {
-	IMSI        string
-	TenantID    uuid.UUID
+	IMSI         string
+	TenantID     uuid.UUID
 	RequestedRAT string
-	SimID       uuid.UUID
-	SimMetadata map[string]interface{}
+	SimID        uuid.UUID
+	SimMetadata  map[string]interface{}
 }
 
 type SoRConfig struct {
-	CacheTTL          time.Duration
+	CacheTTL           time.Duration
 	RATPreferenceOrder []string
 }
 
@@ -42,11 +42,11 @@ type CandidateOperator struct {
 }
 
 const (
-	ReasonIMSIPrefixMatch    = "imsi_prefix_match"
-	ReasonCostOptimized      = "cost_optimized"
-	ReasonRATPreference      = "rat_preference"
-	ReasonManualLock         = "manual_lock"
-	ReasonDefault            = "default"
+	ReasonIMSIPrefixMatch = "imsi_prefix_match"
+	ReasonCostOptimized   = "cost_optimized"
+	ReasonRATPreference   = "rat_preference"
+	ReasonManualLock      = "manual_lock"
+	ReasonDefault         = "default"
 )
 
 var DefaultRATPreferenceOrder = []string{
@@ -61,7 +61,7 @@ var DefaultRATPreferenceOrder = []string{
 
 func DefaultConfig() SoRConfig {
 	return SoRConfig{
-		CacheTTL:          time.Hour,
+		CacheTTL:           time.Hour,
 		RATPreferenceOrder: DefaultRATPreferenceOrder,
 	}
 }

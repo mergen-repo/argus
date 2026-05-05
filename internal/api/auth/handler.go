@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/api/apikey"
-	authpkg "github.com/btopcu/argus/internal/auth"
+	"github.com/btopcu/argus/internal/apierr"
 	"github.com/btopcu/argus/internal/audit"
+	authpkg "github.com/btopcu/argus/internal/auth"
 	"github.com/btopcu/argus/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

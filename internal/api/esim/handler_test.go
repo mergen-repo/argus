@@ -521,12 +521,12 @@ func TestSetSessionDeps(t *testing.T) {
 // --- Mock implementations for Task 6/7 tests ---
 
 type mockIPPoolReleaser struct {
-	addr        *store.IPAddress
-	addrErr     error
-	releaseErr  error
+	addr         *store.IPAddress
+	addrErr      error
+	releaseErr   error
 	releaseCalls int
-	gotPoolID   uuid.UUID
-	gotSimID    uuid.UUID
+	gotPoolID    uuid.UUID
+	gotSimID     uuid.UUID
 }
 
 func (m *mockIPPoolReleaser) GetIPAddressByID(_ context.Context, _ uuid.UUID) (*store.IPAddress, error) {
@@ -582,9 +582,9 @@ func TestCreate_NotESIM(t *testing.T) {
 
 	now := time.Now()
 	sim := &store.SIM{
-		ID:       simID,
-		SimType:  "physical",
-		State:    "active",
+		ID:        simID,
+		SimType:   "physical",
+		State:     "active",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -766,9 +766,9 @@ func TestSetEventBus(t *testing.T) {
 
 func TestCreate_ValidateSIMType_ESIMPasses(t *testing.T) {
 	sim := &store.SIM{
-		ID:       uuid.New(),
-		SimType:  "esim",
-		State:    "active",
+		ID:        uuid.New(),
+		SimType:   "esim",
+		State:     "active",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -1028,10 +1028,10 @@ func (m *mockOTAOperatorStore) GetByID(_ context.Context, _ uuid.UUID) (*store.O
 }
 
 type mockOTAStockStore struct {
-	stock      *store.EsimProfileStock
-	getErr     error
-	summaries  []store.EsimProfileStock
-	listErr    error
+	stock     *store.EsimProfileStock
+	getErr    error
+	summaries []store.EsimProfileStock
+	listErr   error
 }
 
 func (m *mockOTAStockStore) Get(_ context.Context, _, _ uuid.UUID) (*store.EsimProfileStock, error) {
@@ -1052,13 +1052,13 @@ func (m *mockOTAJobStore) Create(_ context.Context, _ store.CreateJobParams) (*s
 }
 
 type mockOTACommandStore struct {
-	command            *store.EsimOTACommand
-	getErr             error
-	markAckedErr       error
-	markFailedErr      error
-	commands           []store.EsimOTACommand
-	nextCursor         string
-	listErr            error
+	command       *store.EsimOTACommand
+	getErr        error
+	markAckedErr  error
+	markFailedErr error
+	commands      []store.EsimOTACommand
+	nextCursor    string
+	listErr       error
 }
 
 func (m *mockOTACommandStore) GetByID(_ context.Context, _ uuid.UUID) (*store.EsimOTACommand, error) {

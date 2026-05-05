@@ -103,4 +103,3 @@ func TestGetSystemMetrics_WithData(t *testing.T) {
 		t.Error("operator metrics should be present")
 	}
 }
-

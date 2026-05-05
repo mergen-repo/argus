@@ -14,14 +14,14 @@ import (
 )
 
 type LoadGenConfig struct {
-	TargetAddr   string
-	Secret       string
-	Concurrency  int
-	RatePerSec   int
-	Duration     time.Duration
-	IMSIPrefix   string
-	IMSICount    int
-	NASIPPrefix  string
+	TargetAddr  string
+	Secret      string
+	Concurrency int
+	RatePerSec  int
+	Duration    time.Duration
+	IMSIPrefix  string
+	IMSICount   int
+	NASIPPrefix string
 }
 
 func DefaultLoadGenConfig() LoadGenConfig {
@@ -38,18 +38,18 @@ func DefaultLoadGenConfig() LoadGenConfig {
 }
 
 type LoadGenResult struct {
-	TotalSent     int64
-	TotalSuccess  int64
-	TotalFailed   int64
-	TotalTimeout  int64
-	Duration      time.Duration
-	RateActual    float64
-	LatencyP50    time.Duration
-	LatencyP95    time.Duration
-	LatencyP99    time.Duration
-	LatencyMin    time.Duration
-	LatencyMax    time.Duration
-	LatencyAvg    time.Duration
+	TotalSent    int64
+	TotalSuccess int64
+	TotalFailed  int64
+	TotalTimeout int64
+	Duration     time.Duration
+	RateActual   float64
+	LatencyP50   time.Duration
+	LatencyP95   time.Duration
+	LatencyP99   time.Duration
+	LatencyMin   time.Duration
+	LatencyMax   time.Duration
+	LatencyAvg   time.Duration
 }
 
 func (r *LoadGenResult) String() string {
@@ -64,8 +64,8 @@ func (r *LoadGenResult) String() string {
 }
 
 type LoadGenerator struct {
-	cfg      LoadGenConfig
-	imsis    []string
+	cfg   LoadGenConfig
+	imsis []string
 
 	sent    atomic.Int64
 	success atomic.Int64

@@ -12,8 +12,8 @@ import (
 type FailoverPolicy string
 
 const (
-	PolicyReject          FailoverPolicy = "reject"
-	PolicyFallbackToNext  FailoverPolicy = "fallback_to_next"
+	PolicyReject           FailoverPolicy = "reject"
+	PolicyFallbackToNext   FailoverPolicy = "fallback_to_next"
 	PolicyQueueWithTimeout FailoverPolicy = "queue_with_timeout"
 )
 

@@ -22,9 +22,9 @@ type fakeOrphanRows struct {
 	err error
 }
 
-func (r *fakeOrphanRows) Close() {}
-func (r *fakeOrphanRows) Err() error { return r.err }
-func (r *fakeOrphanRows) CommandTag() pgconn.CommandTag        { return pgconn.CommandTag{} }
+func (r *fakeOrphanRows) Close()                                       {}
+func (r *fakeOrphanRows) Err() error                                   { return r.err }
+func (r *fakeOrphanRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *fakeOrphanRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (r *fakeOrphanRows) Next() bool {
 	if r.pos < len(r.rows) {
@@ -46,8 +46,8 @@ func (r *fakeOrphanRows) Scan(dest ...any) error {
 	return nil
 }
 func (r *fakeOrphanRows) Values() ([]any, error) { return nil, nil }
-func (r *fakeOrphanRows) RawValues() [][]byte      { return nil }
-func (r *fakeOrphanRows) Conn() *pgx.Conn          { return nil }
+func (r *fakeOrphanRows) RawValues() [][]byte    { return nil }
+func (r *fakeOrphanRows) Conn() *pgx.Conn        { return nil }
 
 // fakeSessionQuerier implements sessionQuerier using fakeOrphanRows.
 type fakeSessionQuerier struct {

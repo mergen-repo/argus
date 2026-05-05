@@ -239,10 +239,10 @@ func (s *SBAAdapter) AccountingUpdate(ctx context.Context, req AccountingUpdateR
 	url := s.baseURL() + "/npcf-smpolicycontrol/v1/sm-policies"
 
 	body, err := json.Marshal(map[string]interface{}{
-		"supi":        req.IMSI,
-		"sessionId":   req.SessionID,
-		"statusType":  req.StatusType,
-		"inputOctets": req.InputOctets,
+		"supi":         req.IMSI,
+		"sessionId":    req.SessionID,
+		"statusType":   req.StatusType,
+		"inputOctets":  req.InputOctets,
 		"outputOctets": req.OutputOctets,
 	})
 	if err != nil {

@@ -52,11 +52,11 @@ func TestConfigHandler_Serve_200(t *testing.T) {
 	var resp struct {
 		Status string `json:"status"`
 		Data   struct {
-			Version   string `json:"version"`
-			GitSHA    string `json:"git_sha"`
-			BuildTime string `json:"build_time"`
-			StartedAt string `json:"started_at"`
-			AppEnv    string `json:"app_env"`
+			Version      string `json:"version"`
+			GitSHA       string `json:"git_sha"`
+			BuildTime    string `json:"build_time"`
+			StartedAt    string `json:"started_at"`
+			AppEnv       string `json:"app_env"`
 			FeatureFlags struct {
 				RateLimitEnabled bool `json:"rate_limit_enabled"`
 				MetricsEnabled   bool `json:"metrics_enabled"`

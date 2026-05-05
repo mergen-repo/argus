@@ -46,9 +46,9 @@ func TestBuildFiltersFromMatch(t *testing.T) {
 							Values: []interface{}{"iot.meter", "m2m.fleet"},
 						},
 						{
-							Field:  "rat_type",
-							Op:     "eq",
-							Value:  "4G",
+							Field: "rat_type",
+							Op:    "eq",
+							Value: "4G",
 						},
 					},
 				},
@@ -95,10 +95,10 @@ func TestBuildFiltersFromMatch(t *testing.T) {
 
 func TestDetectBehavioralChanges(t *testing.T) {
 	tests := []struct {
-		name    string
-		before  *dsl.PolicyResult
-		after   *dsl.PolicyResult
-		wantLen int
+		name      string
+		before    *dsl.PolicyResult
+		after     *dsl.PolicyResult
+		wantLen   int
 		wantTypes []string
 	}{
 		{

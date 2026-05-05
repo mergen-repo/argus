@@ -338,12 +338,12 @@ func (h *Handler) enrichPolicyApplied(ctx context.Context, sess *session.Session
 		return nil
 	}
 	pa := &policyAppliedDTO{
-		PolicyID:     detail.PolicyID.String(),
-		PolicyName:   detail.PolicyName,
-		VersionID:    detail.PolicyVersionID.String(),
+		PolicyID:      detail.PolicyID.String(),
+		PolicyName:    detail.PolicyName,
+		VersionID:     detail.PolicyVersionID.String(),
 		VersionNumber: detail.VersionNumber,
-		MatchedRules: []int{},
-		CoAStatus:    detail.CoAStatus,
+		MatchedRules:  []int{},
+		CoAStatus:     detail.CoAStatus,
 	}
 	if detail.CoASentAt != nil {
 		s := detail.CoASentAt.Format(timeFmt)

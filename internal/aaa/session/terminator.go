@@ -13,13 +13,13 @@ import (
 // SIMSessionTerminator is the FIX-305 dispatcher: when a SIM transitions to
 // a state that requires terminating its active connectivity (Suspend,
 // Terminate), the SIM API handler calls TerminateSIMSessions which:
-//   1. Lists all active sessions for the SIM (sessions.session_state='active')
-//   2. For each session with a NASIP, sends a RADIUS Disconnect-Message (DM)
-//      to the NAS so it tears down the actual data path.
-//   3. Finalizes the session row in the DB (state → closed,
-//      terminate_cause = reason). This step happens regardless of DM
-//      success — local DB state must reflect the operator's intent even
-//      when the NAS is unreachable.
+//  1. Lists all active sessions for the SIM (sessions.session_state='active')
+//  2. For each session with a NASIP, sends a RADIUS Disconnect-Message (DM)
+//     to the NAS so it tears down the actual data path.
+//  3. Finalizes the session row in the DB (state → closed,
+//     terminate_cause = reason). This step happens regardless of DM
+//     success — local DB state must reflect the operator's intent even
+//     when the NAS is unreachable.
 //
 // Use NewSIMSessionTerminator to construct one and pass it to the SIM
 // API handler via sim.WithSessionTerminator.

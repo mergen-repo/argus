@@ -61,8 +61,8 @@ func (p *OTAProcessor) Process(ctx context.Context, job *store.Job) error {
 	failed := 0
 
 	type otaError struct {
-		SimID   string `json:"sim_id"`
-		Error   string `json:"error"`
+		SimID string `json:"sim_id"`
+		Error string `json:"error"`
 	}
 	var errs []otaError
 

@@ -201,4 +201,3 @@ func (h *ReliabilityHandler) JWTRotationHistory(w http.ResponseWriter, r *http.R
 
 	apierr.WriteSuccess(w, http.StatusOK, resp)
 }
-

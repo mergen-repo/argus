@@ -489,4 +489,3 @@ func TestEnterprise_AuditOnCDRExport_SkipWithoutDB(t *testing.T) {
 		"Set DATABASE_URL + NATS_URL and run against live stack. " +
 		"Audit action 'cdr.export' is emitted at internal/api/cdr/handler.go:252.")
 }
-

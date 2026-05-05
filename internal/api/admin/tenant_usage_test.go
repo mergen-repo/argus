@@ -36,9 +36,9 @@ func TestUsageQuotaStatus(t *testing.T) {
 // used by SIMs / sessions / api_rps quota metrics.
 func TestCalcUsagePct(t *testing.T) {
 	tests := []struct {
-		name             string
-		current, max     int
-		want             float64
+		name         string
+		current, max int
+		want         float64
 	}{
 		{"zero max returns 0", 100, 0, 0},
 		{"50pct", 500, 1000, 50},
@@ -64,9 +64,9 @@ func TestCalcUsagePct64(t *testing.T) {
 	const tenGB int64 = 10 * 1024 * 1024 * 1024
 	const oneTB int64 = 1024 * tenGB
 	tests := []struct {
-		name             string
-		current, max     int64
-		want             float64
+		name         string
+		current, max int64
+		want         float64
 	}{
 		{"zero max returns 0", tenGB, 0, 0},
 		{"50pct of 1TB", oneTB / 2, oneTB, 50},

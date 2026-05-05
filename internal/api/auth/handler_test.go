@@ -704,8 +704,8 @@ func TestChangePassword_Success_Returns200WithTokens(t *testing.T) {
 
 func TestAuthHandler_ListSessions_LimitBounds(t *testing.T) {
 	cases := []struct {
-		name         string
-		limitParam   string
+		name          string
+		limitParam    string
 		wantEffective int
 	}{
 		{"default", "", 50},

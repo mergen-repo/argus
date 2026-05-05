@@ -33,22 +33,22 @@ func NewHandler(tenantStore *store.TenantStore, auditSvc audit.Auditor, logger z
 }
 
 type tenantResponse struct {
-	ID               string          `json:"id"`
-	Name             string          `json:"name"`
-	Slug             string          `json:"slug"`
-	Domain           *string         `json:"domain"`
-	ContactEmail     string          `json:"contact_email"`
-	ContactPhone     *string         `json:"contact_phone,omitempty"`
-	MaxSims          int             `json:"max_sims"`
-	MaxApns          int             `json:"max_apns"`
-	MaxUsers         int             `json:"max_users"`
-	Settings         json.RawMessage `json:"settings,omitempty"`
-	State            string          `json:"state"`
-	SimCount         int             `json:"sim_count"`
-	UserCount        int             `json:"user_count"`
-	APNCount         *int            `json:"apn_count,omitempty"`
-	CreatedAt        string          `json:"created_at"`
-	UpdatedAt        string          `json:"updated_at"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Slug         string          `json:"slug"`
+	Domain       *string         `json:"domain"`
+	ContactEmail string          `json:"contact_email"`
+	ContactPhone *string         `json:"contact_phone,omitempty"`
+	MaxSims      int             `json:"max_sims"`
+	MaxApns      int             `json:"max_apns"`
+	MaxUsers     int             `json:"max_users"`
+	Settings     json.RawMessage `json:"settings,omitempty"`
+	State        string          `json:"state"`
+	SimCount     int             `json:"sim_count"`
+	UserCount    int             `json:"user_count"`
+	APNCount     *int            `json:"apn_count,omitempty"`
+	CreatedAt    string          `json:"created_at"`
+	UpdatedAt    string          `json:"updated_at"`
 }
 
 type createTenantRequest struct {

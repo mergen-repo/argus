@@ -694,4 +694,3 @@ func TestEvaluator_DisconnectDeniesAccess(t *testing.T) {
 		t.Error("expected allow=false when disconnect action triggered")
 	}
 }
-

@@ -12,23 +12,23 @@ import (
 // Handler aggregates all admin sub-handlers. Every method requires super_admin
 // (enforced at router layer) unless explicitly noted for tenant_admin.
 type Handler struct {
-	tenantStore *store.TenantStore
-	cdrStore    *store.CDRStore
-	sessionStore *store.SessionStore
-	apiKeyStore  *store.APIKeyStore
-	jobStore     *store.JobStore
+	tenantStore          *store.TenantStore
+	cdrStore             *store.CDRStore
+	sessionStore         *store.SessionStore
+	apiKeyStore          *store.APIKeyStore
+	jobStore             *store.JobStore
 	webhookDeliveryStore *store.WebhookDeliveryStore
-	notifStore   *store.NotificationStore
-	smsOutboundStore *store.SMSOutboundStore
-	auditStore   *store.AuditStore
-	auditSvc   audit.Auditor
-	db         *pgxpool.Pool
-	redis      *redis.Client
-	logger     zerolog.Logger
-	userStore  *store.UserStore
-	jwtSecret  string
-	announcementStore *store.AnnouncementStore
-	geoipLookup *geoip.Lookup
+	notifStore           *store.NotificationStore
+	smsOutboundStore     *store.SMSOutboundStore
+	auditStore           *store.AuditStore
+	auditSvc             audit.Auditor
+	db                   *pgxpool.Pool
+	redis                *redis.Client
+	logger               zerolog.Logger
+	userStore            *store.UserStore
+	jwtSecret            string
+	announcementStore    *store.AnnouncementStore
+	geoipLookup          *geoip.Lookup
 }
 
 func (h *Handler) WithGeoIP(l *geoip.Lookup) *Handler {
@@ -51,18 +51,18 @@ func NewHandler(
 	logger zerolog.Logger,
 ) *Handler {
 	return &Handler{
-		tenantStore: tenantStore,
-		sessionStore: sessionStore,
-		apiKeyStore:  apiKeyStore,
-		jobStore:     jobStore,
+		tenantStore:          tenantStore,
+		sessionStore:         sessionStore,
+		apiKeyStore:          apiKeyStore,
+		jobStore:             jobStore,
 		webhookDeliveryStore: webhookDeliveryStore,
-		notifStore:   notifStore,
-		smsOutboundStore: smsOutboundStore,
-		auditStore:   auditStore,
-		auditSvc:   auditSvc,
-		db:         db,
-		redis:      redis,
-		logger:     logger.With().Str("component", "admin_handler").Logger(),
+		notifStore:           notifStore,
+		smsOutboundStore:     smsOutboundStore,
+		auditStore:           auditStore,
+		auditSvc:             auditSvc,
+		db:                   db,
+		redis:                redis,
+		logger:               logger.With().Str("component", "admin_handler").Logger(),
 	}
 }
 

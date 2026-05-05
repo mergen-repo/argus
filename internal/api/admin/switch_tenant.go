@@ -100,9 +100,9 @@ func (h *Handler) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 
 	if h.auditSvc != nil {
 		afterData, _ := json.Marshal(map[string]string{
-			"from_tenant_id":  homeTenantID.String(),
-			"to_tenant_id":    target.ID.String(),
-			"admin_user_id":   adminID.String(),
+			"from_tenant_id": homeTenantID.String(),
+			"to_tenant_id":   target.ID.String(),
+			"admin_user_id":  adminID.String(),
 		})
 		_, _ = h.auditSvc.CreateEntry(r.Context(), audit.CreateEntryParams{
 			TenantID:   target.ID,

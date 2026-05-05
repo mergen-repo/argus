@@ -18,9 +18,9 @@ import (
 const snapshotCacheTTL = 5 * time.Second
 
 var (
-	snapshotCacheMu sync.Mutex
+	snapshotCacheMu  sync.Mutex
 	snapshotCachedAt time.Time
-	snapshotCached  snapshotResponse
+	snapshotCached   snapshotResponse
 )
 
 type routeMetric struct {
@@ -40,9 +40,9 @@ type byStatus struct {
 }
 
 type httpBlock struct {
-	Totals  httpTotals   `json:"totals"`
-	ByRoute []routeMetric `json:"by_route"`
-	ByStatus []byStatus  `json:"by_status"`
+	Totals   httpTotals    `json:"totals"`
+	ByRoute  []routeMetric `json:"by_route"`
+	ByStatus []byStatus    `json:"by_status"`
 }
 
 type httpTotals struct {
@@ -52,10 +52,10 @@ type httpTotals struct {
 }
 
 type aaaProtocol struct {
-	Protocol   string  `json:"protocol"`
-	ReqPerSec  float64 `json:"req_per_sec"`
+	Protocol    string  `json:"protocol"`
+	ReqPerSec   float64 `json:"req_per_sec"`
 	SuccessRate float64 `json:"success_rate"`
-	P99Ms      float64 `json:"p99_ms"`
+	P99Ms       float64 `json:"p99_ms"`
 }
 
 type aaaBlock struct {

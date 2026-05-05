@@ -116,8 +116,8 @@ func newCoARequest(secret []byte, acctSessionID string, sessionTimeout uint32) *
 
 func newSession(id, operatorCode string) *Session {
 	s := &Session{
-		ID:           id,
-		OperatorCode: operatorCode,
+		ID:            id,
+		OperatorCode:  operatorCode,
 		AcctSessionID: id,
 	}
 	return s

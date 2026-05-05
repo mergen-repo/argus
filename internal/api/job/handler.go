@@ -51,28 +51,28 @@ func (h *Handler) SetCanceller(c JobCanceller) {
 }
 
 type jobDTO struct {
-	ID              uuid.UUID       `json:"id"`
-	TenantID        uuid.UUID       `json:"tenant_id"`
-	Type            string          `json:"type"`
-	State           string          `json:"state"`
-	Priority        int             `json:"priority"`
-	TotalItems      int             `json:"total_items"`
-	ProcessedItems  int             `json:"processed_items"`
-	FailedItems     int             `json:"failed_items"`
-	ProgressPct     float64         `json:"progress_pct"`
-	ErrorReport     json.RawMessage `json:"error_report,omitempty"`
-	Result          json.RawMessage `json:"result,omitempty"`
-	MaxRetries      int             `json:"max_retries"`
-	RetryCount      int             `json:"retry_count"`
-	StartedAt       *string         `json:"started_at,omitempty"`
-	CompletedAt     *string         `json:"completed_at,omitempty"`
-	CreatedAt       string          `json:"created_at"`
-	CreatedBy       *string         `json:"created_by,omitempty"`
-	CreatedByName   string          `json:"created_by_name,omitempty"`
-	CreatedByEmail  string          `json:"created_by_email,omitempty"`
-	IsSystem        bool            `json:"is_system,omitempty"`
-	Duration        *string         `json:"duration,omitempty"`
-	LockedBy        *string         `json:"locked_by,omitempty"`
+	ID             uuid.UUID       `json:"id"`
+	TenantID       uuid.UUID       `json:"tenant_id"`
+	Type           string          `json:"type"`
+	State          string          `json:"state"`
+	Priority       int             `json:"priority"`
+	TotalItems     int             `json:"total_items"`
+	ProcessedItems int             `json:"processed_items"`
+	FailedItems    int             `json:"failed_items"`
+	ProgressPct    float64         `json:"progress_pct"`
+	ErrorReport    json.RawMessage `json:"error_report,omitempty"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	MaxRetries     int             `json:"max_retries"`
+	RetryCount     int             `json:"retry_count"`
+	StartedAt      *string         `json:"started_at,omitempty"`
+	CompletedAt    *string         `json:"completed_at,omitempty"`
+	CreatedAt      string          `json:"created_at"`
+	CreatedBy      *string         `json:"created_by,omitempty"`
+	CreatedByName  string          `json:"created_by_name,omitempty"`
+	CreatedByEmail string          `json:"created_by_email,omitempty"`
+	IsSystem       bool            `json:"is_system,omitempty"`
+	Duration       *string         `json:"duration,omitempty"`
+	LockedBy       *string         `json:"locked_by,omitempty"`
 }
 
 const timeFmt = "2006-01-02T15:04:05Z07:00"

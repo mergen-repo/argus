@@ -127,11 +127,11 @@ func TestCompiledMatchFromVersion_InvalidDSL(t *testing.T) {
 // AC-3 wiring without a DB round-trip.
 func TestStartRollout_DslPredicateWiring(t *testing.T) {
 	tests := []struct {
-		name           string
-		dslSource      string
-		wantPredicate  string
-		wantArgsLen    int
-		wantArgValues  []interface{}
+		name          string
+		dslSource     string
+		wantPredicate string
+		wantArgsLen   int
+		wantArgValues []interface{}
 	}{
 		{
 			name:          "empty DSL → predicate TRUE",

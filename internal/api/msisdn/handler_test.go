@@ -197,10 +197,10 @@ func TestAssignRequestValidation(t *testing.T) {
 
 func TestCSVHeaderParsing(t *testing.T) {
 	tests := []struct {
-		name          string
-		csvContent    string
-		wantMSISDN    bool
-		wantOpCode    bool
+		name       string
+		csvContent string
+		wantMSISDN bool
+		wantOpCode bool
 	}{
 		{
 			name:       "standard headers",

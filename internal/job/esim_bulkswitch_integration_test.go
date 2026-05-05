@@ -49,8 +49,8 @@ func (f *integrationN100ESimProfileStore) List(_ context.Context, _ uuid.UUID, _
 
 // integrationOTACommandStore records every BatchInsert call and tracks total rows.
 type integrationOTACommandStore struct {
-	mu           sync.Mutex
-	insertCalls  [][]store.InsertEsimOTACommandParams
+	mu          sync.Mutex
+	insertCalls [][]store.InsertEsimOTACommandParams
 }
 
 func (f *integrationOTACommandStore) BatchInsert(_ context.Context, params []store.InsertEsimOTACommandParams) (int, error) {

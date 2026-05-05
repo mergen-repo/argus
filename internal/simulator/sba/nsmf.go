@@ -22,10 +22,10 @@ const NsmfPath = "/nsmf-pdusession/v1"
 // type. Only the fields the simulator consumes are declared — extra fields
 // in the wire response are ignored by json.Decoder.
 type createSMContextResponse struct {
-	SUPI          string              `json:"supi"`
-	DNN           string              `json:"dnn"`
-	SNSSAI        argussba.SNSSAI     `json:"sNssai"`
-	UEIPv4Address string              `json:"ueIpv4Address"`
+	SUPI          string          `json:"supi"`
+	DNN           string          `json:"dnn"`
+	SNSSAI        argussba.SNSSAI `json:"sNssai"`
+	UEIPv4Address string          `json:"ueIpv4Address"`
 }
 
 // CreatePDUSession POSTs /nsmf-pdusession/v1/sm-contexts with the given SUPI /
@@ -244,4 +244,3 @@ func indexStrPrefix(s, sub string) int {
 	}
 	return -1
 }
-

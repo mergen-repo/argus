@@ -56,17 +56,17 @@ type wsDropper interface {
 }
 
 type Handler struct {
-	userStore      userStoreI
-	tenantStore    *store.TenantStore
-	auditSvc       audit.Auditor
-	auditStore     *store.AuditStore
-	logger         zerolog.Logger
-	sessionStore   sessionRevoker
-	apiKeyStore    apiKeyRevoker
-	wsHub          wsDropper
-	passwordPolicy auth.PasswordPolicy
-	bcryptCost     int
-	viewStore      *store.UserViewStore
+	userStore       userStoreI
+	tenantStore     *store.TenantStore
+	auditSvc        audit.Auditor
+	auditStore      *store.AuditStore
+	logger          zerolog.Logger
+	sessionStore    sessionRevoker
+	apiKeyStore     apiKeyRevoker
+	wsHub           wsDropper
+	passwordPolicy  auth.PasswordPolicy
+	bcryptCost      int
+	viewStore       *store.UserViewStore
 	columnPrefStore *store.UserColumnPrefStore
 }
 

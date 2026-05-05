@@ -1893,16 +1893,16 @@ func TestListSuppressions_ActiveOnlyFilter(t *testing.T) {
 // mute → trigger → suppress → unmute → restore pipeline (FIX-229).
 //
 // Phases:
-//   1. Setup — seed tenant, two pre-existing open alerts (alert_A matches type
-//      scope, alert_B is a control), wire handler + stores.
-//   2. Create suppression via handler — assert 201 + applied_count==1 (alert_A
-//      only), verify alert_A is 'suppressed' in DB, alert_B remains 'open'.
-//   3. Trigger new alert via UpsertWithDedup — suppression-aware path must set
-//      state='suppressed' and inject meta.suppression_id.
-//   4. Delete suppression via handler — assert restored_count >= 2 (alert_A +
-//      the trigger-time alert), verify both revert to 'open' with no
-//      meta.suppression_id in DB.
-//   5. Trigger again — no active suppression → new alert lands as 'open'.
+//  1. Setup — seed tenant, two pre-existing open alerts (alert_A matches type
+//     scope, alert_B is a control), wire handler + stores.
+//  2. Create suppression via handler — assert 201 + applied_count==1 (alert_A
+//     only), verify alert_A is 'suppressed' in DB, alert_B remains 'open'.
+//  3. Trigger new alert via UpsertWithDedup — suppression-aware path must set
+//     state='suppressed' and inject meta.suppression_id.
+//  4. Delete suppression via handler — assert restored_count >= 2 (alert_A +
+//     the trigger-time alert), verify both revert to 'open' with no
+//     meta.suppression_id in DB.
+//  5. Trigger again — no active suppression → new alert lands as 'open'.
 func TestSuppression_FullLifecycle(t *testing.T) {
 	pool := testAlertHandlerPool(t)
 	if pool == nil {

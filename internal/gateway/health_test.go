@@ -345,12 +345,12 @@ func TestReady_200_Degraded_AAA_Partial(t *testing.T) {
 
 type mockAAAHealthy struct{}
 
-func (m *mockAAAHealthy) Healthy() bool                                    { return true }
+func (m *mockAAAHealthy) Healthy() bool                                       { return true }
 func (m *mockAAAHealthy) ActiveSessionCount(_ context.Context) (int64, error) { return 0, nil }
 
 type mockDiameterUnhealthy struct{}
 
-func (m *mockDiameterUnhealthy) Healthy() bool                                    { return false }
+func (m *mockDiameterUnhealthy) Healthy() bool                                       { return false }
 func (m *mockDiameterUnhealthy) ActiveSessionCount(_ context.Context) (int64, error) { return 0, nil }
 
 func TestStartup_LatchesPermanentlyAfterFirstSuccess(t *testing.T) {

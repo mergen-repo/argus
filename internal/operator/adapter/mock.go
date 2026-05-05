@@ -152,7 +152,7 @@ func (m *MockAdapter) ForwardAuth(ctx context.Context, req AuthRequest) (*AuthRe
 	return &AuthResponse{
 		Code: AuthReject,
 		Attributes: map[string]interface{}{
-			"latency_ms":   int(time.Since(start).Milliseconds()),
+			"latency_ms":    int(time.Since(start).Milliseconds()),
 			"reject_reason": m.config.ErrorType,
 		},
 	}, nil

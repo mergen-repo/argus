@@ -27,8 +27,8 @@ var (
 		"nf_instance_id": {},
 	}
 	flatHTTPKeys = map[string]struct{}{
-		"base_url":  {},
-		"auth_type": {},
+		"base_url":   {},
+		"auth_type":  {},
 		"auth_token": {},
 	}
 	flatMockKeys = map[string]struct{}{

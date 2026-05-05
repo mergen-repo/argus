@@ -68,21 +68,21 @@ func (c *Consumer) Stop() {
 }
 
 type sessionEvent struct {
-	SessionID      string  `json:"session_id"`
-	SimID          string  `json:"sim_id"`
-	TenantID       string  `json:"tenant_id"`
-	OperatorID     string  `json:"operator_id"`
-	APNID          string  `json:"apn_id,omitempty"`
-	IMSI           string  `json:"imsi,omitempty"`
-	RATType        string  `json:"rat_type,omitempty"`
-	BytesIn        int64   `json:"bytes_in"`
-	BytesOut       int64   `json:"bytes_out"`
-	DurationSec    int     `json:"duration_sec"`
-	TerminateCause string  `json:"terminate_cause,omitempty"`
-	ProtocolType   string  `json:"protocol_type,omitempty"`
-	Timestamp      string  `json:"timestamp,omitempty"`
-	EndedAt        string  `json:"ended_at,omitempty"`
-	StartedAt      string  `json:"started_at,omitempty"`
+	SessionID      string `json:"session_id"`
+	SimID          string `json:"sim_id"`
+	TenantID       string `json:"tenant_id"`
+	OperatorID     string `json:"operator_id"`
+	APNID          string `json:"apn_id,omitempty"`
+	IMSI           string `json:"imsi,omitempty"`
+	RATType        string `json:"rat_type,omitempty"`
+	BytesIn        int64  `json:"bytes_in"`
+	BytesOut       int64  `json:"bytes_out"`
+	DurationSec    int    `json:"duration_sec"`
+	TerminateCause string `json:"terminate_cause,omitempty"`
+	ProtocolType   string `json:"protocol_type,omitempty"`
+	Timestamp      string `json:"timestamp,omitempty"`
+	EndedAt        string `json:"ended_at,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
 }
 
 func (c *Consumer) handleEvent(subject string, data []byte) {

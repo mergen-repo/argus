@@ -21,12 +21,12 @@ import (
 
 // Client holds per-run shared state: destinations, shared secret, UDP timeouts.
 type Client struct {
-	authAddr   string
-	acctAddr   string
-	secret     []byte
-	dialer     *net.Dialer
-	rwTimeout  time.Duration
-	retries    int
+	authAddr  string
+	acctAddr  string
+	secret    []byte
+	dialer    *net.Dialer
+	rwTimeout time.Duration
+	retries   int
 }
 
 func New(host string, authPort, acctPort int, sharedSecret string) *Client {
@@ -44,18 +44,18 @@ func New(host string, authPort, acctPort int, sharedSecret string) *Client {
 // for one simulated session. The engine constructs this, threads it through
 // every packet-builder, and discards it on session end.
 type SessionContext struct {
-	SIM                   discovery.SIM
-	NASIP                 string
-	NASIdentifier         string
-	AcctSessionID         string
-	FramedIP              net.IP        // filled in after Access-Accept
-	StartedAt             time.Time
-	BytesIn               uint64
-	BytesOut              uint64
-	PacketsIn             uint64
-	PacketsOut            uint64
-	ServerSessionTimeout  time.Duration // non-zero if Access-Accept included Session-Timeout
-	ReplyMessage          string        // non-empty if response included Reply-Message (Accept or Reject)
+	SIM                  discovery.SIM
+	NASIP                string
+	NASIdentifier        string
+	AcctSessionID        string
+	FramedIP             net.IP // filled in after Access-Accept
+	StartedAt            time.Time
+	BytesIn              uint64
+	BytesOut             uint64
+	PacketsIn            uint64
+	PacketsOut           uint64
+	ServerSessionTimeout time.Duration // non-zero if Access-Accept included Session-Timeout
+	ReplyMessage         string        // non-empty if response included Reply-Message (Accept or Reject)
 }
 
 // NewSessionContext mints the per-session state with a fresh Acct-Session-Id.

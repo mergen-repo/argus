@@ -29,14 +29,14 @@ type capacityIPPool struct {
 }
 
 type capacityData struct {
-	TotalSIMs           int              `json:"total_sims"`
-	ActiveSessions      int64            `json:"active_sessions"`
-	AuthPerSec          float64          `json:"auth_per_sec"`
-	SIMCapacity         int              `json:"sim_capacity"`
-	SessionCapacity     int              `json:"session_capacity"`
-	AuthCapacity        int              `json:"auth_capacity"`
-	MonthlyGrowthSIMs   int              `json:"monthly_growth_sims"`
-	IPPools             []capacityIPPool `json:"ip_pools"`
+	TotalSIMs         int              `json:"total_sims"`
+	ActiveSessions    int64            `json:"active_sessions"`
+	AuthPerSec        float64          `json:"auth_per_sec"`
+	SIMCapacity       int              `json:"sim_capacity"`
+	SessionCapacity   int              `json:"session_capacity"`
+	AuthCapacity      int              `json:"auth_capacity"`
+	MonthlyGrowthSIMs int              `json:"monthly_growth_sims"`
+	IPPools           []capacityIPPool `json:"ip_pools"`
 }
 
 type CapacityHandler struct {

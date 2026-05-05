@@ -10,22 +10,22 @@ const (
 	smsppSecHeader   byte = 0x02
 	smsppResponseTag byte = 0x23
 
-	spiEncrypt     byte = 0x01
-	spiMAC         byte = 0x02
-	spiEncryptMAC  byte = 0x03
+	spiEncrypt    byte = 0x01
+	spiMAC        byte = 0x02
+	spiEncryptMAC byte = 0x03
 
-	bipChannelID   byte = 0x01
+	bipChannelID    byte = 0x01
 	bipTransportTCP byte = 0x02
 )
 
 type SMSPPEnvelope struct {
-	SPI          [2]byte
-	KIC          byte
-	KID          byte
-	TAR          [3]byte
-	CNTR         [5]byte
-	SecuredData  []byte
-	MAC          []byte
+	SPI         [2]byte
+	KIC         byte
+	KID         byte
+	TAR         [3]byte
+	CNTR        [5]byte
+	SecuredData []byte
+	MAC         []byte
 }
 
 func EncodeSMSPP(packet *SecuredPacket, tar [3]byte, counter uint64, mode SecurityMode) ([]byte, error) {

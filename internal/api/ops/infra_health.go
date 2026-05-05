@@ -12,17 +12,17 @@ import (
 )
 
 type dbPool struct {
-	Max          int32  `json:"max"`
-	InUse        int32  `json:"in_use"`
-	Idle         int32  `json:"idle"`
-	Waiting      int32  `json:"waiting"`
+	Max           int32 `json:"max"`
+	InUse         int32 `json:"in_use"`
+	Idle          int32 `json:"idle"`
+	Waiting       int32 `json:"waiting"`
 	AcquiredTotal int64 `json:"acquired_total"`
 }
 
 type tableSize struct {
-	Name      string `json:"name"`
-	SizeBytes int64  `json:"size_bytes"`
-	RowEstimate int64 `json:"row_estimate"`
+	Name        string `json:"name"`
+	SizeBytes   int64  `json:"size_bytes"`
+	RowEstimate int64  `json:"row_estimate"`
 }
 
 type partitionInfo struct {
@@ -33,24 +33,24 @@ type partitionInfo struct {
 }
 
 type dbBlock struct {
-	Pool              dbPool         `json:"pool"`
-	Tables            []tableSize    `json:"tables"`
-	Partitions        []partitionInfo `json:"partitions"`
-	ReplicationLag    *float64       `json:"replication_lag_seconds"`
-	Error             string         `json:"error,omitempty"`
+	Pool           dbPool          `json:"pool"`
+	Tables         []tableSize     `json:"tables"`
+	Partitions     []partitionInfo `json:"partitions"`
+	ReplicationLag *float64        `json:"replication_lag_seconds"`
+	Error          string          `json:"error,omitempty"`
 }
 
 type redisBlock struct {
-	OpsPerSec        float64 `json:"ops_per_sec"`
-	HitRate          float64 `json:"hit_rate"`
-	MissRate         float64 `json:"miss_rate"`
-	MemoryUsedBytes  int64   `json:"memory_used_bytes"`
-	MemoryMaxBytes   int64   `json:"memory_max_bytes"`
-	Evictions        int64   `json:"evictions_total"`
-	ConnectedClients int64   `json:"connected_clients"`
-	LatencyP99Ms     float64 `json:"latency_p99_ms"`
+	OpsPerSec        float64   `json:"ops_per_sec"`
+	HitRate          float64   `json:"hit_rate"`
+	MissRate         float64   `json:"miss_rate"`
+	MemoryUsedBytes  int64     `json:"memory_used_bytes"`
+	MemoryMaxBytes   int64     `json:"memory_max_bytes"`
+	Evictions        int64     `json:"evictions_total"`
+	ConnectedClients int64     `json:"connected_clients"`
+	LatencyP99Ms     float64   `json:"latency_p99_ms"`
 	KeysByDB         []redisDB `json:"keys_by_db"`
-	Error            string  `json:"error,omitempty"`
+	Error            string    `json:"error,omitempty"`
 }
 
 type redisDB struct {
@@ -60,11 +60,11 @@ type redisDB struct {
 }
 
 type consumerLag struct {
-	Consumer      string `json:"consumer"`
-	Pending       uint64 `json:"pending"`
-	AckPending    int    `json:"ack_pending"`
-	Redeliveries  uint64 `json:"redeliveries"`
-	Slow          bool   `json:"slow"`
+	Consumer     string `json:"consumer"`
+	Pending      uint64 `json:"pending"`
+	AckPending   int    `json:"ack_pending"`
+	Redeliveries uint64 `json:"redeliveries"`
+	Slow         bool   `json:"slow"`
 }
 
 type natsStream struct {

@@ -15,7 +15,7 @@ import (
 )
 
 type mockNotifier struct {
-	called bool
+	called  bool
 	lastReq notification.NotifyRequest
 }
 

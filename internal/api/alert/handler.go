@@ -706,9 +706,9 @@ func (h *Handler) ListSimilar(w http.ResponseWriter, r *http.Request) {
 		Status: "success",
 		Data:   dtos,
 		Meta: map[string]interface{}{
-			"anchor_id":       anchorID.String(),
-			"match_strategy":  strategy,
-			"count":           len(dtos),
+			"anchor_id":      anchorID.String(),
+			"match_strategy": strategy,
+			"count":          len(dtos),
 		},
 	})
 }

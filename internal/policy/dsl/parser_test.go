@@ -508,9 +508,9 @@ func TestParser_RATTypeAliasesAccepted(t *testing.T) {
 
 func TestParser_ActionParameterValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		action  string
-		hasErr  bool
+		name   string
+		action string
+		hasErr bool
 	}{
 		{"notify_valid", "ACTION notify(quota_exceeded, 100%)", false},
 		{"notify_invalid", "ACTION notify(quota_exceeded)", true},

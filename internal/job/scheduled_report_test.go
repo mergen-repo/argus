@@ -29,10 +29,10 @@ func (f *fakeReportEngine) Build(_ context.Context, _ report.Request) (*report.A
 }
 
 type fakeReportRowStore struct {
-	mu          sync.Mutex
-	row         *store.ScheduledReport
-	getErr      error
-	updates     []reportRowUpdate
+	mu      sync.Mutex
+	row     *store.ScheduledReport
+	getErr  error
+	updates []reportRowUpdate
 }
 
 type reportRowUpdate struct {

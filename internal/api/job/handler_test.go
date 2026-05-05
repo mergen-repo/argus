@@ -72,12 +72,12 @@ func TestToJobDTO(t *testing.T) {
 
 func TestToJobDTONilOptionals(t *testing.T) {
 	job := &store.Job{
-		ID:       uuid.New(),
-		TenantID: uuid.New(),
-		Type:     "bulk_sim_import",
-		State:    "queued",
-		Priority: 5,
-		Payload:  json.RawMessage(`{}`),
+		ID:        uuid.New(),
+		TenantID:  uuid.New(),
+		Type:      "bulk_sim_import",
+		State:     "queued",
+		Priority:  5,
+		Payload:   json.RawMessage(`{}`),
 		CreatedAt: time.Now(),
 	}
 

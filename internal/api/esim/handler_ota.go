@@ -222,10 +222,10 @@ func (h *Handler) BulkSwitch(w http.ResponseWriter, r *http.Request) {
 // ---- OTACallback (T12) ----
 
 type otaCallbackRequest struct {
-	CommandID     string `json:"command_id"`
-	Status        string `json:"status"`
-	ErrorMessage  string `json:"error_message,omitempty"`
-	OccurredAt    string `json:"occurred_at"`
+	CommandID    string `json:"command_id"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	OccurredAt   string `json:"occurred_at"`
 }
 
 // OTACallback handles POST /esim-profiles/callbacks/ota-status.
@@ -488,14 +488,14 @@ func (h *Handler) OTAHistory(w http.ResponseWriter, r *http.Request) {
 	items := make([]otaHistoryItem, 0, len(commands))
 	for _, c := range commands {
 		item := otaHistoryItem{
-			ID:          c.ID.String(),
-			EID:         c.EID,
-			CommandType: c.CommandType,
-			Status:      c.Status,
+			ID:            c.ID.String(),
+			EID:           c.EID,
+			CommandType:   c.CommandType,
+			Status:        c.Status,
 			SMSRCommandID: c.SMSRCommandID,
-			RetryCount:  c.RetryCount,
-			LastError:   c.LastError,
-			CreatedAt:   c.CreatedAt.Format(time.RFC3339Nano),
+			RetryCount:    c.RetryCount,
+			LastError:     c.LastError,
+			CreatedAt:     c.CreatedAt.Format(time.RFC3339Nano),
 		}
 		if c.TargetOperatorID != nil {
 			s := c.TargetOperatorID.String()

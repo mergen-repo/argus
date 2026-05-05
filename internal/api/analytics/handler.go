@@ -16,14 +16,14 @@ import (
 )
 
 type Handler struct {
-	usageStore          *store.UsageAnalyticsStore
-	simStore            *store.SIMStore
-	operatorStore       *store.OperatorStore
-	apnStore            *store.APNStore
-	ippoolStore         *store.IPPoolStore
-	costService         *cost.Service
+	usageStore           *store.UsageAnalyticsStore
+	simStore             *store.SIMStore
+	operatorStore        *store.OperatorStore
+	apnStore             *store.APNStore
+	ippoolStore          *store.IPPoolStore
+	costService          *cost.Service
 	chartAnnotationStore *store.ChartAnnotationStore
-	logger              zerolog.Logger
+	logger               zerolog.Logger
 }
 
 func NewHandler(usageStore *store.UsageAnalyticsStore, logger zerolog.Logger) *Handler {
@@ -101,15 +101,15 @@ type comparisonDTO struct {
 }
 
 type usageResponseDTO struct {
-	Period       string           `json:"period"`
-	From         string           `json:"from"`
-	To           string           `json:"to"`
-	BucketSize   string           `json:"bucket_size"`
-	TimeSeries   []timeSeriesDTO  `json:"time_series"`
-	Totals       totalsDTO        `json:"totals"`
+	Period       string                    `json:"period"`
+	From         string                    `json:"from"`
+	To           string                    `json:"to"`
+	BucketSize   string                    `json:"bucket_size"`
+	TimeSeries   []timeSeriesDTO           `json:"time_series"`
+	Totals       totalsDTO                 `json:"totals"`
 	Breakdowns   map[string][]breakdownDTO `json:"breakdowns"`
-	TopConsumers []topConsumerDTO `json:"top_consumers"`
-	Comparison   *comparisonDTO   `json:"comparison,omitempty"`
+	TopConsumers []topConsumerDTO          `json:"top_consumers"`
+	Comparison   *comparisonDTO            `json:"comparison,omitempty"`
 }
 
 var validPeriods = map[string]bool{

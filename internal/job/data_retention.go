@@ -125,7 +125,7 @@ func (p *DataRetentionProcessor) Process(ctx context.Context, job *store.Job) er
 
 	if p.eventBus != nil {
 		_ = p.eventBus.Publish(ctx, bus.SubjectJobCompleted, map[string]interface{}{
-			"job_id":              job.ID.String(),
+			"job_id":             job.ID.String(),
 			"tenant_id":          job.TenantID.String(),
 			"type":               JobTypeDataRetention,
 			"state":              "completed",

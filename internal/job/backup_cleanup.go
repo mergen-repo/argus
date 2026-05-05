@@ -60,8 +60,8 @@ func (p *BackupCleanupProcessor) Type() string {
 
 func (p *BackupCleanupProcessor) Process(ctx context.Context, job *store.Job) error {
 	type kindRetention struct {
-		kind      string
-		keepN     int
+		kind  string
+		keepN int
 	}
 	schedule := []kindRetention{
 		{"daily", p.retentionDaily},

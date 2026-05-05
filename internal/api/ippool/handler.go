@@ -44,21 +44,21 @@ func NewHandler(
 }
 
 type poolResponse struct {
-	ID                      string   `json:"id"`
-	TenantID                string   `json:"tenant_id"`
-	APNID                   string   `json:"apn_id"`
-	Name                    string   `json:"name"`
-	CIDRv4                  *string  `json:"cidr_v4"`
-	CIDRv6                  *string  `json:"cidr_v6"`
-	TotalAddresses          int      `json:"total_addresses"`
-	UsedAddresses           int      `json:"used_addresses"`
-	AvailableAddresses      int      `json:"available_addresses"`
-	UtilizationPct          float64  `json:"utilization_pct"`
-	AlertThresholdWarning   int      `json:"alert_threshold_warning"`
-	AlertThresholdCritical  int      `json:"alert_threshold_critical"`
-	ReclaimGracePeriodDays  int      `json:"reclaim_grace_period_days"`
-	State                   string   `json:"state"`
-	CreatedAt               string   `json:"created_at"`
+	ID                     string  `json:"id"`
+	TenantID               string  `json:"tenant_id"`
+	APNID                  string  `json:"apn_id"`
+	Name                   string  `json:"name"`
+	CIDRv4                 *string `json:"cidr_v4"`
+	CIDRv6                 *string `json:"cidr_v6"`
+	TotalAddresses         int     `json:"total_addresses"`
+	UsedAddresses          int     `json:"used_addresses"`
+	AvailableAddresses     int     `json:"available_addresses"`
+	UtilizationPct         float64 `json:"utilization_pct"`
+	AlertThresholdWarning  int     `json:"alert_threshold_warning"`
+	AlertThresholdCritical int     `json:"alert_threshold_critical"`
+	ReclaimGracePeriodDays int     `json:"reclaim_grace_period_days"`
+	State                  string  `json:"state"`
+	CreatedAt              string  `json:"created_at"`
 }
 
 type addressResponse struct {
@@ -78,21 +78,21 @@ type addressResponse struct {
 }
 
 type createPoolRequest struct {
-	APNID                   string `json:"apn_id"`
-	Name                    string `json:"name"`
-	CIDRv4                  *string `json:"cidr_v4"`
-	CIDRv6                  *string `json:"cidr_v6"`
-	AlertThresholdWarning   *int   `json:"alert_threshold_warning"`
-	AlertThresholdCritical  *int   `json:"alert_threshold_critical"`
-	ReclaimGracePeriodDays  *int   `json:"reclaim_grace_period_days"`
+	APNID                  string  `json:"apn_id"`
+	Name                   string  `json:"name"`
+	CIDRv4                 *string `json:"cidr_v4"`
+	CIDRv6                 *string `json:"cidr_v6"`
+	AlertThresholdWarning  *int    `json:"alert_threshold_warning"`
+	AlertThresholdCritical *int    `json:"alert_threshold_critical"`
+	ReclaimGracePeriodDays *int    `json:"reclaim_grace_period_days"`
 }
 
 type updatePoolRequest struct {
-	Name                    *string `json:"name"`
-	AlertThresholdWarning   *int    `json:"alert_threshold_warning"`
-	AlertThresholdCritical  *int    `json:"alert_threshold_critical"`
-	ReclaimGracePeriodDays  *int    `json:"reclaim_grace_period_days"`
-	State                   *string `json:"state"`
+	Name                   *string `json:"name"`
+	AlertThresholdWarning  *int    `json:"alert_threshold_warning"`
+	AlertThresholdCritical *int    `json:"alert_threshold_critical"`
+	ReclaimGracePeriodDays *int    `json:"reclaim_grace_period_days"`
+	State                  *string `json:"state"`
 }
 
 type reserveIPRequest struct {
@@ -110,21 +110,21 @@ func toPoolResponse(p *store.IPPool) poolResponse {
 		utilPct = float64(p.UsedAddresses) / float64(p.TotalAddresses) * 100.0
 	}
 	return poolResponse{
-		ID:                      p.ID.String(),
-		TenantID:                p.TenantID.String(),
-		APNID:                   p.APNID.String(),
-		Name:                    p.Name,
-		CIDRv4:                  p.CIDRv4,
-		CIDRv6:                  p.CIDRv6,
-		TotalAddresses:          p.TotalAddresses,
-		UsedAddresses:           p.UsedAddresses,
-		AvailableAddresses:      available,
-		UtilizationPct:          utilPct,
-		AlertThresholdWarning:   p.AlertThresholdWarning,
-		AlertThresholdCritical:  p.AlertThresholdCritical,
-		ReclaimGracePeriodDays:  p.ReclaimGracePeriodDays,
-		State:                   p.State,
-		CreatedAt:               p.CreatedAt.Format(time.RFC3339Nano),
+		ID:                     p.ID.String(),
+		TenantID:               p.TenantID.String(),
+		APNID:                  p.APNID.String(),
+		Name:                   p.Name,
+		CIDRv4:                 p.CIDRv4,
+		CIDRv6:                 p.CIDRv6,
+		TotalAddresses:         p.TotalAddresses,
+		UsedAddresses:          p.UsedAddresses,
+		AvailableAddresses:     available,
+		UtilizationPct:         utilPct,
+		AlertThresholdWarning:  p.AlertThresholdWarning,
+		AlertThresholdCritical: p.AlertThresholdCritical,
+		ReclaimGracePeriodDays: p.ReclaimGracePeriodDays,
+		State:                  p.State,
+		CreatedAt:              p.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
 
@@ -272,13 +272,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pool, err := h.ippoolStore.Create(r.Context(), tenantID, store.CreateIPPoolParams{
-		APNID:                   apnID,
-		Name:                    req.Name,
-		CIDRv4:                  req.CIDRv4,
-		CIDRv6:                  req.CIDRv6,
-		AlertThresholdWarning:   req.AlertThresholdWarning,
-		AlertThresholdCritical:  req.AlertThresholdCritical,
-		ReclaimGracePeriodDays:  req.ReclaimGracePeriodDays,
+		APNID:                  apnID,
+		Name:                   req.Name,
+		CIDRv4:                 req.CIDRv4,
+		CIDRv6:                 req.CIDRv6,
+		AlertThresholdWarning:  req.AlertThresholdWarning,
+		AlertThresholdCritical: req.AlertThresholdCritical,
+		ReclaimGracePeriodDays: req.ReclaimGracePeriodDays,
 	})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("create ip pool")
@@ -366,11 +366,11 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, err := h.ippoolStore.Update(r.Context(), tenantID, id, store.UpdateIPPoolParams{
-		Name:                    req.Name,
-		AlertThresholdWarning:   req.AlertThresholdWarning,
-		AlertThresholdCritical:  req.AlertThresholdCritical,
-		ReclaimGracePeriodDays:  req.ReclaimGracePeriodDays,
-		State:                   req.State,
+		Name:                   req.Name,
+		AlertThresholdWarning:  req.AlertThresholdWarning,
+		AlertThresholdCritical: req.AlertThresholdCritical,
+		ReclaimGracePeriodDays: req.ReclaimGracePeriodDays,
+		State:                  req.State,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrIPPoolNotFound) {

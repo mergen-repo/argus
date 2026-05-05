@@ -36,12 +36,12 @@ type Config struct {
 // true. YAML cannot distinguish "omitted" from "explicit false" for bare bool,
 // so set session_timeout_respect: false explicitly to disable it.
 type ReactiveDefaults struct {
-	Enabled                 bool            `yaml:"enabled"`
-	SessionTimeoutRespect   bool            `yaml:"session_timeout_respect"`
-	EarlyTerminationMargin  time.Duration   `yaml:"early_termination_margin"`
-	RejectBackoffBase       time.Duration   `yaml:"reject_backoff_base"`
-	RejectBackoffMax        time.Duration   `yaml:"reject_backoff_max"`
-	RejectMaxRetriesPerHour int             `yaml:"reject_max_retries_per_hour"`
+	Enabled                 bool              `yaml:"enabled"`
+	SessionTimeoutRespect   bool              `yaml:"session_timeout_respect"`
+	EarlyTerminationMargin  time.Duration     `yaml:"early_termination_margin"`
+	RejectBackoffBase       time.Duration     `yaml:"reject_backoff_base"`
+	RejectBackoffMax        time.Duration     `yaml:"reject_backoff_max"`
+	RejectMaxRetriesPerHour int               `yaml:"reject_max_retries_per_hour"`
 	CoAListener             CoAListenerConfig `yaml:"coa_listener"`
 }
 
