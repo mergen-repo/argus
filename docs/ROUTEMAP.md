@@ -154,8 +154,8 @@
 | Step | Name | Status | Completed |
 |------|------|--------|-----------|
 | E0 | Seed Data Generation (Seed Generator) | [x] DONE | 2026-05-06 |
-| E1 | E2E Browser Testing (E2E Tester) | [~] IN PROGRESS | — |
-| E2 | Test Hardening (Test Hardener) | [ ] PENDING | — |
+| E1 | E2E Browser Testing (E2E Tester) | [x] DONE | 2026-05-06 |
+| E2 | Test Hardening (Test Hardener) | [~] IN PROGRESS | — |
 | E3 | Performance Optimization (Perf Optimizer) | [ ] PENDING | — |
 | E4 | UI Polish (UI Polisher) | [ ] PENDING | — |
 | E5 | Functional Acceptance (Acceptance Tester) | [ ] PENDING | — |
