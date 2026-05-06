@@ -2,11 +2,49 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// TestSIMColumnsAndScanCountConsistency is a structural-drift guard
+// (D-181 / PAT-006 RECURRENCE prevention) — without DB access, asserts
+// that the comma-separated `simColumns` constant has exactly the same
+// column count as `scanSIM` writes destinations.
+//
+// PAT-006 recurrences (each one a production bug surfaced after release):
+//
+//	#1 FIX-215 (2026-04-19) — Operator List vs operatorColumns
+//	#2 FIX-242 (2026-04-26) — sessions DTO field omission
+//	#3 FIX-251 (2026-04-30) — PAT-006 #3 systemic audit
+//	#4 E1 Fix Loop 1 (2026-05-06) — SIMStore.List + FetchSample,
+//	   23 inline-scan args vs 29-col simColumns (Phase 11 binding cols
+//	   added to simColumns + scanSIM but inline scans were forgotten).
+//
+// The E1 Fix Loop 1 fix deletes both inline scans in sim.go and
+// delegates to scanSIM helper. This guard ensures any future column
+// addition to simColumns forces a matching scanSIM update before merge.
+func TestSIMColumnsAndScanCountConsistency(t *testing.T) {
+	cleaned := strings.Join(strings.Fields(simColumns), "")
+	colCount := strings.Count(cleaned, ",") + 1
+
+	// scanSIM destination count — Phase 11 binding columns inclusive.
+	// Bump this constant ONLY when both scanSIM and simColumns change in
+	// lockstep.
+	const scanSIMDestCount = 29
+
+	if colCount != scanSIMDestCount {
+		t.Fatalf("simColumns/scanSIM drift: simColumns has %d cols but scanSIM scans %d destinations.\n"+
+			"This is PAT-006 RECURRENCE class. Either:\n"+
+			"  (a) you added a column to simColumns — update scanSIM destinations + bump scanSIMDestCount;\n"+
+			"  (b) you added a Scan dest in scanSIM — update simColumns + bump scanSIMDestCount;\n"+
+			"  (c) you removed something — same drill, both sides + this test.\n"+
+			"Refusing to compile with this drift would surface live as HTTP 500 on /sims, /apns/{id}/sims, /operators/{id}/sims.",
+			colCount, scanSIMDestCount)
+	}
+}
 
 func TestSIMStructFields(t *testing.T) {
 	now := time.Now()

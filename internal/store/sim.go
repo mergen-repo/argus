@@ -356,17 +356,11 @@ func (s *SIMStore) List(ctx context.Context, tenantID uuid.UUID, p ListSIMsParam
 
 	var results []SIM
 	for rows.Next() {
-		var sim SIM
-		if err := rows.Scan(
-			&sim.ID, &sim.TenantID, &sim.OperatorID, &sim.APNID, &sim.ICCID, &sim.IMSI, &sim.MSISDN,
-			&sim.IPAddressID, &sim.PolicyVersionID, &sim.ESimProfileID, &sim.SimType, &sim.State, &sim.RATType,
-			&sim.MaxConcurrentSessions, &sim.SessionIdleTimeoutSec, &sim.SessionHardTimeoutSec,
-			&sim.Metadata, &sim.ActivatedAt, &sim.SuspendedAt, &sim.TerminatedAt, &sim.PurgeAt,
-			&sim.CreatedAt, &sim.UpdatedAt,
-		); err != nil {
+		sim, err := scanSIM(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan sim: %w", err)
 		}
-		results = append(results, sim)
+		results = append(results, *sim)
 	}
 
 	nextCursor := ""
@@ -1437,17 +1431,11 @@ func (s *SIMStore) FetchSample(ctx context.Context, tenantID uuid.UUID, filters 
 
 	var results []SIM
 	for rows.Next() {
-		var sim SIM
-		if err := rows.Scan(
-			&sim.ID, &sim.TenantID, &sim.OperatorID, &sim.APNID, &sim.ICCID, &sim.IMSI, &sim.MSISDN,
-			&sim.IPAddressID, &sim.PolicyVersionID, &sim.ESimProfileID, &sim.SimType, &sim.State, &sim.RATType,
-			&sim.MaxConcurrentSessions, &sim.SessionIdleTimeoutSec, &sim.SessionHardTimeoutSec,
-			&sim.Metadata, &sim.ActivatedAt, &sim.SuspendedAt, &sim.TerminatedAt, &sim.PurgeAt,
-			&sim.CreatedAt, &sim.UpdatedAt,
-		); err != nil {
+		sim, err := scanSIM(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan sample sim: %w", err)
 		}
-		results = append(results, sim)
+		results = append(results, *sim)
 	}
 	return results, nil
 }
