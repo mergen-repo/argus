@@ -92,6 +92,7 @@ type sessionDTO struct {
 	NASIP               string  `json:"nas_ip"`
 	FramedIP            string  `json:"framed_ip,omitempty"`
 	RATType             string  `json:"rat_type,omitempty"`
+	ProtocolType        string  `json:"protocol_type,omitempty"`
 	State               string  `json:"state"`
 	BytesIn             uint64  `json:"bytes_in"`
 	BytesOut            uint64  `json:"bytes_out"`
@@ -210,6 +211,7 @@ func toSessionDTO(s *session.Session) sessionDTO {
 		NASIP:         stripCIDR(s.NASIP),
 		FramedIP:      framedIP,
 		RATType:       s.RATType,
+		ProtocolType:  s.ProtocolType,
 		State:         s.SessionState,
 		BytesIn:       s.BytesIn,
 		BytesOut:      s.BytesOut,
