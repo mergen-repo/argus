@@ -182,12 +182,12 @@ Conventions:
 
 | Tab | Endpoint(s) | Expected count / value |
 |-----|-------------|------------------------|
-| Overview | GET /api/v1/sims/{id} | state='active', binding_mode='strict', binding_status='verified', bound_imei='353273090012345', operator_id=Turkcell, apn=iot.demo |
+| Overview | GET /api/v1/sims/{id} | state='active', binding_mode='strict', binding_status='verified', bound_imei='353273090100024', operator_id=Turkcell, apn=m2m.demo |
 | Sessions | GET /api/v1/sims/{id}/sessions?limit=50 | data.length = 50 (paged from 224 total); first.session_state in {'closed','active'} |
 | Usage | GET /api/v1/sims/{id}/usage | non-empty (CDR rollups exist; 224 sessions feeding cdrs) |
 | History | GET /api/v1/sims/{id}/history | sim_state_history rows = 3 |
-| Policy | GET /api/v1/sims/{id}/policy-history | active assignment present (policy='Demo IoT Savings', version=1, coa_status='acked', policy_version_id='05100000-0000-0000-0000-000000000002') |
-| Device Binding | GET /api/v1/sims/{id}/device-binding | bound_imei='353273090012345', binding_mode='strict', binding_status='verified', match=true |
+| Policy | GET /api/v1/sims/{id}/history | active assignment present (policy='Demo IoT Savings', version=1, coa_status='acked', policy_version_id='05100000-0000-0000-0000-000000000002') |
+| Device Binding | GET /api/v1/sims/{id}/device-binding | bound_imei='353273090100024', binding_mode='strict', binding_status='verified', match=true |
 | IMEI History (sub) | GET /api/v1/sims/{id}/imei-history | data.length = 5 (radius/diameter_s6a/5g_sba mix) |
 | (Audit cross-cut) | GET /api/v1/audit?entity_id=1c869918-... | data.length >= 34 (20 pre-existing + 14 from prior seeds; no Loop-1 rows on this SIM since coverage was sufficient) |
 
@@ -201,7 +201,7 @@ Conventions:
 |-----|----------|------------------------|
 | Overview | GET /api/v1/sims/{id} | state='active', binding_mode='strict', binding_status='mismatch', bound_imei='354533080400094' |
 | Sessions | GET /api/v1/sims/{id}/sessions | data.length = 50 (paged from 246) |
-| Policy | GET /api/v1/sims/{id}/policy-history | policy='Demo Standard QoS', version=1, coa_status='acked' |
+| Policy | GET /api/v1/sims/{id}/history | policy='Demo Standard QoS', version=1, coa_status='acked' |
 | History | GET /api/v1/sims/{id}/history | sim_state_history rows = 3 |
 | Device Binding | GET /api/v1/sims/{id}/device-binding | binding_status='mismatch', match=false, observed != bound |
 | IMEI History | GET /api/v1/sims/{id}/imei-history | data.length = 5 |
@@ -217,7 +217,7 @@ Conventions:
 |-----|----------|------------------------|
 | Overview | GET /api/v1/sims/{id} | state='active', binding_mode='allowlist', binding_status='verified' |
 | Sessions | GET /api/v1/sims/{id}/sessions | data.length = 50 (paged from 255 total; 1 active + 254 closed) |
-| Policy | GET /api/v1/sims/{id}/policy-history | policy='Demo IoT Savings', version=1, coa_status='acked' |
+| Policy | GET /api/v1/sims/{id}/history | policy='Demo IoT Savings', version=1, coa_status='acked' |
 | History | GET /api/v1/sims/{id}/history | sim_state_history rows = 3 |
 | Device Binding | GET /api/v1/sims/{id}/device-binding | binding_mode='allowlist'; allowlist sub-list non-empty |
 | IMEI History | GET /api/v1/sims/{id}/imei-history | data.length = 5 |
@@ -238,7 +238,7 @@ Conventions:
 | SIMs | GET /api/v1/sims?operator_id=...&limit=50 | data.length = 50 (paged from 189) |
 | Alerts | GET /api/v1/alerts?operator_id=20000000-...0001 | data.length = 6 (5 prior + 1 Loop-1; 2 are demo-fixture critical/high) |
 | Audit | GET /api/v1/audit?entity_type=operator&entity_id=20000000-...0001 | data.length = 10 (Loop-1 added all 10 — was 0 before) |
-| (SLA cross-cut) | GET /api/v1/sla?operator_id=... | data.length = 51 |
+| (SLA cross-cut) | GET /api/v1/sla/operators/{id}/months/{year}/{month}/breaches | data.length = 51 |
 | (APNs cross-cut) | GET /api/v1/apns?operator_id=... | data.length = 10 |
 
 ### Operator Detail (SCR-007) — DEMO-OP-Y (Vodafone TR)
@@ -255,7 +255,7 @@ Conventions:
 | SIMs | GET /api/v1/sims?operator_id=... | data.length = 50 (paged from 130) |
 | Alerts | GET /api/v1/alerts?operator_id=...0002 | data.length = 4 (2 prior + 2 Loop-1) |
 | Audit | GET /api/v1/audit?entity_type=operator&entity_id=...0002 | data.length = 10 (Loop-1 added all 10 — was 0 before) |
-| SLA | GET /api/v1/sla?operator_id=... | data.length = 51 |
+| SLA | GET /api/v1/sla/operators/{id}/months/{year}/{month}/breaches | data.length = 51 |
 | APNs | GET /api/v1/apns?operator_id=... | data.length = 8 |
 
 ### APN Detail (SCR-005) — DEMO-APN-IOT (iot.demo)
@@ -286,14 +286,14 @@ Conventions:
 | Audit | GET /api/v1/audit?entity_type=apn&entity_id=06000000-...0002 | data.length = 10 (Loop-1 added all 10 — was 0 before) |
 | Alerts | GET /api/v1/alerts?apn_id=06000000-...0002 | data.length = 1 (Loop-1) |
 
-### Session Detail (SCR-016) — DEMO-SESS-1 (RADIUS, active)
+### Session Detail (SCR-016) — DEMO-SESS-1 (RADIUS, closed)
 
 - ID: `431c84f7-2249-4a12-b9d0-d68b3b9f0080`
-- SIM: `b52d5167-8e81-44a5-a807-7c44de5214df` / Operator: Turkcell / APN: iot.demo
+- SIM: `b52d5167-8e81-44a5-a807-7c44de5214df` / Operator: Turkcell / APN: m2m.demo
 
 | Tab | Endpoint | Expected count / value |
 |-----|----------|------------------------|
-| Overview | GET /api/v1/sessions/{id} | session_state='active', protocol_type='radius', bytes_in≈47M, bytes_out≈19M |
+| Overview | GET /api/v1/sessions/{id} | session_state='closed', protocol_type='radius', bytes_in≈228M, bytes_out≈92M |
 | SoR Decision | (sor_decision sub-object) | scoring.length=3, chosen_operator_id=20000000-...0001, top score=0.94 |
 | Policy | (policy_applied sub-object) | policy_name='Demo IoT Savings', version=1, coa_status='acked', policy_version_id='05100000-...0002' |
 | Quota | (quota_usage sub-object) | enriched from policy_version compiled_rules.charging.quota |
