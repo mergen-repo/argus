@@ -118,7 +118,8 @@ docs/            → All documentation
 - Mode: E2E_POLISH (Production Cutover Re-run — user directive 2026-05-05)
 - Phase: E2E & Polish (Production Cutover Re-run) [IN PROGRESS] — started 2026-05-06; post-Phase-11; full E0..E5 sequence
 - Story: — (E-step agents are project-wide, not story-scoped)
-- Step: E2 Test Hardener (next dispatch)
+- Step: E3 Perf Optimizer (next dispatch)
+- E2 closed: [DONE 2026-05-06] — D-181 systemic refactor complete; 5 store files hardened (cdr/policy/ippool/session_radius/notification — 19 inline scan drift surfaces eliminated); 10 new drift-guard tests + bonus rows.Err() check; 4222→4235 tests pass; race-detection sweep clean; Phase 11 hot-path coverage policy/binding 91.2% syslog 84.7% validator 100%; commits 5d09d72 + c71427d
 - E1 closed: [DONE 2026-05-06] — initial run + 1 fix loop; 64 screenshots in polish-2026-05-06/; 23 routes 0 placeholder; 6 detail screens × 30+ tabs covered; Pass 4 functional 62/62 (100%) post-fix-loop; 5 live-bug fixes routed (commits 58e607b sim-store PAT-006 #4 + drift-guard, 4d05851 oracle drift, 9fc2f5f session protocol_type DTO, plus pre-existing 1d69278/18737e5/90d662d/edb54b2 from E0)
 - E0 closed: [DONE 2026-05-06] — 2 loops; 12 screens initial + 10 demo fixtures (3 SIM + 2 Op + 2 APN + 3 Sess) with 62 oracle assertion targets; 38 screenshots; make db-seed idempotent 4×; hash chain verified 28439 entries
 - Phase 11 closed: [DONE 2026-05-05] — 6/6 stories + Phase Gate PASS (10/10 steps; 4222 Go tests + tsc clean; 12 screenshots; 21/21 functional; 100% compliance)
