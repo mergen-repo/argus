@@ -929,6 +929,7 @@ func radiusSessionToSession(rs *store.RadiusSession) *Session {
 	}
 	sess.ProtocolType = rs.ProtocolType
 	sess.SliceInfo = rs.SliceInfo
+	sess.SorDecision = rs.SoRDecision
 	return sess
 }
 
