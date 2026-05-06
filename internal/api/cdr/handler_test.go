@@ -156,6 +156,50 @@ func TestHandler_List_MissingDateRange_422(t *testing.T) {
 	}
 }
 
+// Entity-scoped queries (sim_id / msisdn / imsi / session_id) bypass the
+// requireRange invariant — the entity ID itself is sufficient scope, and
+// SIM detail UsageTab calls /cdrs?sim_id=X without from/to. Without this
+// relaxation FE shows "Request validation failed" toast on every SIM
+// detail open (live bug surfaced 2026-05-06).
+func TestHandler_List_SimIDScopedNoRange_PassesValidator(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	simID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cdrs?sim_id="+simID.String()+"&limit=20", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	defer func() {
+		_ = recover() // expected: nil cdrStore panics on ListByTenant — proves validator passed
+		if w.Code == http.StatusUnprocessableEntity {
+			t.Errorf("validator rejected sim_id-scoped query without range (status %d)", w.Code)
+		}
+	}()
+	h.List(w, req)
+}
+
+func TestHandler_List_MsisdnScopedNoRange_PassesValidator(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
+
+	tenantID := uuid.New()
+	ctx := context.WithValue(context.Background(), apierr.TenantIDKey, tenantID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cdrs?msisdn=905551234567", nil)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	defer func() {
+		_ = recover()
+		if w.Code == http.StatusUnprocessableEntity {
+			t.Errorf("validator rejected msisdn-scoped query without range (status %d)", w.Code)
+		}
+	}()
+	h.List(w, req)
+}
+
 func TestHandler_List_Range30dCap_422(t *testing.T) {
 	h := NewHandler(nil, nil, nil, nil, zerolog.Nop())
 

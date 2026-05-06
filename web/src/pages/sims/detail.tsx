@@ -356,7 +356,7 @@ function UsageTab({ simId }: { simId: string }) {
     isFetchingNextPage: isFetchingMoreCDRs,
     hasNextPage,
     fetchNextPage,
-  } = useSIMCDRs(simId)
+  } = useSIMCDRs(simId, timeframe)
   const usage = usageData as SIMUsageData | undefined
   const cdrs = useMemo(
     () => cdrPages?.pages.flatMap((page) => page.data) ?? [],

@@ -244,7 +244,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	params, ok := h.parseFilters(w, r, true)
+	hasEntityScope := q.Get("sim_id") != "" || q.Get("msisdn") != "" || q.Get("imsi") != "" || q.Get("session_id") != ""
+	params, ok := h.parseFilters(w, r, !hasEntityScope)
 	if !ok {
 		return
 	}

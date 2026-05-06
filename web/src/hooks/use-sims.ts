@@ -121,14 +121,29 @@ export function useSIMUsage(simId: string, period: string = '30d') {
   })
 }
 
-export function useSIMCDRs(simId: string) {
+function periodToRange(period: string): { from: string; to: string } {
+  const now = Date.now()
+  const offsets: Record<string, number> = {
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+    '90d': 90 * 24 * 60 * 60 * 1000,
+  }
+  const ms = offsets[period] ?? offsets['30d']
+  return { from: new Date(now - ms).toISOString(), to: new Date(now).toISOString() }
+}
+
+export function useSIMCDRs(simId: string, period: string = '30d') {
   return useInfiniteQuery({
-    queryKey: [...SIMS_KEY, 'cdrs', simId],
+    queryKey: [...SIMS_KEY, 'cdrs', simId, period],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams()
       if (pageParam) params.set('cursor', pageParam as string)
       params.set('limit', '20')
       params.set('sim_id', simId)
+      const { from, to } = periodToRange(period)
+      params.set('from', from)
+      params.set('to', to)
       const res = await api.get<ListResponse<SIMCDR>>(`/cdrs?${params.toString()}`)
       return res.data
     },
