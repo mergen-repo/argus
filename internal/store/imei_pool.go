@@ -340,7 +340,7 @@ func (s *IMEIPoolStore) List(ctx context.Context, tenantID uuid.UUID, pool PoolK
 		              NULL::text AS imported_from,
 		              e.created_by, e.created_at, e.updated_at`
 	case PoolBlacklist:
-		projection = `e.id, e.tenant_id, e.kind, e.imei_or_tac, e.description AS desc_alias,
+		projection = `e.id, e.tenant_id, e.kind, e.imei_or_tac, e.device_model, e.description AS desc_alias,
 		              NULL::text AS quarantine_reason,
 		              e.block_reason,
 		              e.imported_from,
