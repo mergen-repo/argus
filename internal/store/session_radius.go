@@ -250,22 +250,14 @@ func (s *RadiusSessionStore) ListActiveBySIM(ctx context.Context, simID uuid.UUI
 
 	var results []RadiusSession
 	for rows.Next() {
-		var sess RadiusSession
-		if err := rows.Scan(
-			&sess.ID, &sess.SimID, &sess.TenantID, &sess.OperatorID, &sess.APNID,
-			&sess.NASIP, &sess.FramedIP, &sess.CallingStationID, &sess.CalledStationID,
-			&sess.RATType, &sess.SessionState, &sess.AuthMethod,
-			&sess.PolicyVersionID, &sess.AcctSessionID,
-			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
-			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
-			&sess.LastInterimAt,
-			&sess.ProtocolType, &sess.SliceInfo, &sess.SoRDecision,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanRadiusSession delegate.
+		sess, err := scanRadiusSession(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan radius session: %w", err)
 		}
-		results = append(results, sess)
+		results = append(results, *sess)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
 type ListActiveSessionsParams struct {
@@ -351,20 +343,15 @@ func (s *RadiusSessionStore) ListActiveFiltered(ctx context.Context, p ListActiv
 
 	var results []RadiusSession
 	for rows.Next() {
-		var sess RadiusSession
-		if err := rows.Scan(
-			&sess.ID, &sess.SimID, &sess.TenantID, &sess.OperatorID, &sess.APNID,
-			&sess.NASIP, &sess.FramedIP, &sess.CallingStationID, &sess.CalledStationID,
-			&sess.RATType, &sess.SessionState, &sess.AuthMethod,
-			&sess.PolicyVersionID, &sess.AcctSessionID,
-			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
-			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
-			&sess.LastInterimAt,
-			&sess.ProtocolType, &sess.SliceInfo, &sess.SoRDecision,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanRadiusSession delegate.
+		sess, err := scanRadiusSession(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan active session: %w", err)
 		}
-		results = append(results, sess)
+		results = append(results, *sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list active sessions rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -554,20 +541,15 @@ func (s *RadiusSessionStore) ListBySIM(ctx context.Context, tenantID, simID uuid
 
 	var results []RadiusSession
 	for rows.Next() {
-		var sess RadiusSession
-		if err := rows.Scan(
-			&sess.ID, &sess.SimID, &sess.TenantID, &sess.OperatorID, &sess.APNID,
-			&sess.NASIP, &sess.FramedIP, &sess.CallingStationID, &sess.CalledStationID,
-			&sess.RATType, &sess.SessionState, &sess.AuthMethod,
-			&sess.PolicyVersionID, &sess.AcctSessionID,
-			&sess.StartedAt, &sess.EndedAt, &sess.TerminateCause,
-			&sess.BytesIn, &sess.BytesOut, &sess.PacketsIn, &sess.PacketsOut,
-			&sess.LastInterimAt,
-			&sess.ProtocolType, &sess.SliceInfo, &sess.SoRDecision,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanRadiusSession delegate.
+		sess, err := scanRadiusSession(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan session by sim: %w", err)
 		}
-		results = append(results, sess)
+		results = append(results, *sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list sessions by sim rows: %w", err)
 	}
 
 	nextCursor := ""

@@ -235,6 +235,20 @@ func scanIPAddress(row pgx.Row) (*IPAddress, error) {
 	return &a, err
 }
 
+// scanIPAddressJoined scans a row produced by SELECT ipAddressColumnsJoined
+// (the LEFT JOIN sims variant — 13 cols, ipAddress 10 + sim 3). Used by
+// ListAddresses. Drift-guarded by TestIPAddressColumnsJoinedAndScanCountConsistency.
+func scanIPAddressJoined(row pgx.Row) (*IPAddress, error) {
+	var a IPAddress
+	err := row.Scan(
+		&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6,
+		&a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt,
+		&a.LastSeenAt,
+		&a.SimICCID, &a.SimIMSI, &a.SimMSISDN,
+	)
+	return &a, err
+}
+
 func (s *IPPoolStore) Create(ctx context.Context, tenantID uuid.UUID, p CreateIPPoolParams) (*IPPool, error) {
 	alertWarning := 80
 	if p.AlertThresholdWarning != nil {
@@ -430,15 +444,15 @@ func (s *IPPoolStore) List(ctx context.Context, tenantID uuid.UUID, cursor strin
 
 	var results []IPPool
 	for rows.Next() {
-		var p IPPool
-		if err := rows.Scan(
-			&p.ID, &p.TenantID, &p.APNID, &p.Name, &p.CIDRv4, &p.CIDRv6,
-			&p.TotalAddresses, &p.UsedAddresses, &p.AlertThresholdWarning,
-			&p.AlertThresholdCritical, &p.ReclaimGracePeriodDays, &p.State, &p.CreatedAt,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanIPPool delegate.
+		p, err := scanIPPool(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan ip pool: %w", err)
 		}
-		results = append(results, p)
+		results = append(results, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list ip pools rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -561,16 +575,15 @@ func (s *IPPoolStore) ListAddresses(ctx context.Context, poolID uuid.UUID, curso
 
 	var results []IPAddress
 	for rows.Next() {
-		var a IPAddress
-		if err := rows.Scan(
-			&a.ID, &a.PoolID, &a.AddressV4, &a.AddressV6,
-			&a.AllocationType, &a.SimID, &a.State, &a.AllocatedAt, &a.ReclaimAt,
-			&a.LastSeenAt,
-			&a.SimICCID, &a.SimIMSI, &a.SimMSISDN,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanIPAddressJoined delegate.
+		a, err := scanIPAddressJoined(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan ip address: %w", err)
 		}
-		results = append(results, a)
+		results = append(results, *a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list ip addresses rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -1039,17 +1052,14 @@ func (s *IPPoolStore) ListByAPN(ctx context.Context, tenantID, apnID uuid.UUID) 
 
 	var results []IPPool
 	for rows.Next() {
-		var p IPPool
-		if err := rows.Scan(
-			&p.ID, &p.TenantID, &p.APNID, &p.Name, &p.CIDRv4, &p.CIDRv6,
-			&p.TotalAddresses, &p.UsedAddresses, &p.AlertThresholdWarning,
-			&p.AlertThresholdCritical, &p.ReclaimGracePeriodDays, &p.State, &p.CreatedAt,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanIPPool delegate.
+		p, err := scanIPPool(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan ip pool by apn: %w", err)
 		}
-		results = append(results, p)
+		results = append(results, *p)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
 type PoolAPNStats struct {

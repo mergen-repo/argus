@@ -220,15 +220,15 @@ func (s *PolicyStore) List(ctx context.Context, tenantID uuid.UUID, cursor strin
 
 	var results []Policy
 	for rows.Next() {
-		var p Policy
-		if err := rows.Scan(
-			&p.ID, &p.TenantID, &p.Name, &p.Description,
-			&p.Scope, &p.ScopeRefID, &p.CurrentVersionID,
-			&p.State, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanPolicy delegate.
+		p, err := scanPolicy(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan policy: %w", err)
 		}
-		results = append(results, p)
+		results = append(results, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list policies rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -368,17 +368,14 @@ func (s *PolicyStore) GetVersionsByPolicyID(ctx context.Context, policyID uuid.U
 
 	var results []PolicyVersion
 	for rows.Next() {
-		var v PolicyVersion
-		if err := rows.Scan(
-			&v.ID, &v.PolicyID, &v.Version, &v.DSLContent, &v.CompiledRules,
-			&v.State, &v.AffectedSIMCount, &v.DryRunResult,
-			&v.ActivatedAt, &v.RolledBackAt, &v.CreatedAt, &v.CreatedBy,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanPolicyVersion delegate.
+		v, err := scanPolicyVersion(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan version: %w", err)
 		}
-		results = append(results, v)
+		results = append(results, *v)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
 func (s *PolicyStore) UpdateVersion(ctx context.Context, id uuid.UUID, dslContent string, compiledRules json.RawMessage) (*PolicyVersion, error) {
@@ -413,15 +410,12 @@ func (s *PolicyStore) ActivateVersion(ctx context.Context, versionID uuid.UUID) 
 	}
 	defer tx.Rollback(ctx)
 
-	var v PolicyVersion
-	err = tx.QueryRow(ctx,
+	// D-181 / PAT-006 prevention: scanPolicyVersion delegate.
+	vRow := tx.QueryRow(ctx,
 		`SELECT `+policyVersionColumns+` FROM policy_versions WHERE id = $1 FOR UPDATE`,
 		versionID,
-	).Scan(
-		&v.ID, &v.PolicyID, &v.Version, &v.DSLContent, &v.CompiledRules,
-		&v.State, &v.AffectedSIMCount, &v.DryRunResult,
-		&v.ActivatedAt, &v.RolledBackAt, &v.CreatedAt, &v.CreatedBy,
 	)
+	v, err := scanPolicyVersion(vRow)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPolicyVersionNotFound
 	}
@@ -625,15 +619,12 @@ func (s *PolicyStore) CreateRollout(ctx context.Context, tenantID uuid.UUID, p C
 	}
 	defer tx.Rollback(ctx)
 
-	var v PolicyVersion
-	err = tx.QueryRow(ctx,
+	// D-181 / PAT-006 prevention: scanPolicyVersion delegate.
+	vRow := tx.QueryRow(ctx,
 		`SELECT `+policyVersionColumns+` FROM policy_versions WHERE id = $1 FOR UPDATE`,
 		p.PolicyVersionID,
-	).Scan(
-		&v.ID, &v.PolicyID, &v.Version, &v.DSLContent, &v.CompiledRules,
-		&v.State, &v.AffectedSIMCount, &v.DryRunResult,
-		&v.ActivatedAt, &v.RolledBackAt, &v.CreatedAt, &v.CreatedBy,
 	)
+	v, err := scanPolicyVersion(vRow)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPolicyVersionNotFound
 	}
@@ -1442,15 +1433,17 @@ func (s *PolicyStore) ListReferencingAPN(ctx context.Context, tenantID uuid.UUID
 
 	var policies []Policy
 	for rows.Next() {
-		var p Policy
-		if err := rows.Scan(
-			&p.ID, &p.TenantID, &p.Name, &p.Description,
-			&p.Scope, &p.ScopeRefID, &p.CurrentVersionID,
-			&p.State, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanPolicy delegate. Column qualifier
+		// (p.X) is irrelevant to Scan — only positional order matters,
+		// which qualifiedCols above keeps in lockstep with policyColumns.
+		p, err := scanPolicy(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan referencing policy: %w", err)
 		}
-		policies = append(policies, p)
+		policies = append(policies, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list referencing apn rows: %w", err)
 	}
 
 	var nextCursor string

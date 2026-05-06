@@ -17,6 +17,19 @@ var (
 	ErrNotificationNotFound = errors.New("store: notification not found")
 )
 
+// notificationColumns lists the 18 notifications-table columns scanned by
+// scanNotification. Column order MUST match scanNotification exactly.
+// PAT-006 RECURRENCE prevention — drift-guarded by
+// TestNotificationColumnsAndScanCountConsistency.
+var notificationColumns = `id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
+	title, body, severity, channels_sent, state, read_at, sent_at, delivered_at,
+	failed_at, retry_count, delivery_meta, created_at`
+
+// notificationConfigColumns lists the 12 notification_configs columns scanned
+// by scanNotificationConfig. PAT-006 prevention.
+var notificationConfigColumns = `id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
+	channels, threshold_type, threshold_value, enabled, created_at, updated_at`
+
 type NotificationRow struct {
 	ID           uuid.UUID       `json:"id"`
 	TenantID     uuid.UUID       `json:"tenant_id"`
@@ -100,8 +113,7 @@ func (s *NotificationStore) Create(ctx context.Context, p CreateNotificationPara
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO notifications (tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity, channels_sent, state)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'unread')
-		RETURNING id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
-			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at`,
+		RETURNING `+notificationColumns,
 		p.TenantID, p.UserID, p.EventType, p.ScopeType, p.ScopeRefID,
 		p.Title, p.Body, p.Severity, channelsSent,
 	)
@@ -111,8 +123,7 @@ func (s *NotificationStore) Create(ctx context.Context, p CreateNotificationPara
 
 func (s *NotificationStore) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*NotificationRow, error) {
 	row := s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
-			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at
+		SELECT `+notificationColumns+`
 		FROM notifications
 		WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 
@@ -149,8 +160,7 @@ func (s *NotificationStore) ListByUser(ctx context.Context, tenantID, userID uui
 	where := strings.Join(conditions, " AND ")
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
-			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at
+		SELECT `+notificationColumns+`
 		FROM notifications
 		WHERE %s
 		ORDER BY CASE WHEN state = 'unread' THEN 0 ELSE 1 END, created_at DESC, id DESC
@@ -196,8 +206,7 @@ func (s *NotificationStore) ListByTenant(ctx context.Context, tenantID uuid.UUID
 	}
 	where := strings.Join(conditions, " AND ")
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
-			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at
+		SELECT `+notificationColumns+`
 		FROM notifications
 		WHERE %s
 		ORDER BY created_at DESC, id DESC
@@ -228,8 +237,7 @@ func (s *NotificationStore) MarkRead(ctx context.Context, tenantID, id uuid.UUID
 		UPDATE notifications
 		SET state = 'read', read_at = NOW()
 		WHERE id = $1 AND tenant_id = $2
-		RETURNING id, tenant_id, user_id, event_type, scope_type, scope_ref_id, title, body, severity,
-			channels_sent, state, read_at, sent_at, delivered_at, failed_at, retry_count, delivery_meta, created_at`,
+		RETURNING `+notificationColumns,
 		id, tenantID)
 
 	n, err := scanNotification(row)
@@ -304,8 +312,7 @@ func (s *NotificationConfigStore) ListByUser(ctx context.Context, tenantID, user
 	where := strings.Join(conditions, " AND ")
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
-			channels, threshold_type, threshold_value, enabled, created_at, updated_at
+		SELECT `+notificationConfigColumns+`
 		FROM notification_configs
 		WHERE %s
 		ORDER BY created_at DESC, id DESC
@@ -319,15 +326,15 @@ func (s *NotificationConfigStore) ListByUser(ctx context.Context, tenantID, user
 
 	var results []NotificationConfigRow
 	for rows.Next() {
-		var c NotificationConfigRow
-		err := rows.Scan(
-			&c.ID, &c.TenantID, &c.UserID, &c.EventType, &c.ScopeType, &c.ScopeRefID,
-			&c.Channels, &c.ThresholdType, &c.ThresholdValue, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
-		)
+		// D-181 / PAT-006 prevention: scanNotificationConfig delegate.
+		c, err := scanNotificationConfig(rows)
 		if err != nil {
 			return nil, "", fmt.Errorf("store: scan config: %w", err)
 		}
-		results = append(results, c)
+		results = append(results, *c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list notification configs rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -345,27 +352,22 @@ func (s *NotificationConfigStore) Upsert(ctx context.Context, p UpsertNotificati
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (tenant_id, user_id, event_type, scope_type) WHERE user_id IS NOT NULL
 		DO UPDATE SET channels = $6, threshold_type = $7, threshold_value = $8, enabled = $9, updated_at = NOW()
-		RETURNING id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
-			channels, threshold_type, threshold_value, enabled, created_at, updated_at`,
+		RETURNING `+notificationConfigColumns,
 		p.TenantID, p.UserID, p.EventType, p.ScopeType, p.ScopeRefID,
 		p.Channels, p.ThresholdType, p.ThresholdValue, p.Enabled,
 	)
 
-	var c NotificationConfigRow
-	err := row.Scan(
-		&c.ID, &c.TenantID, &c.UserID, &c.EventType, &c.ScopeType, &c.ScopeRefID,
-		&c.Channels, &c.ThresholdType, &c.ThresholdValue, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
-	)
+	// D-181 / PAT-006 prevention: scanNotificationConfig delegate.
+	c, err := scanNotificationConfig(row)
 	if err != nil {
 		return nil, fmt.Errorf("store: upsert config: %w", err)
 	}
-	return &c, nil
+	return c, nil
 }
 
 func (s *NotificationConfigStore) GetEnabledForEvent(ctx context.Context, tenantID uuid.UUID, eventType, scopeType string) ([]NotificationConfigRow, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, tenant_id, user_id, event_type, scope_type, scope_ref_id,
-			channels, threshold_type, threshold_value, enabled, created_at, updated_at
+		SELECT `+notificationConfigColumns+`
 		FROM notification_configs
 		WHERE tenant_id = $1 AND event_type = $2 AND scope_type = $3 AND enabled = true
 		ORDER BY user_id`, tenantID, eventType, scopeType)
@@ -376,17 +378,14 @@ func (s *NotificationConfigStore) GetEnabledForEvent(ctx context.Context, tenant
 
 	var results []NotificationConfigRow
 	for rows.Next() {
-		var c NotificationConfigRow
-		err := rows.Scan(
-			&c.ID, &c.TenantID, &c.UserID, &c.EventType, &c.ScopeType, &c.ScopeRefID,
-			&c.Channels, &c.ThresholdType, &c.ThresholdValue, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
-		)
+		// D-181 / PAT-006 prevention: scanNotificationConfig delegate.
+		c, err := scanNotificationConfig(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store: scan config: %w", err)
 		}
-		results = append(results, c)
+		results = append(results, *c)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
 func (s *NotificationConfigStore) DeleteByUser(ctx context.Context, tenantID, userID uuid.UUID) error {
@@ -427,4 +426,20 @@ func scanNotificationRows(rows pgx.Rows) (*NotificationRow, error) {
 		return nil, err
 	}
 	return &n, nil
+}
+
+// scanNotificationConfig is the canonical NotificationConfigRow Scan helper.
+// 12 destinations — must stay in lockstep with notificationConfigColumns.
+// PAT-006 prevention; drift-guarded by
+// TestNotificationConfigColumnsAndScanCountConsistency.
+func scanNotificationConfig(row pgx.Row) (*NotificationConfigRow, error) {
+	var c NotificationConfigRow
+	err := row.Scan(
+		&c.ID, &c.TenantID, &c.UserID, &c.EventType, &c.ScopeType, &c.ScopeRefID,
+		&c.Channels, &c.ThresholdType, &c.ThresholdValue, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }

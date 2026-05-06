@@ -255,17 +255,16 @@ func (s *CDRStore) ListByTenant(ctx context.Context, tenantID uuid.UUID, p ListC
 
 	var results []CDR
 	for rows.Next() {
-		var c CDR
-		if err := rows.Scan(
-			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
-			&c.APNID, &c.RATType, &c.RecordType,
-			&c.BytesIn, &c.BytesOut, &c.DurationSec,
-			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
-			&c.Timestamp,
-		); err != nil {
+		// D-181 / PAT-006 prevention: delegate to scanCDR so cdrColumns/scanCDR
+		// stay in lockstep. pgx.Rows satisfies pgx.Row.
+		c, err := scanCDR(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("store: scan cdr: %w", err)
 		}
-		results = append(results, c)
+		results = append(results, *c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("store: list cdrs rows: %w", err)
 	}
 
 	nextCursor := ""
@@ -351,21 +350,16 @@ func (s *CDRStore) StreamForExport(ctx context.Context, tenantID uuid.UUID, from
 	defer rows.Close()
 
 	for rows.Next() {
-		var c CDR
-		if err := rows.Scan(
-			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
-			&c.APNID, &c.RATType, &c.RecordType,
-			&c.BytesIn, &c.BytesOut, &c.DurationSec,
-			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
-			&c.Timestamp,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanCDR delegate.
+		c, err := scanCDR(rows)
+		if err != nil {
 			return fmt.Errorf("store: scan cdr export row: %w", err)
 		}
-		if err := callback(c); err != nil {
+		if err := callback(*c); err != nil {
 			return fmt.Errorf("store: cdr export callback: %w", err)
 		}
 	}
-	return nil
+	return rows.Err()
 }
 
 // ListBySession returns all CDR rows for a session ordered by timestamp ASC, id ASC.
@@ -387,17 +381,12 @@ func (s *CDRStore) ListBySession(ctx context.Context, tenantID, sessionID uuid.U
 
 	var results []CDR
 	for rows.Next() {
-		var c CDR
-		if err := rows.Scan(
-			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
-			&c.APNID, &c.RATType, &c.RecordType,
-			&c.BytesIn, &c.BytesOut, &c.DurationSec,
-			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
-			&c.Timestamp,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanCDR delegate.
+		c, err := scanCDR(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan cdr by session: %w", err)
 		}
-		results = append(results, c)
+		results = append(results, *c)
 	}
 	return results, rows.Err()
 }
@@ -558,17 +547,12 @@ func (s *CDRStore) StreamForExportFiltered(ctx context.Context, tenantID uuid.UU
 	defer rows.Close()
 
 	for rows.Next() {
-		var c CDR
-		if err := rows.Scan(
-			&c.ID, &c.SessionID, &c.SimID, &c.TenantID, &c.OperatorID,
-			&c.APNID, &c.RATType, &c.RecordType,
-			&c.BytesIn, &c.BytesOut, &c.DurationSec,
-			&c.UsageCost, &c.CarrierCost, &c.RatePerMB, &c.RATMultiplier,
-			&c.Timestamp,
-		); err != nil {
+		// D-181 / PAT-006 prevention: scanCDR delegate.
+		c, err := scanCDR(rows)
+		if err != nil {
 			return fmt.Errorf("store: scan cdr export filtered row: %w", err)
 		}
-		if err := callback(c); err != nil {
+		if err := callback(*c); err != nil {
 			return fmt.Errorf("store: cdr export filtered callback: %w", err)
 		}
 	}
