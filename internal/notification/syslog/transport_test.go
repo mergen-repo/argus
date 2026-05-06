@@ -202,9 +202,22 @@ func TestTCPTransport_FramingFormat(t *testing.T) {
 			return
 		}
 		defer conn.Close()
+		// Drain until read deadline: TCP loopback may split the framed
+		// message into multiple Read returns under CI scheduling pressure;
+		// single Read can deliver empty/partial buf and fail body assertion.
+		_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		var all []byte
 		buf := make([]byte, 4096)
-		n, _ := conn.Read(buf)
-		rawCh <- buf[:n]
+		for {
+			n, err := conn.Read(buf)
+			if n > 0 {
+				all = append(all, buf[:n]...)
+			}
+			if err != nil {
+				break
+			}
+		}
+		rawCh <- all
 	}()
 
 	host, port := hostPort(t, ln.Addr().String())

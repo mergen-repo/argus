@@ -578,6 +578,13 @@ func TestOrchestrator_NotificationErrorDoesNotBubble(t *testing.T) {
 		t.Fatal("publish goroutine never fired")
 	}
 
+	// publishC fires from inside Publish() BEFORE the caller goroutine
+	// observes the returned error and increments notifFailed — poll the
+	// counter to avoid CI races between the two ordered ops.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && metrics.notifCount() < 1 {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if metrics.notifCount() != 1 {
 		t.Errorf("notif drop counter = %d, want 1", metrics.notifCount())
 	}

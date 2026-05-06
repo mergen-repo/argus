@@ -188,7 +188,15 @@ func TestListener_DMUnknownSession_Nak(t *testing.T) {
 		t.Errorf("expected ErrorCause 503, got %v", ec)
 	}
 
-	count := countMetric(metrics.SimulatorReactiveIncomingTotal, prometheus.Labels{"operator": "unknown", "kind": "dm", "result": "unknown_session"})
+	// Metric increments AFTER the UDP response is sent — poll briefly to
+	// avoid CI races between response emission and prometheus inc.
+	labels := prometheus.Labels{"operator": "unknown", "kind": "dm", "result": "unknown_session"}
+	deadline := time.Now().Add(2 * time.Second)
+	count := countMetric(metrics.SimulatorReactiveIncomingTotal, labels)
+	for time.Now().Before(deadline) && count < 1 {
+		time.Sleep(10 * time.Millisecond)
+		count = countMetric(metrics.SimulatorReactiveIncomingTotal, labels)
+	}
 	if count < 1 {
 		t.Errorf("expected metric dm/unknown_session >= 1, got %v", count)
 	}
