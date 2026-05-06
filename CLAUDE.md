@@ -115,10 +115,10 @@ docs/            → All documentation
 
 ## Active Session
 
-- Mode: E2E_POLISH (Production Cutover Re-run — user directive 2026-05-05)
-- Phase: E2E & Polish (Production Cutover Re-run) [IN PROGRESS] — started 2026-05-06; post-Phase-11; full E0..E5 sequence
-- Story: — (E-step agents are project-wide, not story-scoped)
-- Step: E5 Acceptance Tester (final gate)
+- Mode: — (E2E & Polish Production Cutover Re-run ENDED 2026-05-06; awaiting user decision on next phase)
+- Phase: E2E & Polish (Production Cutover Re-run) [DONE — ACCEPTED 2026-05-06] — all 6 E-steps PASS; 8 narrow live-bug fixes; D-181 systemic refactor complete; 4271 Go tests; READY FOR PRODUCTION CUTOVER
+- Story: —
+- Step: — (next phase: Documentation D1 cutover runbook OR direct Release cutover OR maintenance pause)
 - E4 closed: [DONE 2026-05-06] — 0 actionable token violations (Phase 11 Phase Gate cleanup is holding); 13 screens × 1440px + 768px inspected; 1 responsive fix landed (e981611 — SIM detail header stack <768px); detail-screen verdict ALL PRODUCTION-GRADE (SIM 10 tabs / Operator 8 / APN 6 / Session 6 / IMEI Pools 4 / Log Forwarding); 16 evidence screenshots; 0 escalations
 - E3 closed: [DONE 2026-05-06] — 0 CRITICAL/0 HIGH; detail-screen p95 4-92ms (SLO 500ms, 5-100x margin); SIM 4-92ms / Operator 5-11ms / APN 3-4ms / Session 13-26ms; index scan on all hot paths; infra Phase-10-tuned; 5 findings deferred D-199..D-203 (all scale-dependent / non-blocking)
 - E2 closed: [DONE 2026-05-06] — D-181 systemic refactor complete; 5 store files hardened (cdr/policy/ippool/session_radius/notification — 19 inline scan drift surfaces eliminated); 10 new drift-guard tests + bonus rows.Err() check; 4222→4235 tests pass; race-detection sweep clean; Phase 11 hot-path coverage policy/binding 91.2% syslog 84.7% validator 100%; commits 5d09d72 + c71427d

@@ -1,6 +1,6 @@
 # Project Roadmap: Argus
 
-> Last updated: 2026-05-05 (Phase 11: Enterprise Readiness Pack [DONE] — Phase Gate PASS 10/10 steps EXECUTED, 4222 Go tests + tsc clean, 12 screenshots captured, 21/21 functional + 100% compliance, F-PHASE11-01 production-blocker migration idempotency fixed in commit 1298f54; D-186 gofmt sweep ✓ RESOLVED; D-198 NEW vitest infra; awaiting user decision on next phase)
+> Last updated: 2026-05-06 (E2E & Polish Production Cutover Re-run [DONE — ACCEPTED] — E0..E5 all PASS; 8 production-blocker live-bug fixes during the re-run; D-181 systemic PAT-006 hardening complete on 6 stores; 4271 Go tests PASS; detail-screen p95 4-92ms; 37729 audit chain verified; web build 2.97s 126KB-gz; READY FOR PRODUCTION CUTOVER per acceptance-report.md; recommended next step: Documentation D1 → cutover runbook)
 > Current phase: Runtime Alignment [DONE] — all 3 stories shipped 2026-04-18 (STORY-092 + STORY-090 + STORY-089) + Mini Phase Gate PASS 2026-04-18 (7/7 steps, 3167 tests PASS, docs/reports/runtime-alignment-gate.md). Next: Documentation Phase D1 (Specification).
 > Previous phase: Test Infrastructure + Tech Debt Cleanup [DONE] — AUTOPILOT 2026-04-17 (STORY-083, 084, 085, 087, 088 + Mini Phase Gate PASS)
 > Overall progress: Phase 10 DONE (24/24); Test Infra 5/5 DONE (080, 082, 083, 084, 085); Tech Debt 2/2 DONE (087, 088); Runtime Alignment 3/3 DONE (092, 090, 089 all 2026-04-18); Documentation Phase next (activates after Mini Phase Gate PASS)
@@ -145,11 +145,16 @@
 
 ---
 
-## E2E & Polish Phase (Production Cutover Re-run) [IN PROGRESS]
+## E2E & Polish Phase (Production Cutover Re-run) [DONE — ACCEPTED]
 
 > Started: 2026-05-06 — post-Phase-11 close, pre-production cutover
+> Closed: 2026-05-06 — E5 verdict ACCEPTED — READY FOR PRODUCTION CUTOVER
 > Driver: User directive 2026-05-05 ("kalitedan ödün verme, ürünü kapatıyoruz canlıya alacağız, prod-grade") — full E0..E5 re-run after Phase 10 (24 stories) + Phase 11 (6 stories) shipped on top of original Phase 9 close
 > Surface delta since 2026-03-23: 24 hardening stories + 6 enterprise stories (IMEI ecosystem 5 + Native Syslog 1) = 30 new stories, ~100 endpoints, ~10 new screens, 3 new TBL ranges (TBL-43+, TBL-59..61, sim_imei_allowlist + imei_history + 3 IMEI pool tables), 3 audit-action namespaces (binding/imei/log_forwarding)
+> Bug fix arc: 8 production-blockers found and fixed during E0+E1+E2 (imei-pool 500 / cdr 422 / aaa-session DTO drop / sim-store PAT-006 #4 / oracle drift / session protocol_type / D-181 systemic refactor / responsive stack)
+> Audit chain: 37,729 entries verified end-to-end
+> Test suite: 4271 PASS in 114 packages, 0 FAIL (+49 since Phase 11 Gate from drift-guard tests)
+> Recommended next step: Documentation D1 (cutover runbook)
 
 | Step | Name | Status | Completed |
 |------|------|--------|-----------|
@@ -158,7 +163,7 @@
 | E2 | Test Hardening (Test Hardener) | [x] DONE | 2026-05-06 |
 | E3 | Performance Optimization (Perf Optimizer) | [x] DONE | 2026-05-06 |
 | E4 | UI Polish (UI Polisher) | [x] DONE | 2026-05-06 |
-| E5 | Functional Acceptance (Acceptance Tester) | [~] IN PROGRESS | — |
+| E5 | Functional Acceptance (Acceptance Tester) | [x] DONE | 2026-05-06 |
 
 ---
 
