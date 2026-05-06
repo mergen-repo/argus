@@ -132,7 +132,7 @@
 
 ---
 
-## E2E & Polish Phase [DONE]
+## E2E & Polish Phase [DONE] (Original — Phase 9 close)
 
 | Step | Name | Status | Completed |
 |------|------|--------|-----------|
@@ -142,6 +142,23 @@
 | E3 | Performance Optimization (Perf Optimizer) | [x] DONE | 2026-03-23 |
 | E4 | UI Polish (UI Polisher) | [x] DONE | 2026-03-23 |
 | E5 | Functional Acceptance (Acceptance Tester) | [x] DONE | 2026-03-23 |
+
+---
+
+## E2E & Polish Phase (Production Cutover Re-run) [IN PROGRESS]
+
+> Started: 2026-05-06 — post-Phase-11 close, pre-production cutover
+> Driver: User directive 2026-05-05 ("kalitedan ödün verme, ürünü kapatıyoruz canlıya alacağız, prod-grade") — full E0..E5 re-run after Phase 10 (24 stories) + Phase 11 (6 stories) shipped on top of original Phase 9 close
+> Surface delta since 2026-03-23: 24 hardening stories + 6 enterprise stories (IMEI ecosystem 5 + Native Syslog 1) = 30 new stories, ~100 endpoints, ~10 new screens, 3 new TBL ranges (TBL-43+, TBL-59..61, sim_imei_allowlist + imei_history + 3 IMEI pool tables), 3 audit-action namespaces (binding/imei/log_forwarding)
+
+| Step | Name | Status | Completed |
+|------|------|--------|-----------|
+| E0 | Seed Data Generation (Seed Generator) | [x] DONE | 2026-05-06 |
+| E1 | E2E Browser Testing (E2E Tester) | [~] IN PROGRESS | — |
+| E2 | Test Hardening (Test Hardener) | [ ] PENDING | — |
+| E3 | Performance Optimization (Perf Optimizer) | [ ] PENDING | — |
+| E4 | UI Polish (UI Polisher) | [ ] PENDING | — |
+| E5 | Functional Acceptance (Acceptance Tester) | [ ] PENDING | — |
 
 ---
 
