@@ -850,9 +850,9 @@ export default function SimDetailPage() {
         ]}
         className="mb-1"
       />
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
             <h1 className="text-[16px] font-semibold text-text-primary truncate">
               SIM {sim.iccid}
             </h1>
@@ -872,7 +872,7 @@ export default function SimDetailPage() {
               <Badge variant="default" className="text-[10px] flex-shrink-0">eSIM</Badge>
             )}
           </div>
-          <div className="flex items-center gap-4 mt-1">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
             <span className="font-mono text-xs text-text-secondary">IMSI: {sim.imsi}</span>
             {sim.msisdn && (
               <span className="font-mono text-xs text-text-secondary">MSISDN: {sim.msisdn}</span>
@@ -880,7 +880,7 @@ export default function SimDetailPage() {
             {sim.rat_type && <RATBadge ratType={sim.rat_type} />}
           </div>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
+        <div className="flex flex-wrap gap-2 md:flex-nowrap md:flex-shrink-0">
           {actions.map((a) => (
             <Button
               key={a.action}
