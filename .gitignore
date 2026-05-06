@@ -61,3 +61,7 @@ deploy/snapshots/*.json
 !deploy/snapshots/.gitkeep
 /simulator
 /operator-sim
+
+# Runtime data directory — SLA PDFs and per-tenant reports generated at
+# runtime (volume-mounted in compose). Not for version control.
+/data/
